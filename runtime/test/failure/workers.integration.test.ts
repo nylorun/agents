@@ -208,6 +208,7 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
     expect(countOf(history, "turn.cancelled")).toBe(1);
     expect(typesOf(history)).not.toContain("turn.completed");
     expect(model.calls).toBe(1);
+    await until(async () => worker.execution.results, (r) => r.length > 0, "the advance to end");
     expect(worker.execution.results).toEqual([{ status: "done" }]);
     expect(api.execution.results).toEqual([]);
 
