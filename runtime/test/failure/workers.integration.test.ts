@@ -96,6 +96,7 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
     expect(countOf(history, "effect.uncertain")).toBe(1);
     expect(typesOf(history)).not.toContain("turn.completed");
     expect(model.calls).toBe(1);
+    await until(async () => b.execution.results, (r) => r.length > 0, "worker-b's advance to end");
     expect(b.execution.results.at(-1)).toEqual({ status: "done" });
 
     // The cut-off call returns at last: Worker A's advance is gone and nothing is recorded.
@@ -208,6 +209,7 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
     expect(countOf(history, "turn.cancelled")).toBe(1);
     expect(typesOf(history)).not.toContain("turn.completed");
     expect(model.calls).toBe(1);
+    await until(async () => worker.execution.results, (r) => r.length > 0, "the advance to end");
     expect(worker.execution.results).toEqual([{ status: "done" }]);
     expect(api.execution.results).toEqual([]);
 

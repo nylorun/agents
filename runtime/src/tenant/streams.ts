@@ -130,9 +130,12 @@ export async function wireStreams(
   if (ctx.live.wiring) throw new Error("Streams are already wired");
   const { store, streams, tenantId } = options;
   const logger = ctx.config.logger;
-  const report = (what: string) => (error: unknown) =>
-    logger.warn(what, { message: messageOf(error) });
   const stop = new AbortController();
+  // Nothing is reported once the wiring stops: the Tenant (and its log directory) may be gone,
+  // and a throwing report in a detached loop would be an unhandled rejection.
+  const report = (what: string) => (error: unknown) => {
+    if (!stop.signal.aborted) logger.warn(what, { message: messageOf(error) });
+  };
 
   const basin = basinKeeper(streams, tenantId, stop.signal, report("stream basin unavailable; retrying"));
   // Wait for the first check so the first commits find the basin; a failure repairs it later.

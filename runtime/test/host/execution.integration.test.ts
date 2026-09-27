@@ -147,6 +147,8 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     await sendMessage(runtime);
     await until(() => view(runtime), (v) => v.status === "completed", "completed", 20_000);
     expect(count(await types(runtime), "turn.completed")).toBe(1);
+    // The advance writes the turn before it returns its result.
+    await until(async () => execution.results, (r) => r.length > 0, "the advance to end");
     expect(execution.results).toContainEqual({ status: "done" });
     expect((await stored(runtime)).session.owner).toBeNull();
   });
@@ -175,6 +177,11 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     await until(() => view(runtime), (v) => v.status === "completed", "completed", 20_000);
     expect(Date.now()).toBeGreaterThanOrEqual(expiresAt - 50);
     expect(execution.results[0]).toMatchObject({ status: "busy" });
+    await until(
+      async () => execution.results,
+      (r) => r.some((result) => result.status === "done"),
+      "the last advance to end"
+    );
     expect(execution.results.at(-1)).toEqual({ status: "done" });
     expect(count(await types(runtime), "turn.completed")).toBe(1);
   });
@@ -229,6 +236,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     );
     const after = await stored(runtimeB);
     expect(after.effects.map((effect) => effect.status)).toEqual(["uncertain"]);
+    await until(async () => b.execution.results, (r) => r.length > 0, "worker-b's advance to end");
     expect(b.execution.results.at(-1)).toEqual({ status: "done" });
 
     // A's model call returns at last: its epoch is gone, so it records nothing.
@@ -337,6 +345,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     expect(events).toContain("turn.cancelled");
     expect(events).not.toContain("turn.completed");
     expect(model.calls).toBe(1);
+    await until(async () => worker.execution.results, (r) => r.length > 0, "the advance to end");
     expect(worker.execution.results).toEqual([{ status: "done" }]);
     expect(api.execution.results).toEqual([]);
   });
