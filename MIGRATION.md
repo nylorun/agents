@@ -212,6 +212,8 @@ Rebuild agents to publish schema 4 manifests. `Agent.from` rejects schema 3. On 
 Runtime cancels pending `beforeModelCall` / `afterModelCall` actions and fails any turn that
 was in flight under a schema 3 manifest; start new sessions after upgrading. The durable
 engine version is now `hosted-2`, because hook effect ids changed.
+Later Runtimes no longer run this startup cleanup, so upgrade through this release first
+if a Tenant still has schema 3 turns in flight.
 
 # Runtime Tenants (breaking beta)
 

@@ -553,7 +553,6 @@ export class TenantRuntime implements TenantHandle {
           }
         }
     });
-    this.retireLegacyHooks();
     this.expireClaims();
     // Orphaned fn/verify claims from a prior process: re-offer immediately.
     this.store.tx(() => {
@@ -609,44 +608,6 @@ export class TenantRuntime implements TenantHandle {
           response,
           'event: work_available\ndata: {"type":"work_available"}\n\n'
         );
-  }
-  /**
-   * Manifest v4 replaced beforeModelCall/afterModelCall with scoped hooks. Turns started under
-   * an older manifest cannot continue, and their hook actions no longer parse, so end them.
-   */
-  private retireLegacyHooks(): void {
-    this.store.tx(() => {
-      for (const action of this.store.all<{
-        actionId: string;
-        kind: string;
-        status: string;
-      }>("actions"))
-        if (
-          (action.kind === "beforeModelCall" ||
-            action.kind === "afterModelCall") &&
-          (action.status === "pending" || action.status === "claimed")
-        ) {
-          action.status = "cancelled";
-          this.store.put("actions", action.actionId, action);
-        }
-      for (const s of this.store.all<Session>("sessions"))
-        if (
-          s.activeTurnId &&
-          !isWorkflowManifest(s.manifest) &&
-          s.manifest?.manifestSchemaVersion !== 4
-        ) {
-          this.store.event(s.id, s.activeTurnId, "turn.failed", {
-            error: {
-              code: "execution.incompatible",
-              message:
-                "This turn started under manifest schema 3; see MIGRATION.md for before/after hooks",
-            },
-          });
-          s.status = "failed";
-          s.activeTurnId = null;
-          this.store.put("sessions", s.id, s);
-        }
-    });
   }
   private expireClaims(): void {
     const events: LiveEvent[] = [];
