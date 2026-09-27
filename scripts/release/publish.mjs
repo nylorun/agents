@@ -76,6 +76,12 @@ try {
         console.log(message);
       },
     );
+    // The smoke installs from a clean cache, through the registry CDN.
+    await Promise.all(
+      Object.entries(plan.packages)
+        .filter(([name]) => !artifacts[name].image)
+        .map(([name, version]) => registry.waitForInstall(name, version)),
+    );
     // The images job pushed nylorun's pinned images (release:check verified
     // the pins against the plan); the public creator must run on them.
     const { runtime, studio } = (
@@ -118,13 +124,20 @@ try {
         releaseExists = releases !== null;
         // Skip when the version tag/release already exists from a prior channel
         // publication; promotion commits must not retarget immutable version tags.
-        if (!releaseExists && !priorVersionTags.has(name))
+        if (!releaseExists && !priorVersionTags.has(name)) {
+          // The releases API refuses GITHUB_TOKEN a new tag at a given commit
+          // (403, "Resource not accessible by integration"); a git push of the
+          // tag is allowed, and the release then uses that tag.
+          await run("git", [
+            "push",
+            "origin",
+            `${process.env.RELEASE_SHA}:refs/tags/${tag}`,
+          ]);
           await run("gh", [
             "release",
             "create",
             tag,
-            "--target",
-            process.env.RELEASE_SHA,
+            "--verify-tag",
             "--title",
             tag,
             "--notes-file",
@@ -133,6 +146,7 @@ try {
             // Pre-1.0 product versions stay *-beta even on the latest npm channel.
             ...(String(version).includes("-") ? ["--prerelease"] : []),
           ]);
+        }
       }
     } finally {
       await rm(temporary, { recursive: true, force: true });

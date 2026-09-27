@@ -24,3 +24,22 @@ test("publication visibility polling remains bounded when npm never exposes a ve
   assert.equal(lookups, 120);
   assert.equal(elapsed, 600000);
 });
+
+test("the public smoke waits until npm install sees each published version", async () => {
+  let checks = 0;
+  let elapsed = 0;
+  await registry.waitForInstall.call({
+    installable: async () => ++checks >= 13,
+  }, "create-agent", "0.10.0-beta", { sleep: async (ms) => { elapsed += ms; } });
+  assert.equal(checks, 13);
+  assert.equal(elapsed, 60000);
+});
+
+test("waiting for npm install remains bounded when the CDN never serves a version", async () => {
+  let checks = 0;
+  await assert.rejects(registry.waitForInstall.call({
+    installable: async () => { checks++; return false; },
+  }, "create-agent", "0.10.0-beta", { sleep: async () => {} }),
+  /npm install does not see create-agent@0.10.0-beta yet/);
+  assert.equal(checks, 120);
+});
