@@ -57,25 +57,40 @@ jobs:
       - run: npm run setup
       # check-example-assets (in release:check) needs the examples build.
       - run: npm run build --prefix examples
-      # Headless Chromium only, cached per Playwright version (see ci.yml).
-      - id: playwright
-        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # release:check smokes the packed starter on the Docker stack. Build its
+      # Runtime and Studio images once, for this runner only (amd64, loaded,
+      # never pushed), with a layer cache; the images job builds the published
+      # multi-arch images after approval.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the Runtime image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-shell
-      - run: npx playwright-core install --only-shell chromium
+          context: .
+          file: runtime/Dockerfile
+          tags: nylorun-runtime:release-check
+          load: true
+          cache-from: type=gha,scope=release-check-runtime
+          cache-to: type=gha,mode=max,scope=release-check-runtime
+      - name: Build the Studio image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: studio/Dockerfile
+          tags: nylorun-studio:release-check
+          load: true
+          cache-from: type=gha,scope=release-check-studio
+          cache-to: type=gha,mode=max,scope=release-check-studio
       # Also checks the CLI's image pins against the plan.
       - run: npm run release:check -- --built
+        env:
+          NYLORUN_RUNTIME_IMAGE: nylorun-runtime:release-check
+          NYLORUN_STUDIO_IMAGE: nylorun-studio:release-check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-packages
           path: .tmp/release-artifacts/
           include-hidden-files: true
           if-no-files-found: error
-  # Multi-arch images, tagged with the package version only. An existing tag
-  # is never replaced: its leg skips the build, so reruns are idempotent. A
-  # version this release keeps must already have its image.
   # The single approval. Environment `release` has the required reviewers;
   # `images` and `publish` wait for this job and need no approval of their own.
   approve:
@@ -87,6 +102,9 @@ jobs:
     steps:
       - name: Record approval
         run: echo "Release ${{ inputs.commit }} approved for publication."
+  # Multi-arch images, tagged with the package version only. An existing tag
+  # is never replaced: its leg skips the build, so reruns are idempotent. A
+  # version this release keeps must already have its image.
   images:
     needs: [validate, approve]
     runs-on: ubuntu-latest
@@ -168,8 +186,9 @@ jobs:
   publish:
     needs: [validate, approve, images]
     runs-on: ubuntu-latest
-    # Two registry waits (engines, then creator), each bounded at 10 min.
-    timeout-minutes: 40
+    # Two registry waits (engines, then creator), each bounded at 10 min, then
+    # the public creator smoke, which pulls the published images.
+    timeout-minutes: 60
     # Bound to npm trusted publishing and holds NPM_BOOTSTRAP_TOKEN; it has no
     # reviewers, because `approve` already gated this run.
     environment: npm
