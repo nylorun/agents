@@ -1,4 +1,4 @@
-import { runtimeVersion } from "../runtime/version.js";
+import { runtimeVersion } from "./runtime-version.js";
 
 /**
  * Images the local stack runs. The Runtime and Studio tags are pinned by this

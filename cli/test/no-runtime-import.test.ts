@@ -13,9 +13,9 @@ function files(dir: string): string[] {
 const IMPORT_RE =
   /(?:from\s*|import\s*\(|export\s*\*\s*from\s*)["']@nylorun\/runtime(?:\/[^"']*)?["']/;
 
-describe("F1-7 no @nylorun/runtime imports", () => {
-  it("cli/src/runtime has no import of @nylorun/runtime", () => {
-    const src = join(process.cwd(), "src/runtime");
+describe("the CLI does not import @nylorun/runtime", () => {
+  it("cli/src has no import of @nylorun/runtime", () => {
+    const src = join(process.cwd(), "src");
     const offenders: string[] = [];
     for (const path of files(src)) {
       if (!/\.(?:ts|js)$/.test(path)) continue;
@@ -25,7 +25,8 @@ describe("F1-7 no @nylorun/runtime imports", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("cli/src/host is gone (so its former runtime imports are gone)", () => {
+  it("the launcher wrappers (cli/src/host, cli/src/runtime) are gone", () => {
     expect(existsSync(join(process.cwd(), "src/host"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "src/runtime"))).toBe(false);
   });
 });

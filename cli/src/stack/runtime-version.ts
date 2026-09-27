@@ -4,14 +4,14 @@ import { fileURLToPath } from "node:url";
 import { CliError } from "../errors.js";
 
 function cliPackageJsonPath(): string {
-  // src/runtime/*.ts and dist/runtime/*.js both sit two levels below cli/.
+  // src/stack/*.ts and dist/stack/*.js both sit two levels below cli/.
   return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
 }
 
 /**
- * Recommended Runtime version from `cli/package.json` `nylorun.runtime` (D7):
- * the version named in install instructions. Compatibility itself is checked
- * by launcher and Host protocol, not by an exact match.
+ * The Runtime version this CLI release pins, from `cli/package.json`
+ * `nylorun.runtime` (D7): the tag of the `ghcr.io/nylorun/runtime` image the
+ * stack runs unless `NYLORUN_RUNTIME_IMAGE` overrides it.
  */
 export function runtimeVersion(): string {
   let raw: unknown;

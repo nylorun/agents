@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { runtimeVersion } from "../../src/runtime/version.js";
+import { runtimeVersion } from "../../src/stack/runtime-version.js";
 
 describe("F1-1 runtimeVersion", () => {
   it('reads cli/package.json nylorun.runtime', () => {

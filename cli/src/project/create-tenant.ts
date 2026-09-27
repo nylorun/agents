@@ -89,7 +89,7 @@ export async function createProjectTenant(
   };
 }
 
-/** Resolve Admin from the local Host root (after launcher `up`). */
+/** Resolve Admin from the local Host root (host.json and the admin key). */
 export function localAdmin(home?: string): Admin {
   return createAdmin(home ? { home } : undefined);
 }

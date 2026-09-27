@@ -1,67 +1,84 @@
 # @nylorun/cli
 
 The local `nylorun` executable. Depends on `@nylorun/agents` and `@nylorun/admin`
-only among Nylorun packages — it runs the installed Runtime's **launcher** as a
-process and never imports `@nylorun/runtime`. Vocabulary:
+only among Nylorun packages. It runs the local Runtime and Studio as a Docker
+Compose stack and never imports `@nylorun/runtime`. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
-Prerequisites, installed by the developer (the CLI never downloads them). On
-Windows, install them inside [WSL2](https://learn.microsoft.com/windows/wsl/install); native Windows is not
+Prerequisites, installed by the developer (the CLI never downloads them): Node
+24 or newer, and Docker with Compose v2 ([Docker
+Desktop](https://www.docker.com/products/docker-desktop/),
+[OrbStack](https://orbstack.dev), [Colima](https://github.com/abiosoft/colima) or
+another engine). On Windows, install them inside
+[WSL2](https://learn.microsoft.com/windows/wsl/install); native Windows is not
 supported.
 
 ```sh
-node --version                            # 24 or newer
-npm install --global @nylorun/runtime     # provides nylorun-runtime
-nylorun doctor runtime                    # checks both
+nylorun doctor                     # Node 24+, Docker, Compose v2, and the stack's health
 ```
+
+## Commands
 
 ```sh
-nylorun runtime up                 # launcher: start the Host
-nylorun runtime down               # stop the Host; keep Tenants and host.json
-nylorun runtime status             # Host id, address, version, Tenant list
-nylorun runtime status --env       # export lines for the linked Project
-nylorun runtime logs [--follow]    # Host + Tenant logs
-nylorun runtime restart            # restart onto the installed Runtime
-nylorun runtime run                # attached foreground Host
-nylorun dev [entry]                # up → link/create Tenant → tsx watch entry
-nylorun dev --ephemeral            # temporary Host root + one Tenant
-nylorun dev --local-ui             # also start Studio with a local dashboard
-nylorun studio [--local-ui]        # start Studio (launch URL + proxy token)
-nylorun configure                  # replace model credential on the linked Tenant
-nylorun tenant list|delete|status|reset
-nylorun doctor runtime             # prerequisites: Node 24+, installed Runtime
-nylorun doctor sandbox             # sandbox backend via Tenant API
+nylorun start [--no-studio]        # start the stack; print the Runtime URL and a Studio login URL
+nylorun stop                       # stop the containers; keep volumes
+nylorun status [--json]            # services, endpoints, Runtime health
+nylorun status --env               # export lines for the linked Project
+nylorun logs [service] [-f] [--tail <n>]   # postgres, restate, s2, runtime, studio
+nylorun studio [--no-open]         # fresh Studio login (on the linked Project's Tenant); starts the stack if needed
+nylorun reset [--yes]              # delete the stack's volumes and every Tenant
+nylorun dev [entry] [--no-studio] [--no-open]
+nylorun configure                  # replace the model credential on the linked Tenant
+nylorun tenant current|list|use|status|reset|delete
+nylorun doctor [--json]            # prerequisites and stack health
+nylorun doctor sandbox [--json]    # sandbox backend via the Tenant API
 ```
 
-`nylorun serve` remains removed. Production `start` is
-`node dist/src/main.js` with `connectAgents` in the application.
-`--local-ui` cannot be combined with `--no-studio`.
+`nylorun runtime …`, `nylorun up` and `nylorun down` were removed with the
+launcher (exit 2 with the replacement). `nylorun stack <command>` still works
+as a hidden alias of the commands above. `nylorun serve` remains removed.
+Production `start` is `node dist/src/main.js` with `connectAgents` in the
+application.
 
-## The launcher
+## The stack
 
-`nylorun runtime …` finds `nylorun-runtime` on PATH, checks that it speaks
-launcher protocol 1 and a compatible Host protocol, and invokes it with
-`--json`. The Host runs on the same Node, from the installed
-`@nylorun/runtime`. When the launcher is missing or incompatible, the command
-exits 1 with the install command for the recommended version
-(`cli/package.json` `nylorun.runtime`). A project devDependency on
-`@nylorun/runtime` also works, because npm scripts put `node_modules/.bin` on
-PATH.
+`nylorun start` writes `compose.yaml` and `.env` (mode 0600) under
+`<Host root>/stack/`, and runs the Compose project `nylorun` (override with
+`NYLORUN_STACK_PROJECT`): `postgres`, `restate`, `s2`, `runtime` and `studio`.
+The Runtime and Studio images are pinned by this CLI release;
+`NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them (local builds,
+CI). Ports publish on loopback only: the Runtime on `8787`, Studio on `4161`
+and the Restate UI on `9070`, or free ports chosen on the first start and kept
+in `.env`.
 
-`dev` starts (or reuses) the Host via the launcher, creates a Tenant through
-`@nylorun/admin` when the Project has no link, writes format-1 link +
-credentials, and spawns `tsx watch <entry>` with
-`NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` and `NYLORUN_SERVER_KEY`. The ready
-banner hints `Studio: npm run studio`, or prints the Studio `launchUrl` when
-started with `--local-ui`. Ctrl-C stops the child; the Host stays up.
-`nylorun studio` resolves `@nylorun/studio`, supplies `cacheDir` from the Host
-root (`NYLORUN_HOME` / `~/.nylorun`, never cwd), and prints `launchUrl`.
+Studio has no password: the CLI asks the Studio container for a single-use
+login token with the admin key (`POST /_studio/login-tokens`) and opens
+`http://localhost:<port>/login?token=…`, which sets a session cookie. The
+token expires after two minutes; `nylorun studio` mints a fresh one.
+
+## `nylorun dev`
+
+1. Starts the stack unless it is running (the `start` code path, without its
+   banner).
+2. Creates the Project's Tenant through `@nylorun/admin` on first run and
+   writes the format-1 link and credentials; later runs check them.
+3. Seeds Tenant settings from `.env`.
+4. Opens Studio on the Tenant: a login URL with `next=/tenants/<tenantId>`.
+   `--no-open` prints it only; `--no-studio` skips Studio.
+5. Runs `tsx watch <entry>` (default `src/main.ts`) with
+   `NYLORUN_RUNTIME_URL=http://localhost:<port>`, `NYLORUN_TENANT` and
+   `NYLORUN_SERVER_KEY`.
+
+Ctrl-C stops the application; the stack keeps running (`nylorun stop`).
+`--ephemeral` is not available on the Docker stack yet; it exits 2.
 
 ## Host root, Tenants and Project link
 
-The **Host root** is `NYLORUN_HOME` or `~/.nylorun` (resolved absolute once).
-It holds `host.json`, admin credentials and every Tenant; the Runtime itself
-is installed by npm. Isolation is per **Tenant**, not per Project directory.
+The **Host root** is `NYLORUN_HOME` or `~/.nylorun`. It is bind-mounted into the
+Runtime and Studio containers, and holds `host.json` (the client-facing host
+and port), `host-credentials.json` (the admin key, mode 0600), the stack files
+and each Tenant's directory. Tenant data lives in the stack's Postgres, Restate
+and S2 volumes. Isolation is per **Tenant**, not per Project directory.
 
 A **Project** stores only:
 
@@ -71,25 +88,21 @@ A **Project** stores only:
 - `.nylorun/.gitignore` containing `*`
 
 ```sh
-eval "$(npx nylorun runtime status --env)"
+eval "$(npx nylorun status --env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
 ```
-
-Port defaults to `8787` on loopback. On first Host setup, if that port is
-taken, the launcher picks a free loopback port and persists it. Explicit
-`--port` is strict.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Success, including `down` when nothing was running |
-| 1 | Generic failure / launcher operation failed |
-| 2 | Usage error |
-| 3 | `runtime status` or `logs`: not running |
-| 4 | Port held by another process |
-| 5 | Protocol / feature incompatible with this CLI |
-| 7 | The Host did not become ready |
+| 0 | Success |
+| 1 | Generic failure, including a missing Docker or Compose v2 |
+| 2 | Usage error, or a removed command or flag |
+| 3 | `status`: the Runtime is not answering; `stop`/`logs`: no stack yet |
+| 4 | The Runtime port is held by another Host |
+| 6 | `configure`: no Runtime at the linked URL |
+| 7 | The stack or Studio did not become ready |
 | 130 / 143 | SIGINT / SIGTERM |
 
 Install the CLI as a **devDependency**. Generated applications keep
@@ -99,10 +112,11 @@ Install the CLI as a **devDependency**. Generated applications keep
 
 | Symptom | What to do |
 | --- | --- |
+| Docker missing or not running | Install or start Docker Desktop, OrbStack or Colima; `nylorun doctor` checks |
 | Quarantined Tenant | `nylorun tenant status` shows reason and `repair` |
-| `426` / exit 5 | Upgrade CLI / Runtime pin, or pin a matching older set |
-| Port conflict | Stop the other process or `nylorun runtime up --port <n>` |
-| Logs | `nylorun runtime logs --follow` |
-| Runtime not installed | `npm install --global @nylorun/runtime`; `nylorun doctor runtime` checks |
+| `426` from the Runtime | Upgrade the CLI, or pin a matching older set |
+| Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `<Host root>/stack/.env` |
+| Logs | `nylorun logs runtime -f` |
+| Studio login expired | `nylorun studio` |
 
-See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta).
+See [MIGRATION.md](../MIGRATION.md).
