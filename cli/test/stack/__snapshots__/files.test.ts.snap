@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`.env > renders every setting and a placeholder for Restate keys 1`] = `
+exports[`.env > renders every setting, including the Restate identity public key 1`] = `
 "# Written by \`nylorun start\`. Mode 0600: holds the Postgres password.
 # Ports and the password are kept across starts; images, UID/GID and the
 # Host root are refreshed on every start.
@@ -11,7 +11,10 @@ NYLORUN_STUDIO_PORT=4161
 NYLORUN_RESTATE_PORT=9070
 
 NYLORUN_POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef
-# Restate request-identity keys are added here in Wave 3.
+
+# Restate signs requests to the Runtime's Worker endpoint with the private
+# key in restate-identity.pem; the Runtime accepts only this public key.
+NYLORUN_RESTATE_IDENTITY_KEY=publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv
 
 # The Runtime and Studio containers run as this user, so files they write
 # into the Host root belong to you.
@@ -47,8 +50,11 @@ services:
   restate: # Durable Session Execution
     image: docker.restate.dev/restatedev/restate:1.7.12
     command: ["--node-name=restate-1"] # stable name, so data is found on restart
+    environment:
+      RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
     volumes:
       - restate:/restate-data
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
     ports:
       - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
     healthcheck:
@@ -82,10 +88,12 @@ services:
       # Host headers the Runtime accepts: the stack network name, and the
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
+      NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
       NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
       NYLORUN_WORKER_URL: http://runtime:9080 # registered with Restate; not published
+      NYLORUN_RESTATE_IDENTITY_KEY: \${NYLORUN_RESTATE_IDENTITY_KEY:?run nylorun start}
       NYLORUN_S2_ENDPOINT: http://s2:80
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
