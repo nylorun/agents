@@ -1,16 +1,36 @@
-# Releasing npm packages
+# Releasing packages and images
 
 Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime changes advance CLI. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Nothing publishes on merge or tag push.
+
+A release publishes two kinds of artifact:
+
+- **npm packages** under `@nylorun`. A package marked `"private": true` is not
+  published to npm. Studio is one: it ships only as its image.
+- **Container images** `ghcr.io/nylorun/runtime:<runtime version>` and
+  `ghcr.io/nylorun/studio:<studio version>`, for `linux/amd64` and
+  `linux/arm64`. `nylorun start` runs the images the CLI pins in
+  `cli/package.json`: `nylorun.runtime` and `nylorun.studio`.
 
 ## Administrator setup
 
 - Use the toolchain and setup in [CONTRIBUTING.md](./CONTRIBUTING.md).
-- Confirm npm organization access for all seven `@nylorun` packages.
+- Confirm npm organization access for every public `@nylorun` package.
 - Configure each package's npm trusted publisher for this repository,
   workflow `publish.yml`, and GitHub environment `npm`, allowing publication.
-- Protect the `npm` environment with administrator reviewers and restrict its
-  deployment branch to `main`. Protect `main` with required CI/review checks.
+- Protect the `npm` and `images` environments with administrator reviewers and
+  restrict their deployment branch to `main`. Protect `main` with required
+  CI/review checks.
 - Ensure GitHub Actions can create package tags and GitHub releases.
+- Container images: the `images` job pushes to `ghcr.io/nylorun` with the
+  workflow's `GITHUB_TOKEN` (`packages: write`). The first push creates each
+  package as private and linked to this repository (through the
+  `org.opencontainers.image.source` label). Then, once per image, in the
+  organization's package settings:
+  - set the visibility to **public**, so `nylorun start` can pull it without
+    logging in;
+  - under **Manage Actions access**, confirm this repository has the **Write**
+    role. A package created some other way needs this before the first push.
+  The organization must allow members to create public packages.
 
 These are external settings; checked-in workflow permissions do not configure
 them. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
@@ -39,8 +59,11 @@ npm run release:check
 ```
 
 Preparation requires a clean branch. It applies Changesets, ensures a creator
-bump, updates compatibility pins, synchronizes examples, refreshes both lockfiles,
-and writes `.release/plan.json`. It does not commit, push, or publish.
+bump, updates compatibility pins, sets the CLI's image pins
+(`cli/package.json` `nylorun.runtime` and `nylorun.studio`) to the Runtime and
+Studio versions of this release, synchronizes examples, refreshes both
+lockfiles, and writes `.release/plan.json`. It does not commit, push, or
+publish.
 
 Review and commit the versions, changelogs, compatibility, generated shell,
 lockfiles and release plan together. Open a normal PR.
@@ -80,7 +103,10 @@ change. Review the complete resulting stack. The release plan controls publicati
 `release:check` validates the exact creator combination, using candidate tarballs
 for changed packages and registry versions for unchanged pins. It also exercises
 CLI commands and production assets. An unavailable unchanged pin blocks release.
-Artifacts are saved under `.tmp/release-artifacts/` for inspection.
+It requires both image pins to equal the Runtime and Studio versions the plan
+publishes or keeps, and warns while `@nylorun/studio` is not yet private.
+Artifacts are saved under `.tmp/release-artifacts/` for inspection; a private
+package has no tarball there.
 
 ## Publish the reviewed commit
 
@@ -90,14 +116,29 @@ Artifacts are saved under `.tmp/release-artifacts/` for inspection.
    release plan. Prefer that prepare commit. A later main tip is allowed only
    when `.release/plan.json` is unchanged since prepare (for example a
    smoke/script fix finishing an interrupted publish).
-4. Review the validated candidate artifacts and approve the `npm` environment.
-5. Check the workflow summary, npm versions/dist-tags, and package GitHub releases.
+4. Review the validated candidate artifacts and approve the `images`
+   environment, then the `npm` environment.
+5. Check the workflow summary, the images on `ghcr.io/nylorun`, npm
+   versions/dist-tags, and package GitHub releases.
 
-The workflow verifies that the selected commit belongs to `main`, validates the
-checkout and exact release stack, and passes those same tarballs to publishing.
-Harness/Runtime/Studio publish before creator. The workflow verifies registry
-availability and installation through the public creator command without making
-model calls. Tags use `@nylorun/<package>@<version>`.
+The jobs run in this order:
+
+1. **validate** verifies that the selected commit belongs to `main` and passed
+   `ci`, runs `release:check` on the checkout, and saves the verified tarballs.
+2. **images** builds `runtime/Dockerfile` and `studio/Dockerfile` for
+   `linux/amd64` and `linux/arm64` (QEMU and buildx, with a GitHub Actions
+   layer cache) and pushes `ghcr.io/nylorun/runtime:<version>` and
+   `ghcr.io/nylorun/studio:<version>`, labeled with the source repository,
+   version and commit. `scripts/release/images.mjs` decides each push: an
+   existing tag is never replaced, so that image is skipped; a version the
+   release keeps rather than publishes must already have its image.
+3. **publish** runs only after both images exist, because the CLI it publishes
+   pins them. It publishes the same tarballs: the engines first, then the
+   creator. It verifies registry availability and installation through the
+   public creator command without making model calls.
+
+Tags use `@nylorun/<package>@<version>`, Studio's included. Images carry only
+the version tag; there is no `latest` image.
 
 ## Recovery
 
@@ -106,6 +147,10 @@ model calls. Tags use `@nylorun/<package>@<version>`.
 | Preparation interrupted | Review retained changes; restore deliberately or finish the preparation before committing |
 | Validation failed | Fix in a reviewed PR and prepare the corrected release |
 | Missing npm trust/access | Correct the external setting, then rerun the same workflow |
+| Image build or push failed | Rerun the same workflow. Images already pushed are skipped; nothing reached npm, because `publish` needs `images` |
+| `denied` pushing to `ghcr.io/nylorun` | Grant this repository the Write role under the package's **Manage Actions access**, then rerun |
+| `<image>:<version> does not exist, and this release keeps …` | The release keeps a Runtime or Studio version whose image was never pushed. Prepare a release that bumps that package, so this commit builds its image |
+| A pushed image is wrong | Do not overwrite or delete the tag; prepare a new version |
 | Partial publication/network failure | Rerun for the same release commit; matching artifact integrity allows completed packages to be skipped |
 | npm accepted publication but is still processing it | Wait for the version and tag to appear in ordinary npm reads before retrying; preparation/publication must not assign a new artifact to that version |
 | Published integrity differs | Stop; investigate the existing release and prepare a new version |
@@ -124,43 +169,32 @@ confirm the version's integrity before retrying the same reviewed release.
 
 The local browser gate requires Chromium: run `npx playwright-core install chromium` on Linux, or set `NYLORUN_CHROME_PATH` to an installed Chrome executable. CI installs Chromium before testing packed artifacts.
 
-## Studio hosted dashboard
+## Images
 
-`@nylorun/studio` publishes the Node proxy plus `dist/ui-digest.json`
-(`{ version, sha256 }`). The dashboard `dist/web` tree is **not** in the npm
-tarball. Release packaging builds the web UI once, then
-`studio/scripts/pack-ui.mjs` writes `dist/bundle.tar` (POSIX ustar of
-`dist/web`) and the digest. The publish workflow uploads `studio/dist/web` and
-`studio/dist/bundle.tar` as the `studio-ui-bundle` artifact.
+Both Dockerfiles build from the repository root. To check a multi-arch build
+locally without pushing:
 
-**H1 host:** Firebase Hosting · **H2:** Rahul owns `local.nylorun.studio` DNS.
-See the Project handoff `docs/hosted-studio-firebase-handoff.md` (Agent Store)
-for Firebase project, DNS records, and CI secrets.
+```sh
+docker buildx build --platform linux/amd64,linux/arm64 \
+  --file runtime/Dockerfile --output type=cacheonly .
+docker buildx build --platform linux/amd64,linux/arm64 \
+  --file studio/Dockerfile --output type=cacheonly .
+```
 
-Default Studio mode is `ui: "hosted"` (I2). Use `--local-ui` for Safari/offline.
+To run a local build under `nylorun start`, tag it with `docker build` and set
+`NYLORUN_RUNTIME_IMAGE` or `NYLORUN_STUDIO_IMAGE` to that tag, as the CI
+`stack` job does.
 
-### Deploy (Wave 3)
+## Retire Hosted Studio (manual, once)
 
-After npm publish, `deploy-studio` runs in the protected GitHub Environment
-`studio`:
+Studio no longer deploys to Firebase Hosting: it is built into the
+`ghcr.io/nylorun/studio` image, and `nylorun studio` opens it. When the first
+release with the Studio image is published, an administrator:
 
-1. Builds `studio/dist/hosting-site` via `prepare-hosting-site.mjs` (preserves
-   prior `/v/*` when the live origin or a mirror is available; **refuses** to
-   overwrite an existing `/v/<version>/`).
-2. Deploys with Firebase Hosting (`firebase.json` headers = design §9.1).
-3. Verifies `curl -I` CSP and `/v/<version>/bundle.tar` SHA-256 vs the digest.
-
-Credentials: `FIREBASE_SERVICE_ACCOUNT` (preferred) or `FIREBASE_TOKEN`, plus
-`FIREBASE_PROJECT_ID` (default `nylorun-oss-studio`). Until secrets and custom-domain
-DNS are in place, the job warns and exits soft so npm is not blocked; rerun
-deploy alone after Rahul finishes the handoff.
-
-### Rollback and retry
-
-- **Rollback:** repoint root `index.html` and `versions.json` at an earlier
-  build. Never delete or mutate `/v/*` (immutable builds).
-- **Retry after a failed deploy:** if npm publish succeeded but the hosted
-  upload did not, rerun only the deploy job for the same release commit and
-  Studio UI artifact. The previous dashboard stays live and protocol-compatible.
-- **Do not** republish a new npm version solely to fix a hosting deploy failure
-  when the digest and tarball are already correct.
+1. Replaces what `https://local.nylorun.studio` serves with one static page
+   that tells developers to upgrade `@nylorun/cli` and run `nylorun studio`.
+   It loads no scripts and needs no API access.
+2. Once that page is live, removes the Firebase Hosting site and project
+   (`nylorun-oss-studio`), or keeps only that page on it.
+3. Deletes the GitHub `studio` environment and its `FIREBASE_SERVICE_ACCOUNT`
+   and `FIREBASE_TOKEN` secrets, and the `FIREBASE_PROJECT_ID` variable.

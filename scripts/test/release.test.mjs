@@ -116,6 +116,12 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       runtime: "0.1.1-beta",
       studio: "0.3.0-beta.1",
     });
+    // The CLI's image pins: the released Runtime and the kept Studio.
+    assert.deepEqual(
+      JSON.parse(await readFile(join(directory, "cli/package.json"), "utf8"))
+        .nylorun,
+      { runtime: "0.1.1-beta", studio: "0.3.0-beta.1" },
+    );
     assert.match(
       await import("node:fs/promises").then(({ readFile }) =>
         readFile(join(directory, "create-agent/CHANGELOG.md"), "utf8")
@@ -313,6 +319,64 @@ test("publication waits for the engines together, then publishes the creator", a
     "publish create-agent",
     "wait create-agent",
   ]);
+});
+
+test("an image-only Studio is never published to npm and is not a creator registry pin", async () => {
+  const plan = {
+    packages: {
+      studio: "0.4.0-beta",
+      cli: "0.2.0-beta",
+      "create-agent": "0.2.0-beta",
+    },
+    channel: "beta",
+    compatibility: {
+      core: "0.2.0-beta",
+      harness: "0.11.0-beta",
+      agents: "0.1.0-beta",
+      admin: "0.1.0-beta",
+      runtime: "0.2.0-beta",
+      studio: "0.4.0-beta",
+      cli: "0.2.0-beta",
+    },
+  };
+  const artifacts = {
+    studio: { image: true, version: "0.4.0-beta", candidate: true },
+    cli: { integrity: "cli-hash", path: "cli.tgz" },
+    "create-agent": { integrity: "creator-hash", path: "creator.tgz" },
+  };
+  const published = new Map(
+    ["core", "harness", "agents", "admin", "runtime"].map((name) => [
+      name,
+      { integrity: `${name}-hash` },
+    ]),
+  );
+  const events = [];
+  const registry = {
+    async lookup(name) {
+      if (name === "studio") throw new Error("looked up studio on npm");
+      return published.get(name);
+    },
+    async checkTag(name) {
+      events.push(`check ${name}`);
+    },
+    async publish(name) {
+      events.push(`publish ${name}`);
+      published.set(name, { integrity: artifacts[name].integrity });
+    },
+    waitFor: async (name) => published.get(name),
+    ensureTag: async () => {},
+  };
+  const reports = [];
+  await publishCandidates(plan, artifacts, registry, (line) =>
+    reports.push(line),
+  );
+  assert.deepEqual(events, [
+    "check cli",
+    "check create-agent",
+    "publish cli",
+    "publish create-agent",
+  ]);
+  assert.equal(reports[0], "studio@0.4.0-beta: image only, not published to npm");
 });
 
 test("release commit validation accepts prepare commits and tips with an unchanged plan", async () => {

@@ -30,7 +30,24 @@ Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
 
-Remote ingress, TLS, containers, replicas, hosted customer executors,
-backups/migrations, crash recovery qualification, and deployment automation are
-deferred. Local build and smoke results do not establish those deployment
-guarantees.
+## Container images
+
+Each release publishes the Runtime and Studio as multi-arch images
+(`linux/amd64`, `linux/arm64`), tagged with the package version:
+
+| Image | Built from |
+| --- | --- |
+| `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` |
+| `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
+
+`nylorun start` runs the versions its CLI release pins (`cli/package.json`
+`nylorun.runtime` and `nylorun.studio`) beside the official Postgres, Restate
+and s2-lite images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
+the pinned images, for example with a local build. Tags are never moved, and
+there is no `latest` tag. Studio is not published to npm; it ships only as its
+image, and `local.nylorun.studio` no longer hosts it.
+
+Remote ingress, TLS, server deployment of these images (Compose on a server,
+Helm), replicas, hosted customer executors, backups/migrations, crash recovery
+qualification, and deployment automation are deferred. Local build and smoke
+results do not establish those deployment guarantees.
