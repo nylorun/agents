@@ -13,7 +13,7 @@ const allowed = {
 };
 // Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
 const substrates = {
-  runtime: ["just-bash", "@restatedev/restate-sdk", "@s2-streamstore/streamstore"],
+  runtime: ["just-bash", "@restatedev/restate-sdk", "@s2-dev/streamstore"],
 };
 const files = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
