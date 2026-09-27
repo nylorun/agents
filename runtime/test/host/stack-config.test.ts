@@ -146,10 +146,38 @@ describe("parseStackConfig", () => {
     ).toBe("postgresql://x@db/y");
   });
 
+  it("parses the public URL and Restate identity keys", () => {
+    const key = "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv";
+    const config = parseStackConfig(
+      {
+        NYLORUN_PUBLIC_URL: "http://localhost:8787/",
+        NYLORUN_RESTATE_IDENTITY_KEY: `${key}, ${key.replace("C", "D")} ,`,
+      },
+      [],
+    );
+    expect(config.publicUrl).toBe("http://localhost:8787");
+    expect(config.endpoints.restateIdentityKeys).toEqual([
+      key,
+      key.replace("C", "D"),
+    ]);
+    expect(() =>
+      parseStackConfig({ NYLORUN_PUBLIC_URL: "localhost:8787" }, []),
+    ).toThrow(/NYLORUN_PUBLIC_URL must use http or https/);
+    for (const bad of ["publickeyv1_0OIl", "CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv", "publickeyv1_"])
+      expect(() =>
+        parseStackConfig({ NYLORUN_RESTATE_IDENTITY_KEY: bad }, []),
+      ).toThrow(/NYLORUN_RESTATE_IDENTITY_KEY must be publickeyv1_/);
+  });
+
   it("treats blank values as unset", () => {
     expect(
       parseStackConfig(
-        { NYLORUN_LISTEN_HOST: " ", NYLORUN_DATABASE_URL: "" },
+        {
+          NYLORUN_LISTEN_HOST: " ",
+          NYLORUN_DATABASE_URL: "",
+          NYLORUN_PUBLIC_URL: "",
+          NYLORUN_RESTATE_IDENTITY_KEY: " , ",
+        },
         [],
       ),
     ).toEqual({ role: "all", endpoints: {} });

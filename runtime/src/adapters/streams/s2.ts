@@ -248,6 +248,15 @@ class S2Streams implements DurableStreams {
     this.closing.abort();
   }
 
+  /** Lists at most one basin: reachable, and the token (if any) is accepted. */
+  async probe(signal: AbortSignal): Promise<void> {
+    this.checkOpen();
+    await this.s2.basins.list(
+      { limit: 1 },
+      { signal: anySignal(signal, this.closing.signal) },
+    );
+  }
+
   // -------------------------------------------------------------------------
 
   private async *readHistory<T>(
