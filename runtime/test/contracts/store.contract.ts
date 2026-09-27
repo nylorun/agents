@@ -171,6 +171,57 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
       });
 
+      it("round-trips every string, including U+0000 and unpaired surrogates, in bodies and events", async () => {
+        const store = await fresh();
+        // Tool output can hold any UTF-16 string. `\\u0000` is a literal backslash, not NUL.
+        const odd = [
+          "a\u0000b",
+          "\u0000",
+          "\\u0000",
+          "\\\u0000",
+          "\ud800",
+          "x\udc00y",
+          "😀",
+          "\u0001\u001f\u007f",
+          "\\",
+          "￿",
+        ];
+        const body = { odd, nested: { "k\u0000ey": odd.join("|") } };
+        await store.tx(async (t) => {
+          await t.put("sessions", "s1", session("s1", { state: body }));
+          await t.put("effects", "e1", {
+            ...effect("e1", "s1", "t1", "succeeded"),
+            output: body,
+          });
+          await t.put("actions", "a1", action("a1", { input: body }));
+          await t.put("links", "l1", { workflowSessionId: "w\u0000", body });
+          for (const table of DOC_TABLES)
+            if (!["sessions", "effects", "actions", "links"].includes(table))
+              await t.put(table, "d1", body);
+          await t.event("s1", "t1", "tool.output", body);
+        });
+        const read = await store.tx(async (t) => ({
+          session: await t.get("sessions", "s1"),
+          effects: await t.effectsForSession("s1", { statuses: ["succeeded"] }),
+          actions: await t.actionsForSession("s1", { turnId: "t1" }),
+          pending: await t.pendingActions("agent-a"),
+          sessions: await t.listSessions({ agentId: "agent-a" }),
+          docs: await Promise.all(
+            DOC_TABLES.filter(
+              (table) => !["sessions", "effects", "actions", "links"].includes(table),
+            ).map((table) => t.get(table, "d1")),
+          ),
+          outbox: await t.outbox(10),
+        }));
+        expect(read.session.state).toEqual(body);
+        expect(read.sessions.map((s) => s.id)).toEqual(["s1"]);
+        expect(read.effects.map((e: any) => e.output)).toEqual([body]);
+        expect(read.actions.map((a) => a.input)).toEqual([body]);
+        expect(read.pending.map((a) => a.actionId)).toEqual(["a1"]);
+        for (const doc of read.docs) expect(doc).toEqual(body);
+        expect(read.outbox.map((row) => row.event.payload)).toEqual([body]);
+      });
+
       it("reads a session with store-managed ownership and ignores ownership on put", async () => {
         const store = await fresh();
         await store.tx((t) =>

@@ -29,10 +29,11 @@
  *
  * ## Values
  *
- * Document bodies are `jsonb`, so key order is not preserved and a string
- * containing U+0000 is rejected by Postgres (`22P05`). Ids and ISO timestamps
- * compared as text use `COLLATE "C"`. Lease times in action bodies are
- * compared as `timestamptz`.
+ * Document and outbox bodies are `json`, stored as the text `JSON.stringify`
+ * wrote, so every string round-trips, including U+0000 and unpaired
+ * surrogates that `jsonb` rejects (see `migrations/001_initial.ts`), and key
+ * order is kept. Ids and ISO timestamps compared as text use `COLLATE "C"`.
+ * Lease times in action bodies are compared as `timestamptz`.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
@@ -352,7 +353,7 @@ class PostgresTx implements Tx {
       );
     const json = toJson(value);
     await this.sql`
-      INSERT INTO ${this.t(table)} (id, body) VALUES (${id}, ${json}::text::jsonb)
+      INSERT INTO ${this.t(table)} (id, body) VALUES (${id}, ${json}::text::json)
       ON CONFLICT (id) DO UPDATE SET body = excluded.body`;
   }
 
@@ -413,7 +414,7 @@ class PostgresTx implements Tx {
     );
     await sql`
       INSERT INTO ${this.t("outbox")} (session_id, seq, body)
-      VALUES (${sessionId}, ${seq}, ${JSON.stringify(event)}::text::jsonb)`;
+      VALUES (${sessionId}, ${seq}, ${JSON.stringify(event)}::text::json)`;
     this.events.push(event);
     return structuredClone(event);
   }
