@@ -47,6 +47,7 @@ import {
   turnManifestOf,
   variantStore,
 } from "./session.js";
+import { signalSessionCancel } from "./streams.js";
 
 /** A tool result whose output does not match the Action's stored output schema fails the tool. */
 function acceptedToolResult(
@@ -269,6 +270,8 @@ export async function command(
       event = await t.event(id, cancelledTurnId, "turn.cancelled", {
         reason: command.reason,
       });
+      // The process running the advance aborts it on `session.cancel` (tenant/control).
+      t.afterCommit(() => signalSessionCancel(ctx, id));
       s.activeTurnId = null;
       // The next turn starts from the state preceding the cancelled turn, never its paused plan.
       if (cancelledTurnId !== null) s.state = s.turnStartState;

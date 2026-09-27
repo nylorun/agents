@@ -1,10 +1,8 @@
 /**
  * The Tenant HTTP router: authenticates the bearer token, matches `/v1/...` routes and
  * delegates to the service modules (commands, actions, sessions, live, routes-tenant). It
- * maps typed errors to responses and owns no business logic of its own.
- *
- * Later waves: Wave 2 / Y swaps the history and SSE
- * handlers for stream readers. Route shapes do not change.
+ * maps typed errors to responses and owns no business logic of its own. History, SSE and
+ * executor work streams read Durable Streams (`live.ts`).
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
