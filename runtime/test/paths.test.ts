@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -13,7 +20,8 @@ afterEach(async () => {
 });
 
 async function tempRoot() {
-  const root = await mkdtemp(join(tmpdir(), "nylorun-paths-"));
+  // Real path, as tenantPaths derives it (macOS tmpdir is under the /var symlink).
+  const root = await realpath(await mkdtemp(join(tmpdir(), "nylorun-paths-")));
   roots.push(root);
   return root;
 }
