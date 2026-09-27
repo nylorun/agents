@@ -36,7 +36,10 @@ its usual charges. Studio's Model provider screen can replace an API key.
 `npx nylorun configure` does the same from a terminal.
 
 `npm run dev -- --no-open` prints the Studio login URL without opening a
-browser; `--no-studio` skips Studio. The login URL works once, for two minutes;
+browser; `--no-studio` skips Studio. `npm run dev -- --ephemeral` runs the
+project on a temporary Tenant with a fixture model instead (no provider key;
+it answers the order lookup deterministically), and deletes that Tenant when
+you stop it. The login URL works once, for two minutes;
 `npx nylorun studio` opens a fresh one. The Runtime listens on
 `http://localhost:8787` and Studio on `http://localhost:4161`, or on free ports
 chosen on the first start.
@@ -76,6 +79,5 @@ when changing a versioned implementation.
 This beta supports local text and ordinary tools. Advanced waits, media, MCP,
 deployment, reconciliation and broad recovery guarantees are deferred.
 Subagents are supported in the SDK and examples (`agents used as tools`); the
-starter itself does not wire them. `NYLORUN_DEV_MODEL=fixture` is a
-credential-free release-check fixture for this starter; it is not a general
-model.
+starter itself does not wire them. `NYLORUN_DEV_MODEL=fixture` skips model
+setup for release checks; use `--ephemeral` for a credential-free run.

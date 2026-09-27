@@ -13,9 +13,9 @@ npm run setup
 npm run dev
 ```
 
-Root development rebuilds local packages and serves Studio on port 4161 and Runtime on port 8787. The first start stores the model provider in the Runtime vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens Studio from the local Docker stack; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the Runtime is already running.
+Root development rebuilds local packages and the Runtime and Studio images, runs them in the local Docker stack (Runtime on port 8787, Studio on port 4161 by default), and runs these examples on their own Tenant. The first start stores the model provider in that Tenant's vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the stack is running.
 
-`MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. Existing `.env/` directories require [manual migration](../runtime/README.md#upgrading-an-existing-starter); local state is never moved automatically.
+`MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. An existing `.env/` directory must be migrated by hand (back it up, create a `.env` file with those variables, and move OAuth credentials to `.nylorun/auth.json`); local state is never moved automatically.
 
 Optional integration variables are loaded from `.env`. Interior Design uses `OPENAI_API_KEY` and optional `OPENAI_IMAGE_MODEL` independently of the chat provider. Its selected chat model must support images. Codex continues using its own authentication. Never commit credentials.
 
@@ -168,4 +168,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-The supported registry uses SQLite and generated local credentials in `.nylorun/`. Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the local Docker stack: the examples Tenant's Postgres schema, with their history in S2. The Project link and generated application credentials are in `.nylorun/`; `npx nylorun reset` deletes every Tenant. Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.

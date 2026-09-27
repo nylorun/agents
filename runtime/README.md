@@ -24,16 +24,31 @@ package is a library with no bin; its Host entry is `@nylorun/runtime/server`
 ephemeral embeds, use `startEphemeralRuntime()` from `@nylorun/runtime/core`.
 See [MIGRATION.md](../MIGRATION.md).
 
-The Host root is `NYLORUN_HOME` or `~/.nylorun`. Each Tenant's data is the
-Postgres schema `tenant_<id>`; what stays on the Host is under
-`tenants/<tenantId>/`.
+No Tenant state lives only in the Runtime process. Each Tenant's data is the
+Postgres schema `tenant_<id>` (the Session Store); Restate runs one advance of a session at a
+time and holds the Tenant's sweep timer (Durable Session Execution); every
+session's events are relayed from the schema's outbox to its own S2 stream,
+which history and SSE read (Durable Streams). An API node serves the Tenant API,
+Admin API and SSE, and a Worker runs advances; `--role api|worker|all` picks
+them, and the local stack runs one process with `all`.
+
+The container is configured by its environment, which the stack's Compose file
+sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
+`NYLORUN_RESTATE_ADMIN_URL`, `NYLORUN_WORKER_URL` and
+`NYLORUN_RESTATE_IDENTITY_KEY` (Restate), `NYLORUN_S2_ENDPOINT` and
+`NYLORUN_S2_TOKEN`, and in container mode `NYLORUN_LISTEN_HOST`,
+`NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`.
+
+The Host root is `NYLORUN_HOME` or `~/.nylorun` (bind-mounted at `/nylorun` in
+the stack). What stays on the Host is under `tenants/<tenantId>/`.
 
 ## Layout
 
 ```text
 <host root>/
-  host.json                 # format 1: hostId, bind, port, runtimeVersion, …
+  host.json                 # format 1: hostId, host, port, runtimeVersion, …
   host-credentials.json     # adminKey (0600)
+  stack/                    # compose.yaml, .env (0600), Restate identity key
   tenants/<tenantId>/       # vault-kek, plugin-data, logs, home, tmp, sandboxes
   trash/                    # SQLite Tenants from before the Postgres switch
 ```
@@ -42,8 +57,8 @@ Postgres schema `tenant_<id>`; what stays on the Host is under
 
 | Route | Auth | Notes |
 | --- | --- | --- |
-| `GET /health` | none | `service: "nylorun-runtime"`, `hostId`, protocol `{min,max,features}` (includes `admin-status`), pid |
-| `GET /ready` | none | Listener up and Tenant discovery finished |
+| `GET /health` | none | `service: "nylorun-runtime"`, `hostId`, protocol `{min,max,features}`, pid |
+| `GET /ready` | none | Listener up, Tenants discovered, and Postgres, Restate and S2 answer (`checks`) |
 | `GET /v1/admin/status` | admin key | `AdminStatusSchema`; alias `GET /v1/admin/host` |
 | `/v1/admin/tenants*` | admin key | Create / list / get / delete Tenants |
 | `POST /v1/admin/host/shutdown` | admin key | Host-private; not in `@nylorun/admin` |
@@ -96,11 +111,12 @@ stack (Docker); `nylorun dev` creates or uses a Project link and runs
 | Symptom | What to do |
 | --- | --- |
 | `kek-missing` | Restore `vault-kek` in the Tenant directory |
-| `corrupt` / `migration-failed` / `envelope-invalid` | Follow `nylorun tenant status` repair string |
+| `corrupt` / `migration-failed` / `envelope-invalid` / `open-failed` / `open-timeout` | Follow `nylorun tenant status` repair string |
 | `schema-too-new` | Run a Runtime at least as new as the one that migrated the schema |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
-| `421 host_rejected` / `403 origin_rejected` | Call from main process / Node; loopback Host only |
-| Port in use | Explicit `--port` fails closed. First setup may pick a free loopback port |
-| Logs | `nylorun logs` |
+| `421 host_rejected` / `403 origin_rejected` | Call from a server process, not a browser; in a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS` |
+| `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
+| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun start` |
+| Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.

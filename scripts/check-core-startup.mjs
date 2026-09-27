@@ -73,5 +73,5 @@ try {
   await rm(hostRoot, { recursive: true, force: true });
 }
 console.log(
-  "Executor and SQLite Runtime shut down cleanly. No functionality checks run.",
+  "Executor and ephemeral Runtime shut down cleanly. No functionality checks run.",
 );
