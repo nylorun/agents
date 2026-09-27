@@ -1,50 +1,19 @@
 #!/usr/bin/env node
-// `nylorun start` smoke on locally built images, under a temporary Host root:
+// `nylorun start` smoke under a temporary Host root:
 //
-//   docker build -f runtime/Dockerfile -t nylorun-runtime:ci .
-//   docker build -f studio/Dockerfile -t nylorun-studio:ci .
-//   NYLORUN_RUNTIME_IMAGE=nylorun-runtime:ci NYLORUN_STUDIO_IMAGE=nylorun-studio:ci \
-//     node scripts/smoke-stack.mjs
+//   node scripts/smoke-stack.mjs
 //
+// Builds nylorun-runtime:local and nylorun-studio:local from this checkout
+// unless NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI).
 // Needs the CLI and @nylorun/admin built. Starts the stack, checks
 // `nylorun status --json` and the Runtime's /ready (Postgres, Restate, S2),
 // creates a Tenant through @nylorun/admin, mints a Studio login, checks that
 // every file in the Host root belongs to this user (the bind mount's UID/GID),
 // and always ends with `nylorun reset --yes`.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { lstat, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const root = fileURLToPath(new URL("../", import.meta.url));
-const cli = join(root, "cli", "dist", "cli.js");
-
-for (const name of ["NYLORUN_RUNTIME_IMAGE", "NYLORUN_STUDIO_IMAGE"])
-  if (!process.env[name]?.trim())
-    throw new Error(`${name} must name a locally built image`);
-
-const home = await mkdtemp(join(tmpdir(), "nylorun-stack-smoke-"));
-const env = {
-  ...process.env,
-  NYLORUN_HOME: home,
-  NYLORUN_STACK_PROJECT: process.env.NYLORUN_STACK_PROJECT || "nylorun-smoke",
-};
-
-function nylorun(args, { check = true, echo = true } = {}) {
-  console.log(`$ nylorun ${args.join(" ")}`);
-  const result = spawnSync(process.execPath, [cli, ...args], {
-    env,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  if (result.error) throw result.error;
-  if (echo) process.stdout.write(result.stdout);
-  if (check && result.status !== 0)
-    throw new Error(`nylorun ${args.join(" ")} exited with ${result.status}`);
-  return result;
-}
+import { ensureImages, studioSession, withStack } from "./lib/stack.mjs";
 
 /** Every entry under `dir`, with its owner. */
 async function walk(dir) {
@@ -58,69 +27,64 @@ async function walk(dir) {
   return entries;
 }
 
-let failed = false;
 try {
-  const start = nylorun(["start"]);
-  const runtimeUrl = /^Runtime\s+(\S+)/m.exec(start.stdout)?.[1];
-  assert.ok(runtimeUrl, "start prints the Runtime URL");
-  assert.match(start.stdout, /^Studio\s+http:\/\/localhost:\d+\/login\?token=/m);
+  const images = await ensureImages();
+  await withStack({ name: "nylorun-smoke-stack", images, start: false }, async (stack) => {
+    const { home } = stack;
+    const { runtimeUrl, studioUrl } = await stack.start();
+    assert.match(studioUrl ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
 
-  const status = JSON.parse(nylorun(["status", "--json"]).stdout);
-  assert.equal(status.state, "running");
-  assert.equal(status.runtime.healthy, true);
-  assert.equal(status.runtime.url, runtimeUrl);
-  for (const service of ["postgres", "restate", "s2", "runtime", "studio"]) {
-    const entry = status.services.find((s) => s.service === service);
-    assert.equal(entry?.state, "running", `${service} is running`);
-    assert.ok(entry.health === "" || entry.health === "healthy", `${service} is healthy`);
-  }
+    const status = JSON.parse((await stack.nylorun(["status", "--json"])).stdout);
+    assert.equal(status.state, "running");
+    assert.equal(status.project, stack.project);
+    assert.equal(status.runtime.healthy, true);
+    assert.equal(status.runtime.url, runtimeUrl);
+    for (const service of ["postgres", "restate", "s2", "runtime", "studio"]) {
+      const entry = status.services.find((s) => s.service === service);
+      assert.equal(entry?.state, "running", `${service} is running`);
+      assert.ok(entry.health === "" || entry.health === "healthy", `${service} is healthy`);
+    }
 
-  const ready = await fetch(`${runtimeUrl}/ready`);
-  const readyBody = await ready.json();
-  assert.equal(ready.status, 200, JSON.stringify(readyBody));
-  assert.deepEqual(
-    { postgres: readyBody.checks.postgres, restate: readyBody.checks.restate, s2: readyBody.checks.s2 },
-    { postgres: true, restate: true, s2: true },
-  );
+    const ready = await fetch(`${runtimeUrl}/ready`);
+    const readyBody = await ready.json();
+    assert.equal(ready.status, 200, JSON.stringify(readyBody));
+    assert.deepEqual(
+      { postgres: readyBody.checks.postgres, restate: readyBody.checks.restate, s2: readyBody.checks.s2 },
+      { postgres: true, restate: true, s2: true },
+    );
 
-  // Restate loaded the key whose public half the Runtime was given.
-  const stackEnv = await readFile(join(home, "stack", ".env"), "utf8");
-  const identityKey = /^NYLORUN_RESTATE_IDENTITY_KEY=(publickeyv1_\w+)$/m.exec(stackEnv)?.[1];
-  assert.ok(identityKey, ".env holds the Restate identity key");
-  const logs = nylorun(["stack", "logs", "restate", "--tail", "100000"], { echo: false });
-  assert.ok(logs.stdout.includes(`kid: "${identityKey}"`), "Restate logs the same key id");
+    // Restate loaded the key whose public half the Runtime was given.
+    const stackEnv = await readFile(join(home, "stack", ".env"), "utf8");
+    const identityKey = /^NYLORUN_RESTATE_IDENTITY_KEY=(publickeyv1_\w+)$/m.exec(stackEnv)?.[1];
+    assert.ok(identityKey, ".env holds the Restate identity key");
+    const logs = await stack.nylorun(["logs", "restate", "--tail", "100000"], { echo: false });
+    assert.ok(logs.stdout.includes(`kid: "${identityKey}"`), "Restate logs the same key id");
 
-  const { createAdmin } = await import("@nylorun/admin");
-  const admin = createAdmin({ home });
-  assert.equal((await admin.status()).host?.url, runtimeUrl, "admin status reports the public URL");
-  const { tenant, applicationKey } = await admin.createTenant({ name: "stack-smoke" });
-  assert.ok(applicationKey);
-  assert.ok((await admin.listTenants()).some((t) => t.id === tenant.id));
+    const admin = await stack.admin();
+    assert.equal((await admin.status()).host?.url, runtimeUrl, "admin status reports the public URL");
+    const { tenant, applicationKey } = await admin.createTenant({ name: "stack-smoke" });
+    assert.ok(applicationKey);
+    assert.ok((await admin.listTenants()).some((t) => t.id === tenant.id));
 
-  const login = nylorun(["stack", "studio", "--no-open"]);
-  const loginUrl = /^Studio\s+(\S+)/m.exec(login.stdout)?.[1];
-  assert.match(loginUrl ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
-  const redeemed = await fetch(loginUrl, { redirect: "manual" });
-  assert.ok(redeemed.status >= 300 && redeemed.status < 400, `login redirects (${redeemed.status})`);
-  assert.ok(redeemed.headers.get("set-cookie"), "login sets a session cookie");
+    const studio = await studioSession(await stack.studioLogin());
+    const listed = await (await studio.get("/_studio/tenants")).json();
+    assert.ok(listed.tenants.some((t) => t.id === tenant.id), "Studio lists the Tenant");
 
-  // The Runtime and Studio run as this user, so nothing in the bind-mounted
-  // Host root may belong to anyone else (Linux maps UIDs through unchanged).
-  const uid = process.getuid();
-  const foreign = (await walk(home)).filter((entry) => entry.uid !== uid);
-  assert.deepEqual(foreign, [], `every file in ${home} belongs to uid ${uid}`);
-  assert.ok(
-    (await walk(join(home, "tenants"))).length > 0,
-    "the Runtime wrote the Tenant into the Host root",
-  );
+    // The Runtime and Studio run as this user, so nothing in the bind-mounted
+    // Host root may belong to anyone else (Linux maps UIDs through unchanged).
+    const uid = process.getuid();
+    const foreign = (await walk(home)).filter((entry) => entry.uid !== uid);
+    assert.deepEqual(foreign, [], `every file in ${home} belongs to uid ${uid}`);
+    assert.ok(
+      (await walk(join(home, "tenants"))).length > 0,
+      "the Runtime wrote the Tenant into the Host root",
+    );
+
+    await stack.nylorun(["reset", "--yes"]);
+    assert.deepEqual(await readdir(join(home, "tenants")), [], "reset deletes the Tenants");
+  });
   console.log("Stack smoke passed.");
 } catch (error) {
-  failed = true;
   console.error(error);
-  nylorun(["stack", "logs", "--tail", "200"], { check: false });
-} finally {
-  nylorun(["reset", "--yes"], { check: !failed });
-  if (!failed) assert.deepEqual(await readdir(join(home, "tenants")), []);
-  await rm(home, { recursive: true, force: true });
+  process.exitCode = 1;
 }
-if (failed) process.exitCode = 1;
