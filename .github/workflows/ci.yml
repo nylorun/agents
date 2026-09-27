@@ -197,8 +197,9 @@ jobs:
             examples/package-lock.json
       # Bundled npm is enough: these tests only run npm ci and npm install.
       - run: npm ci
-      # Workspaces run in flag order: keep dependency order.
-      - run: npm run build --workspace @nylorun/core --workspace @nylorun/harness --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/runtime --workspace @nylorun/cli
+      # Workspaces run in flag order: keep dependency order. The CLI needs
+      # only its own dependencies (agents on core, and admin).
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/cli
       - name: CLI tests
         run: npm test --workspace @nylorun/cli
       - name: Supervisor and release tooling
