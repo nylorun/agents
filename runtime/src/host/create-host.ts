@@ -24,6 +24,7 @@ import {
 } from "../tenant/quarantine.js";
 import type { Logger, TenantModule } from "../tenant/types.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
+import type { ContainerListen } from "./stack-config.js";
 import {
   EXIT_NON_LOOPBACK,
   EXIT_PORT_IN_USE,
@@ -52,6 +53,17 @@ export interface CreateHostOptions {
   coreVersion: string;
   /** Process id reported by `/health` and admin host status. Defaults to `process.pid`. */
   pid?: number;
+  /**
+   * Container mode: bind this address and port instead of host.json's, and
+   * accept only `allowedHosts` in the `Host` check (replacing the
+   * loopback-only rule). host.json then describes the client-facing address.
+   */
+  listen?: ContainerListen;
+  /**
+   * Whether this Host owns `host-state.json` and removes it on close.
+   * Defaults to true; a container Host does not write it.
+   */
+  ownsStateFile?: boolean;
 }
 
 export interface HostServer {
@@ -108,9 +120,13 @@ export function createHost(options: CreateHostOptions): HostServer {
   } = options;
   const pid = options.pid ?? process.pid;
   const paths = hostPaths(hostRoot);
+  const containerListen = options.listen;
+  const ownsStateFile = options.ownsStateFile ?? true;
+  const bindHost = containerListen?.host ?? config.host;
+  const bindPort = containerListen?.port ?? config.port;
   let server: Server | undefined;
   let url = "";
-  let listenPort = config.port;
+  let listenPort = bindPort;
   let closing = false;
   let closePromise: Promise<void> | undefined;
 
@@ -287,6 +303,9 @@ export function createHost(options: CreateHostOptions): HostServer {
           port: listenPort,
           host: config.host,
           allowNonLoopback: config.allowNonLoopback,
+          ...(containerListen
+            ? { allowedHosts: containerListen.allowedHosts }
+            : {}),
         })
       ) {
         sendRejected(
@@ -475,7 +494,13 @@ export function createHost(options: CreateHostOptions): HostServer {
 
   async function listen(): Promise<void> {
     if (server) throw new Error("Already listening");
-    if (!config.allowNonLoopback && !isLoopbackHost(config.host)) {
+    // Container mode binds a non-loopback address behind an explicit Host
+    // allowlist; otherwise only loopback unless host.json allows more.
+    if (
+      !containerListen &&
+      !config.allowNonLoopback &&
+      !isLoopbackHost(config.host)
+    ) {
       throw new HostListenError(
         `Refusing to bind non-loopback host ${config.host} without allowNonLoopback`,
         EXIT_NON_LOOPBACK,
@@ -489,7 +514,7 @@ export function createHost(options: CreateHostOptions): HostServer {
         if (error.code === "EADDRINUSE") {
           reject(
             new HostListenError(
-              `Port ${config.port} on ${config.host} is already in use`,
+              `Port ${bindPort} on ${bindHost} is already in use`,
               EXIT_PORT_IN_USE,
               error,
             ),
@@ -498,12 +523,12 @@ export function createHost(options: CreateHostOptions): HostServer {
         }
         reject(error);
       });
-      server!.listen(config.port, config.host, resolve);
+      server!.listen(bindPort, bindHost, resolve);
     });
     const address = server.address();
     listenPort =
-      typeof address === "object" && address ? address.port : config.port;
-    url = `http://${config.host}:${listenPort}`;
+      typeof address === "object" && address ? address.port : bindPort;
+    url = `http://${bindHost}:${listenPort}`;
     await module.start();
     logger.info("host_listening", {
       hostId: config.hostId,
@@ -525,7 +550,7 @@ export function createHost(options: CreateHostOptions): HostServer {
         server = undefined;
       }
       await module.close();
-      if (existsSync(paths.state)) {
+      if (ownsStateFile && existsSync(paths.state)) {
         try {
           unlinkSync(paths.state);
         } catch {

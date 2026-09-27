@@ -12,6 +12,14 @@ export { createHost, adminKeyMatches, type CreateHostOptions, type HostServer } 
 export { createHostLogger } from "./logger.js";
 export { configForFactory } from "./config-for.js";
 export {
+  parseStackConfig,
+  StackConfigError,
+  type ContainerListen,
+  type RuntimeRole,
+  type StackConfig,
+  type StackEndpoints,
+} from "./stack-config.js";
+export {
   EXIT_PORT_IN_USE,
   EXIT_NON_LOOPBACK,
   HostListenError,
