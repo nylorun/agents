@@ -11,6 +11,9 @@ permissions:
 concurrency:
   group: npm-publication
   cancel-in-progress: false
+# Order: validate → images (ghcr.io/nylorun/runtime and studio) → publish (npm).
+# The CLI names its image pins (cli/package.json nylorun.runtime and
+# nylorun.studio), so both images exist before the CLI reaches npm.
 jobs:
   validate:
     if: github.ref == 'refs/heads/main'
@@ -50,8 +53,6 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
-      # Studio build (via setup) runs pack-ui → dist/bundle.tar + dist/ui-digest.json
-      # before npm pack (Wave 2; deploy-studio is Wave 3 after H1/H2).
       # check-example-assets (in release:check) needs the examples build.
       - run: npm run build --prefix examples
       # Headless Chromium only, cached per Playwright version (see ci.yml).
@@ -62,6 +63,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-shell
       - run: npx playwright-core install --only-shell chromium
+      # Also checks the CLI's image pins against the plan.
       - run: npm run release:check -- --built
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -69,17 +71,90 @@ jobs:
           path: .tmp/release-artifacts/
           include-hidden-files: true
           if-no-files-found: error
-      # Stored relative to studio/dist (the paths' common ancestor).
-      - name: Upload Studio UI hosting artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: studio-ui-bundle
-          path: |
-            studio/dist/web
-            studio/dist/bundle.tar
-          if-no-files-found: error
-  publish:
+  # Multi-arch images, tagged with the package version only. An existing tag
+  # is never replaced: its leg skips the build, so reruns are idempotent. A
+  # version this release keeps must already have its image.
+  images:
     needs: validate
+    runs-on: ubuntu-latest
+    # arm64 builds under QEMU emulation.
+    timeout-minutes: 60
+    environment: images
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: runtime
+            title: Nylorun Runtime
+            description: The Nylorun Runtime (API and Worker roles)
+          - package: studio
+            title: Nylorun Studio
+            description: The Nylorun Studio dashboard and trusted proxy
+    env:
+      PACKAGE: ${{ matrix.package }}
+      RELEASE_SHA: ${{ inputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.commit }}
+      # images.mjs uses only Node built-ins: no install.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the image
+        id: image
+        run: node scripts/release/images.mjs "$PACKAGE"
+      - if: steps.image.outputs.push == 'true'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - if: steps.image.outputs.push == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.image.outputs.push == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.package }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+            org.opencontainers.image.revision=${{ inputs.commit }}
+            org.opencontainers.image.licenses=Apache-2.0
+          # GHCR reads a multi-arch image's description from its index.
+          annotations: |
+            index:org.opencontainers.image.description=${{ matrix.description }}
+            index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            index:org.opencontainers.image.version=${{ steps.image.outputs.version }}
+            index:org.opencontainers.image.revision=${{ inputs.commit }}
+            index:org.opencontainers.image.licenses=Apache-2.0
+          cache-from: type=gha,scope=release-${{ matrix.package }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.package }}
+      - name: Verify both platforms
+        if: steps.image.outputs.push == 'true'
+        env:
+          TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          platforms=$(docker buildx imagetools inspect "$TAG" --raw \
+            | jq -r '.manifests[].platform | "\(.os)/\(.architecture)"')
+          echo "$platforms"
+          grep -qx linux/amd64 <<<"$platforms"
+          grep -qx linux/arm64 <<<"$platforms"
+  publish:
+    needs: [validate, images]
     runs-on: ubuntu-latest
     # Two registry waits (engines, then creator), each bounded at 10 min.
     timeout-minutes: 40
@@ -110,63 +185,3 @@ jobs:
         env:
           # Optional first-publication fallback; npm prefers configured OIDC trust.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
-  # Hosted Studio dashboard → Firebase Hosting (Wave 3 / H1 Firebase).
-  # Protected environment `studio`. Pauses (exit 78) until FIREBASE_* secrets exist.
-  # Custom domain DNS is Rahul-owned — see docs handoff. No-op does not block npm.
-  deploy-studio:
-    needs: [publish]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: studio
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      RELEASE_SHA: ${{ inputs.commit }}
-      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || 'nylorun-oss-studio' }}
-      STUDIO_HOSTING_ORIGIN: https://local.nylorun.studio
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ inputs.commit }}
-          fetch-depth: 0
-      # deploy-studio.mjs uses only Node built-ins and `npx firebase-tools`:
-      # no install or build, just the UI that `validate` built and packed.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version-file: .node-version
-          package-manager-cache: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: studio-ui-bundle
-          path: studio/dist
-      - run: test -d studio/dist/web && test -f studio/dist/bundle.tar
-      # Do not gate on secrets.* in `if` (GitHub rejects it). Always attempt auth;
-      # deploy-studio.mjs soft-exits 78 when GOOGLE_APPLICATION_CREDENTIALS / FIREBASE_TOKEN missing.
-      - name: Authenticate to Google Cloud (service account)
-        id: auth
-        continue-on-error: true
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-      - name: Deploy Studio UI to Firebase Hosting
-        id: deploy
-        continue-on-error: true
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: node studio/scripts/deploy-studio.mjs
-      - name: Report deploy outcome
-        if: always()
-        run: |
-          if [[ "${{ steps.deploy.outcome }}" == "success" ]]; then
-            echo "Studio hosting deploy succeeded."
-            exit 0
-          fi
-          if [[ "${{ steps.auth.outcome }}" != "success" ]]; then
-            echo "::warning::Studio Firebase auth unavailable (Environment 'studio' secret missing or invalid)."
-            echo "npm publish already completed; retry hosting via Deploy Studio hosting (no npm)."
-            exit 0
-          fi
-          echo "deploy-studio failed while auth succeeded" >&2
-          exit 1
