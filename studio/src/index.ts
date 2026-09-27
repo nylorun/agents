@@ -14,3 +14,10 @@ export {
   parsePairingFragment,
   proxyOrigin,
 } from "./contract.js";
+export { startStudioServer } from "./server.js";
+export type {
+  StudioServer,
+  StudioServerHello,
+  StudioServerOptions,
+  StudioTenantSummary,
+} from "./server.js";

@@ -38,14 +38,14 @@ import {
 } from "@/event-presentation";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import {
-  classifyProxyFailure,
-  createProxyClient,
+  StudioSignedOutError,
+  createTenantClient,
   fetchHello,
-  protocolSupported,
-  readPairing,
-  redirectToCompatibleBuild,
+  listTenants,
+  tenantHref,
+  tenantScope,
+  type StudioTenant,
 } from "@/proxy-client";
-import type { StudioHello } from "../../src/contract.ts";
 import type {
   AgentManifest,
   Connection,
@@ -93,27 +93,17 @@ function asStudioDefinition(raw: {
 }
 
 function studioClient(tenantId: string) {
-  return createProxyClient(tenantId);
-}
-
-/** Vite BASE_URL ends with `/`; React Router basename must not. */
-function routerBasename(): string {
-  const base = import.meta.env.BASE_URL;
-  if (!base || base === "/") return "/";
-  return base.endsWith("/") ? base.slice(0, -1) : base;
+  return createTenantClient(tenantId);
 }
 
 void STUDIO_VERSION;
 
 type BootState =
   | { kind: "booting" }
-  | { kind: "not-paired" }
-  | { kind: "redirecting" }
-  | { kind: "update-cli" }
-  | { kind: "proxy-stopped" }
-  | { kind: "needs-local-access" }
+  | { kind: "signed-out" }
+  | { kind: "unreachable"; message: string }
   | { kind: "runtime-incompatible"; message: string }
-  | { kind: "ready"; hello: StudioHello };
+  | { kind: "ready" };
 
 function StatusScreen({
   title,
@@ -132,64 +122,52 @@ function StatusScreen({
 const pretty = (value: unknown) =>
   typeof value === "string" ? value : JSON.stringify(value, null, 2);
 
+const code =
+  "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
+
+/**
+ * `/` is the Tenant picker. `/tenants/<id>/…` is one Tenant's dashboard, with
+ * the router based at `/tenants/<id>` so its routes (`/agents/…`, `/vault`,
+ * `/settings`) stay Tenant-relative. Switching Tenants reloads the page.
+ */
 export default function App() {
+  const scope = tenantScope(window.location.pathname);
   return (
-    <BrowserRouter basename={routerBasename()}>
+    <BrowserRouter basename={scope?.basename ?? "/"}>
       <Routes>
-        <Route path="*" element={<StudioRoot />} />
+        <Route path="*" element={<StudioRoot tenantId={scope?.tenantId} />} />
       </Routes>
     </BrowserRouter>
   );
 }
 
-function StudioRoot() {
+function StudioRoot({ tenantId }: { tenantId?: string }) {
   const [boot, setBoot] = useState<BootState>({ kind: "booting" });
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const pairing = readPairing();
-      if (!pairing) {
-        if (!cancelled) setBoot({ kind: "not-paired" });
-        return;
-      }
-      if (!protocolSupported(pairing.protocol)) {
-        if (!cancelled) setBoot({ kind: "redirecting" });
-        const redirected = await redirectToCompatibleBuild(pairing);
-        if (cancelled) return;
-        if (redirected) return;
-        setBoot({ kind: "update-cli" });
-        return;
-      }
       try {
-        const hello = await fetchHello({ pairing });
+        const hello = await fetchHello();
         if (cancelled) return;
-        if (!protocolSupported(hello.studioProtocol)) {
-          setBoot({ kind: "redirecting" });
-          const redirected = await redirectToCompatibleBuild({
-            ...pairing,
-            protocol: hello.studioProtocol,
-          });
-          if (cancelled) return;
-          if (redirected) return;
-          setBoot({ kind: "update-cli" });
-          return;
-        }
         if (!hello.runtime.compatible) {
           setBoot({
             kind: "runtime-incompatible",
             message:
               hello.runtime.message ??
-              "The local Runtime is incompatible with this Studio.",
+              "The Runtime is incompatible with this Studio.",
           });
           return;
         }
-        setBoot({ kind: "ready", hello });
+        setBoot({ kind: "ready" });
       } catch (cause) {
         if (cancelled) return;
-        const kind = classifyProxyFailure(cause, window.isSecureContext);
-        if (kind === "auth" || kind === "network")
-          setBoot({ kind: "proxy-stopped" });
-        else setBoot({ kind: "needs-local-access" });
+        if (cause instanceof StudioSignedOutError)
+          setBoot({ kind: "signed-out" });
+        else
+          setBoot({
+            kind: "unreachable",
+            message: cause instanceof Error ? cause.message : String(cause),
+          });
       }
     })();
     return () => {
@@ -197,57 +175,29 @@ function StudioRoot() {
     };
   }, []);
 
-  if (boot.kind === "booting" || boot.kind === "redirecting") {
+  if (boot.kind === "booting") {
     return (
       <StatusScreen title="Connecting to Studio">
-        <p>Pairing with the local Studio proxy…</p>
+        <p>Checking the Studio session…</p>
       </StatusScreen>
     );
   }
-  if (boot.kind === "not-paired") {
+  if (boot.kind === "signed-out") {
     return (
-      <StatusScreen title="Not paired">
+      <StatusScreen title="Sign in to Studio">
         <p>
-          Run <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground">npx nylorun studio</code> in your project, then open the URL it prints.
-        </p>
-      </StatusScreen>
-    );
-  }
-  if (boot.kind === "proxy-stopped") {
-    return (
-      <StatusScreen title="Studio proxy stopped">
-        <p>
-          The local Studio proxy is unreachable or rejected this tab. Rerun{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground">nylorun studio</code> and open the new URL.
+          Run <code className={code}>nylorun studio</code> in a terminal to
+          open a fresh login link.
         </p>
       </StatusScreen>
     );
   }
-  if (boot.kind === "update-cli") {
+  if (boot.kind === "unreachable") {
     return (
-      <StatusScreen title="Update the CLI">
+      <StatusScreen title="Studio is unavailable">
+        <p>{boot.message}</p>
         <p>
-          This dashboard build does not speak the Studio protocol your proxy uses, and no compatible hosted build was found.
-        </p>
-        <p>
-          Upgrade the CLI and Studio package:{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground">npm i -D @nylorun/cli@latest @nylorun/studio@latest</code>
-        </p>
-      </StatusScreen>
-    );
-  }
-  if (boot.kind === "needs-local-access") {
-    return (
-      <StatusScreen title="Studio needs local access">
-        <p>
-          This browser blocked the request to the loopback Studio proxy. Safari cannot reach HTTP loopback from a secure hosted page.
-        </p>
-        <p>
-          In Chromium, reset the Local Network Access permission for this site, or allow localhost access when prompted.
-        </p>
-        <p>
-          Or run Studio in local mode:{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground">nylorun studio --local-ui</code>
+          Check the stack with <code className={code}>nylorun status</code>.
         </p>
       </StatusScreen>
     );
@@ -259,10 +209,118 @@ function StudioRoot() {
       </StatusScreen>
     );
   }
-  return <Workspace hello={boot.hello} />;
+  return tenantId === undefined ? (
+    <TenantPicker />
+  ) : (
+    <TenantWorkspace tenantId={tenantId} />
+  );
 }
 
-function Workspace({ hello }: { hello: StudioHello }) {
+type TenantsState =
+  | { kind: "loading" }
+  | { kind: "failed"; message: string }
+  | { kind: "loaded"; tenants: readonly StudioTenant[] };
+
+function useTenants(): TenantsState {
+  const [state, setState] = useState<TenantsState>({ kind: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    listTenants().then(
+      (tenants) => {
+        if (!cancelled) setState({ kind: "loaded", tenants });
+      },
+      (cause: unknown) => {
+        if (!cancelled)
+          setState({
+            kind: "failed",
+            message: cause instanceof Error ? cause.message : String(cause),
+          });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
+function TenantPicker() {
+  const state = useTenants();
+  return (
+    <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-6 p-8">
+      <h1 className="text-2xl font-semibold">Tenants</h1>
+      {state.kind === "loading" ? (
+        <p className="text-muted-foreground">Loading Tenants…</p>
+      ) : state.kind === "failed" ? (
+        <p role="alert" className="text-red-600">
+          {state.message}
+        </p>
+      ) : state.tenants.length === 0 ? (
+        <p className="text-muted-foreground">
+          This Host has no Tenants yet. Run{" "}
+          <code className={code}>nylorun dev</code> in a project to create
+          one.
+        </p>
+      ) : (
+        <ul className="divide-y rounded-lg border">
+          {state.tenants.map((tenant) => (
+            <li key={tenant.id}>
+              <a
+                className="flex items-center gap-3 p-4 hover:bg-muted/50"
+                href={tenantHref(tenant.id)}
+              >
+                <span className="font-medium">{tenant.name ?? tenant.id}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {shortTenantId(tenant.id)}
+                </span>
+                {tenant.state !== "open" ? (
+                  <Badge variant="outline" className="ml-auto">
+                    {tenant.state}
+                  </Badge>
+                ) : null}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  );
+}
+
+function TenantWorkspace({ tenantId }: { tenantId: string }) {
+  const state = useTenants();
+  if (state.kind === "loading") {
+    return (
+      <StatusScreen title="Connecting to Studio">
+        <p>Loading the Tenant…</p>
+      </StatusScreen>
+    );
+  }
+  const listed =
+    state.kind === "loaded"
+      ? state.tenants.find((tenant) => tenant.id === tenantId)
+      : undefined;
+  if (state.kind === "loaded" && !listed) {
+    return (
+      <StatusScreen title="Tenant not found">
+        <p>
+          This Host has no Tenant <code className={code}>{tenantId}</code>.
+        </p>
+        <p>
+          <a className="text-primary underline" href="/">
+            Choose a Tenant
+          </a>
+        </p>
+      </StatusScreen>
+    );
+  }
+  // If the list failed, still open the Tenant; its own calls report errors.
+  return (
+    <Workspace tenant={{ id: tenantId, name: listed?.name ?? tenantId }} />
+  );
+}
+
+function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const navigate = useNavigate();
   const location = useLocation();
   const match = location.pathname.match(
@@ -270,19 +328,13 @@ function Workspace({ hello }: { hello: StudioHello }) {
   );
   const agentId = match?.[1] ? decodeURIComponent(match[1]) : undefined;
   const sessionId = match?.[2] ? decodeURIComponent(match[2]) : undefined;
-  const tenant: StudioTenantInfo | undefined = hello.tenant
-    ? { id: hello.tenant.id, name: hello.tenant.name }
-    : undefined;
   const [connection, setConnection] = useState<Connection>({
     status: "Connecting",
     agents: [],
     sessionsByAgent: {},
   });
-  const [error, setError] = useState(
-    tenant ? "" : "Studio hello is missing tenant { id, name }.",
-  );
+  const [error, setError] = useState("");
   const refresh = useCallback(async () => {
-    if (!tenant) return;
     try {
       const client = studioClient(tenant.id);
       const [definitions, sessions] = await Promise.all([
@@ -299,7 +351,7 @@ function Workspace({ hello }: { hello: StudioHello }) {
         });
       setConnection({
         status: "Running",
-        url: "Local Runtime",
+        url: "Runtime",
         agents: definitions.agents.map((a) =>
           asStudioDefinition({
             manifest: a.manifest as unknown as Record<string, unknown> & {
@@ -315,7 +367,7 @@ function Workspace({ hello }: { hello: StudioHello }) {
       setError(String(e));
       setConnection((c) => ({ ...c, status: "Offline" }));
     }
-  }, [tenant]);
+  }, [tenant.id]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -340,13 +392,9 @@ function Workspace({ hello }: { hello: StudioHello }) {
                 ? "Vault"
                 : (agent?.name ?? "Nylorun Studio")}
           </strong>
-          {tenant ? (
-            <Badge variant="outline" title={tenant.id}>
-              {tenant.name} · {shortTenantId(tenant.id)}
-            </Badge>
-          ) : (
-            <Badge variant="outline">Local beta</Badge>
-          )}
+          <Badge variant="outline" title={tenant.id}>
+            {tenant.name} · {shortTenantId(tenant.id)}
+          </Badge>
           <Button
             className="ml-auto"
             variant="outline"
@@ -361,21 +409,15 @@ function Workspace({ hello }: { hello: StudioHello }) {
           </p>
         )}
         {location.pathname === "/settings" ? (
-          <ModelSettings />
+          <ModelSettings tenantId={tenant.id} />
         ) : location.pathname === "/vault" ? (
-          tenant ? (
-            <VaultModule tenantId={tenant.id} />
-          ) : (
-            <p role="alert" className="p-4 text-red-600">
-              Studio is missing a Tenant id.
-            </p>
-          )
+          <VaultModule tenantId={tenant.id} />
         ) : agent && sessionId ? (
           <SessionWorkspace
             key={sessionId}
             agent={agent}
             sessionId={sessionId}
-            tenantId={tenant?.id}
+            tenantId={tenant.id}
             refresh={refresh}
           />
         ) : (
@@ -709,6 +751,7 @@ function SessionWorkspace({
             className="flex shrink-0 flex-col gap-2 border-t p-3"
           >
             <SessionModelPicker
+              tenantId={tenantId}
               disabled={busy || ["paused", "uncertain"].includes(status)}
             />
             <div className="flex gap-3">

@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createProxyClient } from "@/proxy-client";
+import { createTenantClient } from "@/proxy-client";
 
 const OWNER = "local-developer";
 const SECRET_MASK = "••••••••••••••••";
@@ -57,7 +57,7 @@ type Row = {
   credential: CredentialInfo;
 };
 
-const client = (tenantId: string) => createProxyClient(tenantId);
+const client = (tenantId: string) => createTenantClient(tenantId);
 
 function formatWhen(value?: string): string {
   if (!value) return "—";

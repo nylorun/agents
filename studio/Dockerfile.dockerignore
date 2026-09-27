@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+.git
+.claude
+docs
+examples
+**/.env
+**/.nylorun

@@ -10,7 +10,8 @@ const pkg = JSON.parse(
 
 export default defineConfig({
   root: "web",
-  base: `/v/${pkg.version}/`,
+  // Served at the root of the Studio server's origin.
+  base: "/",
   define: {
     STUDIO_VERSION: JSON.stringify(pkg.version),
   },

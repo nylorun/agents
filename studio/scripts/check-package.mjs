@@ -36,17 +36,18 @@ for (const field of [
   for (const name of [
     "@nylorun/harness",
     "@nylorun/runtime",
-    "@nylorun/admin",
     "@nylorun/cli",
     "@nylorun/core",
   ])
     if (manifest[field]?.[name])
       throw new Error(`Studio must not depend on ${name}`);
-const nylorunDeps = Object.keys(manifest.dependencies ?? {}).filter((name) =>
-  name.startsWith("@nylorun/"),
-);
-if (nylorunDeps.length !== 1 || nylorunDeps[0] !== "@nylorun/agents")
-  throw new Error("Studio must depend only on @nylorun/agents among Nylorun packages.");
+const nylorunDeps = Object.keys(manifest.dependencies ?? {})
+  .filter((name) => name.startsWith("@nylorun/"))
+  .sort();
+if (nylorunDeps.join(",") !== "@nylorun/admin,@nylorun/agents")
+  throw new Error(
+    "Studio must depend only on @nylorun/admin and @nylorun/agents among Nylorun packages.",
+  );
 
 /** Design §15: UI packages are build-time only; proxy runtime dep is agents alone. */
 const UI_DEV_DEPS = [
@@ -68,10 +69,10 @@ for (const name of UI_DEV_DEPS) {
   if (!manifest.devDependencies?.[name])
     throw new Error(`Studio UI package ${name} must be listed in devDependencies.`);
 }
-const runtimeDeps = Object.keys(manifest.dependencies ?? {});
-if (runtimeDeps.length !== 1 || runtimeDeps[0] !== "@nylorun/agents")
+const runtimeDeps = Object.keys(manifest.dependencies ?? {}).sort();
+if (runtimeDeps.join(",") !== "@nylorun/admin,@nylorun/agents")
   throw new Error(
-    "Studio runtime dependencies must be only @nylorun/agents (plus Node built-ins).",
+    "Studio runtime dependencies must be only @nylorun/admin and @nylorun/agents (plus Node built-ins).",
   );
 
 /** SD-I5: browser sources must not pull engine, host or executor. */
@@ -87,6 +88,7 @@ for (const path of walk("web/src")) {
     /@nylorun\/harness/,
     /@nylorun\/runtime/,
     /@nylorun\/core/,
+    /@nylorun\/admin/,
     /@nylorun\/agents\/executor/,
     /execute-action/,
   ])
@@ -119,6 +121,8 @@ for (const required of [
   "LICENSE",
   "dist/cli.js",
   "dist/host.js",
+  "dist/server.js",
+  "dist/server-main.js",
   "dist/index.js",
   "dist/index.d.ts",
   "dist/ui-digest.json",

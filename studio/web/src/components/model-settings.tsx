@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { proxyFetch } from "@/proxy-client";
+import { tenantRuntime } from "@/proxy-client";
 
 type HostModelView =
   | { configured: false }
@@ -55,9 +55,6 @@ type ConfiguredProvider = {
 
 type PanelMode = "add" | "view" | "update";
 
-const runtime = (path: string, init?: RequestInit) =>
-  proxyFetch(`/_studio/runtime${path}`, init);
-
 function formatUpdated(value: string): string {
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return value;
@@ -67,7 +64,8 @@ function formatUpdated(value: string): string {
   }).format(parsed);
 }
 
-export function ModelSettings() {
+export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
+  const runtime = useMemo(() => tenantRuntime(tenantId), [tenantId]);
   const [active, setActive] = useState<HostModelView | undefined>();
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
   const [providers, setProviders] = useState<ConfiguredProvider[]>([]);
@@ -103,7 +101,7 @@ export function ModelSettings() {
       { id: "custom", name: "Custom OpenAI-compatible", models: [] },
     ]);
     setProviders(configured.providers);
-  }, []);
+  }, [runtime]);
 
   useEffect(() => {
     let cancelled = false;

@@ -56,6 +56,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@nylorun/admin": "0.2.0-beta",
     "@nylorun/agents": "0.6.0-beta"
   },
   "devDependencies": {
