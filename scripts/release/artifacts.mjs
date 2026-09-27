@@ -9,13 +9,25 @@ export const integrity = async (path) =>
   `sha512-${createHash("sha512")
     .update(await readFile(path))
     .digest("base64")}`;
+/**
+ * The version of `name` a release ships: the one it publishes, else its
+ * creator pin, else (a kept package the creator does not pin, e.g. Studio)
+ * the checkout's version, which the CLI's image pin was checked against.
+ */
+export async function shippedVersion(plan, name, repo = root) {
+  return (
+    plan.packages[name] ??
+    plan.compatibility[name] ??
+    (await readJson(join(repo, name, "package.json"))).version
+  );
+}
 export async function packRelease(directory, plan, repo = root) {
   await validatePlan(plan, repo);
   await rm(directory, { recursive: true, force: true });
   await mkdir(directory, { recursive: true });
   const artifacts = {};
   for (const name of packages) {
-    const version = plan.packages[name] ?? plan.compatibility[name];
+    const version = await shippedVersion(plan, name, repo);
     const candidate = Boolean(plan.packages[name]);
     // A private package ships only as its image; there is no tarball.
     if (await isImageOnly(repo, name)) {
@@ -53,7 +65,7 @@ export async function readArtifacts(directory, plan, repo = root) {
   const artifacts = {};
   for (const name of packages) {
     const artifact = saved.artifacts[name];
-    const version = plan.packages[name] ?? plan.compatibility[name];
+    const version = await shippedVersion(plan, name, repo);
     if (!artifact || artifact.version !== version)
       throw new Error(`Invalid artifact for ${name}.`);
     // The checkout, not the saved file, decides what skips npm.

@@ -7,7 +7,7 @@ import { readConfig } from "@changesets/config";
 import { getPackages } from "@manypkg/get-packages";
 import { root, packages, readJson, writeJson, run } from "../lib/repo.mjs";
 import { syncCliPins } from "./pins.mjs";
-import { planVersions } from "./version-policy.mjs";
+import { CREATOR_PINS, planVersions } from "./version-policy.mjs";
 
 export async function prepareVersions(repo, channel) {
   const workspace = await getPackages(repo);
@@ -109,11 +109,8 @@ export async function prepareVersions(repo, channel) {
     );
   }
   // D7: the CLI's image pins (nylorun.runtime, nylorun.studio) equal the
-  // tested Runtime and Studio.
-  const pin = (name) =>
-    calculated.plan.packages[name] ??
-    calculated.plan.compatibility[name] ??
-    before[name];
+  // tested Runtime and Studio: the version this plan publishes, or keeps.
+  const pin = (name) => calculated.plan.packages[name] ?? before[name];
   await syncCliPins(repo, { runtime: pin("runtime"), studio: pin("studio") });
   await validatePlan(calculated.plan, repo);
   for (const [name, version] of Object.entries(calculated.plan.packages))
@@ -162,15 +159,7 @@ export async function validatePlan(plan, repo) {
       throw new Error(`Release version differs from ${name}/package.json.`);
   }
   const actual = await readJson(join(repo, "create-agent/compatibility.json"));
-  for (const name of [
-    "core",
-    "harness",
-    "agents",
-    "admin",
-    "runtime",
-    "studio",
-    "cli",
-  ]) {
+  for (const name of CREATOR_PINS) {
     const version = plan.compatibility?.[name];
     if (
       !semver.valid(version) ||
@@ -186,9 +175,9 @@ export async function validatePlan(plan, repo) {
         throw new Error(`${name}'s ${dependency} dependency must match its compatibility pin.`);
     }
   }
-  if (Object.keys(plan.compatibility).length !== 7)
+  if (Object.keys(plan.compatibility).length !== CREATOR_PINS.length)
     throw new Error(
-      "Compatibility must contain exactly Core, Harness, Agents, Admin, Runtime, Studio, and CLI.",
+      `Compatibility must contain exactly the creator pins: ${CREATOR_PINS.join(", ")}.`,
     );
 }
 
@@ -237,15 +226,7 @@ export async function publishCandidates(
   const engines = names.filter((name) => name !== "create-agent");
   await publishWave(engines, plan, artifacts, registry, report);
   if (names.includes("create-agent")) {
-    for (const engine of [
-      "core",
-      "harness",
-      "agents",
-      "admin",
-      "runtime",
-      "studio",
-      "cli",
-    ]) {
+    for (const engine of CREATOR_PINS) {
       if (imageOnly(engine)) continue;
       if (!(await registry.lookup(engine, plan.compatibility[engine])))
         throw new Error(

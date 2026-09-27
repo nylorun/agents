@@ -13,7 +13,6 @@
  *    restarts the examples runner. A failed build keeps everything running.
  */
 import { existsSync, mkdirSync } from "node:fs";
-import { createServer } from "node:net";
 import { join, relative, sep } from "node:path";
 import { watch } from "chokidar";
 import { ProcessGroup } from "./processes.mjs";
@@ -34,24 +33,6 @@ export function developmentOptions(args) {
   }
   if (!options.studio) options.open = false;
   return options;
-}
-
-/** A free loopback port (or `port` when it is free). */
-export async function availablePort(port = 0) {
-  const server = createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", (error) =>
-      reject(
-        new Error(
-          `Port ${port} is unavailable (${error.code}). Stop the other service or choose another port.`,
-        ),
-      ),
-    );
-    server.listen(port, "127.0.0.1", resolve);
-  });
-  const result = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return result;
 }
 
 /** Workspace packages built on the host, in dependency order, with their dependencies. */

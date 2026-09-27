@@ -76,10 +76,15 @@ try {
         console.log(message);
       },
     );
-    await publicCreatorSmoke(
-      plan.packages["create-agent"],
-      plan.compatibility.runtime,
-    );
+    // The images job pushed the CLI's pinned images (release:check verified
+    // the pins against the plan); the public creator must run on them.
+    const { runtime, studio } = (
+      await readJson(join(root, "cli/package.json"))
+    ).nylorun;
+    await publicCreatorSmoke(plan.packages["create-agent"], {
+      runtime,
+      studio,
+    });
     const temporary = await mkdtemp(join(tmpdir(), "nylorun-release-notes-"));
     try {
       for (const [name, version] of Object.entries(plan.packages)) {

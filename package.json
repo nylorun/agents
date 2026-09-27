@@ -47,7 +47,6 @@
     "@changesets/read": "^1.0.1",
     "@manypkg/get-packages": "^3.1.0",
     "chokidar": "^5.0.0",
-    "playwright-core": "^1.63.0",
     "semver": "^7.7.4"
   }
 }

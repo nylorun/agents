@@ -66,7 +66,6 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",
       runtime: "0.1.0-beta.1",
-      studio: "0.3.0-beta.1",
     });
     await writeFile(
       join(directory, ".changeset/runtime-fix.md"),
@@ -114,7 +113,6 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",
       runtime: "0.1.1-beta",
-      studio: "0.3.0-beta.1",
     });
     // The CLI's image pins: the released Runtime and the kept Studio.
     assert.deepEqual(
@@ -151,6 +149,17 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
         directory
       ),
       /Invalid compatibility pin/
+    );
+    // Studio ships as the image the CLI pins: not a creator pin.
+    await assert.rejects(
+      validatePlan(
+        {
+          ...plan,
+          compatibility: { ...plan.compatibility, studio: "0.3.0-beta.1" },
+        },
+        directory
+      ),
+      /exactly the creator pins/
     );
     assert.equal(
       (
@@ -211,7 +220,6 @@ test("publication retries retain completed packages and never publish creator be
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",
       runtime: "0.1.1-beta",
-      studio: "0.3.0-beta.1",
     },
   };
   const artifacts = {
@@ -222,7 +230,6 @@ test("publication retries retain completed packages and never publish creator be
     ["core", { integrity: "core-hash" }],
     ["cli", { integrity: "cli-hash" }],
     ["harness", { integrity: "harness-hash" }],
-    ["studio", { integrity: "studio-hash" }],
     ["agents", { integrity: "agents-hash" }],
     ["admin", { integrity: "admin-hash" }],
   ]);
@@ -255,7 +262,7 @@ test("publication retries retain completed packages and never publish creator be
   );
   published.set("runtime", { integrity: "runtime-hash" });
   published.delete("create-agent");
-  published.delete("studio");
+  published.delete("agents");
   await assert.rejects(
     publishCandidates(plan, artifacts, registry),
     /pin is unavailable/
@@ -278,7 +285,6 @@ test("publication waits for the engines together, then publishes the creator", a
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",
       runtime: "0.2.0-beta",
-      studio: "0.3.0-beta.1",
       cli: "0.1.0-beta.1",
     },
   };
@@ -289,7 +295,7 @@ test("publication waits for the engines together, then publishes the creator", a
     ]),
   );
   const published = new Map(
-    ["agents", "admin", "studio", "cli"].map((name) => [
+    ["agents", "admin", "cli"].map((name) => [
       name,
       { integrity: `${name}-hash` },
     ]),
@@ -335,7 +341,6 @@ test("an image-only Studio is never published to npm and is not a creator regist
       agents: "0.1.0-beta",
       admin: "0.1.0-beta",
       runtime: "0.2.0-beta",
-      studio: "0.4.0-beta",
       cli: "0.2.0-beta",
     },
   };

@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  availablePort,
   develop,
   developmentOptions,
   packageOf,
@@ -162,17 +161,5 @@ test("a runner that exits on its own ends development with its code", { timeout:
     assert.equal(await app.done, 3);
   } finally {
     await rm(repo, { recursive: true, force: true });
-  }
-});
-
-test("availablePort reports a busy port", async () => {
-  const port = await availablePort();
-  const { createServer } = await import("node:net");
-  const server = createServer();
-  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
-  try {
-    await assert.rejects(availablePort(port), /unavailable/);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
   }
 });
