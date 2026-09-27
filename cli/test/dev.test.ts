@@ -200,7 +200,7 @@ it("rejects removed --global and --local-ui via the CLI", async () => {
 
 it("removed launcher commands point at the stack commands", async () => {
   const root = await fixture();
-  for (const [args, replacement] of [
+  const cases = [
     [["runtime", "up"], "nylorun start"],
     [["runtime", "down"], "nylorun stop"],
     [["runtime", "status"], "nylorun status"],
@@ -208,13 +208,17 @@ it("removed launcher commands point at the stack commands", async () => {
     [["runtime"], "nylorun start|stop|status|logs"],
     [["up"], "nylorun start"],
     [["down"], "nylorun stop"],
-  ] as const) {
-    const result = await runCli([...args], root);
+  ] as const;
+  // Each case starts the CLI; run them together so slow runners stay in time.
+  const results = await Promise.all(
+    cases.map(([args]) => runCli([...args], root)),
+  );
+  for (const [index, result] of results.entries()) {
     expect(result.code).toBe(2);
     expect(result.output).toContain("was removed");
-    expect(result.output).toContain(`Use ${replacement}`);
+    expect(result.output).toContain(`Use ${cases[index][1]}`);
   }
-});
+}, 30_000);
 
 it("F2-5: serve command remains removed", async () => {
   const root = await fixture();

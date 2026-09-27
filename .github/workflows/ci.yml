@@ -220,7 +220,7 @@ jobs:
       - run: npm install --global npm@11.15.0
       - run: npm ci
       # Workspaces run in flag order: keep dependency order.
-      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/harness --workspace @nylorun/runtime
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/harness --workspace @nylorun/runtime
       - name: Start the test stack
         run: npm run test:stack:up --workspace @nylorun/runtime
       - name: Integration tests
