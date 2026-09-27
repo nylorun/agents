@@ -14,20 +14,16 @@ import {
   type StudioMode,
 } from "./contract.js";
 import {
-  PROTOCOL_FEATURES,
-  PROTOCOL_VERSION,
-  checkCompatibility,
-  type ProtocolRange,
-} from "@nylorun/agents";
+  STUDIO_VERSION,
+  probeRuntimeCompatibility,
+} from "./runtime-compat.js";
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
-import { readFileSync } from "node:fs";
 import { openBrowser } from "./browser.js";
-import { fileURLToPath } from "node:url";
 
 export type StudioTenant = Readonly<{ id: string; name: string }>;
 export type StudioOptions = Readonly<{
@@ -69,15 +65,9 @@ const HOSTED_LANDING = `<!doctype html>
 </html>
 `;
 
-const PROXY_VERSION: string = (() => {
-  try {
-    const path = fileURLToPath(new URL("../package.json", import.meta.url));
-    const pkg = JSON.parse(readFileSync(path, "utf8")) as { version?: string };
-    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-})();
+const PROXY_VERSION = STUDIO_VERSION;
+
+export { probeRuntimeCompatibility };
 
 export function parseAgentServerUrl(value: string): string {
   let url: URL;
@@ -123,77 +113,6 @@ function reject(
 
 function loopbackHosts(port: number): ReadonlySet<string> {
   return new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
-}
-
-function parseProtocolRange(value: unknown): ProtocolRange | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return undefined;
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.min !== "number" ||
-    typeof record.max !== "number" ||
-    !Array.isArray(record.features) ||
-    !record.features.every((feature) => typeof feature === "string")
-  )
-    return undefined;
-  return {
-    min: record.min,
-    max: record.max,
-    features: record.features as readonly string[],
-  };
-}
-
-/** Probes Runtime `/health` and reports SDK protocol compatibility for hello. */
-export async function probeRuntimeCompatibility(
-  runtimeUrl: string,
-): Promise<StudioHello["runtime"]> {
-  try {
-    const response = await fetch(`${runtimeUrl}/health`, {
-      method: "GET",
-      redirect: "error",
-    });
-    const text = await response.text();
-    let body: unknown = text;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      /* keep text */
-    }
-    if (!response.ok) {
-      return Object.freeze({
-        compatible: false,
-        message: `Runtime health returned HTTP ${response.status}`,
-      });
-    }
-    const protocol = parseProtocolRange(
-      body && typeof body === "object" && !Array.isArray(body)
-        ? (body as Record<string, unknown>).protocol
-        : undefined,
-    );
-    if (!protocol) {
-      return Object.freeze({
-        compatible: false,
-        message:
-          "Runtime health did not advertise a protocol range; upgrade the Runtime Host.",
-      });
-    }
-    const result = checkCompatibility(
-      { version: PROTOCOL_VERSION, required: [...PROTOCOL_FEATURES] },
-      protocol,
-    );
-    if (result.ok) return Object.freeze({ compatible: true });
-    const message =
-      result.reason === "version"
-        ? `Client protocol ${result.client} is outside Host range ${result.host.min}–${result.host.max}`
-        : `Host is missing required features: ${result.missing.join(", ")}`;
-    return Object.freeze({ compatible: false, message });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return Object.freeze({
-      compatible: false,
-      message: `Local Runtime is unavailable${detail ? `: ${detail}` : ""}`,
-    });
-  }
 }
 
 type RequestHandle = (

@@ -33,21 +33,29 @@ function isVaultWrite(method: string, path: string): boolean {
 export type StudioProxyOptions = {
   origin: string;
   runtimeUrl: string;
+  /** Bearer sent to the Runtime for this request's Tenant. Never reaches the browser. */
   serverKey: string;
   tenantId: string;
+  /** Request path prefix stripped before forwarding. Default `/_studio/runtime`. */
+  prefix?: string;
   /** When omitted, only `origin` is treated as allowed (legacy callers). */
   allowedOrigins?: ReadonlySet<string>;
   corsOrigin?: string;
 };
 
-/** Local tooling proxy: credentials stay in this process, not the browser. */
+/**
+ * Trusted Runtime proxy: forwards one allowlisted Tenant API request with the
+ * given Tenant and bearer. Credentials stay in this process, not the browser.
+ */
 export async function proxyRuntime(
   request: IncomingMessage,
   response: ServerResponse,
   options: StudioProxyOptions,
 ): Promise<void> {
   const incoming = new URL(request.url!, options.origin);
-  const path = incoming.pathname.slice("/_studio/runtime".length);
+  const path = incoming.pathname.slice(
+    (options.prefix ?? "/_studio/runtime").length,
+  );
   const method = request.method ?? "GET";
   const allowed =
     options.allowedOrigins ?? new Set<string>([options.origin]);
@@ -161,7 +169,7 @@ export async function proxyRuntime(
       }
     response.end();
   } catch {
-    if (!response.headersSent) fail(502, "Local Runtime is unavailable");
+    if (!response.headersSent) fail(502, "Runtime is unavailable");
     else response.end();
   }
 }
