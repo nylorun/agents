@@ -114,18 +114,21 @@ export function stackProjectName(prefix) {
 /**
  * One stack under a temporary Host root. `cli` is the `nylorun` entry to
  * drive it with (the workspace CLI by default, or a packed install).
+ * `baseEnv` replaces `process.env` as the environment the stack's commands
+ * start from (the release smoke passes one without publishing credentials).
  */
 export async function createStack({
   name = "nylorun-stack",
   cli = WORKSPACE_CLI,
   images,
+  baseEnv = process.env,
   env: extraEnv = {},
   log = console.log,
 } = {}) {
   const home = await mkdtemp(join(tmpdir(), `${name}-`));
   const project = stackProjectName(name);
   const env = {
-    ...process.env,
+    ...baseEnv,
     ...extraEnv,
     NYLORUN_HOME: home,
     NYLORUN_STACK_PROJECT: project,
