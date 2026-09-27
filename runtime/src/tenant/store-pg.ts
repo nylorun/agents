@@ -139,7 +139,9 @@ export function createPostgresTenantStore(
         );
       } catch (error) {
         await result.store.close().catch(() => undefined);
-        throw error;
+        // The Runtime's own quarantines (`kek-missing`) get this store's repair wording.
+        const reason = (error as { quarantine?: Quarantine } | null)?.quarantine;
+        throw reason ? quarantined(reason, id) : error;
       }
     },
 

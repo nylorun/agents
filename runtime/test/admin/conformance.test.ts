@@ -22,6 +22,8 @@ import {
 } from "@nylorun/core/contracts";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
+import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { TEST_STORE, testPool } from "../support/store.js";
 
 const closers: { close(): Promise<void> }[] = [];
 const roots: string[] = [];
@@ -77,6 +79,7 @@ async function startHost() {
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
+    ...(TEST_STORE === "postgres" ? { database: testPool() } : {}),
   });
   closers.push(runtime);
   return runtime;
@@ -168,9 +171,15 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
   });
 
   const badId = newTenantId();
-  const paths = tenantPaths(hostRoot, badId);
-  await mkdir(paths.root, { recursive: true });
-  await writeFile(paths.envelope, "{not-json");
+  if (TEST_STORE === "postgres") {
+    // A schema without its envelope row.
+    const sql = testPool();
+    await sql`CREATE SCHEMA ${sql(tenantSchemaName(badId))}`;
+  } else {
+    const paths = tenantPaths(hostRoot, badId);
+    await mkdir(paths.root, { recursive: true });
+    await writeFile(paths.envelope, "{not-json");
+  }
   const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
     headers,
   });
