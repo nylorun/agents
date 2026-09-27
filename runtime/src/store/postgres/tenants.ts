@@ -72,6 +72,10 @@ export type OpenTenantResult =
 export interface PostgresTenantCatalog {
   /** Every `tenant_*` schema that encodes a Tenant id, ordered by id. */
   listTenants(): Promise<TenantListing[]>;
+  /** The ids of `listTenants`, without reading any envelope. */
+  listTenantIds(): Promise<string[]>;
+  /** Whether the Tenant's schema exists. */
+  tenantExists(id: string): Promise<boolean>;
   /** Throws a `QuarantineError` (`envelope-invalid`) when unreadable. */
   readEnvelope(id: string): Promise<TenantEnvelope>;
   createTenant(input: {
@@ -151,15 +155,21 @@ export function createPostgresTenantCatalog(
   }
 
   const catalog: PostgresTenantCatalog = {
-    async listTenants() {
+    async listTenantIds() {
       const schemas = await sql<{ nspname: string }[]>`
         SELECT nspname FROM pg_namespace
         WHERE starts_with(nspname, ${TENANT_SCHEMA_PREFIX})
         ORDER BY nspname COLLATE "C"`;
+      return schemas.flatMap(({ nspname }) => tenantIdFromSchema(nspname) ?? []);
+    },
+
+    async tenantExists(id) {
+      return isTenantId(id) && schemaExists(sql, tenantSchemaName(id));
+    },
+
+    async listTenants() {
       const listings: TenantListing[] = [];
-      for (const { nspname } of schemas) {
-        const id = tenantIdFromSchema(nspname);
-        if (id === undefined) continue;
+      for (const id of await catalog.listTenantIds()) {
         try {
           listings.push({ id, envelope: await readEnvelopeWith(sql, id) });
         } catch (error) {

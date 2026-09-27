@@ -7,6 +7,7 @@ import type {
 } from "@nylorun/core/contracts";
 import type { FlowLimits } from "../core/limits.js";
 import type { SandboxBackend } from "../sandbox/types.js";
+import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
 
@@ -80,6 +81,8 @@ export interface TenantSummary {
 /** An open Tenant Runtime. Created only by the Tenant module. */
 export interface TenantHandle {
   readonly envelope: TenantEnvelope;
+  /** The handlers Durable Session Execution calls for this Tenant (`worker.ts`). */
+  readonly worker?: TenantWorker;
   /** Headers already validated by the Host. Authenticates, authorizes, dispatches. */
   handle(
     request: IncomingMessage,
@@ -118,14 +121,33 @@ export interface BootstrapPrincipal {
   studioCredentialHash?: string;
 }
 
-/** The deep module (§8). HTTP, CLI and tests use only this. */
+/**
+ * The deep module (§8). HTTP, CLI and tests use only this.
+ *
+ * Tenants open on demand (architecture §8.2): the first `resolve`, `status`, `worker` or
+ * `delete` naming a Tenant opens it (bounded by the open timeout) and caches the handle or
+ * the quarantine; `start` only marks discovery done, so a Host with many Tenants opens none
+ * at startup.
+ */
 export interface TenantModule {
-  start(): Promise<void>; // discover + open all (pool 4, 30 s)
+  /** Marks discovery done (`/ready`). Opens nothing. */
+  start(): Promise<void>;
   readonly started: boolean;
+  /** Opens the Tenant on first use; a missing Tenant is `not-found`. */
   resolve(id: string): Promise<TenantResolution>;
+  /**
+   * The Tenant's Worker handlers, opening it on demand, for `TenantWorkers.resolve`.
+   * Undefined when the Tenant does not exist, is quarantined or is being deleted, or the
+   * module is closed.
+   */
+  worker(id: string): Promise<TenantWorker | undefined>;
   create(
     input: { tenantId: string; name: string } & BootstrapPrincipal,
   ): Promise<{ envelope: TenantEnvelope; created: boolean }>;
+  /**
+   * Every Tenant the store holds, without opening any. A Tenant not opened yet is listed
+   * `open` when its envelope reads; opening it may still quarantine it.
+   */
   list(): Promise<readonly AdminTenant[]>;
   status(id: string): Promise<AdminTenantStatus | undefined>;
   delete(
@@ -136,10 +158,19 @@ export interface TenantModule {
   close(): Promise<void>;
 }
 
-/** Storage adapter behind the module (§8): OSS directory+SQLite, and in-memory for tests. */
+/**
+ * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`), the
+ * directory with SQLite (`store-fs.ts`, until Wave 4), and in-memory for tests.
+ */
 export interface TenantStore {
-  enumerate(): Promise<readonly string[]>; // directory names that look like ids
+  /** Ids of every Tenant the store holds. */
+  enumerate(): Promise<readonly string[]>;
   readEnvelope(id: string): Promise<TenantEnvelope>; // throws typed errors
+  /**
+   * Creates the Tenant, or returns `exists` when it already exists (whatever its bootstrap
+   * material; the module compares it with `bootstrapMatches`). The stored envelope's
+   * `schemaVersion` is the store's own; read it back with `readEnvelope`.
+   */
   create(
     envelope: TenantEnvelope,
     bootstrap: BootstrapPrincipal,
@@ -148,9 +179,23 @@ export interface TenantStore {
     id: string,
     bootstrap: BootstrapPrincipal,
   ): Promise<boolean>;
-  open(id: string): Promise<TenantHandle>; // runs migration, may throw Quarantine
+  /**
+   * Opens the Tenant Runtime; runs migration. Throws `TenantNotFoundError` when the Tenant
+   * does not exist, and a quarantine error when it cannot be opened.
+   */
+  open(id: string): Promise<TenantHandle>;
+  /** Removes the Tenant (the directory store moves it to `trash/`). */
   trash(id: string, now: Date): Promise<void>;
+  /** Removes what a failed `create` left, never an existing Tenant. */
   removePartial(id: string): Promise<void>;
+}
+
+/** Thrown by `TenantStore.open` for a Tenant that does not exist. */
+export class TenantNotFoundError extends Error {
+  constructor(readonly tenantId: string) {
+    super(`Tenant ${tenantId} not found`);
+    this.name = "TenantNotFoundError";
+  }
 }
 
 /** Injected into the store so WS-B can test without WS-A. */

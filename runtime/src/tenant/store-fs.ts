@@ -21,13 +21,13 @@ import {
 } from "./schema.js";
 import { createSqliteSessionStore } from "../store/sqlite.js";
 import type { Tx } from "../store/types.js";
-import type {
-  BootstrapPrincipal,
-  Logger,
-  OpenTenantRuntime,
-  TenantConfig,
-  TenantHandle,
-  TenantStore,
+import {
+  TenantNotFoundError,
+  type BootstrapPrincipal,
+  type Logger,
+  type OpenTenantRuntime,
+  type TenantConfig,
+  type TenantStore,
 } from "./types.js";
 import type { MigrationHooks } from "./migration.js";
 
@@ -141,11 +141,7 @@ export function createFsTenantStore(
 
     async open(id) {
       const paths = tenantPaths(options.hostRoot, id);
-      if (!existsSync(paths.root)) {
-        throw quarantine("open-failed", `Tenant directory missing`, {
-          tenantId: id,
-        });
-      }
+      if (!existsSync(paths.root)) throw new TenantNotFoundError(id);
       let envelope: TenantEnvelope;
       try {
         envelope = readEnvelopeFile(paths.envelope, id);

@@ -3,13 +3,14 @@ import { isTenantId } from "@nylorun/core/compatibility";
 import { TENANT_SCHEMA_VERSION } from "./schema.js";
 import { quarantine } from "./quarantine.js";
 import { parseEnvelope } from "./envelope.js";
-import type {
-  BootstrapPrincipal,
-  Logger,
-  OpenTenantRuntime,
-  TenantConfig,
-  TenantHandle,
-  TenantStore,
+import {
+  TenantNotFoundError,
+  type BootstrapPrincipal,
+  type Logger,
+  type OpenTenantRuntime,
+  type TenantConfig,
+  type TenantHandle,
+  type TenantStore,
 } from "./types.js";
 
 export interface MemoryTenantStoreOptions {
@@ -102,11 +103,7 @@ export function createMemoryTenantStore(
 
     async open(id) {
       const record = records.get(id);
-      if (!record || record.trashed) {
-        throw quarantine("open-failed", `Tenant ${id} not found`, {
-          tenantId: id,
-        });
-      }
+      if (!record || record.trashed) throw new TenantNotFoundError(id);
       if (record.schemaVersion > TENANT_SCHEMA_VERSION) {
         throw quarantine(
           "schema-too-new",

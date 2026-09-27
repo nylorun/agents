@@ -30,6 +30,7 @@ import {
   createSqliteSessionStore,
   type SqliteSessionStore,
 } from "../store/sqlite.js";
+import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
 import { McpPool } from "../mcp/pool.js";
@@ -88,6 +89,14 @@ export type TenantOpenHooks = {
    * in-memory streams re-hydrated from its SQLite events (until Wave 3 wires S2).
    */
   streams?: DurableStreams;
+  /**
+   * The Tenant's opened Session Store (its Postgres schema, `store-pg.ts`). The Tenant owns
+   * it from here on and closes it on close or on a failed open. Without one, the Tenant
+   * opens SQLite at `paths.database`.
+   */
+  store?: SessionStore;
+  /** The Tenant envelope as its store reports it. Without one, read from `paths.envelope`. */
+  envelope?: TenantEnvelope;
 };
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -124,7 +133,7 @@ export class TenantRuntime implements TenantHandle {
     config: TenantConfig,
     hooks: TenantOpenHooks = {}
   ): Promise<TenantRuntime> {
-    const envelope = readEnvelope(config);
+    const envelope = hooks.envelope ?? readEnvelope(config);
     const flowLimits = validateConfig(config);
 
     const paths = config.paths;
@@ -134,13 +143,13 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(paths.sandboxes, { recursive: true });
     mkdirSync(paths.pluginData, { recursive: true });
     mkdirSync(paths.logs, { recursive: true });
-    mkdirSync(dirname(paths.database), { recursive: true });
+    if (!hooks.store) mkdirSync(dirname(paths.database), { recursive: true });
 
-    let store: SqliteSessionStore | undefined;
+    let store: SessionStore | undefined = hooks.store;
     let wired: StreamsWiring | undefined;
     let detach: (() => Promise<void>) | undefined;
     try {
-      store = createSqliteSessionStore({
+      store ??= createSqliteSessionStore({
         path: paths.database,
         tenantId: config.tenantId,
         onError: (error) =>
@@ -276,11 +285,12 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
-      wired = await wireStreams(ctx, {
-        store: opened,
-        streams: hooks.streams,
-        tenantId: config.tenantId,
-      });
+      wired = await wireStreams(
+        ctx,
+        hooks.streams
+          ? { store: opened, streams: hooks.streams, tenantId: config.tenantId }
+          : { store: opened as SqliteSessionStore, tenantId: config.tenantId }
+      );
       // Outbox rows a lost relay step left behind are appended by the sweep.
       sweepHooks.add(async () => {
         await drainOutbox(ctx);

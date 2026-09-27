@@ -22,7 +22,11 @@ import {
   TenantBusyError,
   TenantConflictError,
 } from "../tenant/quarantine.js";
-import type { Logger, TenantModule } from "../tenant/types.js";
+import {
+  TenantNotFoundError,
+  type Logger,
+  type TenantModule,
+} from "../tenant/types.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import type { ContainerListen } from "./stack-config.js";
 import {
@@ -257,6 +261,8 @@ export function createHost(options: CreateHostOptions): HostServer {
             response.end();
             return;
           } catch (error) {
+            if (error instanceof TenantNotFoundError)
+              return sendOpaqueNotFound(response);
             const code = (error as { code?: string }).code;
             if (
               error instanceof TenantBusyError ||
