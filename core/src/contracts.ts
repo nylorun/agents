@@ -868,7 +868,11 @@ export const CreateTenantRequestSchema = z
   .object({
     tenantId: z.string().min(1),
     name: z.string().min(1),
-    principalId: z.string().min(1),
+    /** `studio` is reserved for the derived Studio principal. */
+    principalId: z
+      .string()
+      .min(1)
+      .refine((id) => id !== "studio", "principalId `studio` is reserved"),
     credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
     idempotencyKey: IdempotencyKeySchema,
     /** SHA-256 of the derived Studio key; registers principal `studio` (feature `studio-principal`). */
