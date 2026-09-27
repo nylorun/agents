@@ -10,7 +10,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
@@ -220,7 +220,10 @@ export async function startSecurityHost(options?: {
   modelProvider?: ModelProvider;
   retainRoot?: boolean;
 }): Promise<SecurityHost> {
-  const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-sec-host-"));
+  // Real path, as tenantPaths derives it (macOS tmpdir is under the /var symlink).
+  const hostRoot = await realpath(
+    await mkdtemp(join(tmpdir(), "nylorun-sec-host-")),
+  );
   roots.push(hostRoot);
   const ambientHome = await mkdtemp(join(tmpdir(), "nylorun-sec-home-"));
   roots.push(ambientHome);
