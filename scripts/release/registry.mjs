@@ -3,21 +3,24 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { npm, packageName } from "../lib/repo.mjs";
 
 const REGISTRY = "https://registry.npmjs.org/";
+const INSTALL_ACCEPT =
+  "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*";
 
 /**
  * The package document, bypassing the registry CDN (`?write=true`, as npm's own
  * write commands read it). `npm view` can serve a copy cached before this run
- * published, which hid each new version for minutes.
+ * published, which hid each new version for minutes. With `install`, the
+ * abbreviated document `npm install` reads, through the CDN.
  */
-async function document(name) {
+async function document(name, { install = false } = {}) {
   const url = new URL(
-    `${encodeURIComponent(packageName(name))}?write=true`,
+    `${encodeURIComponent(packageName(name))}${install ? "" : "?write=true"}`,
     REGISTRY,
   );
   for (let attempt = 1; ; attempt++) {
     try {
       const response = await fetch(url, {
-        headers: { accept: "application/json" },
+        headers: { accept: install ? INSTALL_ACCEPT : "application/json" },
         signal: AbortSignal.timeout(30_000),
       });
       if (response.status === 404) return undefined;
@@ -43,6 +46,11 @@ export const registry = {
     const dist = (await document(name))?.versions?.[version]?.dist;
     return dist ? { integrity: dist.integrity } : undefined;
   },
+  async installable(name, version) {
+    return Boolean(
+      (await document(name, { install: true }))?.versions?.[version],
+    );
+  },
   async publish(_name, path, channel) {
     await npm([
       "publish",
@@ -64,6 +72,17 @@ export const registry = {
     }
     throw new Error(
       `Registry has not exposed ${name}@${version}; retry this release later.`,
+    );
+  },
+  // `npm install` from a clean cache can miss a version waitFor already saw:
+  // the CDN served create-agent's older document a minute after publication.
+  async waitForInstall(name, version, { sleep: pause = sleep } = {}) {
+    for (let attempt = 0; attempt < 120; attempt++) {
+      if (await this.installable(name, version)) return;
+      await pause(5000);
+    }
+    throw new Error(
+      `npm install does not see ${name}@${version} yet; rerun this workflow for the same commit.`,
     );
   },
   async ensureTag(name, version, channel, { sleep: pause = sleep } = {}) {
