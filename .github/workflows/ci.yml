@@ -205,7 +205,9 @@ jobs:
       - name: Supervisor and release tooling
         run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs scripts/test/pins.test.mjs
   # Runtime integration tests against the Docker test stack (Postgres 17,
-  # Restate, s2-lite) in runtime/test/stack/compose.yaml.
+  # Restate, s2-lite) in runtime/test/stack/compose.yaml, with test Tenants in
+  # Postgres. They include the architecture §17 failure suite
+  # (runtime/test/failure/README.md), which recreates the stack's Restate.
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -224,6 +226,7 @@ jobs:
       - name: Integration tests
         env:
           NYLORUN_TEST_STACK: "1"
+          NYLORUN_TEST_STORE: postgres
         run: npm run test:integration --workspace @nylorun/runtime
       # The unit suite again, with every test Tenant on Postgres instead of
       # the in-memory Session Store.
@@ -242,10 +245,11 @@ jobs:
   # `nylorun start` on Linux with the Runtime and Studio images built from this
   # PR, under a temporary Host root: status, /ready (Postgres, Restate, S2), a
   # Tenant through @nylorun/admin, a Studio login, the Restate identity key,
-  # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`.
+  # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`. Then
+  # a second stack whose runtime container is killed during a model call.
   stack:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -283,6 +287,15 @@ jobs:
           NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
           NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
         run: npm run test:stack
+      # Architecture §17 case 3 on a fresh stack: the runtime container killed
+      # mid model call (`docker compose kill`), then started; the effect must
+      # become uncertain with no second model call (scripts/smoke-failure.mjs).
+      - name: Smoke a Worker killed mid-call
+        timeout-minutes: 10
+        env:
+          NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+          NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
+        run: npm run test:failure
   # Newest Node line with its bundled npm, as a consumer would run it.
   consumers:
     strategy:
