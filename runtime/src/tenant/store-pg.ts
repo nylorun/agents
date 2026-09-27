@@ -23,37 +23,31 @@ import type { PostgresClient } from "../store/postgres/connect.js";
 import type { Migration } from "../store/postgres/migrations/index.js";
 import { tenantSchemaName } from "../store/postgres/names.js";
 import { createPostgresTenantCatalog } from "../store/postgres/tenants.js";
-import type { SessionStore } from "../store/types.js";
 import { tenantPaths } from "./paths.js";
 import { QuarantineError, TenantConflictError } from "./quarantine.js";
 import {
   TenantNotFoundError,
   TenantUnavailableError,
   type Logger,
+  type OpenTenantRuntime,
   type Quarantine,
   type TenantConfig,
-  type TenantHandle,
   type TenantStore,
 } from "./types.js";
-
-/** Opens the Tenant Runtime on a store the catalog opened; the Runtime then owns `store`. */
-export type OpenPostgresTenant = (
-  config: TenantConfig,
-  opened: { store: SessionStore; envelope: TenantEnvelope },
-) => Promise<TenantHandle>;
 
 export interface PostgresTenantStoreOptions {
   hostRoot: string;
   /** The Host's pool. The store never ends it. */
   sql: PostgresClient;
-  openRuntime: OpenPostgresTenant;
+  /** Opens the Tenant Runtime on a store the catalog opened; the Runtime then owns it. */
+  openRuntime: OpenTenantRuntime;
   configFor: (tenantId: string) => TenantConfig;
   logger?: Logger;
   /** Tests only: the migrations this Runtime knows. */
   migrations?: readonly Migration[];
 }
 
-/** Repair instructions for a Postgres Tenant, replacing the directory-store wording. */
+/** Repair instructions for a Postgres Tenant, naming its schema. */
 function repairFor(code: Quarantine["code"], tenantId: string): string {
   const status = `nylorun tenant status ${tenantId}`;
   const schema = tenantSchemaName(tenantId);

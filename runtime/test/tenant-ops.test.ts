@@ -48,7 +48,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
   const parsed = TenantStatusSchema.parse(body);
   expect(parsed.tenant.id).toBe(runtime.tenantId);
   expect(parsed.path).toContain(runtime.tenantId);
-  expect(parsed.checks.sqlite).toBe(true);
+  expect(parsed.checks.store).toBe(true);
   expect(parsed.checks.schema).toBe(true);
   expect(parsed.model.configured).toBe(false);
   const serialized = JSON.stringify(body);

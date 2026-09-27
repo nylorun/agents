@@ -11,7 +11,7 @@ import type { Migration } from "./index.js";
  * - Bodies are `json`, not `jsonb`, so every string round-trips exactly as
  *   `JSON.stringify` wrote it. `jsonb` rejects the escapes `\u0000` (`22P05`)
  *   and unpaired surrogates (`\ud800`), which tool output can contain and
- *   which SQLite and the in-memory store accept. `json` stores the text
+ *   which the in-memory store accepts. `json` stores the text
  *   verbatim and checks only its syntax. The generated columns read the body
  *   through `doc(body)`, which casts to `jsonb` after replacing those two
  *   escapes with `\ufffd`: the stored body is untouched, and only an indexed

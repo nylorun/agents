@@ -108,7 +108,7 @@ export async function until<T>(
 export const count = (list: string[], type: string) =>
   list.filter((item) => item === type).length;
 
-/** Reads the session row and its effects straight from the Tenant's store (SQLite or Postgres). */
+/** Reads the session row and its effects straight from the Tenant's store (in memory or Postgres). */
 export async function stored(runtime: Started, id = "s1") {
   const store = await openTestSessionStore(runtime);
   try {

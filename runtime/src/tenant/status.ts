@@ -113,7 +113,7 @@ export async function buildTenantStatus(
     tenant: ctx.envelope,
     path: ctx.config.paths.root,
     checks: {
-      sqlite: health.schemaVersion > 0,
+      store: health.schemaVersion > 0,
       scheduler: !ctx.closing,
       model: ctx.modelConfigured || modelView.configured,
       executors: true,

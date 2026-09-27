@@ -18,7 +18,6 @@ export const HOST_PROTOCOL: ProtocolRange = {
   features: PROTOCOL_FEATURES,
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
-export const LAUNCHER_PROTOCOL = 1;
 
 export const TENANT_HEADER = "Nylorun-Tenant";
 export const PROTOCOL_HEADER = "Nylorun-Protocol";
@@ -33,16 +32,6 @@ export const ERROR_CODES = [
   "active_work",
   "connection_missing",
   "incompatible_host",
-  "platform_unsupported",
-  "launcher_failed",
-  "lock_timeout",
-  "foreign_port",
-  "host_unresponsive",
-  "host_start_failed",
-  "host_schema_newer",
-  "host_format_newer",
-  "downgrade_refused",
-  "upgrade_failed",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

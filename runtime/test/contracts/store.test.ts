@@ -7,7 +7,7 @@ storeContract("memory", async (options) => ({
   store: new MemorySessionStore(options),
 }));
 
-it("encodes cursors like the SQLite store", () => {
+it("encodes cursors as base64url session:seq", () => {
   expect(encodeCursor("s1", 7)).toBe(Buffer.from("s1:7").toString("base64url"));
   expect(decodeCursor("s1", encodeCursor("s1", 7))).toBe(7);
   expect(() => decodeCursor("s2", encodeCursor("s1", 7))).toThrow("Invalid cursor");

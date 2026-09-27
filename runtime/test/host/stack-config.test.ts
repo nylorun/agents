@@ -27,7 +27,7 @@ describe("parseRole", () => {
 });
 
 describe("parseStackConfig", () => {
-  it("is local mode with no endpoints for the launcher's environment", () => {
+  it("is local mode with no endpoints for a bare environment", () => {
     const config = parseStackConfig(
       { NYLORUN_HOME: "/home/u/.nylorun", PATH: "/usr/bin" },
       [],

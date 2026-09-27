@@ -7,34 +7,25 @@
  *
  * Composition: `createInfra` builds the Postgres pool, Durable Session
  * Execution and Durable Streams from the endpoints; `createHostExecution`
- * shares one execution across the Tenants; the Tenant store is Postgres with
- * `NYLORUN_DATABASE_URL` (required in container mode) and SQLite otherwise;
- * `/ready` reports the infrastructure checks. See the startup order in
- * `main()`.
+ * shares one execution across the Tenants; the Tenant store is Postgres
+ * (`NYLORUN_DATABASE_URL`, required); `/ready` reports the infrastructure
+ * checks. See the startup order in `main()`. Tests compose a Host without this
+ * entry, with `createHost` and an injected Tenant module.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { hostPaths } from "../tenant/paths.js";
+import { hostPaths, trashSqliteTenants } from "../tenant/paths.js";
 import { createTenantModule } from "../tenant/module.js";
-import { createFsTenantStore } from "../tenant/store-fs.js";
 import { createPostgresTenantStore } from "../tenant/store-pg.js";
-import { openTenantRuntime, type TenantOpenHooks } from "../tenant/runtime.js";
+import { openTenantRuntime } from "../tenant/runtime.js";
 import { createTenantStreams, deleteTenantStreams } from "../tenant/streams.js";
-import type {
-  HostConfigFile,
-  HostCredentialsFile,
-  HostStateFile,
-} from "./config.js";
+import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import { configForFactory } from "./config-for.js";
 import { createHost, type CreateHostOptions } from "./create-host.js";
 import { createHostExecution } from "./execution.js";
-import {
-  baselineEnvironment,
-  hostProcessEnvironment,
-} from "./environment.js";
+import { baselineEnvironment } from "./environment.js";
 import {
   HostListenError,
   EXIT_PORT_IN_USE,
@@ -43,9 +34,7 @@ import {
 import { createHostLogger } from "./logger.js";
 import { describeEndpoints, parseStackConfig } from "./stack-config.js";
 import { createExecution, createInfra } from "../infra/index.js";
-import { RUNTIME_VERSION } from "../version.js";
 
-const entry = fileURLToPath(import.meta.url);
 const nodeRequire = createRequire(import.meta.url);
 
 function coreVersion(): string {
@@ -75,23 +64,22 @@ export async function main(): Promise<void> {
   mkdirSync(paths.tmp, { recursive: true });
   mkdirSync(paths.tenants, { recursive: true });
 
-  const setup = stack.listen ? "nylorun start" : "nylorun runtime up";
   if (!existsSync(paths.config)) {
     throw new Error(
-      `Missing host.json at ${paths.config}; run \`${setup}\` first`,
+      `Missing host.json at ${paths.config}; run \`nylorun start\` first`,
     );
   }
   if (!existsSync(paths.credentials)) {
     throw new Error(
-      `Missing host-credentials.json at ${paths.credentials}; run \`${setup}\` first`,
+      `Missing host-credentials.json at ${paths.credentials}; run \`nylorun start\` first`,
     );
   }
 
-  // The stack runs on Postgres and S2; only a local (launcher) Host may still
-  // use SQLite and in-process streams.
-  if (stack.listen && !stack.endpoints.databaseUrl) {
+  // Tenants are Postgres schemas. Only a Host outside a container (a local
+  // development Host) may run without S2, on in-process streams.
+  if (!stack.endpoints.databaseUrl) {
     throw new Error(
-      "NYLORUN_DATABASE_URL is required in container mode: the Postgres URL of the Session Store (`nylorun start` sets it)",
+      "NYLORUN_DATABASE_URL is required: the Postgres URL of the Session Store (`nylorun start` sets it)",
     );
   }
   if (stack.listen && !stack.endpoints.s2Endpoint) {
@@ -108,9 +96,12 @@ export async function main(): Promise<void> {
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
+  // Tenants from the SQLite Runtime are not migrated: move them out of the way.
+  trashSqliteTenants(hostRoot, logger);
   const infra = createInfra(stack, { logger });
+  const database = infra.database;
+  if (!database) throw new Error("NYLORUN_DATABASE_URL did not yield a Postgres pool");
   const baseline = baselineEnvironment(process.env);
-  void hostProcessEnvironment(baseline, config, paths);
 
   // Credential-free release/dev fixture (create-agent / CI smokes). Requires
   // ephemeral mode so fixture models are allowed (Tenants D10).
@@ -138,29 +129,18 @@ export async function main(): Promise<void> {
   // them (a local Host only) each Tenant keeps in-process streams, whose history
   // does not survive a restart.
   const streams = infra.streams;
-  const hooks: TenantOpenHooks = {
-    execution: hostExecution.tenantExecution,
-    ...(streams ? { streams } : {}),
-  };
-
-  // With NYLORUN_DATABASE_URL, Tenants are Postgres schemas; without it (local
-  // Host only, until Wave 4) each Tenant is a directory with SQLite.
-  const store = infra.database
-    ? createPostgresTenantStore({
-        hostRoot,
-        sql: infra.database,
-        configFor,
-        logger,
-        openRuntime: (tenantConfig, opened) =>
-          openTenantRuntime(tenantConfig, { ...hooks, ...opened }),
-      })
-    : createFsTenantStore({
-        hostRoot,
-        configFor,
-        logger,
-        openRuntime: (tenantConfig) => openTenantRuntime(tenantConfig, hooks),
-      });
-  logger.info("tenant_store", { kind: infra.database ? "postgres" : "sqlite" });
+  const store = createPostgresTenantStore({
+    hostRoot,
+    sql: database,
+    configFor,
+    logger,
+    openRuntime: (tenantConfig, opened) =>
+      openTenantRuntime(tenantConfig, {
+        execution: hostExecution.tenantExecution,
+        ...(streams ? { streams } : {}),
+        ...opened,
+      }),
+  });
 
   const module = createTenantModule({
     store,
@@ -189,7 +169,7 @@ export async function main(): Promise<void> {
     credentials,
     logger,
     coreVersion: coreVersion(),
-    ...(stack.listen ? { listen: stack.listen, ownsStateFile: false } : {}),
+    ...(stack.listen ? { listen: stack.listen } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
     // SIGTERM and POST /v1/admin/host/shutdown both close the Host this way:
@@ -234,27 +214,11 @@ export async function main(): Promise<void> {
       }),
     );
 
-  // host-state.json tracks a launcher-spawned process on this machine. A
-  // container's pid means nothing on the Docker host, so it writes none.
-  if (!stack.listen) {
-    const state: HostStateFile = {
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-      version: RUNTIME_VERSION,
-      entry,
-      url: host.url,
-    };
-    writeFileSync(paths.state, `${JSON.stringify(state, null, 2)}\n`, {
-      mode: 0o600,
-    });
-  }
-
   logger.info("host_ready", {
     url: host.url,
     hostId: config.hostId,
     tenants: tenants.length,
   });
-  process.send?.({ type: "ready", url: host.url });
 
   void host.closed.then(() => process.exit(0));
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

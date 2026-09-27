@@ -3,7 +3,7 @@
  * (architecture §12.4, §14.5). Only endpoints are configurable, never the kind:
  * with `NYLORUN_S2_ENDPOINT` the Host uses S2 (s2-lite on a developer machine,
  * or the S2 service); without it, the in-memory implementation, which only
- * unit tests and the pre-stack launcher use.
+ * unit tests and a local development Host use.
  */
 import { createS2Streams } from "../adapters/streams/s2.js";
 import type { StackConfig } from "../host/stack-config.js";

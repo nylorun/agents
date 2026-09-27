@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -21,7 +21,6 @@ import {
   TenantEnvelopeSchema,
 } from "@nylorun/core/contracts";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
-import { tenantPaths } from "../../src/tenant/paths.js";
 import { tenantSchemaName } from "../../src/store/postgres/names.js";
 import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
 
@@ -113,7 +112,7 @@ function createBody(overrides?: {
 
 it("A7: Admin API conformance — create, lost response, conflict, list, get, quarantine, delete modes, status", async () => {
   const runtime = await startHost();
-  const { url, adminKey, hostRoot, database } = runtime;
+  const { url, adminKey, database } = runtime;
   const headers = adminHeaders(adminKey);
 
   const first = createBody({ name: "primary" });
@@ -174,24 +173,21 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
     state: "open",
   });
 
-  const badId = newTenantId();
+  // A schema without its envelope row. The in-memory store cannot hold a broken Tenant;
+  // the module's quarantine is covered by the Tenant module conformance suite.
   if (TEST_STORE === "postgres") {
-    // A schema without its envelope row.
+    const badId = newTenantId();
     const sql = database!;
     await sql`CREATE SCHEMA ${sql(tenantSchemaName(badId))}`;
-  } else {
-    const paths = tenantPaths(hostRoot, badId);
-    await mkdir(paths.root, { recursive: true });
-    await writeFile(paths.envelope, "{not-json");
+    const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
+      headers,
+    });
+    expect(quarantined.status).toBe(200);
+    const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
+    expect(qStatus.state).toBe("quarantined");
+    expect(qStatus.quarantine?.code).toBe("envelope-invalid");
+    expect(qStatus.quarantine?.repair).toMatch(/nylorun tenant status/);
   }
-  const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
-    headers,
-  });
-  expect(quarantined.status).toBe(200);
-  const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
-  expect(qStatus.state).toBe("quarantined");
-  expect(qStatus.quarantine?.code).toBe("envelope-invalid");
-  expect(qStatus.quarantine?.repair).toMatch(/nylorun tenant status/);
 
   const status = await getJson(`${url}/v1/admin/status`, { headers });
   const host = await getJson(`${url}/v1/admin/host`, { headers });

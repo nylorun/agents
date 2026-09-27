@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 /** Host entry may read ambient process/OS state; nothing else under runtime/src may. */
-const AMBIENT_ALLOWLIST = new Set(["host/main.ts", "launcher/main.ts"]);
+const AMBIENT_ALLOWLIST = new Set(["host/main.ts"]);
 
 const AMBIENT_PATTERN =
   /process\.env|process\.cwd\s*\(|\bhomedir\s*\(|\btmpdir\s*\(/g;
@@ -39,7 +39,7 @@ function collectMatches(source, pattern) {
 }
 
 /**
- * Fail on ambient process/OS reads under runtime/src (except host/main.ts and launcher/main.ts)
+ * Fail on ambient process/OS reads under runtime/src (except host/main.ts)
  * and on console.* under runtime/src/tenant.
  *
  * @param {{ runtimeSrc?: string }} [options]
@@ -58,7 +58,7 @@ export function checkAmbient(options = {}) {
     if (!ambientAllowed) {
       for (const match of collectMatches(source, AMBIENT_PATTERN)) {
         violations.push(
-          `${rel}:${match.line}: ambient ${match.text} (allowed only in host/main.ts or launcher/main.ts)`,
+          `${rel}:${match.line}: ambient ${match.text} (allowed only in host/main.ts)`,
         );
       }
     }

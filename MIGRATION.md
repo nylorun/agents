@@ -63,6 +63,29 @@ are not supported on the stack: when `nylorun dev` reports the linked Tenant as
 unknown, let it create a new one (in a terminal), or remove
 `.nylorun/link.json` and `.nylorun/credentials.json` and run it again.
 
+### SQLite Tenants are not migrated
+
+Tenants are Postgres schemas now; the SQLite Session Store is removed. A Tenant
+directory from the SQLite Runtime (`~/.nylorun/tenants/<id>/` holding a
+`tenant.sqlite`) is not migrated: on its first start the Runtime moves it to
+`~/.nylorun/trash/<id>-sqlite-<time>/` and logs
+`sqlite_tenant_moved_to_trash` with its id. Recreate the Tenant (`nylorun dev`
+creates one for a Project), and copy anything you still need out of `trash/`
+before you delete it.
+
+### The `nylorun-runtime` launcher is removed
+
+`@nylorun/runtime` has no bin: the `nylorun-runtime` launcher (`up`, `down`,
+`status`, `logs`, `--json`) and its `host-state.json` are gone, and the Runtime
+runs only as the `ghcr.io/nylorun/runtime` image. Uninstall a global copy with
+`npm uninstall --global @nylorun/runtime` and use `nylorun start|stop|status|logs`.
+`@nylorun/core` drops `LAUNCHER_PROTOCOL` and the launcher error codes
+(`platform_unsupported`, `launcher_failed`, `lock_timeout`, `foreign_port`,
+`host_unresponsive`, `host_start_failed`, `host_schema_newer`,
+`host_format_newer`, `downgrade_refused`, `upgrade_failed`), and the quarantine
+code `locked` with `lockPath`/`lockPid`. `GET /v1/tenant` reports
+`checks.store` instead of `checks.sqlite`.
+
 # Runtime Clients and Admin API (breaking beta)
 
 Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).

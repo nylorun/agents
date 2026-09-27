@@ -225,6 +225,14 @@ jobs:
         env:
           NYLORUN_TEST_STACK: "1"
         run: npm run test:integration --workspace @nylorun/runtime
+      # The unit suite again, with every test Tenant on Postgres instead of
+      # the in-memory Session Store.
+      - name: Runtime tests on Postgres
+        env:
+          NYLORUN_TEST_STACK: "1"
+          NYLORUN_TEST_STORE: postgres
+        working-directory: runtime
+        run: npx vitest run
       - name: Test stack logs
         if: failure()
         run: docker compose -f runtime/test/stack/compose.yaml logs --no-color

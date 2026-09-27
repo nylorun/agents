@@ -38,28 +38,22 @@ export function asQuarantine(error: unknown): Quarantine | undefined {
 /** CLI-facing repair strings for every quarantine code (B9). */
 export function repairFor(
   code: Quarantine["code"],
-  detail: {
-    tenantId?: string;
-    migrationPath?: string;
-  } = {},
+  detail: { tenantId?: string } = {},
 ): string {
   const id = detail.tenantId ? ` ${detail.tenantId}` : "";
   switch (code) {
     case "kek-missing":
       return `nylorun tenant status${id} — restore vault-kek for this Tenant (ciphertext cannot be opened without it)`;
     case "corrupt":
-      return `nylorun tenant status${id} — repair or restore the Tenant directory from backup`;
+      return `nylorun tenant status${id} — restore the Tenant from backup`;
     case "schema-too-new":
-      return `nylorun runtime restart` +
-        `${id ? ` — Tenant${id} needs a newer Host` : " — Host schema is older than this Tenant"}`;
+      return `nylorun tenant status${id} — the Tenant was migrated by a newer Runtime; run that version or newer`;
     case "migration-failed":
-      return detail.migrationPath
-        ? `restore ${detail.migrationPath} over the Tenant files, then nylorun tenant status${id}`
-        : `nylorun tenant status${id} — restore from .migration/ snapshot, then retry`;
+      return `nylorun tenant status${id} — inspect the Runtime log for the failed migration, fix it, then restart the Runtime`;
     case "envelope-invalid":
-      return `nylorun tenant status${id} — fix or replace tenant.json so its id matches the directory name`;
+      return `nylorun tenant status${id} — the Tenant envelope is missing or invalid; restore the Tenant from backup`;
     case "open-timeout":
-      return `nylorun tenant status${id} — open timed out; inspect SQLite, then retry`;
+      return `nylorun tenant status${id} — open timed out; inspect the Runtime log and Postgres, then retry`;
     case "open-failed":
       return `nylorun tenant status${id} — inspect Tenant logs and repair before the Host retries open`;
   }
@@ -68,10 +62,7 @@ export function repairFor(
 export function quarantine(
   code: Quarantine["code"],
   message: string,
-  detail: {
-    tenantId?: string;
-    migrationPath?: string;
-  } = {},
+  detail: { tenantId?: string } = {},
 ): QuarantineError {
   return new QuarantineError({
     code,

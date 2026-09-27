@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
@@ -70,31 +69,14 @@ export interface FakeRuntimeOptions {
   failFor?: ReadonlySet<string> | ((id: string) => Error | undefined);
 }
 
-function readEnvelopeIfPresent(
-  paths: { envelope: string },
-  fallbackId: string,
-): TenantEnvelope {
-  if (existsSync(paths.envelope)) {
-    try {
-      return JSON.parse(readFileSync(paths.envelope, "utf8")) as TenantEnvelope;
-    } catch {
-      /* fall through */
-    }
-  }
-  const iso = new Date().toISOString();
-  return {
-    id: fallbackId,
-    name: fallbackId,
-    createdAt: iso,
-    updatedAt: iso,
-    schemaVersion: 1,
-  };
-}
-
+/**
+ * A fake `OpenTenantRuntime`: a handle with the store's envelope that does nothing. It closes
+ * the store it was handed, as the real Tenant Runtime does.
+ */
 export function createFakeOpenRuntime(
   options: FakeRuntimeOptions,
 ): OpenTenantRuntime {
-  return async (config) => {
+  return async (config, opened) => {
     await options.beforeOpen?.(config);
     if (options.openDelayMs && options.openDelayMs > 0) {
       await new Promise((r) => setTimeout(r, options.openDelayMs));
@@ -107,8 +89,10 @@ export function createFakeOpenRuntime(
           : undefined;
     if (fail) throw fail;
 
-    const envelope = readEnvelopeIfPresent(config.paths, config.tenantId);
-    return createFakeHandle({ envelope });
+    return createFakeHandle({
+      envelope: opened.envelope,
+      onClose: () => opened.store.close(),
+    });
   };
 }
 

@@ -28,10 +28,9 @@ it("G6: unknown and quarantined Host responses are byte-identical", async () => 
         name: "q",
         state: "quarantined",
         quarantine: {
-          code: "locked",
-          message: "locked",
+          code: "kek-missing",
+          message: "vault key missing",
           repair: "nylorun tenant status",
-          lockPid: 1,
         },
       },
     ],

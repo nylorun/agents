@@ -15,8 +15,7 @@
  * session (§10.6) keeps its advances apart.
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
-import { mkdirSync, readFileSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync } from "node:fs";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { resolveFlowLimits, type FlowLimits } from "../core/limits.js";
 import { loadExecutorRegistry } from "../core/executors.js";
@@ -26,9 +25,6 @@ import {
   toolFixtureModel,
   type ModelProvider,
 } from "../core/provider.js";
-import {
-  createSqliteSessionStore,
-} from "../store/sqlite.js";
 import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
@@ -39,7 +35,12 @@ import { MemoryExecution } from "../execution/memory.js";
 import { QuarantineError } from "./quarantine-error.js";
 import { MemoryStreams } from "../streams/memory.js";
 import type { DurableStreams } from "../streams/types.js";
-import type { TenantConfig, TenantHandle, TenantSummary } from "./types.js";
+import type {
+  OpenedTenant,
+  TenantConfig,
+  TenantHandle,
+  TenantSummary,
+} from "./types.js";
 import type { TenantContext } from "./context.js";
 import {
   connectedExecutorCount,
@@ -88,19 +89,11 @@ export type TenantOpenHooks = {
   workerId?: string;
   /**
    * Durable Streams for this Tenant, owned by the caller (the Host's S2 streams). Without
-   * them the Tenant creates its own in-process `MemoryStreams`: the SQLite profile until
-   * Wave 4, whose history does not survive a restart.
+   * them the Tenant creates its own in-process `MemoryStreams`, whose history does not
+   * survive a restart (tests, and a Host without S2).
    */
   streams?: DurableStreams;
-  /**
-   * The Tenant's opened Session Store (its Postgres schema, `store-pg.ts`). The Tenant owns
-   * it from here on and closes it on close or on a failed open. Without one, the Tenant
-   * opens SQLite at `paths.database`.
-   */
-  store?: SessionStore;
-  /** The Tenant envelope as its store reports it. Without one, read from `paths.envelope`. */
-  envelope?: TenantEnvelope;
-};
+} & OpenedTenant;
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
 const DEFAULT_OWNER_LEASE_MS = 30_000;
@@ -134,9 +127,9 @@ export class TenantRuntime implements TenantHandle {
 
   static async open(
     config: TenantConfig,
-    hooks: TenantOpenHooks = {}
+    hooks: TenantOpenHooks
   ): Promise<TenantRuntime> {
-    const envelope = hooks.envelope ?? readEnvelope(config);
+    const envelope = hooks.envelope;
     const flowLimits = validateConfig(config);
 
     const paths = config.paths;
@@ -146,20 +139,11 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(paths.sandboxes, { recursive: true });
     mkdirSync(paths.pluginData, { recursive: true });
     mkdirSync(paths.logs, { recursive: true });
-    if (!hooks.store) mkdirSync(dirname(paths.database), { recursive: true });
 
-    let store: SessionStore | undefined = hooks.store;
+    const store: SessionStore = hooks.store;
     let wired: StreamsWiring | undefined;
     let detach: (() => Promise<void>) | undefined;
     try {
-      store ??= createSqliteSessionStore({
-        path: paths.database,
-        tenantId: config.tenantId,
-        onError: (error) =>
-          config.logger.error("post-commit step failed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
-      });
       let kek = readVaultKek({
         vaultKek: hooks.vaultKek,
         vaultKekPath: paths.kek,
@@ -168,7 +152,7 @@ export class TenantRuntime implements TenantHandle {
         throw new QuarantineError(
           "kek-missing",
           "Vault key-encryption key is missing for ciphertext in this Tenant",
-          "restore the vault-kek file beside tenant.sqlite"
+          "restore the vault-kek file in the Tenant directory"
         );
       }
       const createKekIfMissing = hooks.createKekIfMissing !== false;
@@ -178,7 +162,7 @@ export class TenantRuntime implements TenantHandle {
           throw new QuarantineError(
             "kek-missing",
             "Vault key-encryption key is required",
-            "restore the vault-kek file beside tenant.sqlite"
+            "restore the vault-kek file in the Tenant directory"
           );
         kek = createKekFile(paths.kek);
         return kek;
@@ -327,7 +311,7 @@ export class TenantRuntime implements TenantHandle {
     } catch (error) {
       await detach?.().catch(() => undefined);
       await wired?.close().catch(() => undefined);
-      await store?.close().catch(() => undefined);
+      await store.close().catch(() => undefined);
       throw error;
     }
   }
@@ -407,30 +391,13 @@ export class TenantRuntime implements TenantHandle {
   }
 }
 
-function readEnvelope(config: TenantConfig): TenantEnvelope {
-  if (existsSync(config.paths.envelope)) {
-    return JSON.parse(
-      readFileSync(config.paths.envelope, "utf8")
-    ) as TenantEnvelope;
-  }
-  const now = new Date().toISOString();
-  return {
-    id: config.tenantId,
-    name: config.tenantId,
-    createdAt: now,
-    updatedAt: now,
-    schemaVersion: 1,
-  };
-}
-
 /**
  * Open a Tenant Runtime from an explicit `TenantConfig`. No listen() (A1).
  * Implements `OpenTenantRuntime`.
  */
 export async function openTenantRuntime(
   config: TenantConfig,
-  // TENANTS-CCR: optional hooks for tests until TenantConfig gains them
-  hooks?: TenantOpenHooks
+  hooks: TenantOpenHooks
 ): Promise<TenantHandle> {
-  return TenantRuntime.open(config, hooks ?? {});
+  return TenantRuntime.open(config, hooks);
 }

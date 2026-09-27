@@ -1,7 +1,7 @@
 {
   "name": "@nylorun/runtime",
   "version": "0.10.0-beta",
-  "description": "SQLite agent execution host and model providers.",
+  "description": "Nylorun Runtime: the agent execution Host on Postgres, Restate and S2, and model providers.",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -11,9 +11,6 @@
   },
   "engines": {
     "node": ">=24.0.0"
-  },
-  "bin": {
-    "nylorun-runtime": "dist/launcher/main.js"
   },
   "exports": {
     ".": {
@@ -46,7 +43,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/launcher/main.js', 0o755)\"",
+    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json",
     "check": "npm run build && npm test && node scripts/check-package.mjs",
     "typecheck": "node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

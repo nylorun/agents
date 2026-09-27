@@ -5,7 +5,7 @@ import type {
   HostAggregate,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
-import { TENANT_SCHEMA_VERSION } from "./schema.js";
+import { POSTGRES_SCHEMA_VERSION } from "../store/postgres/migrations/index.js";
 import { envelopeNow } from "./envelope.js";
 import { TimeoutError, withTimeout } from "./pool.js";
 import {
@@ -232,7 +232,7 @@ export function createTenantModule(
       const envelope = envelopeNow({
         id: input.tenantId,
         name: input.name,
-        schemaVersion: TENANT_SCHEMA_VERSION,
+        schemaVersion: POSTGRES_SCHEMA_VERSION,
       });
 
       let outcome: "created" | "exists";

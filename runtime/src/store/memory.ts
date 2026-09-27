@@ -87,23 +87,37 @@ const byId = <T>(entries: Iterable<[string, T]>): [string, T][] =>
 const copy = <T>(value: T): T => structuredClone(value);
 
 /**
+ * The data behind in-memory Session Stores: what a database is to its connections. Several
+ * `MemorySessionStore`s on one `MemoryStoreData` see each other's commits and serialize their
+ * transactions together, as several processes on one Tenant schema would; it outlives them,
+ * so a test can close a Tenant and open it again.
+ */
+export class MemoryStoreData {
+  /** @internal */ state = emptyState();
+  /** @internal */ queue: Promise<void> = Promise.resolve();
+}
+
+/**
  * In-memory `SessionStore` for unit tests. Not a supported profile.
  *
  * Transactions are serialized (one at a time), each works on a copy of the
  * state and replaces it on commit, so a throw rolls back everything: documents,
- * sequences, outbox rows, `afterCommit` callbacks and `signalWork`.
+ * sequences, outbox rows, `afterCommit` callbacks and `signalWork`. Commit listeners see
+ * only this store's commits, as with a Postgres connection.
  */
 export class MemorySessionStore implements SessionStore {
   readonly tenantId: string;
-  private state = emptyState();
-  private queue: Promise<void> = Promise.resolve();
   private readonly active = new AsyncLocalStorage<MemorySessionStore>();
   private readonly listeners = new Set<CommitListener>();
   private readonly now: () => Date;
   private readonly onError: (error: unknown) => void;
   private closed = false;
 
-  constructor(options: SessionStoreOptions) {
+  constructor(
+    options: SessionStoreOptions,
+    /** Shared with other stores on the same data; a fresh, private one by default. */
+    private readonly data = new MemoryStoreData(),
+  ) {
     this.tenantId = options.tenantId;
     this.now = options.now ?? (() => new Date());
     this.onError =
@@ -122,14 +136,14 @@ export class MemorySessionStore implements SessionStore {
     let t!: MemoryTx;
     let result!: T;
     try {
-      const working = copy(this.state);
+      const working = copy(this.data.state);
       t = new MemoryTx(working, this.tenantId, this.now);
       try {
         result = await this.active.run(this, () => fn(t));
       } finally {
         t.closed = true;
       }
-      this.state = working;
+      this.data.state = working;
       if (t.events.length > 0 || t.workAvailable) {
         const commit = {
           events: t.events,
@@ -172,14 +186,14 @@ export class MemorySessionStore implements SessionStore {
 
   async close(): Promise<void> {
     this.closed = true;
-    await this.queue;
+    await this.data.queue;
   }
 
   private acquire(): Promise<() => void> {
     let release!: () => void;
     const next = new Promise<void>((resolve) => (release = resolve));
-    const ready = this.queue.then(() => release);
-    this.queue = this.queue.then(() => next);
+    const ready = this.data.queue.then(() => release);
+    this.data.queue = this.data.queue.then(() => next);
     return ready;
   }
 }

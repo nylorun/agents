@@ -6,9 +6,8 @@ import { PINNED_IMAGES } from "./images.js";
  * machine: everything that varies (ports, the Postgres password, UID/GID, the
  * Host root, the Runtime and Studio images) comes from `stack/.env`.
  *
- * This wave the Runtime still keeps Tenants in SQLite under the Host root.
- * Postgres, Restate and s2-lite run and are healthy; the Runtime's /ready
- * checks all three, and Tenants start using them in Wave 3.
+ * Tenants are Postgres schemas, executed through Restate, with their history in
+ * s2-lite; the Runtime's /ready checks all three.
  *
  * Restate signs requests to the Worker endpoint with the private key in
  * `stack/restate-identity.pem`, mounted read-only; the Runtime gets the public

@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { TENANT_HEADER } from "@nylorun/core/compatibility";
 import { ProtocolRejectedResponseSchema } from "@nylorun/core/contracts";
 import {
-  countSqliteRows,
+  countTenantRows,
   getJson,
   readTenantLog,
   startSecurityHost,
@@ -19,8 +19,8 @@ it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", as
   const [a] = host.tenants;
 
   const logBefore = readTenantLog(a);
-  const definitionsBefore = await countSqliteRows(a.paths.database, "definitions");
-  const sessionsBefore = await countSqliteRows(a.paths.database, "sessions");
+  const definitionsBefore = await countTenantRows(host, a.id, "definitions");
+  const sessionsBefore = await countTenantRows(host, a.id, "sessions");
 
   const missing = await getJson(`${host.url}/v1/agents`, {
     method: "PUT",
@@ -57,8 +57,8 @@ it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", as
   expect(wrong.status).toBe(426);
 
   expect(readTenantLog(a)).toBe(logBefore);
-  expect(await countSqliteRows(a.paths.database, "definitions")).toBe(
+  expect(await countTenantRows(host, a.id, "definitions")).toBe(
     definitionsBefore,
   );
-  expect(await countSqliteRows(a.paths.database, "sessions")).toBe(sessionsBefore);
+  expect(await countTenantRows(host, a.id, "sessions")).toBe(sessionsBefore);
 });
