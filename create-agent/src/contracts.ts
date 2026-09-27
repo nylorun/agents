@@ -4,16 +4,21 @@ export type Compatibility = Readonly<{
   harness: string;
   agents: string;
   admin: string;
-  studio: string;
   runtime: string;
 }>;
 
 export type CreateOptions = Readonly<{
   directory: string;
-  studio: boolean;
   open: boolean;
   yes: boolean;
+  /** Deprecation notes for accepted-and-ignored flags, printed first. */
+  notes?: readonly string[];
 }>;
+
+/** Docker and Compose v2, which the local stack needs. */
+export type DockerCheck =
+  | Readonly<{ ok: true }>
+  | Readonly<{ ok: false; problem: string }>;
 
 export type Process = Readonly<{
   status: number | null;
@@ -35,8 +40,8 @@ export type CreatorDependencies = Readonly<{
     args: readonly string[],
     directory: string,
   ) => Promise<Process>;
-  /** `process.versions.node`: the Runtime needs Node 24 or newer. */
+  /** `process.versions.node`: the CLI and the application need Node 24 or newer. */
   nodeVersion: string;
-  /** Path of `name` on PATH, or undefined (finds `nylorun-runtime`). */
-  findOnPath: (name: string) => string | undefined;
+  /** Check that Docker's engine answers and Compose v2 is installed. */
+  checkDocker: () => Promise<DockerCheck>;
 }>;

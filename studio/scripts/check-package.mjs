@@ -1,32 +1,27 @@
 const { checkBoundaries } = await import("../../scripts/check-boundaries.mjs");
 checkBoundaries("studio");
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 const manifest = JSON.parse(readFileSync("package.json", "utf8"));
 if (manifest.license !== "Apache-2.0")
-  throw new Error("Studio must publish under Apache-2.0.");
+  throw new Error("Studio must be licensed under Apache-2.0.");
 if (
   manifest.repository?.url !== "git+https://github.com/nylorun/harness.git" ||
   manifest.repository?.directory !== "studio"
 )
   throw new Error("Studio must reference its public source directory.");
-if (manifest.bugs !== "https://github.com/nylorun/harness/issues")
-  throw new Error("Studio must reference the public issue tracker.");
-if (manifest.homepage !== "https://docs.nylorun.com")
-  throw new Error("Studio homepage must point to Nylorun documentation.");
+
+// Studio ships only as the ghcr.io/nylorun/studio image (studio/Dockerfile).
+if (manifest.private !== true)
+  throw new Error("Studio must be private: it ships only as the ghcr.io/nylorun/studio image.");
+for (const field of ["bin", "publishConfig", "files"])
+  if (manifest[field] !== undefined)
+    throw new Error(`Studio is not published to npm; remove "${field}" from package.json.`);
 if (
   manifest.dependencies?.["@nylorun/create-agent"] !== undefined ||
   manifest.dependencies?.["@nylorun/create-harness"] !== undefined
 )
   throw new Error("Studio must not depend on a project creator.");
-if (
-  !manifest.bin ||
-  Object.keys(manifest.bin).length !== 1 ||
-  manifest.bin["nylorun-studio"] !== "dist/cli.js"
-)
-  throw new Error('Studio bin must be { "nylorun-studio": "dist/cli.js" }.');
 for (const field of [
   "dependencies",
   "devDependencies",
@@ -41,15 +36,8 @@ for (const field of [
   ])
     if (manifest[field]?.[name])
       throw new Error(`Studio must not depend on ${name}`);
-const nylorunDeps = Object.keys(manifest.dependencies ?? {})
-  .filter((name) => name.startsWith("@nylorun/"))
-  .sort();
-if (nylorunDeps.join(",") !== "@nylorun/admin,@nylorun/agents")
-  throw new Error(
-    "Studio must depend only on @nylorun/admin and @nylorun/agents among Nylorun packages.",
-  );
 
-/** Design §15: UI packages are build-time only; proxy runtime dep is agents alone. */
+/** Design §15: UI packages are build-time only; the server needs admin and agents alone. */
 const UI_DEV_DEPS = [
   "react",
   "react-dom",
@@ -96,44 +84,24 @@ for (const path of walk("web/src")) {
       throw new Error(`SD-I5: ${path} must not import engine/host/executor (${pattern})`);
 }
 
-const digest = JSON.parse(readFileSync("dist/ui-digest.json", "utf8"));
-if (typeof digest.version !== "string" || !digest.version)
-  throw new Error("dist/ui-digest.json must include version.");
-if (typeof digest.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(digest.sha256))
-  throw new Error("dist/ui-digest.json must include a 64-char hex sha256.");
-if (digest.version !== manifest.version)
-  throw new Error(
-    `dist/ui-digest.json version (${digest.version}) must match package.json (${manifest.version}).`,
-  );
-
-const cache = mkdtempSync(join(tmpdir(), "nylo-studio-pack-"));
-const output = execFileSync(
-  "npm",
-  ["pack", "--json", "--dry-run", "--ignore-scripts"],
-  { encoding: "utf8", env: { ...process.env, npm_config_cache: cache } }
-);
-rmSync(cache, { recursive: true, force: true });
-const files = JSON.parse(output)[0].files.map((entry) => entry.path);
+// What the image copies: the server entry and the built dashboard.
 for (const required of [
-  "package.json",
-  "README.md",
-  "CHANGELOG.md",
-  "LICENSE",
+  "dist/server-main.js",
+  "dist/server.js",
+  "dist/proxy.js",
+  "dist/static.js",
+  "dist/index.js",
+  "dist/web/index.html",
+])
+  if (!existsSync(required)) throw new Error(`Missing Studio build output: ${required}`);
+for (const removed of [
   "dist/cli.js",
   "dist/host.js",
-  "dist/server.js",
-  "dist/server-main.js",
-  "dist/index.js",
-  "dist/index.d.ts",
+  "dist/local-ui.js",
+  "dist/access.js",
   "dist/ui-digest.json",
+  "dist/bundle.tar",
 ])
-  if (!files.includes(required))
-    throw new Error(`Missing tarball file: ${required}`);
-if (files.includes("dist/ui.js"))
-  throw new Error("Legacy inline Studio UI must not be packaged.");
-if (files.includes("dist/bundle.tar"))
-  throw new Error("dist/bundle.tar must not be published in the npm tarball.");
-for (const path of files)
-  if (path === "dist/web" || path.startsWith("dist/web/"))
-    throw new Error(`dist/web must not be published in the npm tarball: ${path}`);
-console.log(`Studio tarball allowlist passed (${files.length} files).`);
+  if (existsSync(removed))
+    throw new Error(`${removed} belongs to the removed hosted/local Studio modes.`);
+console.log("Studio package checks passed (private; image build output present).");

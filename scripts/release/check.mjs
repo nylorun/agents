@@ -8,7 +8,7 @@ import {
 } from "../lib/repo.mjs";
 import { validatePlan, verifyReleaseCommit, releaseNotes } from "./model.mjs";
 import { packRelease, readArtifacts } from "./artifacts.mjs";
-import { assertRuntimePins } from "./pins.mjs";
+import { assertRuntimePins, assertStudioImageOnly } from "./pins.mjs";
 
 try {
   const args = process.argv.slice(2);
@@ -16,11 +16,16 @@ try {
   if (args.length > 1 || (args.length && !built))
     throw new Error("Usage: npm run release:check [-- --built]");
   await verifyToolchain();
-  await assertRuntimePins(root);
   if (process.env.RELEASE_SHA)
     await verifyReleaseCommit(root, process.env.RELEASE_SHA);
   const plan = await readJson(join(root, ".release/plan.json"));
   await validatePlan(plan, root);
+  // The CLI's image pins name the Runtime and Studio this release ships.
+  await assertRuntimePins(root, plan);
+  if (!(await assertStudioImageOnly(root)))
+    console.warn(
+      "Warning: @nylorun/studio is not private yet, so this release still publishes it to npm. Studio ships as the ghcr.io/nylorun/studio image.",
+    );
   for (const [name, version] of Object.entries(plan.packages))
     await releaseNotes(root, name, version);
   if (!built) await node("scripts/validate.mjs", ["check"]);
@@ -31,10 +36,9 @@ try {
   await writeJson(
     input,
     Object.fromEntries(
-      Object.entries(artifacts).map(([name, artifact]) => [
-        name,
-        artifact.path,
-      ]),
+      Object.entries(artifacts)
+        .filter(([, artifact]) => !artifact.image)
+        .map(([name, artifact]) => [name, artifact.path]),
     ),
   );
   await node("create-agent/scripts/check-stack.mjs");

@@ -15,7 +15,7 @@ export async function examplesFiles(
   compatibility: Compatibility,
   recipe: ExamplesRecipe
 ) {
-  const rendered = await starterFiles(compatibility, true);
+  const rendered = await starterFiles(compatibility);
   const files = Object.fromEntries(
     Object.entries(rendered).filter(([path]) => managed(path))
   );
@@ -28,7 +28,6 @@ export async function examplesFiles(
     "configure",
     "dev",
     "inspect",
-    "studio",
     "build",
     "start",
     "check",

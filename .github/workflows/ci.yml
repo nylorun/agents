@@ -119,10 +119,9 @@ jobs:
       - run: npm run setup
       - run: node scripts/acceptance/tenants.mjs --only ${{ matrix.scenarios }}
   # macOS, the other supported developer OS (Windows developers use WSL2, which
-  # is Linux): J5 desktop contract (installs @nylorun/runtime like a developer,
-  # then runs its launcher), launcher unit tests (process groups, /private/var
-  # paths) and supervisor tooling. Linux runs all of these in `check` via the
-  # workspace tests and test:tooling.
+  # is Linux): the CLI, which runs on the developer's machine, plus supervisor
+  # and release tooling. The Runtime and Studio run in Linux containers, so
+  # their tests stay on ubuntu (`check`, `integration`, `stack`).
   macos:
     runs-on: macos-latest
     timeout-minutes: 20
@@ -137,14 +136,13 @@ jobs:
             examples/package-lock.json
       # Bundled npm is enough: these tests only run npm ci and npm install.
       - run: npm ci
-      # Workspaces run in flag order: keep dependency order.
-      - run: npm run build --workspace @nylorun/core --workspace @nylorun/harness --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/runtime
-      - name: Desktop contract
-        run: node --test scripts/test/desktop-contract.test.mjs
-      - name: Launcher unit tests
-        run: npm test --workspace @nylorun/runtime -- test/launcher
+      # Workspaces run in flag order: keep dependency order. The CLI's tests
+      # still load runtime/dist until its launcher client is removed.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/harness --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/runtime --workspace @nylorun/cli
+      - name: CLI tests
+        run: npm test --workspace @nylorun/cli
       - name: Supervisor and release tooling
-        run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs
+        run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs scripts/test/pins.test.mjs
   # Runtime integration tests against the Docker test stack (Postgres 17,
   # Restate, s2-lite) in runtime/test/stack/compose.yaml.
   integration:
@@ -189,10 +187,27 @@ jobs:
       - run: npm ci
       # Workspaces run in flag order: keep dependency order.
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/cli
+      # Layers are cached in the GitHub Actions cache, per image. The release
+      # workflow builds the same Dockerfiles for amd64 and arm64.
+      - uses: docker/setup-buildx-action@v4
       - name: Build the Runtime image
-        run: docker build --file runtime/Dockerfile --tag nylorun-runtime:ci .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: runtime/Dockerfile
+          tags: nylorun-runtime:ci
+          load: true
+          cache-from: type=gha,scope=stack-runtime
+          cache-to: type=gha,mode=max,scope=stack-runtime
       - name: Build the Studio image
-        run: docker build --file studio/Dockerfile --tag nylorun-studio:ci .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: studio/Dockerfile
+          tags: nylorun-studio:ci
+          load: true
+          cache-from: type=gha,scope=stack-studio
+          cache-to: type=gha,mode=max,scope=stack-studio
       - name: Smoke nylorun start
         timeout-minutes: 15
         env:

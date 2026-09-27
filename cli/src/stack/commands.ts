@@ -1,9 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile, rm, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 import { CliError } from "../errors.js";
+import { resolveHome } from "../home.js";
 import {
   dockerPreflight,
   parseComposePs,
@@ -21,13 +20,12 @@ export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"]
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  start [--no-studio]                       start the stack; print the Runtime URL and a Studio login URL
-  stop                                      stop the stack's containers; keep volumes
-  status [--json]                           services, endpoints and Runtime health
-  stack logs [service] [-f] [--tail <n>]    stack logs (${STACK_SERVICES.join(", ")})
-  stack studio [--no-open]                  open a fresh Studio login; start the stack if it is stopped
-  reset [--yes]                             delete the stack's volumes and Tenant directories
-  stack start|stop|status|logs|reset|studio the same commands under one name`;
+export const stackUsage = `  start [--no-studio]               start the stack; print the Runtime URL and a Studio login URL
+  stop                              stop the stack's containers; keep volumes
+  status [--json] [--env]           services, endpoints and Runtime health (--env: the linked Project's variables)
+  logs [service] [-f] [--tail <n>]  stack logs (${STACK_SERVICES.join(", ")})
+  studio [--no-open]                open a fresh Studio login (on the linked Project's Tenant); start the stack if it is stopped
+  reset [--yes]                     delete the stack's volumes and Tenant directories`;
 
 export interface StackDeps {
   /** Environment snapshot (NYLORUN_HOME, image overrides, NYLORUN_STACK_PROJECT). */
@@ -56,10 +54,6 @@ export interface StackDeps {
 
 const usageError = (message: string) => new CliError(message, 2);
 
-function resolveHostRoot(env: StackDeps["env"]): string {
-  const fromEnv = env.NYLORUN_HOME?.trim();
-  return fromEnv ? resolve(fromEnv) : resolve(join(homedir(), ".nylorun"));
-}
 
 export function stackProject(env: StackDeps["env"]): string {
   const project = env.NYLORUN_STACK_PROJECT?.trim() || DEFAULT_PROJECT;
@@ -79,7 +73,7 @@ interface Context {
 function context(deps: StackDeps): Context {
   return {
     deps,
-    paths: stackPaths(resolveHostRoot(deps.env)),
+    paths: stackPaths(resolveHome(undefined, deps.env)),
     project: stackProject(deps.env),
   };
 }
@@ -186,14 +180,17 @@ async function waitForHealth(
     }
     if (Date.now() > deadline)
       throw new CliError(
-        `The Runtime did not answer ${runtimeUrl}/health. See "nylorun stack logs runtime".`,
+        `The Runtime did not answer ${runtimeUrl}/health. See "nylorun logs runtime".`,
         7,
       );
     await sleep(ctx.deps.pollMs ?? 500);
   }
 }
 
-/** A launcher-managed Runtime (`nylorun runtime up`) shares host.json; refuse to fight it. */
+/**
+ * A Runtime started by the removed launcher (`nylorun runtime up`, the
+ * `nylorun-runtime` bin) shares host.json; refuse to fight it.
+ */
 async function refuseLauncherRuntime(ctx: Context): Promise<void> {
   let state: { pid?: unknown } | undefined;
   try {
@@ -203,7 +200,7 @@ async function refuseLauncherRuntime(ctx: Context): Promise<void> {
   }
   if (typeof state?.pid === "number" && ctx.deps.pidAlive(state.pid))
     throw new CliError(
-      `A Runtime started by "nylorun runtime up" is running from ${ctx.paths.root} (pid ${state.pid}). Stop it with "nylorun runtime down", then run "nylorun start".`,
+      `A Runtime started by the old "nylorun runtime up" is running from ${ctx.paths.root} (pid ${state.pid}). Stop it with "nylorun-runtime --home ${ctx.paths.root} down" or end pid ${state.pid}, then run "nylorun start".`,
       4,
     );
 }
@@ -227,6 +224,7 @@ function isUp(services: ComposeService[], name: string): boolean {
 
 interface Started {
   runtimeUrl: string;
+  hostId: string;
   studioPort: number;
   studioStarted: boolean;
   adminKey: string;
@@ -255,7 +253,7 @@ async function bringUp(ctx: Context, options: { studio: boolean }): Promise<Star
   );
   if (up !== 0)
     throw new CliError(
-      `docker compose up failed (exit ${up}). See "nylorun stack logs runtime" and "nylorun status".`,
+      `docker compose up failed (exit ${up}). See "nylorun logs runtime" and "nylorun status".`,
       7,
     );
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.runtimePort}`;
@@ -269,11 +267,12 @@ async function bringUp(ctx: Context, options: { studio: boolean }): Promise<Star
     studioStarted = studio === 0;
     if (!studioStarted)
       deps.err(
-        `Warning: Studio did not start (image ${prepared.env.studioImage}). The Runtime is up; see "nylorun stack logs studio".`,
+        `Warning: Studio did not start (image ${prepared.env.studioImage}). The Runtime is up; see "nylorun logs studio".`,
       );
   }
   return {
     runtimeUrl,
+    hostId: prepared.host.hostId,
     studioPort: prepared.env.studioPort,
     studioStarted,
     adminKey: prepared.adminKey,
@@ -412,6 +411,11 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
   };
 }
 
+/** What `nylorun status` reports, as data (`nylorun doctor`). */
+export async function readStackStatus(deps: StackDeps): Promise<StackStatus> {
+  return await stackStatus(context(deps));
+}
+
 async function status(ctx: Context, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(args, { booleans: ["--json"] }, "nylorun status [--json]");
   if (flags.rest.length) throw usageError("Usage: nylorun status [--json]");
@@ -429,7 +433,7 @@ async function status(ctx: Context, args: readonly string[]): Promise<number> {
         }`
       : "not answering";
     out(`Runtime     ${result.runtime.url ?? "?"}  ${runtimeDetail}`);
-    out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun stack studio")`);
+    out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun studio")`);
     if (result.restate.url) out(`Restate UI  ${result.restate.url}`);
     out(
       `Services    ${
@@ -448,7 +452,7 @@ async function status(ctx: Context, args: readonly string[]): Promise<number> {
 }
 
 async function logs(ctx: Context, args: readonly string[]): Promise<number> {
-  const usage = `nylorun stack logs [${STACK_SERVICES.join("|")}] [-f] [--tail <n>]`;
+  const usage = `nylorun logs [${STACK_SERVICES.join("|")}] [-f] [--tail <n>]`;
   const flags = parseStackFlags(
     args,
     { booleans: ["--follow"], values: ["--tail"], aliases: { "-f": "--follow" } },
@@ -501,27 +505,130 @@ async function reset(ctx: Context, args: readonly string[]): Promise<number> {
   return 0;
 }
 
-async function studio(ctx: Context, args: readonly string[]): Promise<number> {
-  const flags = parseStackFlags(args, { booleans: ["--no-open"] }, "nylorun stack studio [--no-open]");
-  if (flags.rest.length) throw usageError("Usage: nylorun stack studio [--no-open]");
-  await dockerPreflight(ctx.deps.docker);
-  const persisted = existsSync(ctx.paths.compose) ? await readStackEnv(ctx.paths) : undefined;
-  const services = persisted ? await composePs(ctx) : [];
-  let studioPort = persisted?.studioPort;
-  let adminKey = await readAdminKey(ctx.paths);
-  if (!studioPort || !adminKey || !isUp(services, "runtime") || !isUp(services, "studio")) {
-    const started = await bringUp(ctx, { studio: true });
-    ctx.deps.out(`Runtime   ${started.runtimeUrl}`);
-    if (!started.studioStarted)
-      throw new CliError(`Studio did not start. See "nylorun stack logs studio".`, 7);
-    studioPort = started.studioPort;
-    adminKey = started.adminKey;
-  }
-  const login = await tryStudioLogin(ctx, studioPort, adminKey);
+/** The running stack as clients reach it. */
+export interface StackEndpoints {
+  /** The Host root (`NYLORUN_HOME` or `~/.nylorun`). */
+  home: string;
+  /** `http://localhost:<port>` */
+  runtimeUrl: string;
+  hostId: string;
+  adminKey: string;
+  studioPort: number;
+  /** Studio is running and healthy. */
+  studioUp: boolean;
+  /** This call started the Runtime (it was not running before). */
+  started: boolean;
+}
+
+/** The stack when the Runtime (and Studio, if wanted) already answer; otherwise undefined. */
+async function runningStack(
+  ctx: Context,
+  options: { studio: boolean },
+): Promise<StackEndpoints | undefined> {
+  if (!existsSync(ctx.paths.compose) || !existsSync(ctx.paths.env)) return undefined;
+  const persisted = await readStackEnv(ctx.paths);
+  const adminKey = await readAdminKey(ctx.paths);
+  const host = await readHostConfig(ctx.paths);
+  if (!persisted?.runtimePort || !persisted.studioPort || !adminKey) return undefined;
+  if (typeof host?.hostId !== "string") return undefined;
+  const services = await composePs(ctx);
+  if (!isUp(services, "runtime")) return undefined;
+  const studioUp = isUp(services, "studio");
+  if (options.studio && !studioUp) return undefined;
+  const runtimeUrl = `http://${STACK_CLIENT_HOST}:${persisted.runtimePort}`;
+  const health = await fetchHealth(ctx.deps, runtimeUrl);
+  if (health?.status !== "ok" || health.hostId !== host.hostId) return undefined;
+  return {
+    home: ctx.paths.root,
+    runtimeUrl,
+    hostId: host.hostId,
+    adminKey,
+    studioPort: persisted.studioPort,
+    studioUp,
+    started: false,
+  };
+}
+
+/**
+ * Start the stack unless it is already running (`nylorun dev`, `nylorun
+ * studio`): the `start` code path without its own output. Compose progress
+ * still streams, since the first run pulls images.
+ */
+export async function ensureStack(
+  deps: StackDeps,
+  options: { studio: boolean },
+): Promise<StackEndpoints> {
+  const ctx = context(deps);
+  await dockerPreflight(deps.docker);
+  const running = await runningStack(ctx, options);
+  if (running) return running;
+  const runtimeWasUp = isUp(
+    existsSync(ctx.paths.compose) ? await composePs(ctx) : [],
+    "runtime",
+  );
+  const started = await bringUp(ctx, options);
+  return {
+    home: ctx.paths.root,
+    runtimeUrl: started.runtimeUrl,
+    hostId: started.hostId,
+    adminKey: started.adminKey,
+    studioPort: started.studioPort,
+    studioUp: started.studioStarted,
+    started: !runtimeWasUp,
+  };
+}
+
+/** Add Studio's `next` path (e.g. `/tenants/<id>`) to a login URL. */
+export function withNext(loginUrl: string, next: string | undefined): string {
+  if (!next) return loginUrl;
+  const url = new URL(loginUrl);
+  url.searchParams.set("next", next);
+  return url.toString();
+}
+
+/** The Studio page for one Tenant, as a login `next` path. */
+export function tenantStudioPath(tenantId: string): string {
+  return `/tenants/${encodeURIComponent(tenantId)}`;
+}
+
+/**
+ * Mint a fresh Studio login URL on a running stack, landing on `next`.
+ * Undefined (after a warning) when Studio does not answer.
+ */
+export async function studioLoginUrl(
+  deps: StackDeps,
+  stack: Pick<StackEndpoints, "studioPort" | "adminKey">,
+  next?: string,
+): Promise<string | undefined> {
+  const login = await tryStudioLogin(context(deps), stack.studioPort, stack.adminKey);
+  return login === undefined ? undefined : withNext(login, next);
+}
+
+async function studio(
+  ctx: Context,
+  args: readonly string[],
+  options: { next?: string } = {},
+): Promise<number> {
+  const flags = parseStackFlags(args, { booleans: ["--no-open"] }, "nylorun studio [--no-open]");
+  if (flags.rest.length) throw usageError("Usage: nylorun studio [--no-open]");
+  const stack = await ensureStack(ctx.deps, { studio: true });
+  if (stack.started) ctx.deps.out(`Runtime   ${stack.runtimeUrl}`);
+  if (!stack.studioUp)
+    throw new CliError(`Studio did not start. See "nylorun logs studio".`, 7);
+  const login = await studioLoginUrl(ctx.deps, stack, options.next);
   if (!login) return 1;
   ctx.deps.out(`Studio    ${login}`);
   if (!flags.booleans.has("--no-open")) await ctx.deps.openBrowser(login);
   return 0;
+}
+
+/** `nylorun studio`, landing on `next` (the linked Project's Tenant) when given. */
+export async function runStudioCommand(
+  args: readonly string[],
+  deps: StackDeps,
+  options: { next?: string } = {},
+): Promise<number> {
+  return await studio(context(deps), args, options);
 }
 
 const COMMANDS: Record<string, (ctx: Context, args: readonly string[]) => Promise<number>> = {
@@ -530,7 +637,7 @@ const COMMANDS: Record<string, (ctx: Context, args: readonly string[]) => Promis
   status,
   logs,
   reset,
-  studio,
+  studio: (ctx, args) => studio(ctx, args),
 };
 
 export function isStackCommand(name: string | undefined): boolean {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createAdmin, type AdminTenant } from "@nylorun/admin";
 import { createClient, isTenantId } from "@nylorun/agents";
 import { CliError } from "../errors.js";
-import { resolveHome } from "../runtime/launcher.js";
+import { resolveHome } from "../home.js";
 import {
   readCredentials,
   removeCredentials,

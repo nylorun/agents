@@ -1,24 +1,13 @@
 #!/usr/bin/env node
 import { mkdir, rename, rm, writeFile, readFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Compatibility, CreatorDependencies } from "./contracts.js";
 import { createProject, CreationError } from "./project.js";
 import { parse, usage } from "./arguments.js";
 import { CreationCancelled, runCommand } from "./process.js";
-
-function findOnPath(name: string): string | undefined {
-  for (const dir of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
-    const candidate = join(dir, name);
-    try {
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {
-      /* not here */
-    }
-  }
-  return undefined;
-}
+import { checkDocker } from "./docker.js";
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -28,7 +17,7 @@ async function main(): Promise<void> {
   }
   if (process.platform === "win32")
     throw new Error(
-      "Nylorun does not run on native Windows. Use WSL2: install Node 24 and the Nylorun Runtime inside your WSL distribution and create the project there (https://learn.microsoft.com/windows/wsl/install).",
+      "Nylorun does not run on native Windows. Use WSL2: install Node 24 and Docker (Docker Desktop's WSL integration) inside your WSL distribution and create the project there (https://learn.microsoft.com/windows/wsl/install).",
     );
   const options = parse(argv);
   const [major, minor] = process.versions.node.split(".").map(Number);
@@ -57,7 +46,7 @@ async function main(): Promise<void> {
       run: (command, args, directory) =>
         runCommand(command, args, directory, controller.signal),
       nodeVersion: process.versions.node,
-      findOnPath,
+      checkDocker,
     };
     const compatibility = JSON.parse(
       await readFile(

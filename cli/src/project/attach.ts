@@ -1,17 +1,11 @@
 import { createInterface } from "node:readline/promises";
-import { createAdmin, type Admin, type AdminTenant } from "@nylorun/admin";
+import { createAdmin, type AdminTenant } from "@nylorun/admin";
 import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
   TENANT_HEADER,
 } from "@nylorun/agents";
 import { CliError } from "../errors.js";
-import {
-  launcher,
-  resolveHome,
-  throwOnLauncherFailure,
-  type LauncherInvokeResult,
-} from "../runtime/launcher.js";
 import {
   readCredentials,
   removeCredentials,
@@ -25,11 +19,14 @@ import {
   type ProjectLink,
 } from "./link.js";
 
-export interface UpResult {
+/** The running Host (the stack's Runtime) the Project attaches to. */
+export interface AttachHost {
+  /** The Host root; `@nylorun/admin` reads host.json and the admin key there. */
+  home: string;
+  /** Client-facing Runtime URL, e.g. `http://localhost:8787`. */
   url: string;
   hostId: string;
-  pid: number;
-  version: string;
+  /** The Host was started for this command. */
   started: boolean;
 }
 
@@ -37,15 +34,16 @@ export interface AttachedProject {
   projectRoot: string;
   link: ProjectLink;
   credentials: ProjectCredentials;
-  host: UpResult;
   tenantName: string;
+  /** True when the Tenant was created by this call. */
+  created: boolean;
   hostStarted: boolean;
   home: string;
 }
 
 export interface AttachOptions {
   projectRoot: string;
-  home?: string;
+  host: AttachHost;
   /** Interactive stdin; defaults to process.stdin when TTY. */
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
@@ -97,29 +95,17 @@ async function healthHostId(
 }
 
 /**
- * Ensure the local Runtime is up and a Project link authenticates (D§12 step 2).
+ * Ensure a Project link authenticates against the running Host, creating the
+ * Project's Tenant on first run (D§12 step 2). The caller starts the stack.
  */
 export async function attachProject(
   options: AttachOptions,
 ): Promise<AttachedProject> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const projectRoot = options.projectRoot;
-  const home = resolveHome(options.home);
-  const handle = await launcher(home);
-  const upOutcome = await handle.invoke(["up"]);
-  throwOnLauncherFailure(upOutcome);
-  const host = upResultFromInvoke(upOutcome);
-  const hostUrl = host.url.replace(/\/$/, "");
-  const hostId =
-    host.hostId ||
-    (await healthHostId(hostUrl, fetchImpl)) ||
-    "";
-  if (!hostId) {
-    throw new CliError(
-      `Runtime Host at ${hostUrl} did not report a hostId. Restart with "nylorun runtime restart".`,
-      1,
-    );
-  }
+  const { home, hostId } = options.host;
+  const host = { started: options.host.started };
+  const hostUrl = options.host.url.replace(/\/$/, "");
 
   const admin = createAdmin({ home });
   let link = await readLink(projectRoot);
@@ -136,8 +122,8 @@ export async function attachProject(
       projectRoot,
       link: created.link,
       credentials: created.credentials,
-      host,
       tenantName: created.envelope.name,
+      created: true,
       hostStarted: host.started,
       home,
     };
@@ -172,8 +158,8 @@ export async function attachProject(
       projectRoot,
       link: { ...link, hostUrl, hostId: liveId ?? link.hostId, format: 1 },
       credentials,
-      host,
       tenantName: match?.name ?? match?.envelope?.name ?? link.tenantId,
+      created: false,
       hostStarted: host.started,
       home,
     };
@@ -215,8 +201,8 @@ export async function attachProject(
       projectRoot,
       link: created.link,
       credentials: created.credentials,
-      host,
       tenantName: created.envelope.name,
+      created: true,
       hostStarted: host.started,
       home,
     };
@@ -249,8 +235,8 @@ export async function attachProject(
       tenantId: selected.id,
     },
     credentials,
-    host,
     tenantName: selected.name ?? selected.envelope?.name ?? selected.id,
+    created: false,
     hostStarted: host.started,
     home,
   };
@@ -312,7 +298,7 @@ async function chooseUnknownTenantRecovery(options: {
   }
 }
 
-/** Three `export` lines for `runtime status --env` (F2-7). */
+/** Three `export` lines for `nylorun status --env` (F2-7). */
 export async function printLinkedEnvExports(
   projectRoot = process.cwd(),
 ): Promise<void> {
@@ -331,22 +317,6 @@ export async function printLinkedEnvExports(
     `export NYLORUN_SERVER_KEY=${shellQuote(credentials.applicationKey)}`,
   );
   console.log(`export NYLORUN_TENANT=${shellQuote(link.tenantId)}`);
-}
-
-function upResultFromInvoke(outcome: LauncherInvokeResult): UpResult {
-  const result = outcome.result ?? {};
-  const url = typeof result.url === "string" ? result.url : "";
-  const hostId = typeof result.hostId === "string" ? result.hostId : "";
-  if (!url) {
-    throw new CliError("Runtime up succeeded without a URL.", 1);
-  }
-  return {
-    url,
-    hostId,
-    pid: typeof result.pid === "number" ? result.pid : 0,
-    version: typeof result.version === "string" ? result.version : "",
-    started: Boolean(result.started),
-  };
 }
 
 function shellQuote(value: string): string {

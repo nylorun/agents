@@ -11,7 +11,7 @@ import {
 } from "./lib/repo.mjs";
 import { developmentOptions, develop } from "./lib/development.mjs";
 
-export async function renderPreview({ repo = root, studio = true } = {}) {
+export async function renderPreview({ repo = root } = {}) {
   const { starterFiles } = await import(
     pathToFileURL(join(repo, "create-agent/dist/scaffold.js")).href
   );
@@ -21,7 +21,7 @@ export async function renderPreview({ repo = root, studio = true } = {}) {
     join(repo, "create-agent/compatibility.json"),
   );
   for (const [path, content] of Object.entries(
-    await starterFiles(compatibility, studio),
+    await starterFiles(compatibility),
   )) {
     await mkdir(dirname(join(project, path)), { recursive: true });
     await writeFile(join(project, path), content);
@@ -30,9 +30,6 @@ export async function renderPreview({ repo = root, studio = true } = {}) {
   for (const name of ["core", "harness", "agents", "runtime", "cli"])
     manifest.dependencies[`@nylorun/${name}`] =
       `file:${join(repo, name).replaceAll("\\", "/")}`;
-  if (studio)
-    manifest.devDependencies["@nylorun/studio"] =
-      `file:${join(repo, "studio").replaceAll("\\", "/")}`;
   await writeJson(join(project, "package.json"), manifest);
   return project;
 }
@@ -44,7 +41,7 @@ if (
     const options = developmentOptions(process.argv.slice(2));
     await verifyToolchain();
     await node("scripts/validate.mjs", ["build"]);
-    const project = await renderPreview({ studio: options.studio });
+    const project = await renderPreview();
     console.log(
       `Starter preview: ${project}\nTemplate changes require a new preview; this directory will be retained.`,
     );

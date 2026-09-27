@@ -1,3 +1,68 @@
+# Local stack: Docker Compose (breaking beta)
+
+The local Runtime and Studio now run as a Docker Compose stack that `nylorun`
+manages (Postgres, Restate, S2, the Runtime and Studio). The prerequisites are
+Node 24 or newer and Docker with Compose v2 (Docker Desktop, OrbStack or
+Colima); a global `@nylorun/runtime` is no longer needed. `nylorun doctor`
+checks them.
+
+### Commands
+
+| Before | After |
+| --- | --- |
+| `nylorun runtime up`, `nylorun up`, `nylorun runtime run` | `nylorun start` |
+| `nylorun runtime down`, `nylorun down` | `nylorun stop` |
+| `nylorun runtime restart` | `nylorun stop`, then `nylorun start` |
+| `nylorun runtime status [--json]` | `nylorun status [--json]` |
+| `nylorun runtime status --env` | `nylorun status --env` |
+| `nylorun runtime logs`, `nylorun logs` (launcher) | `nylorun logs [service] [-f] [--tail <n>]` |
+| `nylorun stack logs`, `nylorun stack studio` | `nylorun logs`, `nylorun studio` (the `stack` spelling still works) |
+| `nylorun studio [--local-ui] [--port <n>]` (in-process proxy) | `nylorun studio [--no-open]`: a fresh login URL for the stack's Studio, on the linked Project's Tenant |
+| `nylorun dev --local-ui` | `nylorun dev` (opens Studio on the Project's Tenant) |
+| `nylorun dev --ephemeral` | Not available on the Docker stack yet (exit 2); it returns later in this release |
+| `nylorun doctor runtime` | `nylorun doctor` (Node, Docker, Compose v2, stack health) |
+| — | `nylorun reset [--yes]` deletes the stack's volumes and every Tenant |
+
+The removed commands exit 2 and name their replacement.
+
+### Studio
+
+`@nylorun/studio` is no longer published to npm; it ships only as the
+`ghcr.io/nylorun/studio` image, which the stack runs on
+`http://localhost:4161`. The hosted dashboard at `local.nylorun.studio`, the
+local UI mode (`--local-ui`, `ui: "local" | "hosted"`), the pairing fragment,
+the `nylorun-studio` bin and `startStudio()` are removed. The CLI asks the
+Studio container for a single-use login token (valid for two minutes) and opens
+`/login?token=…`; `nylorun studio` mints a fresh one.
+
+In a generated project, remove the Studio dependency and script:
+
+```diff
+   "scripts": {
+     "dev": "nylorun dev",
+-    "studio": "nylorun-studio",
+     "start": "node dist/src/main.js"
+   },
+   "devDependencies": {
+     "@nylorun/cli": "…",
+-    "@nylorun/studio": "…",
+```
+
+Then run `npm install` and use `npx nylorun studio` (or just `npm run dev`).
+
+`npm create @nylorun/agent` no longer adds Studio, checks for Docker with
+Compose v2 instead of `nylorun-runtime`, and accepts `--no-studio` only as a
+deprecated no-op.
+
+### Project links
+
+`nylorun dev` keeps an existing Project link when the stack's Host has the same
+Host id (the stack reuses `host.json`'s id and rewrites its URL to
+`http://localhost:<port>`). Tenants created by the old launcher-managed Runtime
+are not supported on the stack: when `nylorun dev` reports the linked Tenant as
+unknown, let it create a new one (in a terminal), or remove
+`.nylorun/link.json` and `.nylorun/credentials.json` and run it again.
+
 # Runtime Clients and Admin API (breaking beta)
 
 Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).

@@ -14,23 +14,15 @@ test("starter previews resolve local packages and never overwrite an earlier pre
       manifest.dependencies["@nylorun/runtime"],
       `file:${join(root, "runtime").replaceAll("\\", "/")}`,
     );
-    assert.equal(
-      manifest.devDependencies["@nylorun/studio"],
-      `file:${join(root, "studio").replaceAll("\\", "/")}`,
-    );
+    // Studio runs in the Docker stack; previews never depend on it.
+    assert.equal(manifest.devDependencies["@nylorun/studio"], undefined);
     await writeFile(
       join(first, "agents/assistant/agent.ts"),
       "authored preview",
     );
     await writeFile(join(first, ".env"), "MODEL_PROVIDER_API_KEY=local-only\n");
-    second = await renderPreview({ studio: false });
+    second = await renderPreview();
     assert.notEqual(first, second);
-    assert.equal(
-      (await readJson(join(second, "package.json"))).devDependencies[
-        "@nylorun/studio"
-      ],
-      undefined,
-    );
     assert.equal(
       await readFile(join(first, "agents/assistant/agent.ts"), "utf8"),
       "authored preview",
