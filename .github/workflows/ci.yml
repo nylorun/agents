@@ -51,25 +51,9 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
-      # The Runtime and Studio images from this PR, from the `stack` job's
-      # layer cache (read-only here; `stack` writes it).
-      - uses: docker/setup-buildx-action@v4
-      - name: Build the Runtime image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: runtime/Dockerfile
-          tags: nylorun-runtime:ci
-          load: true
-          cache-from: type=gha,scope=stack-runtime
-      - name: Build the Studio image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: studio/Dockerfile
-          tags: nylorun-studio:ci
-          load: true
-          cache-from: type=gha,scope=stack-studio
+      # The Runtime and Studio images from this PR, from the layer cache that
+      # cache.yml writes on main.
+      - uses: ./.github/actions/stack-images
       - name: Smoke starter
         # Healthy smoke is a few minutes; the in-process deadline is 20m. Keep
         # Actions above that so the script can report its own abort reason.
@@ -108,25 +92,9 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
-      # The Runtime and Studio images from this PR, from the `stack` job's
-      # layer cache (read-only here; `stack` writes it).
-      - uses: docker/setup-buildx-action@v4
-      - name: Build the Runtime image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: runtime/Dockerfile
-          tags: nylorun-runtime:ci
-          load: true
-          cache-from: type=gha,scope=stack-runtime
-      - name: Build the Studio image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: studio/Dockerfile
-          tags: nylorun-studio:ci
-          load: true
-          cache-from: type=gha,scope=stack-studio
+      # The Runtime and Studio images from this PR, from the layer cache that
+      # cache.yml writes on main.
+      - uses: ./.github/actions/stack-images
       - name: Test dev
         timeout-minutes: 10
         run: npm run test:dev
@@ -157,25 +125,9 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
-      # The Runtime and Studio images from this PR, from the `stack` job's
-      # layer cache (read-only here; `stack` writes it).
-      - uses: docker/setup-buildx-action@v4
-      - name: Build the Runtime image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: runtime/Dockerfile
-          tags: nylorun-runtime:ci
-          load: true
-          cache-from: type=gha,scope=stack-runtime
-      - name: Build the Studio image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: studio/Dockerfile
-          tags: nylorun-studio:ci
-          load: true
-          cache-from: type=gha,scope=stack-studio
+      # The Runtime and Studio images from this PR, from the layer cache that
+      # cache.yml writes on main.
+      - uses: ./.github/actions/stack-images
       - name: Tenant acceptance
         timeout-minutes: 15
         run: npm run test:acceptance -- --only ${{ matrix.scenarios }}
@@ -208,7 +160,18 @@ jobs:
   # Restate, s2-lite) in runtime/test/stack/compose.yaml, with test Tenants in
   # Postgres. They include the architecture §17 failure suite
   # (runtime/test/failure/README.md), which recreates the stack's Restate.
+  # Two legs in parallel, one test stack each: the integration suite, and the
+  # unit suite again with every test Tenant on Postgres instead of the
+  # in-memory Session Store.
   integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: integration
+            command: npm run test:integration --workspace @nylorun/runtime
+          - suite: postgres
+            command: npm test --workspace @nylorun/runtime
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -217,25 +180,20 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm ci
       # Workspaces run in flag order: keep dependency order.
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/harness --workspace @nylorun/runtime
       - name: Start the test stack
         run: npm run test:stack:up --workspace @nylorun/runtime
-      - name: Integration tests
+      - name: Runtime ${{ matrix.suite }} tests
         env:
           NYLORUN_TEST_STACK: "1"
           NYLORUN_TEST_STORE: postgres
-        run: npm run test:integration --workspace @nylorun/runtime
-      # The unit suite again, with every test Tenant on Postgres instead of
-      # the in-memory Session Store.
-      - name: Runtime tests on Postgres
-        env:
-          NYLORUN_TEST_STACK: "1"
-          NYLORUN_TEST_STORE: postgres
-        working-directory: runtime
-        run: npx vitest run
+        run: ${{ matrix.command }}
       - name: Test stack logs
         if: failure()
         run: docker compose -f runtime/test/stack/compose.yaml logs --no-color
@@ -245,57 +203,41 @@ jobs:
   # `nylorun start` on Linux with the Runtime and Studio images built from this
   # PR, under a temporary Host root: status, /ready (Postgres, Restate, S2), a
   # Tenant through @nylorun/admin, a Studio login, the Restate identity key,
-  # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`. Then
-  # a second stack whose runtime container is killed during a model call.
+  # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`. In
+  # parallel, architecture §17 case 3 on its own stack (test:failure): the
+  # runtime container killed mid model call (`docker compose kill`), then
+  # started; the effect must become uncertain with no second model call
+  # (scripts/smoke-failure.mjs).
   stack:
+    strategy:
+      fail-fast: false
+      matrix:
+        smoke: ["test:stack", "test:failure"]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
+    env:
+      NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+      NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm ci
       # Workspaces run in flag order: keep dependency order.
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace nylorun --workspace @nylorun/cli
-      # Layers are cached in the GitHub Actions cache, per image. The release
-      # workflow builds the same Dockerfiles for amd64 and arm64.
-      - uses: docker/setup-buildx-action@v4
-      - name: Build the Runtime image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: runtime/Dockerfile
-          tags: nylorun-runtime:ci
-          load: true
-          cache-from: type=gha,scope=stack-runtime
-          cache-to: type=gha,mode=max,scope=stack-runtime
-      - name: Build the Studio image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: studio/Dockerfile
-          tags: nylorun-studio:ci
-          load: true
-          cache-from: type=gha,scope=stack-studio
-          cache-to: type=gha,mode=max,scope=stack-studio
-      - name: Smoke nylorun start
+      # The Runtime and Studio images from this PR, from the layer cache that
+      # cache.yml writes on main. The release workflow builds the same
+      # Dockerfiles for amd64 and arm64.
+      - uses: ./.github/actions/stack-images
+      - name: Smoke ${{ matrix.smoke }}
         timeout-minutes: 15
-        env:
-          NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
-          NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
-        run: npm run test:stack
-      # Architecture §17 case 3 on a fresh stack: the runtime container killed
-      # mid model call (`docker compose kill`), then started; the effect must
-      # become uncertain with no second model call (scripts/smoke-failure.mjs).
-      - name: Smoke a Worker killed mid-call
-        timeout-minutes: 10
-        env:
-          NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
-          NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
-        run: npm run test:failure
+        run: npm run ${{ matrix.smoke }}
   # Newest Node line with its bundled npm, as a consumer would run it.
   consumers:
     strategy:
@@ -310,6 +252,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
       - run: npm ci
       # Declared workspace order is dependency order; each check builds its package.
       - run: npm run check --workspaces
