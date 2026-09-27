@@ -158,6 +158,7 @@ describe.skipIf(!STACK_ENABLED)("graceful Worker stop on Restate", () => {
     expect(
       JSON.stringify(items.items.find((item) => item.type === "turn.completed")?.payload)
     ).toContain("answer from worker A");
+    await until(async () => b.execution.results, (r) => r.length > 0, "worker-b's advance to end");
     expect(b.execution.results.at(-1)).toEqual({ status: "done" });
     expect((await stored(runtimeB)).session.owner).toBeNull();
   });
