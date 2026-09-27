@@ -11,6 +11,7 @@ import { stackImages } from "../../src/stack/images.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import { choosePort } from "../../src/stack/ports.js";
 import { prepareStack } from "../../src/stack/prepare.js";
+import { identityPublicKey } from "../../src/stack/restate-identity.js";
 import { fakePorts, temporaryHome } from "./support.js";
 
 const env: StackEnv = {
@@ -18,12 +19,20 @@ const env: StackEnv = {
   studioPort: 4161,
   restatePort: 9070,
   postgresPassword: "0123456789abcdef0123456789abcdef0123456789abcdef",
+  restateIdentityKey: "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv",
   uid: 501,
   gid: 20,
   hostRoot: "/Users/dev/.nylorun",
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
 };
+
+/** Fixed vector: Restate 1.7.12 logs `kid: <FIXED_KEY>` when it loads this PEM. */
+const FIXED_PEM = `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIJ+DYvh6SEqVTm50DFtMcoQgQeU+ZVIXPH9VEJPNg5zs
+-----END PRIVATE KEY-----
+`;
+const FIXED_KEY = "publickeyv1_9X4RmZSyRwtembhvBJbbemS2epiX6hHJT9yt2ABTh8SR";
 
 const images = stackImages({}, { runtime: "0.10.0-beta", studio: "0.9.0-beta" });
 
@@ -65,13 +74,33 @@ describe("compose.yaml", () => {
       "- ${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro",
     );
     expect(compose).toContain("NYLORUN_STUDIO_PUBLIC_PORT: ${NYLORUN_STUDIO_PORT}");
+    expect(compose).toContain("NYLORUN_PUBLIC_URL: http://localhost:${NYLORUN_PORT}");
+  });
+
+  it("keeps s2-lite's data in a volume its non-root user can write", () => {
+    expect(compose).toContain('command: ["lite", "--local-root", "/home/nonroot/data"]');
+    expect(compose).toContain("- s2:/home/nonroot\n");
+  });
+
+  it("mounts the Restate identity key read-only into Restate and gives the Runtime its public key", () => {
+    expect(compose).toContain(
+      "RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem",
+    );
+    expect(compose).toContain(
+      "- ${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro",
+    );
+    expect(compose).toContain(
+      "NYLORUN_RESTATE_IDENTITY_KEY: ${NYLORUN_RESTATE_IDENTITY_KEY:?run nylorun start}",
+    );
   });
 });
 
 describe(".env", () => {
-  it("renders every setting and a placeholder for Restate keys", () => {
+  it("renders every setting, including the Restate identity public key", () => {
     expect(renderEnvFile(env)).toMatchSnapshot();
-    expect(renderEnvFile(env)).toContain("# Restate request-identity keys are added here in Wave 3.");
+    expect(parseEnvLines(renderEnvFile(env)).get("NYLORUN_RESTATE_IDENTITY_KEY")).toBe(
+      env.restateIdentityKey,
+    );
   });
 
   it("round-trips the persisted settings", () => {
@@ -138,6 +167,14 @@ describe("prepareStack", () => {
     expect(prepared.firstRun).toBe(true);
     expect(prepared.env).toMatchObject({ runtimePort: 8787, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
     expect(prepared.env.postgresPassword).toMatch(/^[0-9a-f]{48}$/);
+    expect(prepared.env.restateIdentityKey).toMatch(/^publickeyv1_[1-9A-HJ-NP-Za-km-z]{43,44}$/);
+    const pem = await readFile(paths.restateIdentity, "utf8");
+    expect(pem).toMatch(/^-----BEGIN PRIVATE KEY-----\n/);
+    expect(identityPublicKey(pem)).toBe(prepared.env.restateIdentityKey);
+    expect(await mode(paths.restateIdentity)).toBe(0o600);
+    expect(parseEnvLines(await readFile(paths.env, "utf8")).get("NYLORUN_RESTATE_IDENTITY_KEY")).toBe(
+      prepared.env.restateIdentityKey,
+    );
 
     const host = JSON.parse(await readFile(paths.config, "utf8"));
     expect(host).toEqual({
@@ -172,6 +209,7 @@ describe("prepareStack", () => {
     expect(second.env.studioPort).toBe(4161);
     expect(second.env.restatePort).toBe(9070);
     expect(second.env.postgresPassword).toBe(first.env.postgresPassword);
+    expect(second.env.restateIdentityKey).toBe(first.env.restateIdentityKey);
     expect(second.env.uid).toBe(777);
     expect(second.env.runtimeImage).toBe("nylorun-runtime:dev");
     expect(second.adminKey).toBe(first.adminKey);
@@ -196,6 +234,20 @@ describe("prepareStack", () => {
       host: "localhost",
       proxy: { noProxy: "x" },
     });
+  });
+
+  it("keeps an existing identity key, fixes its mode and refuses a corrupt one", async () => {
+    const home = await temporaryHome();
+    const paths = stackPaths(home);
+    await mkdir(paths.stack, { recursive: true });
+    await writeFile(paths.restateIdentity, FIXED_PEM, { mode: 0o644 });
+    const prepared = await prepare(home);
+    expect(prepared.env.restateIdentityKey).toBe(FIXED_KEY);
+    expect(await mode(paths.restateIdentity)).toBe(0o600);
+    expect(await readFile(paths.restateIdentity, "utf8")).toBe(FIXED_PEM);
+
+    await writeFile(paths.restateIdentity, "not a key");
+    await expect(prepare(home)).rejects.toThrow(/restate-identity\.pem: .*Delete it/);
   });
 
   it("refuses a newer host.json format", async () => {

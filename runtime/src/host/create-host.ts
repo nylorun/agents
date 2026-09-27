@@ -64,6 +64,18 @@ export interface CreateHostOptions {
    * Defaults to true; a container Host does not write it.
    */
   ownsStateFile?: boolean;
+  /**
+   * The client-facing URL `/v1/admin/status` reports as `host.url`
+   * (`NYLORUN_PUBLIC_URL`). Defaults to the bound address, which in container
+   * mode is `http://0.0.0.0:4000`.
+   */
+  publicUrl?: string;
+  /**
+   * Infrastructure readiness (`infra/readiness.ts`). `/ready` adds its checks
+   * and answers 503 while it reports not ok. Default: listener and discovery
+   * only.
+   */
+  readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
 }
 
 export interface HostServer {
@@ -145,7 +157,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       aggregate,
       host: {
         hostId: config.hostId,
-        url,
+        url: options.publicUrl ?? url,
         pid,
       },
     });
@@ -364,14 +376,15 @@ export function createHost(options: CreateHostOptions): HostServer {
       if (pathname === "/ready") {
         const listener = Boolean(server?.listening);
         const discovery = module.started;
-        const ready = listener && discovery && !closing;
+        const infra = await options.readiness?.();
+        const ready = listener && discovery && !closing && (infra?.ok ?? true);
         sendJson(
           response,
           ready ? 200 : 503,
           {
             status: ready ? "ready" : "not_ready",
             service: "nylorun-runtime",
-            checks: { listener, discovery },
+            checks: { listener, discovery, ...infra?.checks },
           },
         );
         statusCode = ready ? 200 : 503;

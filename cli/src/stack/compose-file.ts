@@ -7,8 +7,12 @@ import { PINNED_IMAGES } from "./images.js";
  * Host root, the Runtime and Studio images) comes from `stack/.env`.
  *
  * This wave the Runtime still keeps Tenants in SQLite under the Host root.
- * Postgres, Restate and s2-lite run and are healthy; the Runtime receives their
- * endpoints and starts using them in Wave 3.
+ * Postgres, Restate and s2-lite run and are healthy; the Runtime's /ready
+ * checks all three, and Tenants start using them in Wave 3.
+ *
+ * Restate signs requests to the Worker endpoint with the private key in
+ * `stack/restate-identity.pem`, mounted read-only; the Runtime gets the public
+ * key as NYLORUN_RESTATE_IDENTITY_KEY.
  */
 export function renderComposeFile(): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -33,8 +37,11 @@ services:
   restate: # Durable Session Execution
     image: ${PINNED_IMAGES.restate}
     command: ["--node-name=restate-1"] # stable name, so data is found on restart
+    environment:
+      RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
     volumes:
       - restate:/restate-data
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
     ports:
       - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
     healthcheck:
@@ -46,11 +53,14 @@ services:
 
   s2: # Durable Streams; not published, only the Runtime reaches it
     image: ${PINNED_IMAGES.s2}
-    command: ["lite", "--local-root", "/data"] # local disk; listens on port 80
+    command: ["lite", "--local-root", "/home/nonroot/data"] # local disk; listens on port 80
+    # The image runs as uid 65532. Docker fills a new volume with the image's
+    # /home/nonroot, owned by that user; a volume at a path the image lacks
+    # (e.g. /data) is root-owned and s2-lite cannot write it.
     volumes:
-      - s2:/data
+      - s2:/home/nonroot
     # The s2 image has no shell or HTTP client, so it has no health check;
-    # the Runtime's /ready covers it once it uses S2.
+    # the Runtime's /ready covers it.
     restart: unless-stopped
 
   runtime:
@@ -68,10 +78,12 @@ services:
       # Host headers the Runtime accepts: the stack network name, and the
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
+      NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
       NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
       NYLORUN_WORKER_URL: http://runtime:9080 # registered with Restate; not published
+      NYLORUN_RESTATE_IDENTITY_KEY: \${NYLORUN_RESTATE_IDENTITY_KEY:?run nylorun start}
       NYLORUN_S2_ENDPOINT: http://s2:80
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces

@@ -104,6 +104,11 @@ export interface DurableExecution {
   start(handlers: WorkerHandlers): Promise<void>;
   /** Stops delivering, aborts running advances' signals and waits for them. */
   stop(): Promise<void>;
+  /**
+   * Resolves when the backing service answers, rejects otherwise (readiness,
+   * `infra/execution.ts`). Absent for in-process implementations.
+   */
+  probe?(signal: AbortSignal): Promise<void>;
 }
 
 /** The key one advance at a time is serialized on. */

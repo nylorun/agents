@@ -1,6 +1,9 @@
 import { CliError } from "../errors.js";
 
-/** Settings in `stack/.env` (mode 0600). Ports and the password persist. */
+/**
+ * Settings in `stack/.env` (mode 0600). Ports and the password persist; the
+ * Restate identity public key is derived from `restate-identity.pem`.
+ */
 export interface StackEnv {
   /** Published Runtime port (loopback). */
   runtimePort: number;
@@ -9,6 +12,8 @@ export interface StackEnv {
   /** Published Restate UI and admin port (loopback). */
   restatePort: number;
   postgresPassword: string;
+  /** `publickeyv1_...` of `stack/restate-identity.pem`. */
+  restateIdentityKey: string;
   uid: number;
   gid: number;
   /** Absolute Host root on this machine, bind-mounted at /nylorun. */
@@ -22,6 +27,7 @@ const KEYS = {
   studioPort: "NYLORUN_STUDIO_PORT",
   restatePort: "NYLORUN_RESTATE_PORT",
   postgresPassword: "NYLORUN_POSTGRES_PASSWORD",
+  restateIdentityKey: "NYLORUN_RESTATE_IDENTITY_KEY",
   uid: "NYLORUN_UID",
   gid: "NYLORUN_GID",
   hostRoot: "NYLORUN_HOST_ROOT",
@@ -61,7 +67,10 @@ export function renderEnvFile(env: StackEnv): string {
     line("restatePort"),
     "",
     line("postgresPassword"),
-    "# Restate request-identity keys are added here in Wave 3.",
+    "",
+    "# Restate signs requests to the Runtime's Worker endpoint with the private",
+    "# key in restate-identity.pem; the Runtime accepts only this public key.",
+    line("restateIdentityKey"),
     "",
     "# The Runtime and Studio containers run as this user, so files they write",
     "# into the Host root belong to you.",

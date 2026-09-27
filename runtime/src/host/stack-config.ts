@@ -11,8 +11,8 @@
  *   `NYLORUN_ALLOWED_HOSTS`, plus the loopback forms of the listen port for
  *   probes from inside the container.
  *
- * The Postgres, Restate and S2 endpoints are parsed and validated now and used
- * from Wave 3 on.
+ * The Postgres, Restate and S2 endpoints are parsed and validated here;
+ * `infra/*` builds the clients from them.
  */
 
 export type RuntimeRole = "api" | "worker" | "all";
@@ -41,6 +41,12 @@ export interface StackEndpoints {
   s2Endpoint?: string;
   s2Token?: string;
   workspaceStoreUrl?: string;
+  /**
+   * Restate request-identity public keys (`publickeyv1_...`) the Worker
+   * endpoint accepts, from `NYLORUN_RESTATE_IDENTITY_KEY` (comma-separated
+   * during a rotation). Unset means the endpoint accepts unsigned requests.
+   */
+  restateIdentityKeys?: string[];
 }
 
 export interface StackConfig {
@@ -48,6 +54,12 @@ export interface StackConfig {
   /** Present in container mode; absent means bind what host.json names. */
   listen?: ContainerListen;
   endpoints: StackEndpoints;
+  /**
+   * The URL clients use to reach this Host (`NYLORUN_PUBLIC_URL`), reported by
+   * `/v1/admin/status`. In container mode the bind address (`0.0.0.0:4000`)
+   * means nothing outside the container.
+   */
+  publicUrl?: string;
 }
 
 export class StackConfigError extends Error {
@@ -184,6 +196,23 @@ function parseListen(env: EnvSnapshot): ContainerListen | undefined {
   return { host, port, allowedHosts };
 }
 
+const IDENTITY_KEY = /^publickeyv1_[1-9A-HJ-NP-Za-km-z]{32,64}$/;
+
+function parseIdentityKeys(env: EnvSnapshot): string[] | undefined {
+  const raw = read(env, "NYLORUN_RESTATE_IDENTITY_KEY");
+  if (raw === undefined) return undefined;
+  const keys = raw
+    .split(",")
+    .map((key) => key.trim())
+    .filter((key) => key !== "");
+  for (const key of keys)
+    if (!IDENTITY_KEY.test(key))
+      throw new StackConfigError(
+        "NYLORUN_RESTATE_IDENTITY_KEY must be publickeyv1_<base58 Ed25519 public key>, comma-separated",
+      );
+  return keys.length > 0 ? keys : undefined;
+}
+
 /** Parse the stack configuration; throws `StackConfigError` naming the variable. */
 export function parseStackConfig(
   env: EnvSnapshot,
@@ -215,7 +244,15 @@ export function parseStackConfig(
     "https:",
   ]);
   if (workspaceStoreUrl) endpoints.workspaceStoreUrl = workspaceStoreUrl;
-  return { role, ...(listen ? { listen } : {}), endpoints };
+  const restateIdentityKeys = parseIdentityKeys(env);
+  if (restateIdentityKeys) endpoints.restateIdentityKeys = restateIdentityKeys;
+  const publicUrl = parseUrl(env, "NYLORUN_PUBLIC_URL", http)?.replace(/\/+$/, "");
+  return {
+    role,
+    ...(listen ? { listen } : {}),
+    endpoints,
+    ...(publicUrl ? { publicUrl } : {}),
+  };
 }
 
 /** Endpoint summary for logs: which endpoints are set, never their values. */

@@ -172,6 +172,33 @@ jobs:
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
+  # `nylorun start` on Linux with the Runtime and Studio images built from this
+  # PR, under a temporary Host root: status, /ready (Postgres, Restate, S2), a
+  # Tenant through @nylorun/admin, a Studio login, the Restate identity key,
+  # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`.
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      # Workspaces run in flag order: keep dependency order.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/cli
+      - name: Build the Runtime image
+        run: docker build --file runtime/Dockerfile --tag nylorun-runtime:ci .
+      - name: Build the Studio image
+        run: docker build --file studio/Dockerfile --tag nylorun-studio:ci .
+      - name: Smoke nylorun start
+        timeout-minutes: 15
+        env:
+          NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+          NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
+        run: node scripts/smoke-stack.mjs
   # Newest Node line with its bundled npm, as a consumer would run it.
   consumers:
     strategy:
@@ -191,7 +218,7 @@ jobs:
       - run: npm run check --workspaces
   ci:
     if: always()
-    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration]
+    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack]
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI job to pass

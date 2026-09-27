@@ -33,6 +33,7 @@ import {
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
 import { describeEndpoints, parseStackConfig } from "./stack-config.js";
+import { createInfra } from "../infra/index.js";
 import { RUNTIME_VERSION } from "../version.js";
 
 const entry = fileURLToPath(import.meta.url);
@@ -85,6 +86,8 @@ export async function main(): Promise<void> {
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
+  // Wave 3 prep: the clients back `/ready` only; Tenants still use SQLite.
+  const infra = createInfra(stack, { logger });
   const baseline = baselineEnvironment(process.env);
   void hostProcessEnvironment(baseline, config, paths);
 
@@ -126,6 +129,8 @@ export async function main(): Promise<void> {
     logger,
     coreVersion: coreVersion(),
     ...(stack.listen ? { listen: stack.listen, ownsStateFile: false } : {}),
+    ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
+    ...(infra.readiness ? { readiness: infra.readiness } : {}),
   };
   const host = createHost(options);
 
@@ -163,7 +168,7 @@ export async function main(): Promise<void> {
 
   let closing: Promise<void> | undefined;
   const shutdown = () => {
-    closing ??= host.close().then(() => {
+    closing ??= host.close().then(() => infra.close()).then(() => {
       process.exit(0);
     });
   };
