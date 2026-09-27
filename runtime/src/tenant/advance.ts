@@ -21,6 +21,14 @@
  * Session outcomes never throw out of `advance`: a segment that throws is settled as a
  * failed turn. Only infrastructure errors (the Session Store is unreachable) throw, and the
  * execution retries them.
+ *
+ * Aborts (the reasons are in `worker.ts`): a `cancel` finds the turn already cancelled and
+ * settles nothing; a `deadline` settles the segment (an in-flight effect becomes `uncertain`,
+ * otherwise the turn fails with the deadline's message). A `shutdown` or `ownership.lost`
+ * settles nothing at all: the segment stops, whatever the engine made of the abort, and the
+ * session stays `running` under its checkpoint. After a `shutdown` the advance releases
+ * ownership and returns `busy`, so the next advance resumes the segment with the outcomes
+ * already recorded; an `ownership.lost` leaves the session to the advance that owns it.
  */
 import {
   runDurable,
@@ -48,7 +56,29 @@ import {
 } from "./session.js";
 import { prepareMcp, resolveEffect } from "./effects.js";
 import { command } from "./commands.js";
-import { AdvanceDeadlineError } from "./worker.js";
+import {
+  AdvanceAbort,
+  AdvanceDeadlineError,
+  abortKind,
+  type AdvanceAbortKind,
+} from "./worker.js";
+
+/**
+ * A segment stopped by a `shutdown` or `ownership.lost` abort before it settled. Never
+ * leaves `advance`.
+ */
+class SegmentStopped extends Error {
+  override readonly name = "SegmentStopped";
+  constructor(readonly kind: Extract<AdvanceAbortKind, "shutdown" | "ownership.lost">) {
+    super(`Segment stopped: ${kind}`);
+  }
+}
+
+/** Throws `SegmentStopped` when the signal aborted for a reason that must not settle. */
+function stopIfLeaving(signal: AbortSignal): void {
+  const kind = abortKind(signal);
+  if (kind === "shutdown" || kind === "ownership.lost") throw new SegmentStopped(kind);
+}
 
 type SegmentResult =
   | Awaited<ReturnType<typeof runDurable>>
@@ -90,14 +120,23 @@ export async function advance(
   else signal.addEventListener("abort", forward, { once: true });
   ctx.work.running.set(id, controller);
   const heartbeat = startHeartbeat(ctx, lease, controller);
+  let result = DONE;
   try {
     await runSegment(ctx, lease, taken.session, controller.signal);
   } catch (error) {
-    if (!isOwnershipLost(error)) throw error;
-    ctx.config.logger.warn("advance lost ownership", {
-      sessionId: id,
-      epoch: lease.epoch,
-    });
+    if (error instanceof SegmentStopped && error.kind === "shutdown") {
+      // Left for the next advance, which resumes from the checkpoint once this one releases.
+      ctx.config.logger.info("advance stopped for shutdown; session left for the next advance", {
+        sessionId: id,
+        epoch: lease.epoch,
+      });
+      result = { status: "busy", retryAfterMs: 0 };
+    } else if (error instanceof SegmentStopped || isOwnershipLost(error))
+      ctx.config.logger.warn("advance lost ownership", {
+        sessionId: id,
+        epoch: lease.epoch,
+      });
+    else throw error;
   } finally {
     heartbeat.stop();
     signal.removeEventListener("abort", forward);
@@ -112,7 +151,7 @@ export async function advance(
         })
       );
   }
-  return DONE;
+  return result;
 }
 
 /**
@@ -203,7 +242,7 @@ function startHeartbeat(
       );
       if (!renewed && !stopped) {
         stopped = true;
-        controller.abort(new Error("Ownership lost"));
+        controller.abort(new AdvanceAbort("ownership.lost", "Ownership lost"));
         return;
       }
     } catch (error) {
@@ -273,9 +312,18 @@ async function runSegment(
           sessionTools: sessionToolsOf(current.mcpSnapshot),
           host,
         });
-    await settle(ctx, lease, started, result);
+    // The engine turns an abort into a `cancelled` (agents) or `failed` (workflows) result;
+    // only a user cancel may settle that, and it already did.
+    stopIfLeaving(signal);
+    if (
+      signal.reason instanceof AdvanceDeadlineError &&
+      (result.status === "cancelled" || result.status === "failed")
+    )
+      await settleFailure(ctx, lease, started, signal.reason);
+    else await settle(ctx, lease, started, result);
   } catch (error) {
-    if (isOwnershipLost(error)) throw error;
+    if (isOwnershipLost(error) || error instanceof SegmentStopped) throw error;
+    stopIfLeaving(signal);
     // A segment stopped by its deadline fails with the deadline, not the abort it caused.
     const deadline =
       signal.aborted && signal.reason instanceof AdvanceDeadlineError;

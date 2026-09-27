@@ -49,6 +49,7 @@ import {
   pinnedTool,
 } from "./session.js";
 import { command } from "./commands.js";
+import { abortKind } from "./worker.js";
 
 export function invokeModel(
   ctx: TenantContext,
@@ -84,12 +85,10 @@ export async function resolveEffect(
   const { store } = ctx;
   const journaled = await store.tx(async (t): Promise<Journaled> => {
     const s = await ownedSession(t, lease, request.sessionId);
-    if (
-      s.status === "cancelled" ||
-      s.activeTurnId !== request.turnId ||
-      signal.aborted
-    )
+    if (s.status === "cancelled" || s.activeTurnId !== request.turnId)
       throw new Error("Turn cancelled");
+    // An aborted advance starts no effect; the advance decides what the abort means.
+    signal.throwIfAborted();
     const resolved = (resolution: EffectResolution): Journaled => ({
       kind: "resolved",
       resolution,
@@ -252,10 +251,12 @@ export async function resolveEffect(
         : await invokeModel(ctx, request, signal);
     return await store.tx(async (t) => {
       const s = await ownedSession(t, lease, request.sessionId);
+      // Only a cancel discards an outcome in hand (§10.7). After any other abort (shutdown,
+      // deadline) it is recorded, so the next advance replays it instead of calling again.
       if (
         s.status === "cancelled" ||
         s.activeTurnId !== request.turnId ||
-        signal.aborted
+        abortKind(signal) === "cancel"
       )
         throw new Error("Turn cancelled");
       const effect = await t.get("effects", request.effectId);
@@ -299,7 +300,7 @@ export async function resolveNewFlowEffect(
   lease: Lease
 ): Promise<EffectResolution> {
   const { store } = ctx;
-  if (signal.aborted) throw new Error("Turn cancelled");
+  signal.throwIfAborted();
   const step = await store.tx(async (t): Promise<FlowStep> => {
     const resolved = (resolution: EffectResolution): FlowStep => ({
       kind: "resolved",
