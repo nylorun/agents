@@ -116,8 +116,9 @@ delete it, it prints the `nylorun tenant delete <id> --yes` to run.
 The fixture model is a Tenant setting rather than a Host-wide mode:
 `PUT /v1/tenant/config/seed` accepts `fixtureModel: true` (stored as
 `model.fixture`, insert-if-absent). Other Tenants on the same Host keep their
-model. In the CLI, `NYLORUN_DEV_MODEL=fixture` now only skips model setup; the
-stack does not pass it to the Runtime container.
+model. In the CLI, `NYLORUN_DEV_MODEL=fixture` now only skips model setup. The
+Runtime no longer reads it: a Host started with it no longer answers every
+Tenant with the fixture model. Seed the Tenant setting instead.
 
 `startEphemeralRuntime()` (`@nylorun/runtime`, `@nylorun/runtime/core`) keeps
 its signature, but its Tenants live in memory (the memory Session Store and

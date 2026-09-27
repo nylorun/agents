@@ -103,17 +103,13 @@ export async function main(): Promise<void> {
   if (!database) throw new Error("NYLORUN_DATABASE_URL did not yield a Postgres pool");
   const baseline = baselineEnvironment(process.env);
 
-  // Credential-free release/dev fixture (create-agent / CI smokes). Requires
-  // ephemeral mode so fixture models are allowed (Tenants D10).
-  const useFixture = process.env.NYLORUN_DEV_MODEL?.trim() === "fixture";
+  // A Tenant that should answer with the fixture model carries the Tenant
+  // setting (`tenant/model-setting.ts`); the Host has no fixture mode.
   const configFor = configForFactory({
     hostRoot,
     hostConfig: config,
     logger,
     baseline,
-    ...(useFixture
-      ? { mode: "ephemeral" as const, model: { kind: "fixture" as const } }
-      : {}),
   });
 
   // One Durable Session Execution for every Tenant this process opens: Restate
