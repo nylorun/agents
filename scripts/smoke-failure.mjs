@@ -1,0 +1,233 @@
+#!/usr/bin/env node
+// A Worker killed during a model effect, on a real `nylorun start` stack
+// (Runtime architecture §11.4 and §17, case 3):
+//
+//   node scripts/smoke-failure.mjs      # npm run test:failure
+//
+// Builds nylorun-runtime:local and nylorun-studio:local from this checkout
+// unless NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI).
+// Needs the CLI and @nylorun/admin built.
+//
+// 1. A stub OpenAI-compatible model runs in a container on the stack network,
+//    from the Runtime image. It counts calls, and holds every call open until
+//    it is released. A Tenant's model is pointed at it (`PUT /v1/tenant/model`,
+//    provider `custom`), so no test hook is needed in the Runtime.
+// 2. A turn starts; its model effect is committed as `invoking` and the call
+//    reaches the stub, which holds it.
+// 3. `docker compose kill runtime` mid-call, then `docker compose start runtime`.
+// 4. Restate retries the advance on the restarted Runtime, which takes the
+//    session over once the dead Worker's lease lapses: the effect and the
+//    session become `uncertain`, and the stub sees no second call.
+// 5. The session is usable afterwards: a cancel, then a new turn completes.
+//
+// The stack is always reset at the end.
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import {
+  ensureImages,
+  eventually,
+  tenantGet,
+  tenantHeaders,
+  withStack,
+} from "./lib/stack.mjs";
+import { run } from "./lib/repo.mjs";
+
+/** The stub model, run with `node -e` in the Runtime image. */
+const STUB_MODEL = String.raw`
+const http = require("node:http");
+let calls = 0;
+let hold = true;
+const held = new Set();
+function answer(res) {
+  const base = { id: "stub", object: "chat.completion.chunk", created: 0, model: "stub" };
+  const chunk = (body) => res.write("data: " + JSON.stringify({ ...base, ...body }) + "\n\n");
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "stub answer" }, finish_reason: null }] });
+  chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+  chunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+  res.end("data: [DONE]\n\n");
+}
+http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/calls") {
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify({ calls, held: held.size }));
+  }
+  if (req.method === "POST" && req.url === "/release") {
+    hold = false;
+    for (const pending of held) answer(pending);
+    held.clear();
+    return res.end("{}");
+  }
+  if (req.method === "POST" && req.url.endsWith("/chat/completions")) {
+    req.resume();
+    req.on("end", () => {
+      calls += 1;
+      if (!hold) return answer(res);
+      held.add(res);
+      res.on("close", () => held.delete(res));
+    });
+    return;
+  }
+  res.statusCode = 404;
+  res.end();
+}).listen(8080, "0.0.0.0");
+`;
+
+const STUB_ALIAS = "failure-model";
+const docker = (args, options = {}) => run("docker", args, { capture: true, timeout: 120_000, ...options });
+
+async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) {
+  const response = await fetch(`${runtimeUrl}${path}`, {
+    method,
+    headers: tenantHeaders(tenant.id, tenant.key, body ? { "content-type": "application/json" } : {}),
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const text = await response.text();
+  assert.ok(response.ok, `${method} ${path}: HTTP ${response.status} ${text.slice(0, 300)}`);
+  return text ? JSON.parse(text) : undefined;
+}
+
+const types = (history) => history.items.map((item) => item.type);
+const count = (history, type) => types(history).filter((t) => t === type).length;
+
+try {
+  const started = Date.now();
+  const elapsed = () => `${Math.round((Date.now() - started) / 1000)}s`;
+  const images = await ensureImages();
+  await withStack({ name: "nylorun-smoke-failure", images }, async (stack) => {
+    const { runtimeUrl } = stack;
+
+    // The stub model on the stack network, reachable from the host for its counters.
+    const stubName = `${stack.project}-${STUB_ALIAS}`;
+    await docker([
+      "run", "--detach", "--rm",
+      "--name", stubName,
+      "--network", `${stack.project}_default`,
+      "--network-alias", STUB_ALIAS,
+      "--publish", "127.0.0.1::8080",
+      "--entrypoint", "node",
+      images.runtime,
+      "-e", STUB_MODEL,
+    ]);
+    try {
+      const published = (await docker(["port", stubName, "8080/tcp"])).split("\n")[0].trim();
+      const stubUrl = `http://${published}`;
+      const stub = async () => (await fetch(`${stubUrl}/calls`)).json();
+      await eventually(() => stub().then(() => true), { timeout: 30_000, message: "the stub model" });
+
+      const admin = await stack.admin();
+      const { tenant: created, applicationKey } = await admin.createTenant({ name: "failure-smoke" });
+      const tenant = { id: created.id, key: applicationKey };
+      const schema = `"tenant_${tenant.id}"`;
+
+      await request(runtimeUrl, tenant, "/v1/tenant/model", {
+        method: "PUT",
+        body: {
+          requestId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          provider: "custom",
+          model: "stub",
+          baseUrl: `http://${STUB_ALIAS}:8080/v1`,
+          // The stub ignores it; the custom provider needs a key.
+          auth: { type: "api_key", key: "stub-model-key" },
+        },
+      });
+      await request(runtimeUrl, tenant, "/v1/agents/bot", {
+        method: "PUT",
+        body: {
+          requestId: randomUUID(),
+          implementationVersion: "dev",
+          manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 4, capabilities: [] },
+        },
+      });
+      await request(runtimeUrl, tenant, "/v1/sessions/s1", {
+        method: "PUT",
+        body: { requestId: randomUUID(), agentId: "bot", ownerUserId: "failure-smoke" },
+      });
+      const message = (n) =>
+        request(runtimeUrl, tenant, "/v1/sessions/s1/commands", {
+          method: "POST",
+          body: { type: "message", requestId: `m${n}`, idempotencyKey: `m${n}`, content: "hello" },
+        });
+      const session = () => tenantGet(runtimeUrl, tenant.id, tenant.key, "/v1/sessions/s1");
+      const history = () => tenantGet(runtimeUrl, tenant.id, tenant.key, "/v1/sessions/s1/items");
+
+      // The turn's model call is in flight: its intent is committed and the stub holds it.
+      await message(1);
+      await eventually(async () => (await stub()).held === 1, {
+        timeout: 60_000,
+        message: "the model call to reach the stub",
+      });
+      assert.equal((await stub()).calls, 1);
+      assert.equal(await stack.psql(`SELECT status FROM ${schema}.effects`), "invoking");
+      const owner = await stack.psql(`SELECT owner FROM ${schema}.sessions WHERE id = 's1'`);
+      assert.ok(owner, "a Worker owns the session");
+      console.log(`[failure] model call in flight under ${owner} (${elapsed()})`);
+
+      // Kill the Runtime mid-call and start it again.
+      await stack.compose(["kill", "runtime"]);
+      await eventually(async () => (await stub()).held === 0, {
+        timeout: 30_000,
+        message: "the killed Runtime's connection to close",
+      });
+      await stack.compose(["start", "runtime"]);
+      await eventually(
+        async () => (await fetch(`${runtimeUrl}/ready`, { signal: AbortSignal.timeout(5_000) })).ok,
+        { timeout: 120_000, message: "the restarted Runtime to be ready" },
+      );
+      console.log(`[failure] Runtime killed and restarted (${elapsed()})`);
+
+      // Takeover once the dead Worker's lease lapses: uncertain, and no second call.
+      const uncertain = await eventually(
+        async () => {
+          const view = await session();
+          return view.status === "uncertain" ? view : undefined;
+        },
+        { timeout: 180_000, interval: 1000, message: "the session to become uncertain" },
+      );
+      console.log(`[failure] session uncertain after takeover (${elapsed()})`);
+      assert.equal(await stack.psql(`SELECT status FROM ${schema}.effects`), "uncertain");
+      const newOwner = await stack.psql(`SELECT coalesce(owner, '') FROM ${schema}.sessions WHERE id = 's1'`);
+      assert.equal(newOwner, "", "the restarted Worker released the session");
+      assert.ok(
+        JSON.stringify(uncertain).includes("uncertain"),
+        "the session view reports the uncertain effect",
+      );
+      const afterTakeover = await history();
+      assert.equal(count(afterTakeover, "effect.uncertain"), 1, types(afterTakeover).join(", "));
+      assert.equal(count(afterTakeover, "turn.completed"), 0);
+      // Give a duplicate call every chance to show up before counting.
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.deepEqual(await stub(), { calls: 1, held: 0 }, "the model was not called again");
+
+      // The session is usable afterwards: cancel the uncertain turn, run the next one.
+      await fetch(`${stubUrl}/release`, { method: "POST" });
+      await request(runtimeUrl, tenant, "/v1/sessions/s1/commands", {
+        method: "POST",
+        body: { type: "cancel", requestId: "c1", idempotencyKey: "c1" },
+      });
+      await message(2);
+      await eventually(async () => (await session()).status === "completed", {
+        timeout: 60_000,
+        message: "the next turn to complete",
+      });
+      const final = await history();
+      assert.equal(count(final, "turn.cancelled"), 1);
+      assert.equal(count(final, "turn.completed"), 1);
+      assert.equal(count(final, "effect.uncertain"), 1);
+      const seqs = final.items.map((item) =>
+        Number(Buffer.from(item.cursor, "base64url").toString("utf8").split(":").at(-1)),
+      );
+      assert.deepEqual(seqs, seqs.map((_, i) => i), "the history has no gap or duplicate");
+      assert.equal((await stub()).calls, 2, "one call per turn");
+      console.log(`[failure] next turn completed (${elapsed()})`);
+    } finally {
+      await docker(["rm", "--force", stubName]).catch(() => {});
+    }
+  });
+  console.log("Failure smoke passed.");
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+}
