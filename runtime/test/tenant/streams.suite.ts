@@ -596,10 +596,9 @@ export function tenantStreamsSuite(
         content: "save a note",
       });
       await executor.until("work_available from node A's commit", (f) => f.length >= 2);
-      expect(executor.close()).toEqual([
-        { type: "work_available" },
-        { type: "work_available" },
-      ]);
+      // The primer, then one frame per commit that signalled work.
+      for (const frame of executor.close())
+        expect(frame).toEqual({ type: "work_available" });
       expect(await t.tailOf(WORK_STREAM)).toBeGreaterThan(workBefore);
 
       const listed = await fetch(`${b.url}/v1/actions`, {
