@@ -28,8 +28,8 @@ import {
 } from "../core/provider.js";
 import {
   createSqliteSessionStore,
-  type SqliteSessionStore,
 } from "../store/sqlite.js";
+import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
 import { McpPool } from "../mcp/pool.js";
@@ -92,6 +92,14 @@ export type TenantOpenHooks = {
    * Wave 4, whose history does not survive a restart.
    */
   streams?: DurableStreams;
+  /**
+   * The Tenant's opened Session Store (its Postgres schema, `store-pg.ts`). The Tenant owns
+   * it from here on and closes it on close or on a failed open. Without one, the Tenant
+   * opens SQLite at `paths.database`.
+   */
+  store?: SessionStore;
+  /** The Tenant envelope as its store reports it. Without one, read from `paths.envelope`. */
+  envelope?: TenantEnvelope;
 };
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -128,7 +136,7 @@ export class TenantRuntime implements TenantHandle {
     config: TenantConfig,
     hooks: TenantOpenHooks = {}
   ): Promise<TenantRuntime> {
-    const envelope = readEnvelope(config);
+    const envelope = hooks.envelope ?? readEnvelope(config);
     const flowLimits = validateConfig(config);
 
     const paths = config.paths;
@@ -138,13 +146,13 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(paths.sandboxes, { recursive: true });
     mkdirSync(paths.pluginData, { recursive: true });
     mkdirSync(paths.logs, { recursive: true });
-    mkdirSync(dirname(paths.database), { recursive: true });
+    if (!hooks.store) mkdirSync(dirname(paths.database), { recursive: true });
 
-    let store: SqliteSessionStore | undefined;
+    let store: SessionStore | undefined = hooks.store;
     let wired: StreamsWiring | undefined;
     let detach: (() => Promise<void>) | undefined;
     try {
-      store = createSqliteSessionStore({
+      store ??= createSqliteSessionStore({
         path: paths.database,
         tenantId: config.tenantId,
         onError: (error) =>
@@ -341,13 +349,21 @@ export class TenantRuntime implements TenantHandle {
 
   async summary(): Promise<TenantSummary> {
     const { store, live } = this.ctx;
-    const counts = await store.tx((t) => t.counts());
+    const { counts, outbox } = await store.tx(async (t) => ({
+      counts: await t.counts(),
+      outbox: await t.outboxStats(),
+    }));
     return {
       ready: !this.ctx.closing && !this.ctx.closed,
       runningSessions: counts.runningSessions,
       connectedExecutors: connectedExecutorCount(live),
       pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
+      outboxDepth: outbox.depth,
+      relayLagMs:
+        outbox.oldestCreatedAt === null
+          ? 0
+          : Math.max(0, Date.now() - Date.parse(outbox.oldestCreatedAt)),
     };
   }
 

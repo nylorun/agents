@@ -13,6 +13,9 @@ import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";
 import { createTenantModule } from "./module.js";
 import { createFsTenantStore } from "./store-fs.js";
+import { createPostgresTenantStore } from "./store-pg.js";
+import type { PostgresClient } from "../store/postgres/connect.js";
+import { MemoryStreams } from "../streams/memory.js";
 import { createTenantLogger } from "./logger.js";
 import { hostPaths, tenantPaths } from "./paths.js";
 import { openTenantRuntime } from "./runtime.js";
@@ -49,6 +52,12 @@ export interface StartEphemeralRuntimeOptions {
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
   logger?: Logger;
+  /**
+   * A Postgres pool: Tenants become schemas in it (`store-pg.ts`) instead of SQLite files
+   * under `hostRoot`, with in-memory Durable Streams. The caller ends the pool; the schemas
+   * stay.
+   */
+  database?: PostgresClient;
 }
 
 export interface EphemeralRuntime {
@@ -129,19 +138,33 @@ export async function startEphemeralRuntime(
   const openRuntime = (config: TenantConfig) =>
     openTenantRuntime(config, { createKekIfMissing: true });
 
-  const store = createFsTenantStore({
-    hostRoot,
-    openRuntime,
-    configFor,
-    logger,
-  });
+  const streams = options.database ? new MemoryStreams() : undefined;
+  const store = options.database
+    ? createPostgresTenantStore({
+        hostRoot,
+        sql: options.database,
+        configFor,
+        logger,
+        openRuntime: (config, opened) =>
+          openTenantRuntime(config, {
+            createKekIfMissing: true,
+            streams: streams!,
+            ...opened,
+          }),
+      })
+    : createFsTenantStore({
+        hostRoot,
+        openRuntime,
+        configFor,
+        logger,
+      });
 
   const module = createTenantModule({
-    hostRoot,
     store,
-    openRuntime,
-    configFor,
     logger,
+    ...(streams
+      ? { onDeleted: (tenantId: string) => streams.deleteTenant(tenantId) }
+      : {}),
   });
 
   await module.start();

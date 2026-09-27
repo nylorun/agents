@@ -4,6 +4,13 @@
  * Reads `NYLORUN_HOME` (falls back to `~/.nylorun`), and hands an environment
  * snapshot and argv to `parseStackConfig` (container listen mode, `--role`,
  * stack endpoints). Absolute Host root is resolved once and passed down.
+ *
+ * Composition: `createInfra` builds the Postgres pool, Durable Session
+ * Execution and Durable Streams from the endpoints; `createHostExecution`
+ * shares one execution across the Tenants; the Tenant store is Postgres with
+ * `NYLORUN_DATABASE_URL` (required in container mode) and SQLite otherwise;
+ * `/ready` reports the infrastructure checks. See the startup order in
+ * `main()`.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -13,8 +20,9 @@ import { fileURLToPath } from "node:url";
 import { hostPaths } from "../tenant/paths.js";
 import { createTenantModule } from "../tenant/module.js";
 import { createFsTenantStore } from "../tenant/store-fs.js";
-import { openTenantRuntime } from "../tenant/runtime.js";
-import type { TenantConfig } from "../tenant/types.js";
+import { createPostgresTenantStore } from "../tenant/store-pg.js";
+import { openTenantRuntime, type TenantOpenHooks } from "../tenant/runtime.js";
+import { createTenantStreams, deleteTenantStreams } from "../tenant/streams.js";
 import type {
   HostConfigFile,
   HostCredentialsFile,
@@ -22,6 +30,7 @@ import type {
 } from "./config.js";
 import { configForFactory } from "./config-for.js";
 import { createHost, type CreateHostOptions } from "./create-host.js";
+import { createHostExecution } from "./execution.js";
 import {
   baselineEnvironment,
   hostProcessEnvironment,
@@ -33,7 +42,7 @@ import {
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
 import { describeEndpoints, parseStackConfig } from "./stack-config.js";
-import { createInfra } from "../infra/index.js";
+import { createExecution, createInfra } from "../infra/index.js";
 import { RUNTIME_VERSION } from "../version.js";
 
 const entry = fileURLToPath(import.meta.url);
@@ -78,6 +87,19 @@ export async function main(): Promise<void> {
     );
   }
 
+  // The stack runs on Postgres and S2; only a local (launcher) Host may still
+  // use SQLite and in-process streams.
+  if (stack.listen && !stack.endpoints.databaseUrl) {
+    throw new Error(
+      "NYLORUN_DATABASE_URL is required in container mode: the Postgres URL of the Session Store (`nylorun start` sets it)",
+    );
+  }
+  if (stack.listen && !stack.endpoints.s2Endpoint) {
+    throw new Error(
+      "NYLORUN_S2_ENDPOINT is required in container mode: the S2 endpoint of Durable Streams (`nylorun start` sets it)",
+    );
+  }
+
   const config = loadJson<HostConfigFile>(paths.config);
   const credentials = loadJson<HostCredentialsFile>(paths.credentials);
   const logger = createHostLogger();
@@ -86,7 +108,6 @@ export async function main(): Promise<void> {
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
-  // Wave 3 prep: the clients back `/ready` only; Tenants still use SQLite.
   const infra = createInfra(stack, { logger });
   const baseline = baselineEnvironment(process.env);
   void hostProcessEnvironment(baseline, config, paths);
@@ -103,22 +124,62 @@ export async function main(): Promise<void> {
       ? { mode: "ephemeral" as const, model: { kind: "fixture" as const } }
       : {}),
   });
-  const openRuntime = (tenantConfig: TenantConfig) =>
-    openTenantRuntime(tenantConfig);
 
-  const store = createFsTenantStore({
-    hostRoot,
-    openRuntime,
-    configFor,
+  // One Durable Session Execution for every Tenant this process opens: Restate
+  // when its endpoints are set, else the in-process memory execution. An
+  // invocation for a Tenant that is not open here opens it on demand.
+  const hostExecution = createHostExecution({
+    execution: infra.execution ?? createExecution(stack),
+    role: stack.role,
+    resolve: (tenantId) => module.worker(tenantId),
     logger,
   });
+  // Durable Streams: S2 when configured (always in container mode). Without
+  // them (a local Host only) each Tenant keeps in-process streams, whose history
+  // does not survive a restart.
+  const streams = infra.streams;
+  const hooks: TenantOpenHooks = {
+    execution: hostExecution.tenantExecution,
+    ...(streams ? { streams } : {}),
+  };
+
+  // With NYLORUN_DATABASE_URL, Tenants are Postgres schemas; without it (local
+  // Host only, until Wave 4) each Tenant is a directory with SQLite.
+  const store = infra.database
+    ? createPostgresTenantStore({
+        hostRoot,
+        sql: infra.database,
+        configFor,
+        logger,
+        openRuntime: (tenantConfig, opened) =>
+          openTenantRuntime(tenantConfig, { ...hooks, ...opened }),
+      })
+    : createFsTenantStore({
+        hostRoot,
+        configFor,
+        logger,
+        openRuntime: (tenantConfig) => openTenantRuntime(tenantConfig, hooks),
+      });
+  logger.info("tenant_store", { kind: infra.database ? "postgres" : "sqlite" });
 
   const module = createTenantModule({
-    hostRoot,
     store,
-    openRuntime,
-    configFor,
     logger,
+    // A new Tenant's basin is created with it (opening it repairs a failure);
+    // a deleted Tenant's sweep stops re-arming and its basin goes.
+    ...(streams
+      ? { onCreated: (tenantId: string) => createTenantStreams(streams, tenantId) }
+      : {}),
+    onDeleted: async (tenantId) => {
+      const failed = (
+        await Promise.allSettled([
+          hostExecution.disarm(tenantId),
+          ...(streams ? [deleteTenantStreams(streams, tenantId)] : []),
+        ])
+      ).flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+      if (failed.length > 0)
+        throw new AggregateError(failed, "Deleted Tenant cleanup failed");
+    },
   });
 
   const options: CreateHostOptions = {
@@ -131,12 +192,29 @@ export async function main(): Promise<void> {
     ...(stack.listen ? { listen: stack.listen, ownsStateFile: false } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
+    // SIGTERM and POST /v1/admin/host/shutdown both close the Host this way:
+    // stop the Worker, close the Tenants, then end the infrastructure clients.
+    shutdown: {
+      beforeTenants: () => hostExecution.stop(),
+      afterTenants: () => infra.close(),
+    },
   };
   const host = createHost(options);
 
+  // Startup order. The Worker starts first: opening a Tenant arms its sweep
+  // through Restate's ingress, which answers 404 until a Worker has registered
+  // the services, so no Tenant may open before `start` (the listener opens
+  // Tenants on demand). An api-role process serves no Worker endpoint, so it
+  // can open Tenants only once some Worker process has registered. Container
+  // mode runs one `--role all` process, which registers here. Then the
+  // listener starts (and marks discovery done), and every listed Tenant's
+  // sweep is re-armed, which recovers wakes lost with Restate's state (§14.8).
   try {
+    await hostExecution.start();
     await host.listen();
   } catch (error) {
+    await hostExecution.stop().catch(() => undefined);
+    await infra.close();
     if (error instanceof HostListenError) {
       logger.error("listen_failed", {
         message: error.message,
@@ -147,6 +225,14 @@ export async function main(): Promise<void> {
     }
     throw error;
   }
+  const tenants = await module.list();
+  await hostExecution
+    .armAll(tenants.filter((t) => t.state === "open").map((t) => t.id))
+    .catch((error: unknown) =>
+      logger.warn("tenant_sweeps_not_armed", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
 
   // host-state.json tracks a launcher-spawned process on this machine. A
   // container's pid means nothing on the Docker host, so it writes none.
@@ -163,19 +249,19 @@ export async function main(): Promise<void> {
     });
   }
 
-  logger.info("host_ready", { url: host.url, hostId: config.hostId });
+  logger.info("host_ready", {
+    url: host.url,
+    hostId: config.hostId,
+    tenants: tenants.length,
+  });
   process.send?.({ type: "ready", url: host.url });
 
-  let closing: Promise<void> | undefined;
-  const shutdown = () => {
-    closing ??= host.close().then(() => infra.close()).then(() => {
-      process.exit(0);
-    });
-  };
+  void host.closed.then(() => process.exit(0));
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, shutdown);
+    process.on(signal, () => void host.close());
   }
 }
+
 
 void main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);

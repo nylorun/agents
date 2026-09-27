@@ -54,8 +54,10 @@ function hashToken(token: string): string {
 
 async function setup(adapter: AdapterName) {
   const hostRoot = await tempRoot();
+  const opened: string[] = [];
   const openRuntime = createFakeOpenRuntime({
     hostRoot,
+    beforeOpen: (config) => void opened.push(config.tenantId),
   });
   const configFor = configForRoot(hostRoot);
   const store: TenantStore =
@@ -69,7 +71,7 @@ async function setup(adapter: AdapterName) {
     configFor,
     logger: silentLogger(),
   });
-  return { hostRoot, store, module };
+  return { hostRoot, store, module, opened };
 }
 
 function conformance(adapter: AdapterName) {
@@ -296,8 +298,8 @@ function conformance(adapter: AdapterName) {
       }
     });
 
-    it("list discovers a Tenant directory restored after start", async () => {
-      const { module, store } = await setup(adapter);
+    it("opens a Tenant restored after start on first use, and list opens nothing", async () => {
+      const { module, store, opened } = await setup(adapter);
       await module.start();
       expect(module.started).toBe(true);
       const id = newTenantId();
@@ -312,10 +314,22 @@ function conformance(adapter: AdapterName) {
         },
         bootstrapMaterial(),
       );
-      expect((await module.resolve(id)).kind).toBe("not-found");
       const listed = await module.list();
-      expect(listed.some((t) => t.id === id && t.state === "open")).toBe(true);
-      expect((await module.resolve(id)).kind).toBe("open");
+      expect(listed.find((t) => t.id === id)).toMatchObject({
+        state: "open",
+        name: "restored",
+      });
+      expect(opened).toEqual([]);
+      expect(await module.summarize()).toMatchObject({ runningSessions: 0 });
+      const [first, second] = await Promise.all([
+        module.resolve(id),
+        module.resolve(id),
+      ]);
+      expect(first.kind).toBe("open");
+      // Concurrent first uses share one open.
+      if (first.kind === "open" && second.kind === "open")
+        expect(second.handle).toBe(first.handle);
+      expect((await module.resolve(newTenantId())).kind).toBe("not-found");
     });
   });
 }

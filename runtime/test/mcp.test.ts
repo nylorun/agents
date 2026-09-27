@@ -464,8 +464,7 @@ it("does not send a failed MCP call again after it is uncertain", async () => {
     expect(session.status).toBe("uncertain");
     expect(remote.requests.filter((item) => item.method === "tools/call")).toHaveLength(1);
     await runtime.close();
-    const dbPath = join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-    await patchStoredSession(dbPath, runtime.tenantId, "s1", { status: "runnable" });
+    await patchStoredSession(runtime.root, runtime.tenantId, "s1", { status: "runnable" });
     const again = await startTestTenant({
       applicationKey: APP,
       hostRoot: runtime.root,

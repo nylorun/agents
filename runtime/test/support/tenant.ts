@@ -26,6 +26,13 @@ import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import { createSqliteSessionStore } from "../../src/store/sqlite.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
+import {
+  TEST_STORE,
+  dropTestTenant,
+  testCatalog,
+  testEnvelope,
+  withTestSessionStore,
+} from "./store.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
   executors?: readonly {
@@ -61,27 +68,30 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
  */
 const retainedStreams = new Map<string, MemoryStreams>();
 
-/** Rewrites fields of a stored session in a closed Tenant database (restart tests). */
+/**
+ * Rewrites fields of a stored session of a closed Tenant (restart tests). `root` is the
+ * Host root; the store is the one `NYLORUN_TEST_STORE` selects.
+ */
 export async function patchStoredSession(
-  databasePath: string,
+  root: string,
   tenantId: string,
   sessionId: string,
   patch: Record<string, unknown>
 ): Promise<void> {
-  const store = createSqliteSessionStore({ path: databasePath, tenantId });
-  try {
-    await store.tx(async (t) => {
+  await withTestSessionStore({ root, tenantId }, (store) =>
+    store.tx(async (t) => {
       const stored = await t.get("sessions", sessionId);
       if (!stored) throw new Error(`Session ${sessionId} not found`);
       await t.put("sessions", sessionId, { ...stored, ...patch });
-    });
-  } finally {
-    await store.close();
-  }
+    })
+  );
 }
 
 /**
- * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5).
+ * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5). The
+ * Tenant's Session Store is the one `NYLORUN_TEST_STORE` selects (`./store.ts`): a SQLite
+ * file under the Host root, or a fresh Postgres schema that `close()` drops unless the root
+ * is retained.
  */
 export async function startTestTenant(
   options: StartTestTenantOptions = {}
@@ -116,7 +126,23 @@ export async function startTestTenant(
   const credentialHash = hashToken(applicationKey);
   const now = new Date().toISOString();
 
-  if (!existsSync(paths.envelope)) {
+  let opened: TenantOpenHooks = {};
+  if (TEST_STORE === "postgres") {
+    const catalog = testCatalog();
+    if (!(await catalog.tenantExists(tenantId)))
+      await catalog.createTenant({
+        envelope: testEnvelope(tenantId),
+        principals: {
+          principalId,
+          credentialHash,
+          idempotencyKey: `boot-${tenantId}`,
+        },
+      });
+    const result = await catalog.openTenant(tenantId);
+    if (result.status !== "ok")
+      throw new Error(`Test Tenant ${tenantId} is ${result.status}`);
+    opened = { store: result.store, envelope: result.envelope };
+  } else if (!existsSync(paths.envelope)) {
     const envelope: TenantEnvelope = {
       id: tenantId,
       name: "test",
@@ -127,7 +153,7 @@ export async function startTestTenant(
     writeFileSync(paths.envelope, JSON.stringify(envelope, null, 2) + "\n");
   }
 
-  if (!existsSync(paths.database)) {
+  if (TEST_STORE === "sqlite" && !existsSync(paths.database)) {
     const store = createSqliteSessionStore({ path: paths.database, tenantId });
     await store.tx((t) =>
       bootstrapPrincipal(t, {
@@ -182,6 +208,7 @@ export async function startTestTenant(
   const streamsKey = `${hostRoot}\u0000${tenantId}`;
   const defaultStreams = retainedStreams.get(streamsKey) ?? new MemoryStreams();
   const hooks: TenantOpenHooks = {
+    ...opened,
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     ...(options.workerId ? { workerId: options.workerId } : {}),
@@ -282,7 +309,10 @@ export async function startTestTenant(
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
-      if (!retainRoot) await rm(hostRoot, { recursive: true, force: true });
+      if (!retainRoot) {
+        await rm(hostRoot, { recursive: true, force: true });
+        await dropTestTenant(tenantId);
+      }
     },
   };
 }

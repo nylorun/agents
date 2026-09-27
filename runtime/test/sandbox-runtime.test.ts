@@ -211,8 +211,7 @@ it("treats a backend failure during a write tool as uncertain and never re-runs 
   } finally {
     await runtime.close();
   }
-  const dbPath = join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-  await patchStoredSession(dbPath, runtime.tenantId, "s1", { status: "runnable" });
+  await patchStoredSession(runtime.root, runtime.tenantId, "s1", { status: "runnable" });
   const again = await boot({
     hostRoot: runtime.root,
     tenantId: runtime.tenantId,

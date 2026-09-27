@@ -21,7 +21,7 @@ import type {
   WorkerHandlers,
 } from "../../src/execution/types.js";
 import { createHostExecution, type HostExecution } from "../../src/host/execution.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { openTestSessionStore } from "../support/store.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import type { RuntimeRole } from "../../src/host/stack-config.js";
@@ -31,7 +31,6 @@ import {
   cancel,
   controlledModel,
   count,
-  databaseOf,
   openSession,
   sendMessage,
   server,
@@ -160,10 +159,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
 
     // Another Worker holds a live lease on the session.
     const leaseMs = 1500;
-    const other = createSqliteSessionStore({
-      path: databaseOf(runtime),
-      tenantId: runtime.tenantId,
-    });
+    const other = await openTestSessionStore(runtime);
     let expiresAt: number;
     try {
       const taken = await other.tx((t) =>

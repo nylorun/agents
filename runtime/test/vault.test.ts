@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TenantRuntime } from "../src/tenant/runtime.js";
 import { createSqliteSessionStore } from "../src/store/sqlite.js";
+import { openTestSessionStore } from "./support/store.js";
 import { withTenantDatabase } from "../src/tenant/schema.js";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
@@ -197,7 +198,7 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   await expect(
     boot({ hostRoot: root, tenantId, vaultKek: null }),
   ).rejects.toThrow(/key-encryption key|kek-missing/i);
-  const db = createSqliteSessionStore({ path: dbPath, tenantId });
+  const db = await openTestSessionStore({ root, tenantId });
   await db.tx(async (t) => {
     const row = await t.getCredential(credentialId);
     await t.updateCredential(row!.vaultId, credentialId, {
@@ -669,10 +670,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     expect(attached.status).toBe(400);
   } finally {
     await runtime.close();
-    const db = createSqliteSessionStore({
-      path: runtime.dbPath,
-      tenantId: runtime.tenantId,
-    });
+    const db = await openTestSessionStore(runtime);
     const stored = JSON.stringify(
       (await db.tx((t) => t.credentialsForVault("host"))).map((row) => ({
         binding_json: row.bindingJson,

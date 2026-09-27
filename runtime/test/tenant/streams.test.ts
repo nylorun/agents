@@ -3,9 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor } from "../../src/store/cursor.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
-import { tenantPaths } from "../../src/tenant/paths.js";
+import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
 import { contextOf, tenantStreamsSuite } from "./streams.suite.js";
 
@@ -64,10 +63,7 @@ describe("streams passed by the caller", () => {
     await first.close();
 
     // A row committed without a relay (a crash between commit and append) stays in the outbox.
-    const store = createSqliteSessionStore({
-      path: tenantPaths(first.root, first.tenantId).database,
-      tenantId: first.tenantId,
-    });
+    const store = await openTestSessionStore(first);
     const offline = await store.tx((t) => t.event("s1", null, "test.offline", {}));
     await store.close();
 

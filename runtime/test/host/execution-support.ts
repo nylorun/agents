@@ -3,11 +3,10 @@
  * a Tenant booted with the test shim, a turn opened over the Tenant API, and models the test
  * controls.
  */
-import { join } from "node:path";
 import { expect } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant, type StartTestTenantOptions } from "../support/tenant.js";
 
 export const APP = "host-execution-app-token-aaaaaaa";
@@ -109,16 +108,9 @@ export async function until<T>(
 export const count = (list: string[], type: string) =>
   list.filter((item) => item === type).length;
 
-export function databaseOf(runtime: Started) {
-  return join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-}
-
-/** Reads the session row and its effects straight from the Tenant database. */
+/** Reads the session row and its effects straight from the Tenant's store (SQLite or Postgres). */
 export async function stored(runtime: Started, id = "s1") {
-  const store = createSqliteSessionStore({
-    path: databaseOf(runtime),
-    tenantId: runtime.tenantId,
-  });
+  const store = await openTestSessionStore(runtime);
   try {
     return await store.tx(async (t) => ({
       session: (await t.get("sessions", id)) as {

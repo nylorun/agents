@@ -65,6 +65,8 @@ it("summary() returns counts only with no string fields (A15)", async () => {
     connectedExecutors: 0,
     pendingActions: 0,
     uncertainEffects: 0,
+    outboxDepth: 0,
+    relayLagMs: 0,
   });
   for (const [key, value] of Object.entries(summary)) {
     expect(typeof value, key).not.toBe("string");

@@ -205,11 +205,22 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       expect(row).toMatchObject({ status: "idle", agent_id: "agent-a", next_event_seq: "1", epoch: "0" });
     });
 
-    it("rejects U+0000 in a document, which jsonb cannot store", async () => {
-      const { store } = await open();
-      await expect(
-        store.tx((t) => t.put("commands", "c1", { text: "a\u0000b" })),
-      ).rejects.toMatchObject({ code: "22P05" });
+    it("stores bodies verbatim and derives columns through doc(), which jsonb escapes cannot break", async () => {
+      const { store, schema } = await open();
+      const body = {
+        ...session("s1"),
+        status: "idle\u0000",
+        agentId: "agent\ud800",
+        text: "a\u0000b\\u0000",
+      };
+      await store.tx((t) => t.put("sessions", "s1", body));
+      const sql = pool();
+      const [row] = await sql`
+        SELECT body::text AS text, status, agent_id FROM ${sql(`${schema}.sessions`)} WHERE id = 's1'`;
+      expect(row!.text).toBe(JSON.stringify(body));
+      // Only the derived columns see U+FFFD for the escapes jsonb rejects.
+      expect(row).toMatchObject({ status: "idle\ufffd", agent_id: "agent\ufffd" });
+      expect(await store.tx((t) => t.get("sessions", "s1"))).toMatchObject(body);
     });
   });
 });

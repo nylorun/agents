@@ -25,6 +25,7 @@ import { clearExecutorStreams, clearObservers } from "./live.js";
 import {
   requestStreamCollection,
   sessionStreamsAbandoned,
+  streamsStatus,
 } from "./streams.js";
 import { clearWork, drain } from "./scheduler.js";
 
@@ -56,6 +57,7 @@ export async function dispatchTenant(
       ...(ctx.stuckInvocations
         ? { stuckInvocations: ctx.stuckInvocations }
         : {}),
+      streamsStatus: () => streamsStatus(ctx),
     });
   if (path[2] === "reset" && path.length === 3 && method === "POST") {
     const body = ResetTenantRequestSchema.parse(await readBody(request));

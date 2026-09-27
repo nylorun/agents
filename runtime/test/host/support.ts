@@ -176,6 +176,10 @@ export function createFakeModule(options?: {
         handle: t.handle ?? defaultHandle(id),
       };
     },
+    async worker(id: string) {
+      const t = tenants.get(id);
+      return t?.state === "open" ? t.handle?.worker : undefined;
+    },
     async create(
       input: { tenantId: string; name: string } & BootstrapPrincipal,
     ) {
