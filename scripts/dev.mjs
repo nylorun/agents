@@ -12,8 +12,8 @@ try {
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  // Uses the shared Host under NYLORUN_HOME or ~/.nylorun. Acceptance and
-  // smoke scripts pass a temporary Host root via develop({ hostRoot, home }).
+  // The stack lives under NYLORUN_HOME (default ~/.nylorun) as Compose project
+  // NYLORUN_STACK_PROJECT (default nylorun); it outlives npm run dev.
   app = await develop(options, { signal: controller.signal });
   if (controller.signal.aborted) await app.close();
   process.exitCode = await app.done;

@@ -66,12 +66,13 @@ try {
       content,
       `Setup modified ${file}`,
     );
-  // G7: starter scripts are the new flow (no nylorun serve).
+  // Starter scripts: nylorun dev on the Docker stack, no serve, and no
+  // Studio script (Studio runs in the stack; `nylorun studio` opens it).
   const starterPkg = await readJson(
     join(temporary, "create-agent/starter/package.json"),
   );
   assert.equal(starterPkg.scripts.dev, "nylorun dev");
-  assert.equal(starterPkg.scripts.studio, "nylorun-studio");
+  assert.equal(starterPkg.scripts.studio, undefined);
   assert.equal(starterPkg.scripts.start, "node dist/src/main.js");
   assert.ok(
     !Object.values(starterPkg.scripts).some((script) =>

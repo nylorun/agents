@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # Full suite on the pinned toolchain. Includes test:tooling, i.e. the Linux
-  # leg of the desktop-contract and supervisor tests (see `macos`).
+  # leg of the supervisor and release tooling tests (see `macos`).
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -27,12 +27,17 @@ jobs:
       - run: npm run setup
       - run: npm run check -- --built
       - run: npm run check:stack -- --built
-  # End-to-end, in parallel with `check`: the packed starter in a real browser,
-  # and the release combination when a PR changes the release plan.
+  # End-to-end, in parallel with `check`: the packed starter on the Docker
+  # stack with images built from this PR (scripts/lib/stack.mjs reuses the
+  # images NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name), and the release
+  # combination when a PR changes the release plan.
   smoke-starter:
     runs-on: ubuntu-latest
     # Bound the job so a wedged runner cannot block the PR matrix indefinitely.
     timeout-minutes: 45
+    env:
+      NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+      NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
     steps:
       - uses: actions/checkout@v6
         with:
@@ -46,21 +51,30 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
-      # Headless Chromium only (the smoke never runs headed), cached per
-      # Playwright version. The runner's preinstalled Chrome supplies its
-      # system libraries, so no apt install.
-      - id: playwright
-        run: echo "version=$(node -p "require('playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+      # The Runtime and Studio images from this PR, from the `stack` job's
+      # layer cache (read-only here; `stack` writes it).
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the Runtime image
+        uses: docker/build-push-action@v7
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-shell
-      - run: npx playwright-core install --only-shell chromium
+          context: .
+          file: runtime/Dockerfile
+          tags: nylorun-runtime:ci
+          load: true
+          cache-from: type=gha,scope=stack-runtime
+      - name: Build the Studio image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: studio/Dockerfile
+          tags: nylorun-studio:ci
+          load: true
+          cache-from: type=gha,scope=stack-studio
       - name: Smoke starter
-        # Healthy smoke is ~2–4 min; in-process deadline is 15m. Keep Actions
-        # above that so the script can report its own abort reason.
-        timeout-minutes: 18
-        run: node create-agent/scripts/smoke-starter.mjs
+        # Healthy smoke is a few minutes; the in-process deadline is 20m. Keep
+        # Actions above that so the script can report its own abort reason.
+        timeout-minutes: 22
+        run: npm run test:starter
       - name: Validate a proposed release
         if: github.event_name == 'pull_request'
         # release:check is ~2–10 min when healthy; afdaee7 Validate wedged >50 min
@@ -75,11 +89,14 @@ jobs:
             npm run build --prefix examples
             npm run release:check -- --built
           fi
-  # Dev supervisor with the packed Runtime, and clean-checkout setup plus
-  # release preparation. No browser; runs beside smoke-starter.
+  # `npm run dev` (the contributor loop) on the Docker stack with this PR's
+  # images, and clean-checkout setup plus release preparation.
   smoke-dev:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
+    env:
+      NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+      NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -91,21 +108,44 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
+      # The Runtime and Studio images from this PR, from the `stack` job's
+      # layer cache (read-only here; `stack` writes it).
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the Runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: runtime/Dockerfile
+          tags: nylorun-runtime:ci
+          load: true
+          cache-from: type=gha,scope=stack-runtime
+      - name: Build the Studio image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: studio/Dockerfile
+          tags: nylorun-studio:ci
+          load: true
+          cache-from: type=gha,scope=stack-studio
       - name: Test dev
         timeout-minutes: 10
         run: npm run test:dev
       - name: Test setup
         timeout-minutes: 10
         run: npm run test:setup
-  # WS-H packed-package acceptance (H1–H9) under a temporary Host root, split
-  # into two groups of about a minute each.
+  # Tenant acceptance (H1–H9) on the Docker stack with this PR's images, driven
+  # by the packed CLI and @nylorun/admin under a temporary Host root; split into
+  # two groups with one stack each.
   acceptance:
     strategy:
       fail-fast: false
       matrix:
         scenarios: ["H1,H3,H4,H5,H7,H8", "H2,H6,H9"]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+      NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -117,7 +157,28 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
-      - run: node scripts/acceptance/tenants.mjs --only ${{ matrix.scenarios }}
+      # The Runtime and Studio images from this PR, from the `stack` job's
+      # layer cache (read-only here; `stack` writes it).
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the Runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: runtime/Dockerfile
+          tags: nylorun-runtime:ci
+          load: true
+          cache-from: type=gha,scope=stack-runtime
+      - name: Build the Studio image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: studio/Dockerfile
+          tags: nylorun-studio:ci
+          load: true
+          cache-from: type=gha,scope=stack-studio
+      - name: Tenant acceptance
+        timeout-minutes: 15
+        run: npm run test:acceptance -- --only ${{ matrix.scenarios }}
   # macOS, the other supported developer OS (Windows developers use WSL2, which
   # is Linux): the CLI, which runs on the developer's machine, plus supervisor
   # and release tooling. The Runtime and Studio run in Linux containers, so
@@ -213,7 +274,7 @@ jobs:
         env:
           NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
           NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
-        run: node scripts/smoke-stack.mjs
+        run: npm run test:stack
   # Newest Node line with its bundled npm, as a consumer would run it.
   consumers:
     strategy:

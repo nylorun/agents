@@ -174,7 +174,11 @@ After npm accepts a publication, the workflow polls visibility every five second
 for up to ten minutes. A registry timeout does not mean the publication failed:
 confirm the version's integrity before retrying the same reviewed release.
 
-The local browser gate requires Chromium: run `npx playwright-core install chromium` on Linux, or set `NYLORUN_CHROME_PATH` to an installed Chrome executable. CI installs Chromium before testing packed artifacts.
+`release:check` smokes the packed starter on the local Docker stack, so it
+needs Docker with Compose v2. It builds `nylorun-runtime:local` and
+`nylorun-studio:local` from the checkout unless `NYLORUN_RUNTIME_IMAGE` and
+`NYLORUN_STUDIO_IMAGE` name images that are already built. No browser is
+needed.
 
 ## Images
 

@@ -58,8 +58,9 @@ credentials, and local state; it rejects conflicting edits to generated files.
 The default examples registry contains the release starter. Advanced examples
 remain outside that registry for later migration.
 
-`node create-agent/scripts/smoke-starter.mjs` still exercises the pre-stack
-flow and is being moved onto the stack.
+`npm run test:starter` (`create-agent/scripts/smoke-starter.mjs`) packs the
+workspace, scaffolds the starter from the packed creator and runs
+`nylorun dev` against a temporary local Docker stack.
 
 See [RELEASING](../RELEASING.md) for the Changesets beta workflow. Nothing is
 published by the smoke check.
