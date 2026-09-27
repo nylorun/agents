@@ -165,7 +165,8 @@ export interface TenantModule {
 export interface TenantStore {
   /** Ids of every Tenant the store holds. */
   enumerate(): Promise<readonly string[]>;
-  readEnvelope(id: string): Promise<TenantEnvelope>; // throws typed errors
+  /** Throws a quarantine error when unreadable, `TenantNotFoundError` when gone. */
+  readEnvelope(id: string): Promise<TenantEnvelope>;
   /**
    * Creates the Tenant, or returns `exists` when it already exists (whatever its bootstrap
    * material; the module compares it with `bootstrapMatches`). The stored envelope's
@@ -181,13 +182,30 @@ export interface TenantStore {
   ): Promise<boolean>;
   /**
    * Opens the Tenant Runtime; runs migration. Throws `TenantNotFoundError` when the Tenant
-   * does not exist, and a quarantine error when it cannot be opened.
+   * does not exist, `TenantUnavailableError` when something outside the Tenant failed, and
+   * any other error (a quarantine error, ideally) when the Tenant itself cannot be opened.
    */
   open(id: string): Promise<TenantHandle>;
   /** Removes the Tenant (the directory store moves it to `trash/`). */
   trash(id: string, now: Date): Promise<void>;
   /** Removes what a failed `create` left, never an existing Tenant. */
   removePartial(id: string): Promise<void>;
+}
+
+/**
+ * Thrown by a store when a Tenant cannot be reached for a reason outside it (the database
+ * or Durable Session Execution is unavailable). The module does not quarantine it: the next
+ * use tries again. The Host answers 503.
+ */
+export class TenantUnavailableError extends Error {
+  readonly status = 503;
+  constructor(
+    readonly tenantId: string,
+    options?: { cause?: unknown },
+  ) {
+    super("Tenant is temporarily unavailable", options);
+    this.name = "TenantUnavailableError";
+  }
 }
 
 /** Thrown by `TenantStore.open` for a Tenant that does not exist. */

@@ -17,6 +17,7 @@ import {
 } from "./quarantine.js";
 import {
   TenantNotFoundError,
+  TenantUnavailableError,
   type BootstrapPrincipal,
   type Logger,
   type OpenTenantRuntime,
@@ -96,8 +97,10 @@ function quarantineOf(error: unknown): Quarantine | undefined {
  * Handles open on demand and are cached (architecture §8.2). The first call that needs a
  * Tenant (`resolve`, `status`, `worker`, `delete`) opens it once, even when several ask at
  * the same time; a failed open is cached as a quarantine, and a missing Tenant is not
- * cached. A Tenant being deleted resolves as not found, so a late request or Worker call
- * cannot reopen it while its storage is removed.
+ * cached. A failure outside the Tenant (`TenantUnavailableError`: the database is down, its
+ * sweep could not be armed) is thrown to the caller and not cached either, so the next use
+ * tries again. A Tenant being deleted resolves as not found, so a late request or Worker
+ * call cannot reopen it while its storage is removed.
  */
 export function createTenantModule(
   options: CreateTenantModuleOptions,
@@ -130,6 +133,15 @@ export function createTenantModule(
     } catch (error) {
       if (error instanceof TenantNotFoundError) return undefined;
       if (closed || deleting.has(id)) return undefined;
+      if (error instanceof TenantUnavailableError) {
+        // Not the Tenant's fault: not cached, so the next use opens it again.
+        logger.warn("tenant unavailable", {
+          tenantId: id,
+          message:
+            error.cause instanceof Error ? error.cause.message : String(error.cause),
+        });
+        throw error;
+      }
       if (error instanceof TimeoutError)
         return rememberQuarantine(
           id,
@@ -233,11 +245,11 @@ export function createTenantModule(
         );
         if (!matches) throw new TenantConflictError();
         const existing = await store.readEnvelope(input.tenantId);
-        await load(input.tenantId);
+        await load(input.tenantId).catch(() => undefined);
         return { envelope: existing, created: false };
       }
 
-      const opened = await load(input.tenantId);
+      const opened = await load(input.tenantId).catch(() => undefined);
       if (opened?.kind === "open") {
         return { envelope: opened.handle.envelope, created: true };
       }
@@ -266,24 +278,29 @@ export function createTenantModule(
         try {
           envelope = await store.readEnvelope(id);
           if (envelope.id !== id) {
-            entry = rememberQuarantine(
-              id,
-              quarantine(
+            entry = {
+              kind: "quarantined",
+              quarantine: quarantine(
                 "envelope-invalid",
                 `Tenant envelope id ${envelope.id} does not match ${id}`,
                 { tenantId: id },
               ).toQuarantine(),
-            );
+            };
             envelope = null;
           }
         } catch (error) {
-          entry ??= rememberQuarantine(
-            id,
-            quarantineOf(error) ??
+          // Deleted since it was enumerated.
+          if (error instanceof TenantNotFoundError) continue;
+          if (error instanceof TenantUnavailableError) throw error;
+          // Listed as quarantined; only opening it caches a quarantine.
+          entry ??= {
+            kind: "quarantined",
+            quarantine:
+              quarantineOf(error) ??
               quarantine("envelope-invalid", "Tenant envelope is unreadable", {
                 tenantId: id,
               }).toQuarantine(),
-          );
+          };
         }
         result.push(toAdmin(id, entry, envelope));
       }
@@ -373,6 +390,7 @@ export {
   TenantBusyError,
   TenantConflictError,
   TenantNotFoundError,
+  TenantUnavailableError,
   isQuarantineError,
   quarantine,
 };

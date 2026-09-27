@@ -11,7 +11,8 @@
  *   `exists`; with different ones it throws `TenantConflictError`.
  * - `openTenant` migrates an older schema forward and returns its store. A
  *   schema newer than this Runtime, a failed migration or an unreadable
- *   envelope quarantines that Tenant only.
+ *   envelope quarantines that Tenant only. A lost connection or an unavailable
+ *   server says nothing about the Tenant, so it is thrown, never a quarantine.
  * - `deleteTenant` drops the schema with everything in it.
  *
  * Create, migrate and delete of one schema are serialized by a
@@ -94,6 +95,20 @@ export interface PostgresTenantCatalog {
   deleteTenant(id: string): Promise<boolean>;
 }
 
+/**
+ * Whether Postgres rejected a statement (a SQLSTATE), rather than the connection or the
+ * server failing (classes 08, 53, 57, and the driver's own connection errors). Only the
+ * first says something about the Tenant's schema.
+ */
+function isStatementError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    typeof code === "string" &&
+    /^[0-9A-Z]{5}$/.test(code) &&
+    !/^(08|53|57)/.test(code)
+  );
+}
+
 export function createPostgresTenantCatalog(
   options: PostgresTenantCatalogOptions,
 ): PostgresTenantCatalog {
@@ -115,6 +130,10 @@ export function createPostgresTenantCatalog(
         SELECT id, name, created_at, updated_at, schema_version
         FROM ${q(`${schema}.tenant`)}`;
     } catch (error) {
+      // A missing schema or `tenant` table is the Tenant's problem; anything else
+      // (a lost connection) is not, and is thrown as it is.
+      const code = (error as { code?: string }).code;
+      if (code !== "42P01" && code !== "3F000") throw error;
       throw invalid(
         `Tenant envelope could not be read: ${(error as Error).message}`,
       );
@@ -244,6 +263,7 @@ export function createPostgresTenantCatalog(
         try {
           migrated = await catalog.migrateTenant(id);
         } catch (error) {
+          if (!asQuarantine(error) && !isStatementError(error)) throw error;
           return {
             status: "quarantined",
             reason:
@@ -260,7 +280,9 @@ export function createPostgresTenantCatalog(
       try {
         envelope = await readEnvelopeWith(sql, id);
       } catch (error) {
-        return { status: "quarantined", reason: asQuarantine(error)! };
+        const reason = asQuarantine(error);
+        if (!reason) throw error;
+        return { status: "quarantined", reason };
       }
       const store = createPostgresSessionStore({
         sql,

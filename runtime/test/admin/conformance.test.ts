@@ -23,7 +23,7 @@ import {
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import { tenantSchemaName } from "../../src/store/postgres/names.js";
-import { TEST_STORE, testPool } from "../support/store.js";
+import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
 
 const closers: { close(): Promise<void> }[] = [];
 const roots: string[] = [];
@@ -75,14 +75,18 @@ async function getJson(
 async function startHost() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
+  // On Postgres the Host sees every Tenant in its database: give it its own.
+  const database =
+    TEST_STORE === "postgres" ? await isolatedTestDatabase() : undefined;
   const runtime = await startEphemeralRuntime({
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
-    ...(TEST_STORE === "postgres" ? { database: testPool() } : {}),
+    ...(database ? { database: database.sql } : {}),
   });
   closers.push(runtime);
-  return runtime;
+  if (database) closers.push({ close: database.drop });
+  return { ...runtime, database: database?.sql };
 }
 
 function createBody(overrides?: {
@@ -109,7 +113,7 @@ function createBody(overrides?: {
 
 it("A7: Admin API conformance — create, lost response, conflict, list, get, quarantine, delete modes, status", async () => {
   const runtime = await startHost();
-  const { url, adminKey, hostRoot } = runtime;
+  const { url, adminKey, hostRoot, database } = runtime;
   const headers = adminHeaders(adminKey);
 
   const first = createBody({ name: "primary" });
@@ -173,7 +177,7 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
   const badId = newTenantId();
   if (TEST_STORE === "postgres") {
     // A schema without its envelope row.
-    const sql = testPool();
+    const sql = database!;
     await sql`CREATE SCHEMA ${sql(tenantSchemaName(badId))}`;
   } else {
     const paths = tenantPaths(hostRoot, badId);

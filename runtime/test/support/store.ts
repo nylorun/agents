@@ -7,6 +7,7 @@
  *
  *   NYLORUN_TEST_STORE=postgres NYLORUN_TEST_STACK=1 npm test -w @nylorun/runtime
  */
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import {
@@ -38,6 +39,32 @@ export function testPool(): PostgresClient {
     applicationName: "nylorun-runtime-test",
   });
   return pool;
+}
+
+/**
+ * A fresh database on the test stack's server, for a test whose Host must see only its own
+ * Tenants (listing, status). `drop` ends its pool and drops it.
+ */
+export async function isolatedTestDatabase(): Promise<{
+  sql: PostgresClient;
+  drop(): Promise<void>;
+}> {
+  const name = `nylorun_test_${randomBytes(8).toString("hex")}`;
+  await testPool().unsafe(`CREATE DATABASE ${name}`);
+  const url = new URL(stackEndpoints().postgres.url);
+  url.pathname = `/${name}`;
+  const sql = createPostgresClient(url.toString(), {
+    max: 10,
+    idleTimeoutSeconds: 1,
+    applicationName: "nylorun-runtime-test",
+  });
+  return {
+    sql,
+    async drop() {
+      await sql.end({ timeout: 5 });
+      await testPool().unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    },
+  };
 }
 
 export function testCatalog(): PostgresTenantCatalog {
