@@ -58,15 +58,15 @@ import { prepareMcp, resolveEffect } from "./effects.js";
 import { command } from "./commands.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
-
-/** The model of Tenants with the fixture-model setting (`model-setting.ts`). Stateless. */
-const fixture = toolFixtureModel();
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
   abortKind,
   type AdvanceAbortKind,
 } from "./worker.js";
+
+/** The model of Tenants with the fixture-model setting (`model-setting.ts`). Stateless. */
+const fixture = toolFixtureModel();
 
 /**
  * A segment stopped by a `shutdown` or `ownership.lost` abort before it settled. Never
