@@ -25,7 +25,8 @@ export function findProjectRoot(cwd = process.cwd()): string | undefined {
   const root = parse(directory).root;
   let fallback: string | undefined;
   for (;;) {
-    if (directory === stop) return undefined;
+    // The home directory is never a Project, but a package.json below it is.
+    if (directory === stop) return fallback;
     if (existsSync(join(directory, ".nylorun"))) return directory;
     if (!fallback && existsSync(join(directory, "package.json")))
       fallback = directory;
