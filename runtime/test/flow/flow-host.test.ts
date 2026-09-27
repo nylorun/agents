@@ -10,8 +10,9 @@ import {
   foreignInteractionConflict,
   pathDepth,
   planCancelCascade,
-  reconcilePendingAgentEffects,
-  reofferOrphanedFnVerifyClaims,
+  pendingAgentEffects,
+  reconcilePendingAgentEffect,
+  reofferFnVerifyClaim,
   wakeForQueuedEffects,
   wakeLinkedWorkflow,
   type FlowHostSession,
@@ -218,7 +219,7 @@ it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot 
   );
 });
 
-it("SD-P7: reofferOrphanedFnVerifyClaims on start", async () => {
+it("SD-P7: reofferFnVerifyClaim offers a claimed verify again", async () => {
   const { store, put, get } = memoryStore();
   await put(
     "actions",
@@ -240,13 +241,12 @@ it("SD-P7: reofferOrphanedFnVerifyClaims on start", async () => {
     status: "waiting",
     activeTurnId: "t",
   });
-  expect(await store.tx((t) => reofferOrphanedFnVerifyClaims(t))).toBe(1);
+  expect(await store.tx((t) => reofferFnVerifyClaim(t, "v1"))).toBe(true);
   const action = await get<Action>("actions", "v1");
   expect(action?.status).toBe("pending");
   expect(action?.claimId).toBeNull();
-  expect((await get<FlowHostSession>("sessions", "wf-1"))?.status).toBe(
-    "runnable"
-  );
+  // A second call finds nothing claimed.
+  expect(await store.tx((t) => reofferFnVerifyClaim(t, "v1"))).toBe(false);
 });
 
 it("PAR-R6: cancelSiblingWork cancels pending, uncertains claimed, lists agents", async () => {
@@ -502,7 +502,7 @@ it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async
   expect((await get("effects", "eff-1"))?.status).toBe("pending");
 });
 
-it("WF-C9: reconcilePendingAgentEffects wakes on settled linked turns", async () => {
+it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () => {
   const { store, put, get } = memoryStore();
   const agentId = deriveSessionId("wf-1", "writer");
   await put("sessions", "wf-1", {
@@ -527,15 +527,22 @@ it("WF-C9: reconcilePendingAgentEffects wakes on settled linked turns", async ()
     agentSessionId: agentId,
     request: { kind: "agent", sessionId: "wf-1", turnId: "turn-1" },
   });
-  const scheduled: string[] = [];
-  await store.tx((t) =>
-    reconcilePendingAgentEffects({
-      t,
-      schedule: (sid) => scheduled.push(sid),
-    })
-  );
+  const scheduled: { id: string; reason: string }[] = [];
+  const pending = await store.tx((t) => pendingAgentEffects(t));
+  expect(pending.map((e) => e.request.effectId ?? "eff")).toHaveLength(1);
+  expect(
+    await store.tx((t) =>
+      reconcilePendingAgentEffect({
+        t,
+        effectId: "eff",
+        schedule: (id, wake) => {
+          scheduled.push({ id, reason: wake.reason });
+        },
+      })
+    )
+  ).toBe(true);
   const effect = await get("effects", "eff");
   expect(effect?.status).toBe("completed");
   expect(effect?.outcome).toEqual({ value: "done" });
-  expect(scheduled).toContain("wf-1");
+  expect(scheduled).toEqual([{ id: "wf-1", reason: "linked" }]);
 });

@@ -50,7 +50,6 @@ import {
   streamExecutorWork,
   streamSessionEvents,
 } from "./live.js";
-import { expireClaims } from "./scheduler.js";
 import { dispatchTenant, dispatchVault } from "./routes-tenant.js";
 
 export async function handle(
@@ -85,7 +84,6 @@ export async function handle(
     if (path[1] === "actions") {
       if (scope.kind !== "executor")
         return fail(403, "Executor credential required");
-      await expireClaims(ctx);
       if (path.length === 2 && method === "GET")
         return json(await listPendingActions(ctx, scope.executor));
       const actionId = path[2];

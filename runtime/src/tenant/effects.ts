@@ -4,13 +4,13 @@
  * `resolveNewFlowEffect` does the same for workflow effects (linked agent sessions, tool
  * nodes, fn, verify). Also MCP preparation and vault authorization for MCP servers.
  *
- * Every journal write runs in a transaction that locks the effect's session first. The
- * model, MCP, sandbox and vault calls run between transactions, never inside one.
+ * Every journal write runs in a transaction that locks the effect's session first and checks
+ * the advance's ownership epoch (`ownedSession`): after another Worker takes over, the next
+ * write throws `ownership.lost` and nothing is written. The model, MCP, sandbox and vault
+ * calls run between transactions, never inside one.
  *
  * `invokeModel` lives here rather than in `advance.ts`: it is one of the effect dispatchers,
  * and keeping it here avoids an import cycle between the advance and the engine host.
- *
- * Later waves: Wave 2 / X adds the epoch check to each write.
  */
 import type { Action, SessionCommand } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
@@ -23,6 +23,7 @@ import {
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
 import { canonical } from "../store/canonical.js";
+import { isOwnershipLost } from "../store/ownership.js";
 import { piModel } from "../model/pi-model.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
@@ -31,9 +32,10 @@ import { sandboxCapabilityOf } from "../sandbox/manager.js";
 import { owningSandboxSessionId, sandboxSpecOf } from "../sandbox/share.js";
 import {
   loadSession,
-  lockedSession,
+  ownedSession,
   sandboxLookup,
   sessionOf,
+  type Lease,
   type Session,
   type TenantContext,
 } from "./context.js";
@@ -75,11 +77,12 @@ type Journaled =
 export async function resolveEffect(
   ctx: TenantContext,
   request: HostEffect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  lease: Lease
 ): Promise<EffectResolution> {
   const { store } = ctx;
   const journaled = await store.tx(async (t): Promise<Journaled> => {
-    const s = await lockedSession(t, request.sessionId);
+    const s = await ownedSession(t, lease, request.sessionId);
     if (
       s.status === "cancelled" ||
       s.activeTurnId !== request.turnId ||
@@ -234,7 +237,7 @@ export async function resolveEffect(
   if (journaled.kind === "resolved") return journaled.resolution;
   if (journaled.kind === "flow") {
     if (isFlowEffect(request))
-      return resolveNewFlowEffect(ctx, request, signal);
+      return resolveNewFlowEffect(ctx, request, signal, lease);
     return { status: "pending" };
   }
   const invoke = journaled.invoke;
@@ -247,7 +250,7 @@ export async function resolveEffect(
         ? await callSandboxTool(ctx, request, signal)
         : await invokeModel(ctx, request, signal);
     return await store.tx(async (t) => {
-      const s = await lockedSession(t, request.sessionId);
+      const s = await ownedSession(t, lease, request.sessionId);
       if (
         s.status === "cancelled" ||
         s.activeTurnId !== request.turnId ||
@@ -261,8 +264,13 @@ export async function resolveEffect(
       return { status: "completed" as const, outcome: effect.outcome };
     });
   } catch (error) {
+    // A lost epoch writes nothing: the new owner decides what the effect became.
+    if (isOwnershipLost(error)) throw error;
     await store.tx(async (t) => {
-      const s = await t.lockSession<Session>(request.sessionId);
+      const s =
+        request.sessionId === lease.sessionId
+          ? await t.assertEpoch<Session>(request.sessionId, lease.epoch)
+          : await t.lockSession<Session>(request.sessionId);
       const effect = await t.get("effects", request.effectId);
       if (!effect) return;
       effect.status = "uncertain";
@@ -286,7 +294,8 @@ type FlowStep =
 export async function resolveNewFlowEffect(
   ctx: TenantContext,
   request: HostEffect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  lease: Lease
 ): Promise<EffectResolution> {
   const { store } = ctx;
   if (signal.aborted) throw new Error("Turn cancelled");
@@ -295,7 +304,7 @@ export async function resolveNewFlowEffect(
       kind: "resolved",
       resolution,
     });
-    const workflow = await lockedSession(t, request.sessionId);
+    const workflow = await ownedSession(t, lease, request.sessionId);
     const existing = await t.get("effects", request.effectId);
     if (existing) {
       if (existing.status === "completed")
@@ -436,7 +445,7 @@ export async function resolveNewFlowEffect(
   const n = Number(request.context.n ?? iterations.split(".")[0] ?? 1);
 
   await store.tx(async (t) => {
-    await t.lockSession(workflow.id);
+    await ownedSession(t, lease, workflow.id);
     await t.put("effects", request.effectId, {
       request,
       status: "pending",
@@ -451,7 +460,10 @@ export async function resolveNewFlowEffect(
   });
 
   await store.tx(async (t) => {
-    if (await t.lockSession(agentSessionId)) return;
+    // The linked agent (child) session is locked before the workflow (parent).
+    const exists = await t.lockSession(agentSessionId);
+    await ownedSession(t, lease, workflow.id);
+    if (exists) return;
     const definition =
       (await t.get("definitions", body.agentId)) ??
       fail(404, "Definition not found");
@@ -510,7 +522,7 @@ export async function resolveNewFlowEffect(
 
   // Workflow events; the linked agent session is only read here, never locked.
   return store.tx(async (t): Promise<EffectResolution> => {
-    const s = await lockedSession(t, request.sessionId);
+    const s = await ownedSession(t, lease, request.sessionId);
     const agent = await sessionOf(t, agentSessionId);
     await t.event(s.id, s.activeTurnId, "loop.iteration", {
       path: String(request.context.loopPath ?? path.split("/")[0]),
@@ -545,10 +557,11 @@ export async function resolveNewFlowEffect(
 /** Discover the session's MCP tools once, or reconnect and refresh diagnostics. */
 export async function prepareMcp(
   ctx: TenantContext,
-  id: string,
+  lease: Lease,
   signal: AbortSignal
 ): Promise<void> {
   const { store } = ctx;
+  const id = lease.sessionId;
   const s = await loadSession(ctx, id);
   if (serversOf(s.manifest).length === 0) return;
   if (!s.mcpSnapshot) {
@@ -560,7 +573,7 @@ export async function prepareMcp(
       signal,
     });
     await store.tx(async (t) => {
-      const current = await lockedSession(t, id);
+      const current = await ownedSession(t, lease, id);
       if (current.mcpSnapshot) return;
       current.mcpSnapshot = found.snapshot;
       current.mcpDiagnostics = found.diagnostics;
@@ -577,7 +590,7 @@ export async function prepareMcp(
   });
   if (diagnostics.length === 0) return;
   await store.tx(async (t) => {
-    const current = await lockedSession(t, id);
+    const current = await ownedSession(t, lease, id);
     const prior = [...(current.mcpDiagnostics ?? [])];
     for (const item of diagnostics) {
       const index = prior.findIndex(

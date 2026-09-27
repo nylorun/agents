@@ -43,7 +43,15 @@ export interface TenantConfig {
   };
   model: TenantModelConfig;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
+  /** Action claim lease. Default 30 s. */
   leaseMs?: number;
+  /** Ownership lease of an advance (§10.6); renewed every third while it runs. Default 30 s. */
+  ownerLeaseMs?: number;
+  /**
+   * Delay between Tenant sweep passes when the Tenant runs its own in-process execution.
+   * Default `min(leaseMs, 5 s)`. A Host-level execution sets its own.
+   */
+  sweepIntervalMs?: number;
   /** Operator flow limits (`RuntimeOptions.flow` / `workflows.md` §13). */
   flow?: Partial<FlowLimits>;
   /**
