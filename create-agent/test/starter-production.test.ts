@@ -127,4 +127,4 @@ it("production install tree lists only @nylorun/agents and @nylorun/core from Ny
   expect(await readFile(join(project, "src/main.ts"), "utf8")).not.toMatch(
     /@nylorun\/(?!agents(?:["'/]|$))/
   );
-});
+}, 120_000); // packs and installs two tarballs; ~30 s on a busy machine
