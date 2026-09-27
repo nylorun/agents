@@ -5,10 +5,8 @@ import { afterAll, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
 import { createSqliteSessionStore } from "../../src/store/sqlite.js";
-import {
-  TENANT_SCHEMA_VERSION,
-  withTenantDatabase,
-} from "../../src/tenant/schema.js";
+import { TENANT_SCHEMA_VERSION } from "../../src/tenant/schema.js";
+import { createV3Database } from "../support/sqlite-v3.js";
 import { storeContract } from "../contracts/store.contract.js";
 
 const roots: string[] = [];
@@ -94,41 +92,7 @@ it("serializes transactions that lock sessions in opposite orders", async () => 
 
 it("migrates a v3 database: per-session sequences and any principal role", async () => {
   const path = await tempFile();
-  withTenantDatabase(path, (db) => {
-    db.exec(`
-      CREATE TABLE definitions(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE sessions(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE commands(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE checkpoints(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE effects(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE actions(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE sandboxes(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE links(id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, body TEXT NOT NULL);
-      CREATE TABLE vaults(id TEXT PRIMARY KEY, name TEXT NOT NULL, owner_user_id TEXT NOT NULL, metadata_json TEXT, created_at TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user');
-      CREATE TABLE vault_credentials(id TEXT PRIMARY KEY, vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE, name TEXT NOT NULL, type TEXT NOT NULL, binding_json TEXT NOT NULL, expires_at TEXT, created_at TEXT NOT NULL, rotated_at TEXT, kek_id TEXT NOT NULL, nonce BLOB NOT NULL, ciphertext BLOB NOT NULL, wrapped_dek BLOB NOT NULL);
-      CREATE TABLE vault_audit(id TEXT PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, vault_id TEXT, credential_id TEXT, session_id TEXT, target TEXT, outcome TEXT NOT NULL);
-      CREATE TABLE vault_idempotency(id TEXT PRIMARY KEY, body_hash TEXT NOT NULL, response TEXT NOT NULL);
-      CREATE TABLE executors(agent_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, implementation_version TEXT NOT NULL, manifest_hash TEXT, principal_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE principals(id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role = 'application'), token_hash TEXT NOT NULL UNIQUE, idempotency_key TEXT, created_at TEXT NOT NULL);
-      CREATE TABLE tenant_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      INSERT INTO principals VALUES('pr_1', 'application', 'h1', 'k', 'x');
-      PRAGMA user_version = 3;
-    `);
-    db.prepare("INSERT INTO sessions(id, body) VALUES(?, ?)").run(
-      "s1",
-      JSON.stringify(session("s1", { status: "running" })),
-    );
-    db.prepare("INSERT INTO sessions(id, body) VALUES(?, ?)").run(
-      "s2",
-      JSON.stringify(session("s2")),
-    );
-    for (const [sid, type] of [["s1", "a"], ["s2", "b"], ["s1", "c"]] as const)
-      db.prepare("INSERT INTO events(session_id, body) VALUES(?, ?)").run(
-        sid,
-        JSON.stringify({ sessionId: sid, type, cursor: "old" }),
-      );
-  });
+  createV3Database(path);
   const store = createSqliteSessionStore({ tenantId: newTenantId(), path });
   expect(await store.health()).toMatchObject({ ok: true, schemaVersion: TENANT_SCHEMA_VERSION });
   const s1 = await store.readEvents("s1");

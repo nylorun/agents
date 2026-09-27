@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TenantRuntime } from "../src/tenant/runtime.js";
-import { DatabaseSync } from "node:sqlite";
+import { createSqliteSessionStore } from "../src/store/sqlite.js";
+import { withTenantDatabase } from "../src/tenant/schema.js";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
@@ -196,12 +197,14 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   await expect(
     boot({ hostRoot: root, tenantId, vaultKek: null }),
   ).rejects.toThrow(/key-encryption key|kek-missing/i);
-  const db = new DatabaseSync(dbPath);
-  db.prepare(`UPDATE vault_credentials SET binding_json=? WHERE id=?`).run(
-    JSON.stringify({ url: "https://mcp.example.com/other" }),
-    credentialId,
-  );
-  db.close();
+  const db = createSqliteSessionStore({ path: dbPath, tenantId });
+  await db.tx(async (t) => {
+    const row = await t.getCredential(credentialId);
+    await t.updateCredential(row!.vaultId, credentialId, {
+      bindingJson: JSON.stringify({ url: "https://mcp.example.com/other" }),
+    });
+  });
+  await db.close();
   const again = await boot({ hostRoot: root, tenantId });
   try {
 const agent = Agent({ id: "bot", name: "Bot" }).build();
@@ -666,11 +669,18 @@ it("keeps the host model credential out of user vaults and responses", async () 
     expect(attached.status).toBe(400);
   } finally {
     await runtime.close();
-    const db = new DatabaseSync(runtime.dbPath);
+    const db = createSqliteSessionStore({
+      path: runtime.dbPath,
+      tenantId: runtime.tenantId,
+    });
     const stored = JSON.stringify(
-      db.prepare("SELECT binding_json, ciphertext FROM vault_credentials").all(),
+      (await db.tx((t) => t.credentialsForVault("host"))).map((row) => ({
+        binding_json: row.bindingJson,
+        ciphertext: row.ciphertext,
+      })),
     );
-    db.close();
+    await db.close();
+    expect(stored).toContain("binding_json");
     expect(stored).not.toContain(secret);
     await rm(runtime.root, { recursive: true, force: true });
   }
@@ -679,8 +689,8 @@ it("keeps the host model credential out of user vaults and responses", async () 
 it("adds vault scope to a database created before host credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "vault-scope-"));
   const path = join(directory, "old.sqlite");
-  const created = new DatabaseSync(path);
-  created.exec(
+  withTenantDatabase(path, (created) =>
+    created.exec(
     `CREATE TABLE vaults(
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -688,15 +698,26 @@ it("adds vault scope to a database created before host credentials", async () =>
       metadata_json TEXT,
       created_at TEXT NOT NULL
     )`,
+    ),
   );
-  created.close();
-  const { Store } = await import("../src/core/store.js");
-  const store = new Store(path, "tn_00000000000000000000000000");
-  const columns = store.db.prepare("PRAGMA table_info(vaults)").all() as {
-    name: string;
-  }[];
-  expect(columns.map((column) => column.name)).toContain("scope");
-  store.db.close();
+  const store = createSqliteSessionStore({
+    path,
+    tenantId: "tn_00000000000000000000000000",
+  });
+  await store.tx((t) =>
+    t.insertVault({
+      id: "host",
+      name: "Host",
+      ownerUserId: "host",
+      metadataJson: null,
+      createdAt: "x",
+      scope: "host",
+    }),
+  );
+  expect(await store.tx((t) => t.getVault("host"))).toMatchObject({
+    scope: "host",
+  });
+  await store.close();
   await rm(directory, { recursive: true, force: true });
 });
 

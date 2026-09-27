@@ -10,8 +10,6 @@ import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
 import { createFsTenantStore } from "../../src/tenant/store-fs.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
-import { bootstrapPrincipal } from "../../src/tenant/principals.js";
-import { migrateTenantDatabase } from "../../src/tenant/schema.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import type { TenantConfig } from "../../src/tenant/types.js";
 import { configForRoot, silentLogger } from "./support.js";
@@ -47,10 +45,6 @@ describe("real Tenant Runtime module conformance (I1)", () => {
       hostRoot,
       openRuntime,
       configFor,
-      writeBootstrap: (db, bootstrap) => {
-        migrateTenantDatabase(db);
-        bootstrapPrincipal(db, bootstrap);
-      },
     });
     const module = createTenantModule({
       hostRoot,

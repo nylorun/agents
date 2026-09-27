@@ -19,8 +19,8 @@ it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", as
   const [a] = host.tenants;
 
   const logBefore = readTenantLog(a);
-  const definitionsBefore = countSqliteRows(a.paths.database, "definitions");
-  const sessionsBefore = countSqliteRows(a.paths.database, "sessions");
+  const definitionsBefore = await countSqliteRows(a.paths.database, "definitions");
+  const sessionsBefore = await countSqliteRows(a.paths.database, "sessions");
 
   const missing = await getJson(`${host.url}/v1/agents`, {
     method: "PUT",
@@ -57,8 +57,8 @@ it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", as
   expect(wrong.status).toBe(426);
 
   expect(readTenantLog(a)).toBe(logBefore);
-  expect(countSqliteRows(a.paths.database, "definitions")).toBe(
+  expect(await countSqliteRows(a.paths.database, "definitions")).toBe(
     definitionsBefore,
   );
-  expect(countSqliteRows(a.paths.database, "sessions")).toBe(sessionsBefore);
+  expect(await countSqliteRows(a.paths.database, "sessions")).toBe(sessionsBefore);
 });

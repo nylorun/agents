@@ -2,19 +2,19 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import {
   TENANT_SCHEMA_VERSION,
   migrateTenantDatabase,
+  openTenantDatabase,
   schemaVersionOf,
 } from "../src/tenant/schema.js";
 import {
-  applicationTokenHashes,
   bootstrapPrincipal,
-  findPrincipalByTokenHash,
+  bootstrapPrincipalMatches,
 } from "../src/tenant/principals.js";
+import { createSqliteSessionStore } from "../src/store/sqlite.js";
 import { createTenantLogger } from "../src/tenant/logger.js";
 import { hashToken } from "../src/core/executors.js";
 
@@ -31,7 +31,7 @@ async function tempRoot(): Promise<string> {
 }
 
 it("migrateTenantDatabase creates principals and sets user_version", () => {
-  const db = new DatabaseSync(":memory:");
+  const db = openTenantDatabase(":memory:");
   expect(schemaVersionOf(db)).toBe(0);
   const result = migrateTenantDatabase(db);
   expect(result).toEqual({ from: 0, to: TENANT_SCHEMA_VERSION });
@@ -49,23 +49,30 @@ it("migrateTenantDatabase creates principals and sets user_version", () => {
   expect(columns.some((column) => column.name === "principal_id")).toBe(true);
 });
 
-it("bootstrapPrincipal writes the application principal in one transaction", () => {
-  const db = new DatabaseSync(":memory:");
-  migrateTenantDatabase(db);
+it("bootstrapPrincipal writes the application principal in one transaction", async () => {
+  const store = createSqliteSessionStore({ path: ":memory:", tenantId: newTenantId() });
   const credentialHash = createHash("sha256").update("app-key").digest("hex");
-  bootstrapPrincipal(db, {
+  const bootstrap = {
     principalId: "principal_test",
     credentialHash,
     idempotencyKey: "idem-1",
-  });
-  const found = findPrincipalByTokenHash(db, credentialHash);
+  };
+  await store.tx((t) => bootstrapPrincipal(t, bootstrap));
+  const found = await store.tx((t) => t.principalByTokenHash(credentialHash));
   expect(found).toMatchObject({
     id: "principal_test",
     role: "application",
     tokenHash: credentialHash,
     idempotencyKey: "idem-1",
   });
-  expect(applicationTokenHashes(db)).toEqual([credentialHash]);
+  expect(await store.tx((t) => t.applicationTokenHashes())).toEqual([credentialHash]);
+  expect(await store.tx((t) => bootstrapPrincipalMatches(t, bootstrap))).toBe(true);
+  expect(
+    await store.tx((t) =>
+      bootstrapPrincipalMatches(t, { ...bootstrap, idempotencyKey: "other" })
+    )
+  ).toBe(false);
+  await store.close();
 });
 
 it("Tenant logger writes JSON lines with tenantId on every record", async () => {
