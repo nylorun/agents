@@ -17,8 +17,13 @@ import { readLink as readProjectLink } from "./project/link.js";
 import { readCredentials as readProjectCredentials } from "./project/credentials.js";
 import { tenantCommand } from "./tenant/commands.js";
 import { resolveHome } from "./runtime/launcher.js";
+import { baselineEnv } from "./runtime/baseline.js";
+import { isStackCommand, stackCommand, stackUsage } from "./stack/index.js";
 
-const usage = `nylorun <runtime|up|down|logs|dev|studio|configure|doctor|tenant>
+const usage = `nylorun <start|stop|status|reset|stack|runtime|up|down|logs|dev|studio|configure|doctor|tenant>
+
+Local stack (Docker Compose):
+${stackUsage}
 
 ${runtimeUsage}
 
@@ -131,6 +136,20 @@ async function main() {
     rawCommand in aliases ? [aliases[rawCommand]!, ...rawArgs] : rawArgs;
 
   if (command === "tenant") return await tenantCommand(args);
+
+  // The Docker Compose stack. `logs` and `studio` still name the launcher and
+  // in-process Studio at the top level until Wave 4, so the stack's versions
+  // live under `nylorun stack logs|studio` for now.
+  if (["start", "stop", "status", "reset"].includes(command)) {
+    process.exitCode = await stackCommand(command, args, baselineEnv());
+    return;
+  }
+  if (command === "stack") {
+    const [name, ...rest] = args;
+    if (!isStackCommand(name)) throw usageError(usage);
+    process.exitCode = await stackCommand(name!, rest, baselineEnv());
+    return;
+  }
 
   if (command === "runtime") {
     // F2-7: envHook prints the linked Project's three variables.
