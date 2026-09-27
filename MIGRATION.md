@@ -152,6 +152,31 @@ Admin API. Developer applications do **not** depend on it — only
 `@nylorun/agents`. Local Host start/stop/upgrade goes through the launcher,
 never through an import of `@nylorun/runtime`.
 
+### Sandbox: microsandbox backend removed
+
+The Runtime has one sandbox backend, `virtual` (an emulated shell in the
+Runtime process; not a VM boundary). The optional `microsandbox` dependency is
+gone.
+
+- `sandbox.backend` (`PUT /v1/tenant/config/seed`) and `NYLORUN_SANDBOX` accept
+  `auto` or `virtual`; `microsandbox` is rejected. `auto` selects `virtual`.
+- A Tenant that stored `sandbox.backend=microsandbox` reads it as `auto`.
+- Sandbox reports (`GET /v1/tenant/sandbox`, `nylorun doctor sandbox`) list only
+  `virtual` with `process` isolation.
+- Remove leftover microVMs with the `msb` commands under
+  [Microsandbox cleanup](#microsandbox-cleanup-old-nylorun-scopeid--prefixes),
+  or `msb rm --force` on names starting with `nylorun-`, then uninstall `msb`.
+
+### Studio principal
+
+`POST /v1/admin/tenants` accepts an optional `studioCredentialHash` (protocol
+feature `studio-principal`). When present, the Tenant also stores application
+principal `studio` with that hash. `@nylorun/admin`'s `createTenant` always
+sends it: the SHA-256 of `deriveStudioToken(adminKey, tenantId)`, an
+HMAC-SHA256 keyed by the admin key. Studio derives the same key to call the
+Tenant API; the admin key itself is never a Tenant bearer. Tenants created
+before this release have no Studio principal; recreate them during the beta.
+
 ### Existing Host roots
 
 - A Host started by the Tenants-era CLI is reused while it runs.
@@ -162,8 +187,9 @@ never through an import of `@nylorun/runtime`.
 
 Upgrade `@nylorun/core`, `@nylorun/agents`, `@nylorun/admin`, `@nylorun/cli`,
 `@nylorun/studio` and the installed `@nylorun/runtime` together (breaking beta
-set). Protocol feature `admin-status` is additive on
-protocol `2`.
+set). Protocol features `admin-status` and `studio-principal` are additive on
+protocol `2`; clients require both, so an older Host is reported as
+`incompatible_host`.
 
 # Scoped hooks and manifest schema 4
 
@@ -197,6 +223,8 @@ Rebuild agents to publish schema 4 manifests. `Agent.from` rejects schema 3. On 
 Runtime cancels pending `beforeModelCall` / `afterModelCall` actions and fails any turn that
 was in flight under a schema 3 manifest; start new sessions after upgrading. The durable
 engine version is now `hosted-2`, because hook effect ids changed.
+Later Runtimes no longer run this startup cleanup, so upgrade through this release first
+if a Tenant still has schema 3 turns in flight.
 
 # Runtime Tenants (breaking beta)
 

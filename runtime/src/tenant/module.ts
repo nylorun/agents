@@ -184,11 +184,11 @@ export function createTenantModule(
       });
     },
 
-    resolve(id: string): TenantResolution {
+    async resolve(id: string): Promise<TenantResolution> {
       if (!isTenantId(id)) return { kind: "not-found" };
       const entry = entries.get(id);
       if (!entry) {
-        // Sync miss: existence check only (disk I/O allowed on miss). Full open
+        // Miss: existence check only (disk I/O allowed on miss). Full open
         // happens on list()/status()/create(); Host sees opaque not-found until then.
         try {
           const paths = tenantPaths(hostRoot, id);
@@ -212,6 +212,9 @@ export function createTenantModule(
         principalId: input.principalId,
         credentialHash: input.credentialHash,
         idempotencyKey: input.idempotencyKey,
+        ...(input.studioCredentialHash
+          ? { studioCredentialHash: input.studioCredentialHash }
+          : {}),
       };
       const envelope = envelopeNow({
         id: input.tenantId,
@@ -354,7 +357,7 @@ export function createTenantModule(
       }
 
       if (entry?.kind === "open") {
-        const summary = entry.handle.summary();
+        const summary = await entry.handle.summary();
         if (activeWork === "refuse" && hasLiveWork(summary)) {
           throw new TenantBusyError();
         }
@@ -370,14 +373,15 @@ export function createTenantModule(
       logger.info("tenant deleted", { tenantId: id, activeWork });
     },
 
-    summarize(): HostAggregate {
+    async summarize(): Promise<HostAggregate> {
       let runningSessions = 0;
       let connectedExecutors = 0;
       let pendingActions = 0;
       let uncertainEffects = 0;
-      for (const entry of entries.values()) {
-        if (entry.kind !== "open") continue;
-        const s = entry.handle.summary();
+      const open = [...entries.values()].filter(
+        (e): e is { kind: "open"; handle: TenantHandle } => e.kind === "open",
+      );
+      for (const s of await Promise.all(open.map((e) => e.handle.summary()))) {
         runningSessions += s.runningSessions;
         connectedExecutors += s.connectedExecutors;
         pendingActions += s.pendingActions;

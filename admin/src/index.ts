@@ -11,11 +11,13 @@ import {
   type ErrorCode,
 } from "@nylorun/core/compatibility";
 import { AdminClient, resolveAdminConnection } from "./client.js";
+import { deriveStudioToken } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
+export { deriveStudioToken };
 
 export interface Admin {
   readonly url: string;

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { Agent } from "@nylorun/agents";
+import { createAdmin, deriveStudioToken } from "@nylorun/admin";
 import {
   ERROR_CODES,
   PROTOCOL_HEADER,
@@ -276,4 +277,56 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
     { method: "DELETE", headers },
   );
   expect(cancelled.status).toBe(204);
+});
+
+it("registers principal studio from studioCredentialHash; the derived Studio key reaches Tenant routes", async () => {
+  const runtime = await startHost();
+  const { url, adminKey } = runtime;
+  const admin = createAdmin({ url, key: adminKey });
+
+  const { tenant, applicationKey } = await admin.createTenant({ name: "studio" });
+  const studioKey = deriveStudioToken(adminKey, tenant.id);
+  const agents = (key: string) =>
+    getJson(`${url}/v1/agents`, { headers: tenantApiHeaders(tenant.id, key) });
+  expect((await agents(studioKey)).status).toBe(200);
+  expect((await agents(applicationKey)).status).toBe(200);
+  // The admin key itself is never a Tenant bearer.
+  expect((await agents(adminKey)).status).toBe(404);
+
+  // Idempotent create compares the Studio hash too.
+  const headers = {
+    ...adminHeaders(adminKey),
+    "content-type": "application/json",
+  };
+  const body = createBody({ name: "studio-retry" });
+  const request = {
+    ...body.request,
+    studioCredentialHash: hashCredential(
+      deriveStudioToken(adminKey, body.request.tenantId),
+    ),
+  };
+  const post = (payload: unknown) =>
+    getJson(`${url}/v1/admin/tenants`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  expect((await post(request)).status).toBe(201);
+  expect((await post(request)).status).toBe(200);
+  expect(
+    (await post({ ...request, studioCredentialHash: "ef".repeat(32) })).status,
+  ).toBe(409);
+  const { studioCredentialHash: _omitted, ...withoutStudio } = request;
+  expect((await post(withoutStudio)).status).toBe(409);
+
+  // A Tenant created without the hash has no Studio principal.
+  const plain = createBody({ name: "no-studio" });
+  expect((await post(plain.request)).status).toBe(201);
+  const denied = await getJson(`${url}/v1/agents`, {
+    headers: tenantApiHeaders(
+      plain.request.tenantId,
+      deriveStudioToken(adminKey, plain.request.tenantId),
+    ),
+  });
+  expect(denied.status).toBe(404);
 });

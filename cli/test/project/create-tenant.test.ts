@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { PROTOCOL_FEATURES } from "@nylorun/core/compatibility";
 import { createProjectTenant } from "../../src/project/create-tenant.js";
 import { readCredentials } from "../../src/project/credentials.js";
 import { readLink } from "../../src/project/link.js";
@@ -31,7 +32,7 @@ it("F2-2: createProjectTenant uses admin.createTenant and writes format 1 files"
           protocol: {
             min: 2,
             max: 2,
-            features: ["runtime-tenants", "admin-status"],
+            features: [...PROTOCOL_FEATURES],
           },
         }),
       );
@@ -43,6 +44,7 @@ it("F2-2: createProjectTenant uses admin.createTenant and writes format 1 files"
     for await (const chunk of request) chunks.push(chunk as Buffer);
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     expect(body.credentialHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.studioCredentialHash).toMatch(/^[0-9a-f]{64}$/);
     expect(body.name).toBe("create-demo");
     response.statusCode = 201;
     response.setHeader("content-type", "application/json");

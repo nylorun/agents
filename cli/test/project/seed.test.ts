@@ -97,9 +97,9 @@ it("F3: seeds sandbox via config/seed and does not overwrite on second call", as
     tenantId,
     applicationKey: "k".repeat(64),
     projectRoot: root,
-    env: { ...env, NYLORUN_SANDBOX: "microsandbox" },
+    env: { ...env, NYLORUN_SANDBOX: "auto" },
   });
   expect(second.kept).toContain("sandbox.backend");
   expect(seedCalls).toBe(2);
-  expect(backends).toEqual(["virtual", "microsandbox"]);
+  expect(backends).toEqual(["virtual", "auto"]);
 });

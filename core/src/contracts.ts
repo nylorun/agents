@@ -871,6 +871,11 @@ export const CreateTenantRequestSchema = z
     principalId: z.string().min(1),
     credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
     idempotencyKey: IdempotencyKeySchema,
+    /** SHA-256 of the derived Studio key; registers principal `studio` (feature `studio-principal`). */
+    studioCredentialHash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   })
   .strict();
 export type CreateTenantRequest = z.infer<typeof CreateTenantRequestSchema>;
@@ -1038,7 +1043,7 @@ export const SeedTenantConfigRequestSchema = z
     requestId: RequestIdSchema,
     sandbox: z
       .object({
-        backend: z.enum(["auto", "microsandbox", "virtual"]),
+        backend: z.enum(["auto", "virtual"]),
       })
       .strict()
       .optional(),

@@ -61,7 +61,7 @@ export interface SandboxManagerOptions {
   readonly scope: string;
   readonly store: Store;
   readonly backends: readonly SandboxBackend[];
-  /** `auto`, `microsandbox` or `virtual`. Undefined means an invalid NYLORUN_SANDBOX value. */
+  /** `auto` or `virtual`. Undefined means an invalid NYLORUN_SANDBOX value. */
   readonly preference: string | undefined;
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
@@ -107,7 +107,7 @@ export class SandboxManager {
         ? selectSandboxBackend(this.options.backends, preference)
         : Promise.resolve({
             preference: "auto",
-            reason: `NYLORUN_SANDBOX='${this.options.preference}' is not valid; use auto, microsandbox or virtual`,
+            reason: `NYLORUN_SANDBOX='${this.options.preference}' is not valid; use auto or virtual`,
             probes: [],
           });
     }

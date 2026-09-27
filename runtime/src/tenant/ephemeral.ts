@@ -43,10 +43,12 @@ export interface StartEphemeralRuntimeOptions {
   applicationKey?: string;
   adminKey?: string;
   principalId?: string;
+  /** SHA-256 of a derived Studio key; registers principal `studio`. */
+  studioCredentialHash?: string;
   /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
   baseline?: Readonly<Record<string, string>>;
   model?: TenantModelConfig;
-  sandboxBackend?: "auto" | "microsandbox" | "virtual";
+  sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
   logger?: Logger;
@@ -175,6 +177,9 @@ export async function startEphemeralRuntime(
     principalId,
     credentialHash,
     idempotencyKey: `ephemeral-${tenantId}`,
+    ...(options.studioCredentialHash
+      ? { studioCredentialHash: options.studioCredentialHash }
+      : {}),
   });
 
   // KEK for first vault write; openTenantRuntime also creates when hooks allow.

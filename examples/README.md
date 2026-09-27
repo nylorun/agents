@@ -27,7 +27,7 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 Agent({ id: "analyst", instructions: "..." }).use(sandbox())
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on an isolated Linux machine with a persistent `/workspace`. The Runtime runs those tools itself and picks the machine: a microsandbox VM on macOS with Apple Silicon or Linux with KVM, otherwise an emulated shell. The `nylorun dev` banner prints which one, and `npx nylorun doctor sandbox` explains the choice. Try in Studio:
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. The `nylorun dev` banner prints the backend, and `npx nylorun doctor sandbox` reports its status. Try in Studio:
 
 - `Create sales.csv with three regions and numbers, then use Python to total them.`
 - `Download https://example.com with curl.` The request is blocked: the default `dev` network preset allows only package registries and code hosts.

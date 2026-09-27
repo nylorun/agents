@@ -116,7 +116,7 @@ export function createHost(options: CreateHostOptions): HostServer {
 
   const adminStatusBody = async () => {
     const tenants = await module.list();
-    const aggregate = module.summarize();
+    const aggregate = await module.summarize();
     return AdminStatusSchema.parse({
       service: "nylorun-runtime",
       version: RUNTIME_VERSION,
@@ -171,6 +171,9 @@ export function createHost(options: CreateHostOptions): HostServer {
             principalId: body.principalId,
             credentialHash: body.credentialHash,
             idempotencyKey: body.idempotencyKey,
+            ...(body.studioCredentialHash
+              ? { studioCredentialHash: body.studioCredentialHash }
+              : {}),
           });
           return sendJson(
             response,
@@ -405,7 +408,7 @@ export function createHost(options: CreateHostOptions): HostServer {
         return;
       }
 
-      const resolution = module.resolve(tenantId);
+      const resolution = await module.resolve(tenantId);
       if (resolution.kind !== "open") {
         if (resolution.kind === "quarantined") {
           logger.warn("tenant_quarantined", {

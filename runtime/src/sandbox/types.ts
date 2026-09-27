@@ -4,8 +4,8 @@
  */
 import type { SandboxNetworkPreset } from "@nylorun/core/define";
 
-export type SandboxBackendName = "microsandbox" | "virtual";
-export type SandboxIsolation = "vm" | "process";
+export type SandboxBackendName = "virtual";
+export type SandboxIsolation = "process";
 
 export interface SandboxProbe {
   readonly name: SandboxBackendName;

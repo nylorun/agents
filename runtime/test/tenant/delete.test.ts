@@ -46,7 +46,7 @@ it("delete with refuse throws when sessions are running", async () => {
     name: "live",
     ...bootstrapMaterial(),
   });
-  const resolution = module.resolve(id);
+  const resolution = await module.resolve(id);
   expect(resolution.kind).toBe("open");
   if (resolution.kind !== "open") return;
   (
@@ -69,7 +69,7 @@ it("delete with refuse throws when sessions are running", async () => {
   await expect(module.delete(id, "refuse")).rejects.toBeInstanceOf(
     TenantBusyError,
   );
-  expect(module.resolve(id).kind).toBe("open");
+  expect((await module.resolve(id)).kind).toBe("open");
 });
 
 it("delete with cancel drains then moves the directory to trash", async () => {
@@ -95,7 +95,7 @@ it("delete with cancel drains then moves the directory to trash", async () => {
     name: "gone",
     ...bootstrapMaterial(),
   });
-  const resolution = module2.resolve(id);
+  const resolution = await module2.resolve(id);
   if (resolution.kind === "open") {
     const original = resolution.handle.drain.bind(resolution.handle);
     resolution.handle.drain = async (activeWork) => {
@@ -105,7 +105,7 @@ it("delete with cancel drains then moves the directory to trash", async () => {
   }
   await module2.delete(id, "cancel");
   expect(drained).toBe("cancel");
-  expect(module2.resolve(id).kind).toBe("not-found");
+  expect((await module2.resolve(id)).kind).toBe("not-found");
   const trash = readdirSync(join(hostRoot, "trash"));
   expect(trash.some((name) => name.startsWith(`${id}-`))).toBe(true);
   void module;

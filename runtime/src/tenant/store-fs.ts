@@ -17,7 +17,7 @@ import { hostPaths, tenantPaths } from "./paths.js";
 import { readEnvelopeFile, writeEnvelopeFile } from "./envelope.js";
 import { migrateTenantWithSnapshot } from "./migration.js";
 import { quarantine } from "./quarantine.js";
-import { bootstrapPrincipal } from "./principals.js";
+import { bootstrapPrincipal, bootstrapPrincipalMatches } from "./principals.js";
 import {
   TENANT_SCHEMA_VERSION,
   migrateTenantDatabase as defaultMigrate,
@@ -160,24 +160,7 @@ export function createFsTenantStore(
       if (!existsSync(paths.database)) return false;
       const db = new DatabaseSync(paths.database, { readOnly: true });
       try {
-        const row = db
-          .prepare(
-            `SELECT id, token_hash, idempotency_key FROM principals
-             WHERE role = 'application' LIMIT 1`,
-          )
-          .get() as
-          | {
-              id: string;
-              token_hash: string;
-              idempotency_key: string | null;
-            }
-          | undefined;
-        if (!row) return false;
-        return (
-          row.id === bootstrap.principalId &&
-          row.token_hash === bootstrap.credentialHash &&
-          row.idempotency_key === bootstrap.idempotencyKey
-        );
+        return bootstrapPrincipalMatches(db, bootstrap);
       } catch {
         return false;
       } finally {

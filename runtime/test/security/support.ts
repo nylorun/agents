@@ -208,7 +208,7 @@ export async function writeFakeCloudHome(home: string): Promise<void> {
 export async function startSecurityHost(options?: {
   tenantNames?: readonly string[];
   model?: TenantModelConfig;
-  sandboxBackend?: "auto" | "microsandbox" | "virtual";
+  sandboxBackend?: "auto" | "virtual";
   /** When true, childEnv is built from baselineEnvironment(process.env). */
   useHostileBaseline?: boolean;
   modelProvider?: ModelProvider;

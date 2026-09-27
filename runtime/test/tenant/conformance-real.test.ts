@@ -70,11 +70,11 @@ describe("real Tenant Runtime module conformance (I1)", () => {
       idempotencyKey: "i1-key",
     });
     expect(created.created).toBe(true);
-    const resolution = module.resolve(tenantId);
+    const resolution = await module.resolve(tenantId);
     expect(resolution.kind).toBe("open");
     if (resolution.kind !== "open") return;
     expect(resolution.handle.envelope.id).toBe(tenantId);
-    expect(resolution.handle.summary().ready).toBe(true);
+    expect((await resolution.handle.summary()).ready).toBe(true);
     const paths = tenantPaths(hostRoot, tenantId);
     expect(paths.database).toContain(tenantId);
     await module.close();

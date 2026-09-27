@@ -8,11 +8,13 @@ const allowed = {
   agents: ["core"],
   admin: ["core"],
   runtime: ["core", "harness"],
-  studio: ["agents"],
+  studio: ["agents", "admin"],
   cli: ["agents", "admin"],
 };
-// Sandbox substrate SDKs stay behind the backend adapter contract.
-const substrates = { runtime: ["microsandbox", "just-bash"] };
+// Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
+const substrates = {
+  runtime: ["just-bash", "@restatedev/restate-sdk", "@s2-streamstore/streamstore"],
+};
 const files = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]
@@ -60,7 +62,7 @@ export function checkBoundaries(name) {
       for (const substrate of substrates[name] ?? []) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["']${substrate}(?:/[^"']*)?["']`);
         if (pattern.test(source) && !/[\\/]adapters[\\/]/.test(path.slice(join(root, name).length)))
-          throw new Error(`${path} imports ${substrate}; only adapters/ may import sandbox substrates`);
+          throw new Error(`${path} imports ${substrate}; only adapters/ may import substrate SDKs`);
       }
       if (name === "core" && /(?:from\s*|import\s*\()["']node:/.test(source))
         throw new Error(`Core must remain portable: ${path}`);

@@ -47,19 +47,18 @@ const manifest = (sandbox?: Record<string, unknown>) =>
 
 const probes = [
   {
-    name: "microsandbox",
-    isolation: "vm",
+    name: "virtual",
+    isolation: "process",
     available: true,
-    reason: "hardware-isolated microVM",
+    reason: "emulated shell in the Runtime process (not a VM)",
   },
-  { name: "virtual", isolation: "process", available: true, reason: "emulated" },
 ];
 
 const report = {
   preference: "auto",
-  backend: "microsandbox",
-  isolation: "vm",
-  reason: "hardware-isolated microVM",
+  backend: "virtual",
+  isolation: "process",
+  reason: "emulated shell in the Runtime process (not a VM)",
   probes,
   defaultImage: "python:3.13-slim",
 };
@@ -70,21 +69,8 @@ it("says nothing when no agent declares a sandbox", async () => {
   ).toBeUndefined();
 });
 
-it("F2-4: names the backend, image and network from Tenant sandbox", async () => {
+it("F2-4: names the backend and network from Tenant sandbox", async () => {
   const url = await runtime(report);
-  expect(await sandboxBanner(url, "key", [manifest({})], "tn_test")).toBe(
-    "sandbox: microsandbox VM · image python:3.13-slim · network: dev",
-  );
-});
-
-it("names the reason and the fix after a fallback", async () => {
-  const url = await runtime({
-    preference: "auto",
-    backend: "virtual",
-    isolation: "process",
-    reason: "microsandbox unavailable: no usable /dev/kvm",
-    probes: [{ ...probes[0], available: false }, probes[1]],
-  });
   expect(
     await sandboxBanner(
       url,
@@ -92,8 +78,19 @@ it("names the reason and the fix after a fallback", async () => {
       [manifest({ network: { preset: "none" } })],
       "tn_test",
     ),
-  ).toBe(
-    "sandbox: virtual shell (microsandbox unavailable: no usable /dev/kvm) · run `npx nylorun doctor sandbox` for options",
+  ).toBe("sandbox: virtual shell · network: none");
+});
+
+it("names the reason and the fix when no backend is available", async () => {
+  const url = await runtime({
+    preference: "auto",
+    backend: null,
+    isolation: null,
+    reason: "no sandbox backend is available (virtual: could not load just-bash)",
+    probes: [{ ...probes[0], available: false }],
+  });
+  expect(await sandboxBanner(url, "key", [manifest({})], "tn_test")).toBe(
+    "sandbox: unavailable (no sandbox backend is available (virtual: could not load just-bash)) · run `npx nylorun doctor sandbox` for options",
   );
 });
 
@@ -124,7 +121,7 @@ it("F2-4: doctor sandbox prints Tenant API report (snapshot)", async () => {
     else process.env.NYLORUN_SERVER_KEY = previous.key;
   }
   const text = lines.join("\n");
-  expect(text).toContain("microsandbox");
+  expect(text).toContain("virtual");
   expect(text).toContain("selected");
   expect(text).toContain("preference");
   expect(text).toMatch(/platform/);

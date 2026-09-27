@@ -9,8 +9,12 @@ export interface PrincipalRow {
   createdAt: string;
 }
 
+/** Principal id of the Studio key derived from the admin key. */
+export const STUDIO_PRINCIPAL_ID = "studio";
+
 /**
- * Writes the application principal and idempotency key in one transaction.
+ * Writes the application principal and idempotency key in one transaction,
+ * plus principal `studio` when the bootstrap carries a Studio credential hash.
  * Exported for WS-B's `TenantStore.create` (A3).
  */
 export function bootstrapPrincipal(
@@ -29,11 +33,40 @@ export function bootstrapPrincipal(
       bootstrap.idempotencyKey,
       now,
     );
+    if (bootstrap.studioCredentialHash)
+      db.prepare(
+        `INSERT INTO principals(id, role, token_hash, idempotency_key, created_at)
+         VALUES(?, 'application', ?, NULL, ?)`,
+      ).run(STUDIO_PRINCIPAL_ID, bootstrap.studioCredentialHash, now);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/** Whether the stored bootstrap (and Studio) principals equal `bootstrap`. */
+export function bootstrapPrincipalMatches(
+  db: DatabaseSync,
+  bootstrap: BootstrapPrincipal,
+): boolean {
+  const select = db.prepare(
+    `SELECT token_hash, idempotency_key FROM principals
+     WHERE role = 'application' AND id = ?`,
+  );
+  const row = select.get(bootstrap.principalId) as
+    | { token_hash: string; idempotency_key: string | null }
+    | undefined;
+  if (
+    !row ||
+    row.token_hash !== bootstrap.credentialHash ||
+    row.idempotency_key !== bootstrap.idempotencyKey
+  )
+    return false;
+  const studio = select.get(STUDIO_PRINCIPAL_ID) as
+    | { token_hash: string }
+    | undefined;
+  return studio?.token_hash === bootstrap.studioCredentialHash;
 }
 
 export function findPrincipalByTokenHash(

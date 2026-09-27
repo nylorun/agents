@@ -46,7 +46,7 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
     },
     unmet(spec: SandboxSpec) {
       if (spec.network.suffixes.length > 0)
-        return "the virtual backend cannot allow wildcard hosts; list exact host names in network.allow or run with microsandbox";
+        return "the virtual backend cannot allow wildcard hosts; list exact host names in network.allow";
       return undefined;
     },
     async open(spec: SandboxSpec): Promise<SandboxHandle> {

@@ -46,9 +46,7 @@ export async function seedTenantFromProject(
   const fetchImpl = options.fetchImpl ?? fetch;
   const sandboxRaw = env.NYLORUN_SANDBOX?.trim();
   const sandbox =
-    sandboxRaw === "auto" ||
-    sandboxRaw === "microsandbox" ||
-    sandboxRaw === "virtual"
+    sandboxRaw === "auto" || sandboxRaw === "virtual"
       ? { backend: sandboxRaw }
       : undefined;
 
