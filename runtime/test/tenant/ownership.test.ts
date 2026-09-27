@@ -1,5 +1,5 @@
 /**
- * Ownership and the Durable Execution seam on a real Tenant runtime (SQLite or Postgres; architecture
+ * Ownership and the Durable Execution seam on a real Tenant runtime (in memory or Postgres; architecture
  * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, duplicate and lost wakes,
  * and claim expiry through the Tenant sweep.
  */

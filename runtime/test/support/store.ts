@@ -1,14 +1,15 @@
 /**
  * Which Session Store runtime tests run a Tenant on, from `NYLORUN_TEST_STORE`:
  *
- * - `sqlite` (default): `tenants/<id>/tenant.sqlite` under the test's Host root.
+ * - `memory` (default): the in-memory Session Store (`src/store/memory.ts`), whose data this
+ *   module keeps per Tenant id so a restarted Tenant (or a second store, as another process
+ *   would open it) finds it again. No Docker needed.
  * - `postgres`: a fresh schema `tenant_<id>` in the test stack's Postgres
  *   (`test/stack/endpoints.ts`; bring the stack up first). Tests share one pool per worker.
  *
- *   NYLORUN_TEST_STORE=postgres NYLORUN_TEST_STACK=1 npm test -w @nylorun/runtime
+ *   NYLORUN_TEST_STORE=postgres NYLORUN_TEST_STACK=1 npx vitest run   # in runtime/
  */
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import {
   createPostgresClient,
@@ -18,14 +19,29 @@ import {
   createPostgresTenantCatalog,
   type PostgresTenantCatalog,
 } from "../../src/store/postgres/tenants.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { MemorySessionStore, MemoryStoreData } from "../../src/store/memory.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { stackEndpoints } from "../stack/endpoints.js";
 
-export type TestStore = "sqlite" | "postgres";
+export type TestStore = "memory" | "postgres";
 
 export const TEST_STORE: TestStore =
-  process.env.NYLORUN_TEST_STORE === "postgres" ? "postgres" : "sqlite";
+  process.env.NYLORUN_TEST_STORE === "postgres" ? "postgres" : "memory";
+
+/** The data of each memory test Tenant, by Tenant id, until `dropTestTenant`. */
+const memoryTenants = new Map<string, MemoryStoreData>();
+
+/** Whether a memory test Tenant exists. */
+export function memoryTenantExists(tenantId: string): boolean {
+  return memoryTenants.has(tenantId);
+}
+
+/** A memory test Tenant's data, created empty on first use. */
+export function memoryTenantData(tenantId: string): MemoryStoreData {
+  let data = memoryTenants.get(tenantId);
+  if (!data) memoryTenants.set(tenantId, (data = new MemoryStoreData()));
+  return data;
+}
 
 let pool: PostgresClient | undefined;
 
@@ -69,9 +85,10 @@ export function testCatalog(): PostgresTenantCatalog {
   return createPostgresTenantCatalog({ sql: testPool() });
 }
 
-/** Drops a Postgres Tenant's schema; a no-op for SQLite (its file goes with the root). */
+/** Drops a test Tenant's data: its Postgres schema, or its memory data. */
 export async function dropTestTenant(tenantId: string): Promise<void> {
   if (TEST_STORE === "postgres") await testCatalog().deleteTenant(tenantId);
+  else memoryTenants.delete(tenantId);
 }
 
 /**
@@ -82,11 +99,14 @@ export async function openTestSessionStore(input: {
   root: string;
   tenantId: string;
 }): Promise<SessionStore> {
-  if (TEST_STORE === "sqlite")
-    return createSqliteSessionStore({
-      path: join(input.root, "tenants", input.tenantId, "tenant.sqlite"),
-      tenantId: input.tenantId,
-    });
+  if (TEST_STORE === "memory") {
+    if (!memoryTenantExists(input.tenantId))
+      throw new Error(`Test Tenant ${input.tenantId} does not exist`);
+    return new MemorySessionStore(
+      { tenantId: input.tenantId },
+      memoryTenantData(input.tenantId),
+    );
+  }
   const opened = await testCatalog().openTenant(input.tenantId);
   if (opened.status !== "ok")
     throw new Error(`Test Tenant ${input.tenantId} is ${opened.status}`);

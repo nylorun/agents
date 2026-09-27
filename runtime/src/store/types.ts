@@ -3,8 +3,7 @@
  *
  * The Session Store records what happened. It is async, transactional and
  * tenant-scoped: one `SessionStore` per Tenant. Postgres is the supported
- * implementation; `store/memory.ts` is the in-memory fake for unit tests, and
- * `store/sqlite.ts` bridges today's SQLite Tenants while the Runtime moves over.
+ * implementation; `store/memory.ts` is the in-memory fake for unit tests.
  *
  * ## Invariants every implementation keeps
  *
@@ -422,7 +421,7 @@ export interface Tx {
    * Locking twice in one transaction is a no-op.
    *
    * Lock order, so concurrent transactions cannot deadlock (Postgres takes row
-   * locks in statement order; SQLite serializes whole transactions):
+   * locks in statement order; the in-memory fake serializes whole transactions):
    * - a linked agent (child) session is locked before its workflow (parent)
    *   session, never after it. `t.event` on a session takes its lock, so an
    *   event on a child after the parent is locked breaks the rule too. Work

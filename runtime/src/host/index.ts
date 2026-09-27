@@ -1,7 +1,6 @@
 export type {
   HostConfigFile,
   HostCredentialsFile,
-  HostStateFile,
 } from "./config.js";
 export {
   baselineEnvironment,

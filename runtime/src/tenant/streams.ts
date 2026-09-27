@@ -26,8 +26,8 @@
  * - **Recovery.** `drainOutbox(ctx)` appends leftover outbox rows (after a crash or an S2
  *   outage). The Tenant sweep calls it.
  *
- * The caller passes the streams: the Host's S2 streams, or `MemoryStreams` for tests and the
- * SQLite profile until Wave 4 (not durable).
+ * The caller passes the streams: the Host's S2 streams, or `MemoryStreams` for tests and a
+ * local development Host (not durable).
  */
 import { randomBytes } from "node:crypto";
 import type { SessionStore } from "../store/types.js";

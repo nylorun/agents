@@ -12,7 +12,7 @@ import { createHost } from "../host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";
 import { createTenantModule } from "./module.js";
-import { createFsTenantStore } from "./store-fs.js";
+import { createMemoryTenantStore } from "./store-memory.js";
 import { createPostgresTenantStore } from "./store-pg.js";
 import type { PostgresClient } from "../store/postgres/connect.js";
 import { MemoryStreams } from "../streams/memory.js";
@@ -53,9 +53,9 @@ export interface StartEphemeralRuntimeOptions {
   retainRoot?: boolean;
   logger?: Logger;
   /**
-   * A Postgres pool: Tenants become schemas in it (`store-pg.ts`) instead of SQLite files
-   * under `hostRoot`, with in-memory Durable Streams. The caller ends the pool; the schemas
-   * stay.
+   * A Postgres pool: Tenants become schemas in it (`store-pg.ts`), with in-memory Durable
+   * Streams. The caller ends the pool; the schemas stay. Without one, Tenants live in memory
+   * (tests only) and are gone on close.
    */
   database?: PostgresClient;
 }
@@ -135,9 +135,6 @@ export async function startEphemeralRuntime(
     };
   };
 
-  const openRuntime = (config: TenantConfig) =>
-    openTenantRuntime(config, { createKekIfMissing: true });
-
   const streams = options.database ? new MemoryStreams() : undefined;
   const store = options.database
     ? createPostgresTenantStore({
@@ -152,9 +149,10 @@ export async function startEphemeralRuntime(
             ...opened,
           }),
       })
-    : createFsTenantStore({
+    : createMemoryTenantStore({
         hostRoot,
-        openRuntime,
+        openRuntime: (config, opened) =>
+          openTenantRuntime(config, { createKekIfMissing: true, ...opened }),
         configFor,
         logger,
       });

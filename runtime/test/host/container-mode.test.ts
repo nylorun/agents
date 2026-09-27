@@ -1,7 +1,4 @@
-import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import { freePort, startTestHost } from "./support.js";
 
@@ -51,7 +48,6 @@ async function startContainerHost() {
         `127.0.0.1:${listenPort}`,
       ],
     },
-    ownsStateFile: false,
   });
   return { ...started, listenPort };
 }
@@ -90,14 +86,6 @@ it("container mode keeps the Origin rule", async () => {
   });
   expect(res.status).toBe(403);
   expect((res.body as { code: string }).code).toBe("origin_rejected");
-});
-
-it("a container Host leaves host-state.json alone on close", async () => {
-  const { host, root } = await startContainerHost();
-  const state = join(root, "host-state.json");
-  await writeFile(state, "{}");
-  await host.close();
-  expect(existsSync(state)).toBe(true);
 });
 
 it("local mode still refuses a non-loopback host.json host", async () => {

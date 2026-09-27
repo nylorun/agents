@@ -11,15 +11,6 @@ export interface HostConfigFile {
   };
 }
 
-/** host-state.json — process only */
-export interface HostStateFile {
-  pid: number;
-  startedAt: string;
-  version: string;
-  entry: string;
-  url: string;
-}
-
 /** host-credentials.json, mode 0600 */
 export interface HostCredentialsFile {
   adminKey: string;

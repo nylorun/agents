@@ -11,7 +11,7 @@ const equals = (a: string, b: string) => {
 /**
  * Executor bearer tokens are 256-bit CSPRNG values minted by the CLI and the wire schema
  * requires at least 16 characters, so an unsalted digest is adequate to keep them out of
- * SQLite at rest. This is not a password KDF and must not be used for one.
+ * the Session Store at rest. This is not a password KDF and must not be used for one.
  */
 export const hashToken = (token: string): string =>
   createHash("sha256").update(token, "utf8").digest("hex");

@@ -5,7 +5,6 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { unlinkSync, existsSync } from "node:fs";
 import {
   checkCompatibility,
   HOST_PROTOCOL,
@@ -17,7 +16,6 @@ import {
   AdminStatusSchema,
   CreateTenantRequestSchema,
 } from "@nylorun/core/contracts";
-import { hostPaths } from "../tenant/paths.js";
 import {
   TenantBusyError,
   TenantConflictError,
@@ -63,11 +61,6 @@ export interface CreateHostOptions {
    * loopback-only rule). host.json then describes the client-facing address.
    */
   listen?: ContainerListen;
-  /**
-   * Whether this Host owns `host-state.json` and removes it on close.
-   * Defaults to true; a container Host does not write it.
-   */
-  ownsStateFile?: boolean;
   /**
    * The client-facing URL `/v1/admin/status` reports as `host.url`
    * (`NYLORUN_PUBLIC_URL`). Defaults to the bound address, which in container
@@ -148,9 +141,7 @@ export function createHost(options: CreateHostOptions): HostServer {
     coreVersion,
   } = options;
   const pid = options.pid ?? process.pid;
-  const paths = hostPaths(hostRoot);
   const containerListen = options.listen;
-  const ownsStateFile = options.ownsStateFile ?? true;
   const bindHost = containerListen?.host ?? config.host;
   const bindPort = containerListen?.port ?? config.port;
   let server: Server | undefined;
@@ -600,13 +591,6 @@ export function createHost(options: CreateHostOptions): HostServer {
       await step("beforeTenants", options.shutdown?.beforeTenants);
       await step("tenants", () => module.close());
       await step("afterTenants", options.shutdown?.afterTenants);
-      if (ownsStateFile && existsSync(paths.state)) {
-        try {
-          unlinkSync(paths.state);
-        } catch {
-          /* best-effort */
-        }
-      }
     })().finally(settleClosed);
     return closePromise;
   }

@@ -32,5 +32,4 @@ export type { HostProcessPathInputs } from "./host/environment.js";
 export type {
   HostConfigFile,
   HostCredentialsFile,
-  HostStateFile,
 } from "./host/config.js";

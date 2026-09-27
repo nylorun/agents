@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createFsTenantStore } from "../../src/tenant/store-fs.js";
+import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
 import { mapPool, TimeoutError, withTimeout } from "../../src/tenant/pool.js";
 import {
   bootstrapMaterial,
@@ -71,7 +71,7 @@ it("start opens with concurrency 4 and quarantines open timeouts", async () => {
     },
   });
   const configFor = configForRoot(hostRoot);
-  const store = createFsTenantStore({
+  const store = createMemoryTenantStore({
     hostRoot,
     openRuntime: delayed,
     configFor,

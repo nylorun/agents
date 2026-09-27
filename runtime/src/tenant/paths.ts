@@ -1,17 +1,20 @@
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+} from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { isTenantId } from "@nylorun/core/compatibility";
-import type { TenantPaths } from "./types.js";
+import type { Logger, TenantPaths } from "./types.js";
 
 export interface HostPaths {
   root: string;
   config: string; // host.json
-  state: string; // host-state.json
   credentials: string; // host-credentials.json
-  log: string; // runtime.log
   home: string;
   tmp: string;
-  runtime: string;
   tenants: string;
   trash: string;
 }
@@ -36,24 +39,20 @@ export function hostPaths(hostRoot: string): HostPaths {
   return {
     root,
     config: join(root, "host.json"),
-    state: join(root, "host-state.json"),
     credentials: join(root, "host-credentials.json"),
-    log: join(root, "runtime.log"),
     home: join(root, "home"),
     tmp: join(root, "tmp"),
-    runtime: join(root, "runtime"),
     tenants: join(root, "tenants"),
     trash: join(root, "trash"),
   };
 }
 
 /**
- * Absolute Tenant paths under `<hostRoot>/tenants/<tenantId>/`.
+ * Absolute Tenant directory paths under `<hostRoot>/tenants/<tenantId>/`.
  * Validates the id and asserts containment after realpath.
  *
- * Basenames frozen here for Wave 0 (design Rev 3 absent):
- * `tenant.json`, `tenant.sqlite`, `vault-kek`,
- * `home/`, `tmp/`, `.migration/`, `sandboxes/`, `plugin-data/`, `logs/tenant.log`.
+ * The directory holds what stays on the Host (the Tenant's data is its Postgres schema):
+ * `vault-kek`, `home/`, `tmp/`, `sandboxes/`, `plugin-data/`, `logs/tenant.log`.
  */
 export function tenantPaths(hostRoot: string, tenantId: string): TenantPaths {
   if (!isTenantId(tenantId)) {
@@ -70,15 +69,46 @@ export function tenantPaths(hostRoot: string, tenantId: string): TenantPaths {
   }
   return {
     root: resolvedRoot,
-    envelope: join(resolvedRoot, "tenant.json"),
-    database: join(resolvedRoot, "tenant.sqlite"),
     kek: join(resolvedRoot, "vault-kek"),
     home: join(resolvedRoot, "home"),
     tmp: join(resolvedRoot, "tmp"),
-    migration: join(resolvedRoot, ".migration"),
     sandboxes: join(resolvedRoot, "sandboxes"),
     pluginData: join(resolvedRoot, "plugin-data"),
     logs: join(resolvedRoot, "logs"),
     log: join(resolvedRoot, "logs", "tenant.log"),
   };
+}
+
+/** The database file of a Tenant from before the Postgres Session Store. */
+const SQLITE_DATABASE = "tenant.sqlite";
+
+/**
+ * Moves every Tenant directory that holds a `tenant.sqlite` to `trash/`, logging each.
+ *
+ * Those are beta Tenants from the SQLite Runtime. They are not migrated (recreate them); a
+ * Postgres Tenant's directory never holds that file. Moving them at Host start keeps a new
+ * Postgres Tenant with the same id from sharing the old directory. Returns the moved ids.
+ */
+export function trashSqliteTenants(hostRoot: string, logger: Logger): string[] {
+  const host = hostPaths(hostRoot);
+  if (!existsSync(host.tenants)) return [];
+  const moved: string[] = [];
+  const stamp = new Date().toISOString().replaceAll(":", "-");
+  for (const entry of readdirSync(host.tenants, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const directory = join(host.tenants, entry.name);
+    if (!existsSync(join(directory, SQLITE_DATABASE))) continue;
+    mkdirSync(host.trash, { recursive: true });
+    const destination = join(host.trash, `${entry.name}-sqlite-${stamp}`);
+    renameSync(directory, destination);
+    moved.push(entry.name);
+    logger.warn("sqlite_tenant_moved_to_trash", {
+      tenant: entry.name,
+      from: directory,
+      to: destination,
+      reason:
+        "SQLite Tenants are not migrated to the Postgres Session Store; recreate the Tenant",
+    });
+  }
+  return moved;
 }

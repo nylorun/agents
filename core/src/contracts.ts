@@ -897,7 +897,6 @@ export type AdminTenant = z.infer<typeof AdminTenantSchema>;
 export const QuarantineSchema = z
   .object({
     code: z.enum([
-      "locked",
       "kek-missing",
       "corrupt",
       "schema-too-new",
@@ -908,8 +907,6 @@ export const QuarantineSchema = z
     ]),
     message: z.string(),
     repair: z.string(),
-    lockPath: z.string().optional(),
-    lockPid: z.number().int().optional(),
   })
   .strict();
 export type QuarantineInfo = z.infer<typeof QuarantineSchema>;
@@ -1006,7 +1003,7 @@ export const TenantStatusSchema = z
     path: z.string().min(1),
     checks: z
       .object({
-        sqlite: z.boolean(),
+        store: z.boolean(),
         scheduler: z.boolean(),
         model: z.boolean(),
         executors: z.boolean(),

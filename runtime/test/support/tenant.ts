@@ -11,7 +11,6 @@ import {
   TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
-import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { hashToken, mintBearerToken } from "../../src/core/executors.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { bootstrapPrincipal } from "../../src/tenant/principals.js";
@@ -23,12 +22,14 @@ import {
 } from "../../src/tenant/runtime.js";
 import { createKekFile } from "../../src/vault/kek.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { MemorySessionStore } from "../../src/store/memory.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
 import {
   TEST_STORE,
   dropTestTenant,
+  memoryTenantData,
+  memoryTenantExists,
   testCatalog,
   testEnvelope,
   withTestSessionStore,
@@ -89,9 +90,9 @@ export async function patchStoredSession(
 
 /**
  * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5). The
- * Tenant's Session Store is the one `NYLORUN_TEST_STORE` selects (`./store.ts`): a SQLite
- * file under the Host root, or a fresh Postgres schema that `close()` drops unless the root
- * is retained.
+ * Tenant's Session Store is the one `NYLORUN_TEST_STORE` selects (`./store.ts`): in memory
+ * (the default), or a fresh Postgres schema. `close()` drops the Tenant's data unless the
+ * root is retained.
  */
 export async function startTestTenant(
   options: StartTestTenantOptions = {}
@@ -124,45 +125,40 @@ export async function startTestTenant(
   const principalId =
     options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
   const credentialHash = hashToken(applicationKey);
-  const now = new Date().toISOString();
+  const logger =
+    options.logger ?? createTenantLogger({ tenantId, logPath: paths.log });
 
-  let opened: TenantOpenHooks = {};
+  const bootstrap = {
+    principalId,
+    credentialHash,
+    idempotencyKey: `boot-${tenantId}`,
+  };
+  let opened: Pick<TenantOpenHooks, "store" | "envelope">;
   if (TEST_STORE === "postgres") {
     const catalog = testCatalog();
     if (!(await catalog.tenantExists(tenantId)))
       await catalog.createTenant({
         envelope: testEnvelope(tenantId),
-        principals: {
-          principalId,
-          credentialHash,
-          idempotencyKey: `boot-${tenantId}`,
-        },
+        principals: bootstrap,
       });
     const result = await catalog.openTenant(tenantId);
     if (result.status !== "ok")
       throw new Error(`Test Tenant ${tenantId} is ${result.status}`);
     opened = { store: result.store, envelope: result.envelope };
-  } else if (!existsSync(paths.envelope)) {
-    const envelope: TenantEnvelope = {
-      id: tenantId,
-      name: "test",
-      createdAt: now,
-      updatedAt: now,
-      schemaVersion: 1,
-    };
-    writeFileSync(paths.envelope, JSON.stringify(envelope, null, 2) + "\n");
-  }
-
-  if (TEST_STORE === "sqlite" && !existsSync(paths.database)) {
-    const store = createSqliteSessionStore({ path: paths.database, tenantId });
-    await store.tx((t) =>
-      bootstrapPrincipal(t, {
-        principalId,
-        credentialHash,
-        idempotencyKey: `boot-${tenantId}`,
-      })
+  } else {
+    const fresh = !memoryTenantExists(tenantId);
+    const store = new MemorySessionStore(
+      {
+        tenantId,
+        onError: (error) =>
+          logger.error("post-commit step failed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      },
+      memoryTenantData(tenantId)
     );
-    await store.close();
+    if (fresh) await store.tx((t) => bootstrapPrincipal(t, bootstrap));
+    opened = { store, envelope: testEnvelope(tenantId) };
   }
 
   const mode = options.mode ?? "test";
@@ -173,9 +169,6 @@ export async function startTestTenant(
     mode === "shared"
   )
     throw new Error("fixture/scripted models require ephemeral or test mode");
-
-  const logger =
-    options.logger ?? createTenantLogger({ tenantId, logPath: paths.log });
 
   const childEnv = options.childEnv ?? {
     // Tests may read ambient PATH; Runtime code must not.

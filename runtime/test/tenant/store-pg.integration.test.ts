@@ -97,7 +97,6 @@ describe.skipIf(!STACK_ENABLED)("Tenant module on Postgres", () => {
     const paths = tenantPaths(hostRoot, tenantId);
     for (const dir of [paths.home, paths.tmp, paths.sandboxes, paths.pluginData, paths.logs])
       expect(existsSync(dir)).toBe(true);
-    expect(existsSync(paths.database)).toBe(false);
 
     const again = await module.create({ tenantId, name: "alpha", ...boot });
     expect(again).toEqual({ envelope: result.envelope, created: false });

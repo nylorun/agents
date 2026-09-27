@@ -1,11 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { TenantRuntime } from "../src/tenant/runtime.js";
-import { createSqliteSessionStore } from "../src/store/sqlite.js";
-import { openTestSessionStore } from "./support/store.js";
-import { withTenantDatabase } from "../src/tenant/schema.js";
+import { openTestSessionStore, withTestSessionStore } from "./support/store.js";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
@@ -56,7 +51,6 @@ async function boot(options: BootOpts = {}) {
     applicationKey: runtime.applicationKey,
     tenantId: runtime.tenantId,
     root: runtime.root,
-    dbPath: join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite"),
     authorize: handle.authorize.bind(handle),
   };
 }
@@ -156,7 +150,7 @@ it("stores bearer credentials without returning or persisting the plaintext", as
 
 it("keeps ciphertext unreadable without the key-encryption key", async () => {
   const runtime = await boot({ retainRoot: true });
-  const { root, tenantId, dbPath } = runtime;
+  const { root, tenantId } = runtime;
   let vaultId = "";
   let credentialId = "";
   try {
@@ -191,10 +185,17 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   } finally {
     await runtime.close();
   }
-  for (const name of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    if (existsSync(name))
-      expect(readFileSync(name).includes(Buffer.from(ADA_TOKEN))).toBe(false);
-  }
+  // No stored column holds the plaintext.
+  const rows = await withTestSessionStore({ root, tenantId }, (store) =>
+    store.tx((t) => t.credentialsForVault(vaultId)),
+  );
+  expect(rows).toHaveLength(1);
+  for (const value of Object.values(rows[0]!))
+    expect(
+      Buffer.from(
+        value instanceof Uint8Array ? value : String(value),
+      ).includes(Buffer.from(ADA_TOKEN)),
+    ).toBe(false);
   await expect(
     boot({ hostRoot: root, tenantId, vaultKek: null }),
   ).rejects.toThrow(/key-encryption key|kek-missing/i);
@@ -682,41 +683,6 @@ it("keeps the host model credential out of user vaults and responses", async () 
     expect(stored).not.toContain(secret);
     await rm(runtime.root, { recursive: true, force: true });
   }
-});
-
-it("adds vault scope to a database created before host credentials", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "vault-scope-"));
-  const path = join(directory, "old.sqlite");
-  withTenantDatabase(path, (created) =>
-    created.exec(
-    `CREATE TABLE vaults(
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      owner_user_id TEXT NOT NULL,
-      metadata_json TEXT,
-      created_at TEXT NOT NULL
-    )`,
-    ),
-  );
-  const store = createSqliteSessionStore({
-    path,
-    tenantId: "tn_00000000000000000000000000",
-  });
-  await store.tx((t) =>
-    t.insertVault({
-      id: "host",
-      name: "Host",
-      ownerUserId: "host",
-      metadataJson: null,
-      createdAt: "x",
-      scope: "host",
-    }),
-  );
-  expect(await store.tx((t) => t.getVault("host"))).toMatchObject({
-    scope: "host",
-  });
-  await store.close();
-  await rm(directory, { recursive: true, force: true });
 });
 
 async function createBearer(

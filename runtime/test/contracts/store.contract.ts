@@ -1,6 +1,6 @@
 /**
  * Session Store contract (architecture §12.2). Every `SessionStore`
- * implementation runs this suite: the in-memory fake, SQLite and Postgres.
+ * implementation runs this suite: the in-memory fake and Postgres.
  *
  *   storeContract("postgres", async (options) => {
  *     const store = await openPostgresStore({ ...options, url });

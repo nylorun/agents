@@ -14,8 +14,8 @@ interface StoredRecord {
 }
 
 /**
- * In-memory `DurableStreams` for unit tests and the SQLite profile until
- * Wave 4. Not durable: history does not survive a restart. Keeps the seam's
+ * In-memory `DurableStreams` for unit tests and a local development Host.
+ * Not durable: history does not survive a restart. Keeps the seam's
  * sequence, conditional-append and resume semantics.
  */
 export class MemoryStreams implements DurableStreams {

@@ -14,7 +14,7 @@
  *   signed by the Restate server holding the matching private key.
  *
  * Without Restate endpoints it returns the in-process memory execution, which
- * only unit tests and the pre-stack launcher use.
+ * only unit tests and a local development Host use.
  */
 import { createRestateExecution } from "../adapters/execution/restate.js";
 import { MemoryExecution } from "../execution/memory.js";

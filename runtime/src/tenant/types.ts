@@ -6,20 +6,23 @@ import type {
   TenantEnvelope,
 } from "@nylorun/core/contracts";
 import type { FlowLimits } from "../core/limits.js";
+import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
 
+/**
+ * The Tenant directory on the Host root. The Tenant's data lives in its store (a Postgres
+ * schema); this holds what stays on the Host: the vault key, plugin data, logs, and the
+ * private home, tmp and sandbox directories.
+ */
 export interface TenantPaths {
   // all absolute; derived by tenantPaths()
   root: string;
-  envelope: string;
-  database: string;
   kek: string;
   home: string;
   tmp: string;
-  migration: string;
   sandboxes: string;
   pluginData: string;
   logs: string;
@@ -163,8 +166,8 @@ export interface TenantModule {
 }
 
 /**
- * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`), the
- * directory with SQLite (`store-fs.ts`, until Wave 4), and in-memory for tests.
+ * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`), and
+ * in-memory for tests (`store-memory.ts`).
  */
 export interface TenantStore {
   /** Ids of every Tenant the store holds. */
@@ -190,7 +193,7 @@ export interface TenantStore {
    * any other error (a quarantine error, ideally) when the Tenant itself cannot be opened.
    */
   open(id: string): Promise<TenantHandle>;
-  /** Removes the Tenant (the directory store moves it to `trash/`). */
+  /** Removes the Tenant: its data and its Tenant directory. */
   trash(id: string, now: Date): Promise<void>;
   /** Removes what a failed `create` left, never an existing Tenant. */
   removePartial(id: string): Promise<void>;
@@ -220,7 +223,19 @@ export class TenantNotFoundError extends Error {
   }
 }
 
-/** Injected into the store so WS-B can test without WS-A. */
+/** What a Tenant store hands the Tenant Runtime it opens. */
+export interface OpenedTenant {
+  /**
+   * The Tenant's opened Session Store. The Tenant Runtime owns it from here on and closes it
+   * on close or on a failed open.
+   */
+  store: SessionStore;
+  /** The Tenant envelope as its store reports it. */
+  envelope: TenantEnvelope;
+}
+
+/** Opens the Tenant Runtime on a store the Tenant store opened (injected, so tests can fake it). */
 export type OpenTenantRuntime = (
   config: TenantConfig,
+  opened: OpenedTenant,
 ) => Promise<TenantHandle>;

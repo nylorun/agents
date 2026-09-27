@@ -67,12 +67,9 @@ export function checkBoundaries(name) {
       if (name === "core" && /(?:from\s*|import\s*\()["']node:/.test(source))
         throw new Error(`Core must remain portable: ${path}`);
     }
-  // The CLI owns `nylorun`; the Runtime exposes only its launcher.
-  if (
-    name === "runtime" &&
-    Object.keys(pkg.bin ?? {}).some((bin) => bin !== "nylorun-runtime")
-  )
-    throw new Error("The CLI owns the nylorun binary; Runtime exposes only nylorun-runtime");
+  // The CLI owns `nylorun`; the Runtime is a library and an image, with no bin.
+  if (name === "runtime" && pkg.bin !== undefined)
+    throw new Error("Runtime must have no bin: the CLI owns nylorun, and the Runtime runs as the ghcr.io/nylorun/runtime image");
   // Studio ships only as the ghcr.io/nylorun/studio image, never to npm.
   if (name === "studio" && (pkg.private !== true || pkg.bin !== undefined))
     throw new Error("Studio must be private with no bin: it ships only as the ghcr.io/nylorun/studio image");

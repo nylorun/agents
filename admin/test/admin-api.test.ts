@@ -43,9 +43,9 @@ describe("B4 Admin API methods", () => {
         sendJson(response, 200, {
           ...sampleTenant(),
           quarantine: {
-            code: "locked",
-            message: "locked",
-            repair: "remove the lock",
+            code: "kek-missing",
+            message: "vault key missing",
+            repair: "restore vault-kek",
           },
         });
         return;
@@ -77,7 +77,7 @@ describe("B4 Admin API methods", () => {
         admin.getTenant("tn_00000000000000000000000001"),
       ).resolves.toMatchObject({
         id: "tn_00000000000000000000000001",
-        quarantine: { code: "locked" },
+        quarantine: { code: "kek-missing" },
       });
       await expect(
         admin.deleteTenant("tn_00000000000000000000000001", {
