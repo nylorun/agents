@@ -11,6 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -148,10 +149,10 @@ export async function createStack({
     env,
     cli,
     runtimeUrl: undefined,
-    /** Run `nylorun <args>` against this stack. */
-    async nylorun(args, { check = true, echo = true, cwd = root, timeout } = {}) {
+    /** Run `nylorun <args>` against this stack (`entry`: another CLI install). */
+    async nylorun(args, { check = true, echo = true, cwd = root, timeout, entry = cli } = {}) {
       log(`$ nylorun ${args.join(" ")}`);
-      const result = await exec(process.execPath, [cli, ...args], { env, cwd, echo, timeout });
+      const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
       if (check && result.code !== 0)
         throw new Error(`nylorun ${args.join(" ")} exited with ${result.code}`);
       return result;
@@ -205,6 +206,7 @@ export async function createStack({
       return createAdmin({ home });
     },
     async logs(tail = 200) {
+      if (!existsSync(join(home, "stack", "compose.yaml"))) return;
       await stack.nylorun(["logs", "--tail", String(tail)], { check: false });
     },
     /** Delete containers and volumes, then the temporary Host root. */
