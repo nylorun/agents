@@ -21,13 +21,13 @@ export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"]
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  start [--no-studio]          start the local stack (Docker Compose); print the Runtime URL and a Studio login URL
-  stop                          stop the stack's containers; keep volumes
-  status [--json]               services, endpoints and Runtime health
-  stack logs [service] [-f]     stack logs (${STACK_SERVICES.join(", ")})
-  stack studio [--no-open]      open a fresh Studio login; start the stack if it is stopped
-  reset [--yes]                 delete the stack's volumes and Tenant directories
-  stack start|stop|status|logs|reset|studio   the same commands under one name`;
+export const stackUsage = `  start [--no-studio]                       start the stack; print the Runtime URL and a Studio login URL
+  stop                                      stop the stack's containers; keep volumes
+  status [--json]                           services, endpoints and Runtime health
+  stack logs [service] [-f] [--tail <n>]    stack logs (${STACK_SERVICES.join(", ")})
+  stack studio [--no-open]                  open a fresh Studio login; start the stack if it is stopped
+  reset [--yes]                             delete the stack's volumes and Tenant directories
+  stack start|stop|status|logs|reset|studio the same commands under one name`;
 
 export interface StackDeps {
   /** Environment snapshot (NYLORUN_HOME, image overrides, NYLORUN_STACK_PROJECT). */
