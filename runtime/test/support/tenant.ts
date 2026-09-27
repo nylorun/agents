@@ -24,6 +24,7 @@ import {
 import { createKekFile } from "../../src/vault/kek.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
@@ -45,9 +46,20 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Host-level execution and Worker id (ownership tests). */
   execution?: TenantOpenHooks["execution"];
   workerId?: string;
-  /** Durable Streams shared with other instances; the caller closes them. */
+  /**
+   * Durable Streams shared with other instances (or restarts); the caller closes them.
+   * Default: `MemoryStreams` for this Tenant, kept for a restart on the same Host root while
+   * the root is retained, and closed by the `close()` that removes the root.
+   */
   streams?: DurableStreams;
 };
+
+/**
+ * Default streams of Tenants whose Host root outlives `close()` (`retainRoot`, `hostRoot`), by
+ * `<hostRoot>\0<tenantId>`: a restart on the same root finds its history again, as it would
+ * in S2, which outlives the Runtime.
+ */
+const retainedStreams = new Map<string, MemoryStreams>();
 
 /** Rewrites fields of a stored session in a closed Tenant database (restart tests). */
 export async function patchStoredSession(
@@ -167,11 +179,13 @@ export async function startTestTenant(
     logger,
   };
 
+  const streamsKey = `${hostRoot}\u0000${tenantId}`;
+  const defaultStreams = retainedStreams.get(streamsKey) ?? new MemoryStreams();
   const hooks: TenantOpenHooks = {
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     ...(options.workerId ? { workerId: options.workerId } : {}),
-    ...(options.streams ? { streams: options.streams } : {}),
+    streams: options.streams ?? defaultStreams,
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {
@@ -258,6 +272,13 @@ export async function startTestTenant(
     handle,
     async close() {
       await handle.close();
+      if (!options.streams) {
+        if (retainRoot) retainedStreams.set(streamsKey, defaultStreams);
+        else {
+          retainedStreams.delete(streamsKey);
+          await defaultStreams.close();
+        }
+      }
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });

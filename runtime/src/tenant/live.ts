@@ -3,13 +3,19 @@
  * (`GET /v1/sessions/:id/items`), session SSE (`GET /v1/sessions/:id/events`) and executor
  * work streams (`GET /v1/executors/connect`).
  *
- * - **History** reads `sessions/<id>` from the cursor up to the tail seen when the read starts.
- *   The `agent` filter runs here, and the response cursor is the last record read. If the
- *   streams fail, history answers `503`.
+ * - **Streams.** A session's events are in the stream of its current incarnation
+ *   (`streamOfSession`, `sessions/<id>/<incarnation>`), resolved from the session on every
+ *   request; cursors carry only the session id and sequence.
+ * - **History** reads the session's stream from the cursor up to the tail seen when the read
+ *   starts. The `agent` filter runs here, and the response cursor is the last record read. If
+ *   the streams fail, history answers `503`.
  * - **SSE** shares one stream read per observed session in this process (a `SessionFeed`)
  *   among that session's observers. Each observer keeps the next sequence it needs and skips
  *   what it already has, so a client resuming from `Last-Event-ID` sees no gap and no
  *   duplicate. An observer behind the feed restarts the shared read from its own position.
+ *   A feed follows one incarnation: it ends once its session is gone or has a new
+ *   incarnation (a reset, possibly on another node), checked when a client joins, when its
+ *   read fails, on a `sessions.reset` signal, and periodically (`checkFeeds`).
  * - **Executor streams** receive `work_available` from the `tenant/work` reader that
  *   `tenant/streams.ts` runs (one per Tenant per process); discovery stays `GET /v1/actions`.
  *
@@ -19,8 +25,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../store/cursor.js";
 import {
-  sessionStream,
+  streamOfSession,
   type DurableStreams,
+  type SessionStreamRef,
   type StreamRecord,
 } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
@@ -36,6 +43,8 @@ interface Observer {
 /** The shared stream read of one observed session. */
 interface SessionFeed {
   readonly sessionId: string;
+  /** The stream of the session's incarnation when the feed started. */
+  readonly stream: string;
   /** The sequence the shared read yields next. Every observer's `next` is at or past it. */
   next: number;
   readonly observers: Set<Observer>;
@@ -120,6 +129,17 @@ function belongsTo(event: LiveEvent, agent: string): boolean {
   return ref?.delegationId === agent || ref?.path === agent;
 }
 
+/** The stream of the session's current incarnation, or undefined when the session is gone. */
+async function currentStream(
+  ctx: TenantContext,
+  sessionId: string
+): Promise<string | undefined> {
+  const session = await ctx.store.tx((t) =>
+    t.get<SessionStreamRef>("sessions", sessionId)
+  );
+  return session && streamOfSession(session);
+}
+
 function streamsOf(ctx: TenantContext): DurableStreams {
   return (
     ctx.live.wiring?.streams ?? fail(503, "Session streams are unavailable")
@@ -139,12 +159,14 @@ export async function readHistory(
 ): Promise<{ items: LiveEvent[]; cursor: string | null }> {
   const from = startSeq(sessionId, cursor);
   const streams = streamsOf(ctx);
+  const stream =
+    (await currentStream(ctx, sessionId)) ?? fail(404, "Session not found");
   const items: LiveEvent[] = [];
   let last: number | undefined;
   try {
     for await (const record of streams.read<LiveEvent>(
       ctx.config.tenantId,
-      sessionStream(sessionId),
+      stream,
       from,
       { follow: false }
     )) {
@@ -168,7 +190,7 @@ export async function readHistory(
 
 /**
  * `GET /v1/sessions/:id/events`: joins the session's shared read at the client's cursor and
- * follows it until the client leaves, the session's streams are reset, or the Tenant closes.
+ * follows it until the client leaves, the session is reset or deleted, or the Tenant closes.
  */
 export async function streamSessionEvents(
   ctx: TenantContext,
@@ -179,12 +201,20 @@ export async function streamSessionEvents(
 ): Promise<void> {
   const from = startSeq(sessionId, cursor);
   streamsOf(ctx);
+  const stream =
+    (await currentStream(ctx, sessionId)) ?? fail(404, "Session not found");
   const hub = ctx.live;
   const observer: Observer = { response, next: from };
   let feed = hub.feeds.get(sessionId);
+  if (feed && feed.stream !== stream) {
+    // The session was created again since that feed started: it follows an abandoned stream.
+    endFeed(hub, feed);
+    feed = undefined;
+  }
   if (!feed) {
     feed = {
       sessionId,
+      stream,
       next: from,
       observers: new Set(),
       read: new AbortController(),
@@ -217,9 +247,10 @@ function deliver(observer: Observer, record: StreamRecord<LiveEvent>): void {
 }
 
 /**
- * Follows the session stream from `feed.next` for the current `feed.read`, retrying failed
- * reads from where it stopped. A read that ends by itself (the stream's Tenant is gone or the
- * streams closed) ends the observers.
+ * Follows the feed's stream from `feed.next` for the current `feed.read`, retrying failed
+ * reads from where it stopped while the session still has that stream. A read that ends by
+ * itself (the stream's Tenant is gone or the streams closed), or a session that is gone or
+ * has a new incarnation, ends the observers.
  */
 function runFeed(ctx: TenantContext, feed: SessionFeed): void {
   const read = feed.read;
@@ -232,7 +263,7 @@ function runFeed(ctx: TenantContext, feed: SessionFeed): void {
       try {
         for await (const record of streams.read<LiveEvent>(
           ctx.config.tenantId,
-          sessionStream(feed.sessionId),
+          feed.stream,
           feed.next,
           { signal }
         )) {
@@ -252,12 +283,46 @@ function runFeed(ctx: TenantContext, feed: SessionFeed): void {
           message: error instanceof Error ? error.message : String(error),
         });
       }
+      if (!(await stillCurrent(ctx, feed))) break;
       await sleep(delay, signal);
       delay = Math.min(delay * 2, RETRY_MAX_MS);
     }
     if (signal.aborted || feed.read !== read) return;
     endFeed(ctx.live, feed);
   })();
+}
+
+/** False when the feed's session is gone or has a new incarnation. True when unsure. */
+async function stillCurrent(ctx: TenantContext, feed: SessionFeed): Promise<boolean> {
+  try {
+    return (await currentStream(ctx, feed.sessionId)) === feed.stream;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Ends every feed in this process whose session is gone or has a new incarnation. Run on a
+ * `sessions.reset` signal and periodically, so feeds on nodes other than the one that reset
+ * the Tenant end too.
+ */
+export async function checkFeeds(ctx: TenantContext): Promise<void> {
+  const feeds = [...ctx.live.feeds.values()];
+  if (feeds.length === 0) return;
+  const current = await ctx.store.tx(async (t) => {
+    const streams = new Map<string, string | undefined>();
+    for (const feed of feeds) {
+      const session = await t.get<SessionStreamRef>("sessions", feed.sessionId);
+      streams.set(feed.sessionId, session && streamOfSession(session));
+    }
+    return streams;
+  });
+  for (const feed of feeds)
+    if (
+      ctx.live.feeds.get(feed.sessionId) === feed &&
+      current.get(feed.sessionId) !== feed.stream
+    )
+      endFeed(ctx.live, feed);
 }
 
 function endFeed(hub: LiveHub, feed: SessionFeed): void {

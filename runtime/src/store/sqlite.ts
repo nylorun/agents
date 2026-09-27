@@ -24,10 +24,9 @@
  *
  * `events(session_id, seq, body, relayed)` holds every event of a session. A
  * row with `relayed = 0` is in the outbox; `deleteOutbox` marks rows relayed
- * rather than deleting them, because the SQLite profile has no durable
- * streams yet: at open, the Tenant runtime re-hydrates its in-memory streams
- * from the relayed rows (`readRelayed`, `tenant/streams.ts`). Wave 3 removes
- * that. Deleting a session deletes its events.
+ * rather than deleting them (`readEvents` still reads them in store tests and
+ * migration checks). History is served from Durable Streams. Deleting a
+ * session deletes its events, outbox rows included.
  *
  * ## Values
  *
@@ -59,6 +58,7 @@ import type {
   LinkDoc,
   LinkedSession,
   OutboxRow,
+  OutboxStats,
   PrincipalRow,
   ResetScope,
   SandboxDoc,
@@ -102,11 +102,6 @@ export interface SqliteSessionStore extends SessionStore {
     sessionId: string,
     afterSeq?: number,
   ): Promise<{ events: LiveEvent[]; lastSeq: number | null }>;
-  /**
-   * Every relayed event (not in the outbox), ordered by session id then
-   * sequence: the re-hydration source of the interim in-memory streams.
-   */
-  readRelayed(): Promise<OutboxRow[]>;
 }
 
 export function createSqliteSessionStore(
@@ -205,7 +200,11 @@ class SqliteStore implements SqliteSessionStore {
         throw error;
       }
       if (tx.events.length > 0 || tx.workAvailable) {
-        const commit = { events: tx.events, workAvailable: tx.workAvailable };
+        const commit = {
+          events: tx.events,
+          incarnations: tx.incarnations,
+          workAvailable: tx.workAvailable,
+        };
         for (const listener of [...this.listeners]) {
           try {
             listener(commit);
@@ -250,20 +249,6 @@ class SqliteStore implements SqliteSessionStore {
         lastSeq: last?.seq == null ? null : Number(last.seq),
       };
     });
-  }
-
-  async readRelayed(): Promise<OutboxRow[]> {
-    return this.read(() =>
-      this.sql(
-        "SELECT session_id, seq, body FROM events WHERE relayed = 1 ORDER BY session_id, seq",
-      )
-        .all()
-        .map((row) => ({
-          sessionId: String(row.session_id),
-          seq: Number(row.seq),
-          event: JSON.parse(String(row.body)) as LiveEvent,
-        })),
-    );
   }
 
   async health(): Promise<StoreHealth> {
@@ -426,6 +411,7 @@ const CREDENTIAL_COLUMNS = {
 class SqliteTx implements Tx {
   closed = false;
   readonly events: LiveEvent[] = [];
+  readonly incarnations: (string | null)[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
   workAvailable = false;
 
@@ -517,7 +503,8 @@ class SqliteTx implements Tx {
     this.check();
     const row = this.one(
       `UPDATE sessions SET next_event_seq = next_event_seq + 1
-       WHERE id = ? RETURNING next_event_seq - 1 AS seq`,
+       WHERE id = ? RETURNING next_event_seq - 1 AS seq,
+         json_extract(body, '$.streamIncarnation') AS incarnation`,
       sessionId,
     );
     if (!row) throw new Error(`Session ${sessionId} not found`);
@@ -541,6 +528,7 @@ class SqliteTx implements Tx {
       JSON.stringify(event),
     );
     this.events.push(event);
+    this.incarnations.push(row.incarnation == null ? null : String(row.incarnation));
     return structuredClone(event);
   }
 
@@ -879,15 +867,42 @@ class SqliteTx implements Tx {
     }));
   }
 
-  async deleteOutbox(sessionId: string, throughSeq: number): Promise<number> {
+  async deleteOutbox(
+    sessionId: string,
+    throughSeq: number,
+    incarnation?: string | null,
+  ): Promise<number> {
     this.check();
     // Relayed events stay as the session history (see the module comment).
+    if (incarnation === undefined)
+      return this.run(
+        `UPDATE events SET relayed = 1
+         WHERE session_id = ? AND seq <= ? AND relayed = 0`,
+        sessionId,
+        throughSeq,
+      );
     return this.run(
       `UPDATE events SET relayed = 1
-       WHERE session_id = ? AND seq <= ? AND relayed = 0`,
+       WHERE session_id = ? AND seq <= ? AND relayed = 0
+         AND EXISTS (SELECT 1 FROM sessions WHERE id = ?
+           AND json_extract(body, '$.streamIncarnation') IS ?)`,
       sessionId,
       throughSeq,
+      sessionId,
+      incarnation,
     );
+  }
+
+  async outboxStats(): Promise<OutboxStats> {
+    this.check();
+    const row = this.one(
+      `SELECT count(*) AS depth, min(json_extract(body, '$.createdAt')) AS oldest
+       FROM events WHERE relayed = 0`,
+    );
+    return {
+      depth: Number(row?.depth ?? 0),
+      oldestCreatedAt: row?.oldest == null ? null : String(row.oldest),
+    };
   }
 
   // --- executors -----------------------------------------------------------

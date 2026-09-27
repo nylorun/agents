@@ -13,7 +13,8 @@ import {
   CONTROL_STREAM,
   WORK_AVAILABLE,
   WORK_STREAM,
-  sessionStream,
+  newStreamIncarnation,
+  streamOfSession,
   type AppendOptions,
   type AppendResult,
   type DurableStreams,
@@ -33,6 +34,8 @@ export class FaultyStreams implements DurableStreams {
   /** The next N appends reach the streams, then throw as if the ack was lost. */
   loseAcks = 0;
   appends = 0;
+  /** Runs before each append reaches the streams. */
+  beforeAppend?: (stream: string) => Promise<void>;
 
   constructor(private readonly inner: DurableStreams) {}
 
@@ -44,6 +47,7 @@ export class FaultyStreams implements DurableStreams {
   ): Promise<AppendResult> {
     this.appends += 1;
     if (this.down) throw new Error("S2 unreachable");
+    await this.beforeAppend?.(stream);
     const result = await this.inner.append(tenantId, stream, records, options);
     if (this.loseAcks > 0) {
       this.loseAcks -= 1;
@@ -71,13 +75,23 @@ export class FaultyStreams implements DurableStreams {
   deleteStream(tenantId: string, stream: string) {
     return this.inner.deleteStream(tenantId, stream);
   }
+  listStreams(tenantId: string, prefix: string) {
+    return this.inner.listStreams(tenantId, prefix);
+  }
   close() {
     return this.inner.close();
   }
 }
 
 function sessionDoc(id: string) {
-  return { id, agentId: "agent-a", ownerUserId: "user-1", status: "idle", activeTurnId: null };
+  return {
+    id,
+    agentId: "agent-a",
+    ownerUserId: "user-1",
+    status: "idle",
+    activeTurnId: null,
+    streamIncarnation: newStreamIncarnation(),
+  };
 }
 
 export function relaySuite(name: string, factory: () => Promise<RelayHarness>): void {
@@ -132,16 +146,31 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
         });
       }
 
-      async function history(sessionId: string): Promise<StreamRecord<LiveEvent>[]> {
+      /** The session's current stream. */
+      async function streamOf(sessionId: string): Promise<string> {
+        const session = await store.tx((t) => t.get("sessions", sessionId));
+        if (!session) throw new Error(`Session ${sessionId} not found`);
+        return streamOfSession(session);
+      }
+
+      async function read(stream: string): Promise<StreamRecord<LiveEvent>[]> {
         const records: StreamRecord<LiveEvent>[] = [];
-        for await (const record of harness.streams.read<LiveEvent>(
-          tenantId,
-          sessionStream(sessionId),
-          0,
-          { follow: false },
-        ))
+        for await (const record of harness.streams.read<LiveEvent>(tenantId, stream, 0, {
+          follow: false,
+        }))
           records.push(record);
         return records;
+      }
+
+      /** The records of the session's current stream. */
+      async function history(sessionId: string): Promise<StreamRecord<LiveEvent>[]> {
+        return read(await streamOf(sessionId));
+      }
+
+      /** Deletes the session (and its outbox rows) and creates it again: a new incarnation. */
+      async function recreate(sessionId: string): Promise<void> {
+        await store.tx((t) => t.delete("sessions", sessionId));
+        await store.tx((t) => t.put("sessions", sessionId, sessionDoc(sessionId)));
       }
 
       const outbox = () => store.tx((t) => t.outbox(10_000));
@@ -153,7 +182,10 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
         tenantId,
         relay,
         commit,
+        streamOf,
+        read,
         history,
+        recreate,
         outbox,
         relayErrors,
       };
@@ -308,12 +340,13 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
     });
 
     it("reports a gap it cannot fill and leaves the rows", async () => {
-      const { streams, tenantId, relay, commit, outbox, relayErrors } = await setup();
+      const context = await setup();
+      const { streams, tenantId, relay, commit, outbox, relayErrors } = context;
       const r = relay();
       await commit("s1", "a", "b");
       await r.idle();
       // The stream lost its records (deleted under a live session).
-      await streams.deleteStream(tenantId, sessionStream("s1"));
+      await streams.deleteStream(tenantId, await context.streamOf("s1"));
       await commit("s1", "c");
       await r.idle();
       expect(relayErrors).toHaveLength(1);
@@ -340,6 +373,60 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       for await (const record of streams.read(tenantId, CONTROL_STREAM, 0, { follow: false }))
         control.push(record.body);
       expect(control).toEqual([{ type: "session.cancel", sessionId: "s1" }]);
+    });
+
+    it("relays a re-created session to its new stream from 0 and drops the old rows", async () => {
+      const { faulty, relay, commit, streamOf, read, history, recreate, outbox, relayErrors } =
+        await setup();
+      const r = relay();
+      await commit("s1", "a", "b");
+      await r.idle();
+      const first = await streamOf("s1");
+      // S2 is down while the session is deleted and created again (a reset).
+      faulty.down = true;
+      await commit("s1", "lost");
+      await r.idle();
+      await recreate("s1");
+      expect(await outbox()).toEqual([]);
+      faulty.down = false;
+      relayErrors.length = 0;
+      await commit("s1", "x", "y");
+      await r.idle();
+      const second = await streamOf("s1");
+      expect(second).not.toBe(first);
+      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+        [0, "x"],
+        [1, "y"],
+      ]);
+      expect((await read(first)).map((record) => record.body.type)).toEqual(["a", "b"]);
+      expect(await outbox()).toEqual([]);
+      expect(relayErrors).toEqual([]);
+    });
+
+    it("keeps a re-created session's rows when an old incarnation's append lands late", async () => {
+      const { faulty, relay, commit, streamOf, read, history, recreate, outbox, relayErrors } =
+        await setup();
+      const r = relay();
+      const first = await streamOf("s1");
+      let raced = false;
+      faulty.beforeAppend = async (stream) => {
+        if (raced || stream !== first) return;
+        raced = true;
+        // While the old incarnation's append is in flight, the session is reset and gets
+        // new events at the same sequences.
+        await recreate("s1");
+        await commit("s1", "new-0", "new-1");
+      };
+      await commit("s1", "old-0", "old-1");
+      await r.idle();
+      expect(raced).toBe(true);
+      expect((await read(first)).map((record) => record.body.type)).toEqual(["old-0", "old-1"]);
+      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+        [0, "new-0"],
+        [1, "new-1"],
+      ]);
+      expect(await outbox()).toEqual([]);
+      expect(relayErrors).toEqual([]);
     });
 
     it("stops relaying after close", async () => {

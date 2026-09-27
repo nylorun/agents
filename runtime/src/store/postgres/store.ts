@@ -53,6 +53,7 @@ import type {
   LinkDoc,
   LinkedSession,
   OutboxRow,
+  OutboxStats,
   PrincipalRow,
   ResetScope,
   SandboxDoc,
@@ -145,7 +146,11 @@ class PostgresSessionStore implements SessionStore {
       this.inflight.delete(run);
     }
     if (t.events.length > 0 || t.workAvailable) {
-      const commit = { events: t.events, workAvailable: t.workAvailable };
+      const commit = {
+        events: t.events,
+        incarnations: t.incarnations,
+        workAvailable: t.workAvailable,
+      };
       for (const listener of [...this.listeners]) {
         try {
           listener(commit);
@@ -309,6 +314,7 @@ const SESSION_TABLES = [
 class PostgresTx implements Tx {
   closed = false;
   readonly events: LiveEvent[] = [];
+  readonly incarnations: (string | null)[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
   workAvailable = false;
 
@@ -359,6 +365,9 @@ class PostgresTx implements Tx {
   async delete(table: DocTable, id: string): Promise<void> {
     this.check();
     await this.sql`DELETE FROM ${this.t(table)} WHERE id = ${id}`;
+    // The session's stream is abandoned with it (a new incarnation starts at 0).
+    if (table === "sessions")
+      await this.sql`DELETE FROM ${this.t("outbox")} WHERE session_id = ${id}`;
   }
 
   private async sessionRows<T extends SessionDoc>(
@@ -396,7 +405,8 @@ class PostgresTx implements Tx {
     // The UPDATE takes the session row lock and allocates under it.
     const [row] = await sql`
       UPDATE ${this.t("sessions")} SET next_event_seq = next_event_seq + 1
-      WHERE id = ${sessionId} RETURNING next_event_seq - 1 AS seq`;
+      WHERE id = ${sessionId}
+      RETURNING next_event_seq - 1 AS seq, body->>'streamIncarnation' AS incarnation`;
     if (!row) throw new Error(`Session ${sessionId} not found`);
     const seq = Number(row.seq);
     const event: LiveEvent = JSON.parse(
@@ -415,6 +425,7 @@ class PostgresTx implements Tx {
       INSERT INTO ${this.t("outbox")} (session_id, seq, body)
       VALUES (${sessionId}, ${seq}, ${JSON.stringify(event)}::text::jsonb)`;
     this.events.push(event);
+    this.incarnations.push((row.incarnation as string | null) ?? null);
     return structuredClone(event);
   }
 
@@ -700,12 +711,36 @@ class PostgresTx implements Tx {
     }));
   }
 
-  async deleteOutbox(sessionId: string, throughSeq: number): Promise<number> {
+  async deleteOutbox(
+    sessionId: string,
+    throughSeq: number,
+    incarnation?: string | null,
+  ): Promise<number> {
     this.check();
-    const result = await this.sql`
+    const sql = this.sql;
+    // One statement: the session and the rows are read from the same snapshot.
+    const result = await sql`
       DELETE FROM ${this.t("outbox")}
-      WHERE session_id = ${sessionId} AND seq <= ${throughSeq}`;
+      WHERE session_id = ${sessionId} AND seq <= ${throughSeq}
+      ${
+        incarnation === undefined
+          ? sql``
+          : sql`AND EXISTS (
+              SELECT 1 FROM ${this.t("sessions")} WHERE id = ${sessionId}
+                AND (body->>'streamIncarnation') IS NOT DISTINCT FROM ${incarnation})`
+      }`;
     return result.count;
+  }
+
+  async outboxStats(): Promise<OutboxStats> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT count(*)::int AS depth, min(body->>'createdAt') AS oldest
+      FROM ${this.t("outbox")}`;
+    return {
+      depth: row!.depth as number,
+      oldestCreatedAt: (row!.oldest as string | null) ?? null,
+    };
   }
 
   // --- executors -----------------------------------------------------------

@@ -6,9 +6,19 @@
  *
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
- * | `sessions/<sessionId>` | every `LiveEvent` of the session, in sequence | the relay, from the outbox | history and session SSE |
+ * | `sessions/<sessionId>/<incarnation>` | every `LiveEvent` of one incarnation of the session, in sequence | the relay, from the outbox | history and session SSE |
  * | `tenant/work` | `work_available` signals | API nodes and Workers after committing pending Actions | executor SSE on every API node |
- * | `tenant/control` | `session.cancel` signals | API nodes | Workers owning a session in the Tenant |
+ * | `tenant/control` | `session.cancel` and `sessions.reset` signals | API nodes | every process with the Tenant open |
+ *
+ * **Incarnations.** A session's stream name carries an incarnation, a random
+ * id stored on the session document when the session is created
+ * (`streamIncarnation`, see `streamOfSession`). A session deleted by a reset
+ * and created again with the same id gets a new incarnation, so a new stream
+ * starting at sequence 0: nothing ever deletes and re-creates the same stream.
+ * Abandoned streams are deleted best effort afterwards
+ * (`collectSessionStreams` in `tenant/streams.ts`). The cursor stays
+ * `base64url("<sessionId>:<seq>")`; readers resolve the incarnation from the
+ * session.
  *
  * S2 is the supported implementation (`adapters/streams/s2.ts`, the only file
  * importing the S2 SDK); `streams/memory.ts` is the in-memory fake.
@@ -20,10 +30,9 @@
  *   that does not exist yet).
  * - **Conditional appends.** With `matchSeq`, a batch is appended only when the
  *   tail equals `matchSeq`; otherwise nothing is written and the result is a
- *   `SeqMismatch` carrying the current tail. The relay appends
- *   `sessions/<id>` with `matchSeq` set to the outbox row's sequence, so a
- *   retried append after an unacknowledged success is detected and never
- *   duplicated.
+ *   `SeqMismatch` carrying the current tail. The relay appends a session
+ *   stream with `matchSeq` set to the outbox row's sequence, so a retried
+ *   append after an unacknowledged success is detected and never duplicated.
  * - **Batches are atomic.** A batch is appended entirely or not at all.
  * - **Reads resume.** `read` from `fromSeq` yields every record with
  *   `seq >= fromSeq` in order, with no gap between history and the live tail.
@@ -33,6 +42,7 @@
  * - **Records are JSON.** Bodies are JSON-serializable values; implementations
  *   encode them as they need.
  */
+import { randomBytes } from "node:crypto";
 
 /** A record as read from a stream. */
 export interface StreamRecord<T = unknown> {
@@ -102,8 +112,13 @@ export interface DurableStreams {
   ensureTenant(tenantId: string): Promise<void>;
   /** Deletes the Tenant's basin and all its streams. Idempotent. */
   deleteTenant(tenantId: string): Promise<void>;
-  /** Deletes one stream (a deleted session). Idempotent. */
+  /** Deletes one stream (an abandoned session incarnation). Idempotent. */
   deleteStream(tenantId: string, stream: string): Promise<void>;
+  /**
+   * Names of the Tenant's streams starting with `prefix`, in name order,
+   * without streams being deleted. Empty when the Tenant has no basin.
+   */
+  listStreams(tenantId: string, prefix: string): Promise<string[]>;
   close(): Promise<void>;
   /**
    * Resolves when the backing service answers, rejects otherwise (readiness,
@@ -119,20 +134,49 @@ export interface DurableStreams {
 export const SESSION_STREAM_PREFIX = "sessions/";
 /** `work_available` signals for executor connections. */
 export const WORK_STREAM = "tenant/work";
-/** `session.cancel` signals for owning Workers. */
+/** `session.cancel` and `sessions.reset` signals for every process with the Tenant open. */
 export const CONTROL_STREAM = "tenant/control";
 
-export function sessionStream(sessionId: string): string {
-  if (!sessionId) throw new Error("sessionId is required");
-  return `${SESSION_STREAM_PREFIX}${sessionId}`;
+/**
+ * The incarnation of a session document written before incarnations existed.
+ * Random incarnations are 12 characters, so never this.
+ */
+export const LEGACY_INCARNATION = "0";
+
+/** A new session incarnation: 12 random base64url characters. */
+export function newStreamIncarnation(): string {
+  return randomBytes(9).toString("base64url");
 }
 
-/** The session id of a `sessions/<id>` stream, or undefined for other streams. */
-export function sessionIdOfStream(stream: string): string | undefined {
-  return stream.startsWith(SESSION_STREAM_PREFIX) &&
-    stream.length > SESSION_STREAM_PREFIX.length
-    ? stream.slice(SESSION_STREAM_PREFIX.length)
-    : undefined;
+/** The stream of one incarnation of a session: `sessions/<sessionId>/<incarnation>`. */
+export function sessionStream(sessionId: string, incarnation: string): string {
+  if (!sessionId) throw new Error("sessionId is required");
+  if (!incarnation || incarnation.includes("/"))
+    throw new Error("incarnation must be non-empty and contain no '/'");
+  return `${SESSION_STREAM_PREFIX}${sessionId}/${incarnation}`;
+}
+
+/** The fields of a session document that name its stream. */
+export interface SessionStreamRef {
+  id: string;
+  /** Set when the session is created (`newStreamIncarnation`); never changed. */
+  streamIncarnation?: string;
+}
+
+/** The stream of a session as stored now. */
+export function streamOfSession(session: SessionStreamRef): string {
+  return sessionStream(session.id, session.streamIncarnation ?? LEGACY_INCARNATION);
+}
+
+/** The session id and incarnation of a session stream, or undefined for other streams. */
+export function parseSessionStream(
+  stream: string,
+): { sessionId: string; incarnation: string } | undefined {
+  if (!stream.startsWith(SESSION_STREAM_PREFIX)) return undefined;
+  const rest = stream.slice(SESSION_STREAM_PREFIX.length);
+  const slash = rest.lastIndexOf("/");
+  if (slash <= 0 || slash === rest.length - 1) return undefined;
+  return { sessionId: rest.slice(0, slash), incarnation: rest.slice(slash + 1) };
 }
 
 /**
@@ -143,10 +187,21 @@ export interface WorkSignal {
   type: "work_available";
 }
 
-export interface ControlSignal {
+/** Ends the advance of `sessionId` on the process running it. */
+export interface SessionCancelSignal {
   type: "session.cancel";
   sessionId: string;
 }
+
+/**
+ * Session streams were abandoned (a Tenant reset): each process checks its
+ * session feeds and ends those whose session is gone or has a new incarnation.
+ */
+export interface SessionsResetSignal {
+  type: "sessions.reset";
+}
+
+export type ControlSignal = SessionCancelSignal | SessionsResetSignal;
 
 export const WORK_AVAILABLE: Readonly<WorkSignal> = Object.freeze({
   type: "work_available",

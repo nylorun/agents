@@ -7,7 +7,7 @@
  *
  * - One basin per Tenant, named by `tenantBasinName` (`streams/basin.ts`):
  *   `<basinPrefix>tn-<ulid>` for a Tenant id `tn_<ulid>`.
- * - The basin is created with `createStreamOnAppend`, so `sessions/<id>`,
+ * - The basin is created with `createStreamOnAppend`, so `sessions/<id>/<incarnation>`,
  *   `tenant/work` and `tenant/control` come into existence on their first
  *   append. Its default stream config sets infinite retention, which session
  *   streams keep; the work and control streams are created with a one-day
@@ -242,6 +242,21 @@ class S2Streams implements DurableStreams {
     } catch (error) {
       if (!isMissing(error)) throw error;
     }
+  }
+
+  async listStreams(tenantId: string, prefix: string): Promise<string[]> {
+    this.checkOpen();
+    const names: string[] = [];
+    try {
+      for await (const info of this.s2
+        .basin(this.basinName(tenantId))
+        .streams.listAll({ prefix }, { signal: this.closing.signal }))
+        if (info.deletedAt == null) names.push(info.name);
+    } catch (error) {
+      if (isMissing(error) || isTenantGone(error)) return [];
+      throw error;
+    }
+    return names.sort();
   }
 
   async close(): Promise<void> {
