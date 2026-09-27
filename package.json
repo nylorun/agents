@@ -33,6 +33,7 @@
     "test:starter": "node create-agent/scripts/smoke-starter.mjs",
     "test:acceptance": "node scripts/acceptance/tenants.mjs",
     "test:stack": "node scripts/smoke-stack.mjs",
+    "test:failure": "node scripts/smoke-failure.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
     "changeset": "changeset",
