@@ -82,7 +82,7 @@
  * | `core/flow-host.ts:1165` `wakeForQueuedEffects` | queued `effects` of the workflow turn | `effectsForTurn(wf, turnId, ["queued"])` |
  * | `core/store.ts` `allExecutors` | `executors` | `listExecutors()` |
  * | `core/store.ts` `credentialCount` | `vault_credentials` | `countCredentials()` |
- * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(sessionStream(id))` (Wave 2 Y); SQLite keeps it until then |
+ * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(sessionStream(id))` (Wave 2 Y); SQLite serves it from `SqliteSessionStore.readEvents` until then |
  *
  * Raw SQL outside the store moves behind typed methods too: `tenant/principals.ts`
  * (principal methods), `tenant/status.ts` and `host/config-for.ts`
@@ -397,6 +397,16 @@ export interface Tx {
    * Locks the session row for the rest of the transaction and returns the
    * session (with ownership fields), or undefined when it does not exist.
    * Locking twice in one transaction is a no-op.
+   *
+   * Lock order, so concurrent transactions cannot deadlock (Postgres takes row
+   * locks in statement order; SQLite serializes whole transactions):
+   * - a linked agent (child) session is locked before its workflow (parent)
+   *   session, never after it. `t.event` on a session takes its lock, so an
+   *   event on a child after the parent is locked breaks the rule too. Work
+   *   that starts from the parent and must touch children locks the children
+   *   first, or splits into one transaction per session;
+   * - unrelated sessions touched by one transaction are locked in ascending
+   *   id order (`lockSessions` in `store/postgres/locking.ts`), or split.
    */
   lockSession<T extends SessionDoc = SessionDoc>(
     id: string,

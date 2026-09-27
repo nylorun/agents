@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { migrateTenantWithSnapshot } from "../../src/tenant/migration.js";
@@ -10,6 +9,13 @@ import { createFsTenantStore } from "../../src/tenant/store-fs.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import { writeEnvelopeFile } from "../../src/tenant/envelope.js";
 import { QuarantineError } from "../../src/tenant/quarantine.js";
+import {
+  TENANT_SCHEMA_VERSION,
+  schemaVersionAt,
+  withTenantDatabase,
+} from "../../src/tenant/schema.js";
+import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { createV3Database } from "../support/sqlite-v3.js";
 import {
   bootstrapMaterial,
   configForRoot,
@@ -38,9 +44,7 @@ it("snapshots database, envelope and KEK before migrating", async () => {
   );
   const paths = tenantPaths(hostRoot, id);
   // Downgrade schema so migration runs.
-  const db = new DatabaseSync(paths.database);
-  db.exec("PRAGMA user_version = 0");
-  db.close();
+  withTenantDatabase(paths.database, (db) => db.exec("PRAGMA user_version = 0"));
   writeEnvelopeFile(paths.envelope, {
     id,
     name: "m",
@@ -120,9 +124,7 @@ it("failed migration restores the snapshot and quarantines", async () => {
     bootstrapMaterial(),
   );
   const paths = tenantPaths(hostRoot, id);
-  const db = new DatabaseSync(paths.database);
-  db.exec("PRAGMA user_version = 0");
-  db.close();
+  withTenantDatabase(paths.database, (db) => db.exec("PRAGMA user_version = 0"));
   writeEnvelopeFile(paths.envelope, {
     id,
     name: "m",
@@ -157,4 +159,23 @@ it("failed migration restores the snapshot and quarantines", async () => {
     schemaVersion: number;
   };
   expect(envelope.schemaVersion).toBe(0);
+});
+
+it("migrates a v3 Tenant to the current schema with the default migration", async () => {
+  const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-mig-v3-"));
+  roots.push(hostRoot);
+  const id = newTenantId();
+  const paths = tenantPaths(hostRoot, id);
+  mkdirSync(paths.root, { recursive: true });
+  createV3Database(paths.database);
+  const iso = new Date().toISOString();
+  const envelope = { id, name: "v3", createdAt: iso, updatedAt: iso, schemaVersion: 3 };
+  writeEnvelopeFile(paths.envelope, envelope);
+
+  const updated = migrateTenantWithSnapshot(paths, envelope);
+  expect(updated.schemaVersion).toBe(TENANT_SCHEMA_VERSION);
+  expect(schemaVersionAt(paths.database)).toBe(TENANT_SCHEMA_VERSION);
+  const store = createSqliteSessionStore({ path: paths.database, tenantId: id });
+  expect((await store.readEvents("s1")).events.map((e) => e.type)).toEqual(["a", "c"]);
+  await store.close();
 });

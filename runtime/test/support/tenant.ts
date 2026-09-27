@@ -23,7 +23,7 @@ import {
 } from "../../src/tenant/runtime.js";
 import { createKekFile } from "../../src/vault/kek.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
-import { Store } from "../../src/core/store.js";
+import { createSqliteSessionStore } from "../../src/store/sqlite.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
   executors?: readonly {
@@ -42,6 +42,25 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** When true, close() does not delete the Host root. */
   retainRoot?: boolean;
 };
+
+/** Rewrites fields of a stored session in a closed Tenant database (restart tests). */
+export async function patchStoredSession(
+  databasePath: string,
+  tenantId: string,
+  sessionId: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  const store = createSqliteSessionStore({ path: databasePath, tenantId });
+  try {
+    await store.tx(async (t) => {
+      const stored = await t.get("sessions", sessionId);
+      if (!stored) throw new Error(`Session ${sessionId} not found`);
+      await t.put("sessions", sessionId, { ...stored, ...patch });
+    });
+  } finally {
+    await store.close();
+  }
+}
 
 /**
  * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5).
@@ -91,13 +110,15 @@ export async function startTestTenant(
   }
 
   if (!existsSync(paths.database)) {
-    const store = new Store(paths.database, tenantId);
-    bootstrapPrincipal(store.db, {
-      principalId,
-      credentialHash,
-      idempotencyKey: `boot-${tenantId}`,
-    });
-    store.db.close();
+    const store = createSqliteSessionStore({ path: paths.database, tenantId });
+    await store.tx((t) =>
+      bootstrapPrincipal(t, {
+        principalId,
+        credentialHash,
+        idempotencyKey: `boot-${tenantId}`,
+      })
+    );
+    await store.close();
   }
 
   const mode = options.mode ?? "test";

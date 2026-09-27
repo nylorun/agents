@@ -33,14 +33,20 @@ export type SandboxRouteSession = SessionSandboxRef & {
   readonly status: string;
 };
 
-export type SandboxRouteDeps = {
-  readonly sandbox: SandboxManager;
-  readonly session: (id: string) => SandboxRouteSession;
+/** A session together with a synchronous lookup over its sandbox owner chain. */
+export type SandboxRouteRead = {
+  readonly session: SandboxRouteSession;
   readonly lookup: (id: string) => SessionSandboxRef | undefined;
-  readonly getAction: (id: string) => Action | undefined;
 };
 
-function resolveSpec(session: SessionSandboxRef, lookup: SandboxRouteDeps["lookup"]): SandboxManifest {
+export type SandboxRouteDeps = {
+  readonly sandbox: SandboxManager;
+  /** The session (rejects when missing) and its owner chain, read in one transaction. */
+  readonly session: (id: string) => Promise<SandboxRouteRead>;
+  readonly getAction: (id: string) => Promise<Action | undefined>;
+};
+
+function resolveSpec(session: SessionSandboxRef, lookup: SandboxRouteRead["lookup"]): SandboxManifest {
   const ownerId = owningSandboxSessionId(session, lookup);
   const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
   const spec = sandboxSpecOf(owner.manifest) ?? sandboxSpecOf(session.manifest);
@@ -66,13 +72,13 @@ function toolInput(body: unknown): unknown {
 
 async function runTool(
   deps: SandboxRouteDeps,
-  session: SandboxRouteSession,
+  { session, lookup }: SandboxRouteRead,
   tool: SandboxToolName,
   input: unknown,
   signal: AbortSignal
 ): Promise<SandboxToolOutcome> {
-  const spec = resolveSpec(session, deps.lookup);
-  const ownerId = owningSandboxSessionId(session, deps.lookup);
+  const spec = resolveSpec(session, lookup);
+  const ownerId = owningSandboxSessionId(session, lookup);
   const ref: SandboxSessionRef = {
     id: ownerId,
     activeTurnId: session.activeTurnId,
@@ -92,14 +98,14 @@ export async function handleSessionSandboxTool(
   body: unknown,
   signal: AbortSignal
 ): Promise<SandboxToolOutcome> {
-  const session = deps.session(sessionId);
-  if (session.activeTurnId)
+  const read = await deps.session(sessionId);
+  if (read.session.activeTurnId)
     throw new SandboxRouteError(
       409,
       "Sandbox is unavailable while the session has an active agent turn"
     );
   const tool = parseTool(toolName);
-  return runTool(deps, session, tool, toolInput(body), signal);
+  return runTool(deps, read, tool, toolInput(body), signal);
 }
 
 /**
@@ -123,7 +129,7 @@ export async function handleActionSandboxTool(
   if (typeof generation !== "number" || !Number.isInteger(generation) || generation < 1)
     throw new SandboxRouteError(400, "generation must be a positive integer");
 
-  const action = deps.getAction(actionId);
+  const action = await deps.getAction(actionId);
   if (!action) throw new SandboxRouteError(404, "Action not found");
   if (
     action.status !== "claimed" ||
@@ -134,12 +140,12 @@ export async function handleActionSandboxTool(
   )
     throw new SandboxRouteError(409, "Stale or expired claim");
 
-  const session = deps.session(action.sessionId);
-  if (session.activeTurnId !== action.turnId)
+  const read = await deps.session(action.sessionId);
+  if (read.session.activeTurnId !== action.turnId)
     throw new SandboxRouteError(409, "Action unavailable");
 
   const tool = parseTool(toolName);
-  return runTool(deps, session, tool, toolInput(body), signal);
+  return runTool(deps, read, tool, toolInput(body), signal);
 }
 
 /** Validate PutSession.sandbox attach: same owner, identical specs. */

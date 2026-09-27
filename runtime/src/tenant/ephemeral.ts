@@ -6,7 +6,6 @@ import {
 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
-import { DatabaseSync } from "node:sqlite";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { hashToken, mintBearerToken } from "../core/executors.js";
 import { createHost } from "../host/create-host.js";
@@ -14,11 +13,9 @@ import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";
 import { createTenantModule } from "./module.js";
 import { createFsTenantStore } from "./store-fs.js";
-import { bootstrapPrincipal } from "./principals.js";
 import { createTenantLogger } from "./logger.js";
 import { hostPaths, tenantPaths } from "./paths.js";
 import { openTenantRuntime } from "./runtime.js";
-import { migrateTenantDatabase, readTenantConfig } from "./schema.js";
 import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -109,20 +106,8 @@ export async function startEphemeralRuntime(
 
   const configFor = (tenantId: string): TenantConfig => {
     const tenant = tenantPaths(hostRoot, tenantId);
-    let sandboxBackend = options.sandboxBackend ?? ("virtual" as const);
-    if (existsSync(tenant.database)) {
-      try {
-        const db = new DatabaseSync(tenant.database, { readOnly: true });
-        try {
-          const seeded = readTenantConfig(db).sandboxBackend;
-          if (seeded) sandboxBackend = seeded;
-        } finally {
-          db.close();
-        }
-      } catch {
-        /* unreadable — keep default */
-      }
-    }
+    // A seeded `sandbox.backend` setting overrides this when the Tenant opens.
+    const sandboxBackend = options.sandboxBackend ?? ("virtual" as const);
     return {
       tenantId,
       mode: "ephemeral",
@@ -149,10 +134,6 @@ export async function startEphemeralRuntime(
     openRuntime,
     configFor,
     logger,
-    writeBootstrap: (db, bootstrap) => {
-      migrateTenantDatabase(db);
-      bootstrapPrincipal(db, bootstrap);
-    },
   });
 
   const module = createTenantModule({

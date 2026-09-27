@@ -11,7 +11,6 @@ import {
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach } from "vitest";
 import {
   PROTOCOL_HEADER,
@@ -29,11 +28,10 @@ import { createHostLogger } from "../../src/host/logger.js";
 import { mintBearerToken } from "../../src/core/executors.js";
 import { createTenantModule } from "../../src/tenant/module.js";
 import { createFsTenantStore } from "../../src/tenant/store-fs.js";
-import { bootstrapPrincipal } from "../../src/tenant/principals.js";
 import { createTenantLogger } from "../../src/tenant/logger.js";
 import { hostPaths, tenantPaths } from "../../src/tenant/paths.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
-import { migrateTenantDatabase } from "../../src/tenant/schema.js";
+import { createSqliteSessionStore } from "../../src/store/sqlite.js";
 import { createKekFile } from "../../src/vault/kek.js";
 import type {
   TenantConfig,
@@ -285,10 +283,6 @@ export async function startSecurityHost(options?: {
     openRuntime,
     configFor,
     logger: hostLogger,
-    writeBootstrap: (db, bootstrap) => {
-      migrateTenantDatabase(db);
-      bootstrapPrincipal(db, bootstrap);
-    },
   });
 
   const module = createTenantModule({
@@ -366,17 +360,19 @@ export function readTenantLog(tenant: SecurityTenant): string {
   return readFileSync(tenant.paths.log, "utf8");
 }
 
-export function countSqliteRows(
+/** Row counts of a Tenant database, read through a read-only SQLite Session Store. */
+export async function countSqliteRows(
   databasePath: string,
-  table: string,
-): number {
-  const db = new DatabaseSync(databasePath, { readOnly: true });
+  table: "definitions" | "sessions",
+): Promise<number> {
+  const store = createSqliteSessionStore({
+    path: databasePath,
+    tenantId: "count",
+    readOnly: true,
+  });
   try {
-    const row = db
-      .prepare(`SELECT COUNT(*) AS n FROM ${table}`)
-      .get() as { n: number };
-    return row.n;
+    return (await store.tx((t) => t.counts()))[table];
   } finally {
-    db.close();
+    await store.close();
   }
 }

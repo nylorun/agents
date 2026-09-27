@@ -1,14 +1,12 @@
-import { existsSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import type { HostConfigFile } from "./config.js";
 import { tenantPaths } from "../tenant/paths.js";
-import { readTenantConfig } from "../tenant/schema.js";
 import type { Logger, TenantConfig } from "../tenant/types.js";
 import { tenantChildEnvironment } from "./environment.js";
 
 /**
  * Builds a TenantConfig for `openTenantRuntime`.
- * Reads seeded sandbox backend from the Tenant database when present (I1).
+ * The sandbox backend here is the Host default; a Tenant's seeded `sandbox.backend`
+ * setting overrides it when the Tenant opens (I1, A18).
  */
 export function configForFactory(options: {
   hostRoot: string;
@@ -23,20 +21,7 @@ export function configForFactory(options: {
   const { baseline } = options;
   return (id: string): TenantConfig => {
     const tenant = tenantPaths(options.hostRoot, id);
-    let sandboxBackend: TenantConfig["sandbox"]["backend"] = "auto";
-    if (existsSync(tenant.database)) {
-      try {
-        const db = new DatabaseSync(tenant.database, { readOnly: true });
-        try {
-          const seeded = readTenantConfig(db).sandboxBackend;
-          if (seeded) sandboxBackend = seeded;
-        } finally {
-          db.close();
-        }
-      } catch {
-        /* unreadable — keep default */
-      }
-    }
+    const sandboxBackend: TenantConfig["sandbox"]["backend"] = "auto";
     return {
       tenantId: id,
       mode: options.mode ?? "shared",

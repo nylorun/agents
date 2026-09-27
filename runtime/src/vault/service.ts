@@ -1,5 +1,65 @@
+/**
+ * The Runtime vault (docs/design/runtime/vault.md, architecture §12.9):
+ * administer vaults and credentials, attach them to sessions, and authorize
+ * outbound MCP calls. Storage is the async Session Store (`store/types.ts`);
+ * this module holds no SQL.
+ *
+ * ## Public surface
+ *
+ * ```ts
+ * new VaultService({ store: SessionStore, kek: () => Buffer, fetch: typeof fetch })
+ *
+ * // Administration: each opens its own transaction and writes its audit rows
+ * // in that transaction. Creates and rotations replay by idempotency key.
+ * createVault(body: CreateVaultRequest): Promise<VaultInfo>
+ * listVaults(ownerUserId: string): Promise<VaultInfo[]>
+ * getVault(id: string): Promise<VaultInfo>
+ * deleteVault(id: string): Promise<{ id: string }>
+ * createCredential(vaultId: string, body: CreateCredentialRequest): Promise<CredentialInfo>
+ * listCredentials(vaultId: string): Promise<CredentialInfo[]>
+ * getCredential(vaultId: string, id: string): Promise<CredentialInfo>
+ * rotateCredential(vaultId: string, id: string, body: RotateCredentialRequest): Promise<CredentialInfo>
+ * deleteCredential(vaultId: string, id: string): Promise<{ id: string }>
+ *
+ * // Attachment: run inside the caller's session PUT transaction.
+ * assertAttachment(t: Tx, ownerUserId: string, vaultIds: readonly string[], selections: readonly CredentialSelection[]): Promise<void>
+ * recordAttachment(t: Tx, sessionId: string, vaultIds: readonly string[]): Promise<void>
+ *
+ * // Use: opens its own transactions; never call it inside one.
+ * authorize(input: { sessionId; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
+ *
+ * // Host model credential: each opens its own transaction.
+ * getHostModel(): Promise<HostModelView>
+ * listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }>
+ * putHostModel(body: PutHostModelRequest): Promise<HostModelView>
+ * selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>
+ * readHostModel(): Promise<HostModelSecret | undefined>
+ * updateHostCredential(credential): Promise<void>
+ *
+ * // Rejected caller audit: opens its own transaction.
+ * reject(route: string): Promise<void>
+ * ```
+ *
+ * ## Transactions and I/O
+ *
+ * - No network I/O runs inside a transaction. The KEK getter may touch the
+ *   filesystem (it creates the key file on first use), so methods that
+ *   encrypt or decrypt resolve the KEK before opening their transaction and
+ *   do only in-memory crypto inside it.
+ * - `authorize` reads the attached vaults and the matching credential rows
+ *   (ciphertext only) in one transaction and decides there. A refusal decided
+ *   from those rows (missing vault, ambiguous, selection mismatch) writes its
+ *   audit row in that same transaction. Decryption happens after it commits,
+ *   so the plaintext never enters a transaction. An OAuth refresh calls the
+ *   token endpoint outside any transaction, then stores the rotated secret and
+ *   its `refresh` audit row in one follow-up transaction (re-reading the
+ *   current row there). The `use`/`approved` audit row is written in a final
+ *   transaction before the header is returned: if that write fails,
+ *   `authorize` rejects and no header leaves the vault, so every approved use
+ *   has an audit row. Unreadable ciphertext and refresh failures are audited
+ *   in their own transaction before the refusal is returned.
+ */
 import { createHash, randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type {
   CreateCredentialRequest,
   CreateVaultRequest,
@@ -12,7 +72,13 @@ import type {
   SelectHostModelRequest,
   VaultInfo,
 } from "@nylorun/core/contracts";
-import { canonical } from "../core/store.js";
+import { canonical } from "../store/canonical.js";
+import type {
+  SessionStore,
+  Tx,
+  VaultCredentialRow,
+  VaultRow,
+} from "../store/types.js";
 import {
   decryptSecret,
   encryptSecret,
@@ -52,20 +118,7 @@ type SecretPayload = {
   tokenEndpointAuth?: "none" | "client_secret_basic" | "client_secret_post";
 };
 
-type CredentialRow = {
-  id: string;
-  vault_id: string;
-  name: string;
-  type: "bearer" | "oauth" | "model";
-  binding_json: string;
-  expires_at: string | null;
-  created_at: string;
-  rotated_at: string | null;
-  kek_id: string;
-  nonce: Uint8Array;
-  ciphertext: Uint8Array;
-  wrapped_dek: Uint8Array;
-};
+type UserCredentialRow = VaultCredentialRow & { type: "bearer" | "oauth" };
 
 export type AuthorizeResult =
   | {
@@ -85,63 +138,77 @@ export type AuthorizeResult =
       reason: string;
     };
 
-export class VaultService {
-  constructor(
-    private readonly db: DatabaseSync,
-    private readonly tx: <T>(fn: () => T) => T,
-    private readonly kek: () => Buffer,
-    private readonly fetchImpl: typeof fetch,
-  ) {}
+type Refused = Extract<AuthorizeResult, { status: "refused" }>;
 
-  createVault(body: CreateVaultRequest): VaultInfo {
-    return this.tx(() =>
-      this.replay(`create-vault:${body.idempotencyKey}`, body, () => {
-        const now = new Date().toISOString();
-        const id = randomUUID();
-        this.db
-          .prepare(
-            `INSERT INTO vaults(id,name,owner_user_id,metadata_json,created_at) VALUES(?,?,?,?,?)`,
-          )
-          .run(
-            id,
-            body.name,
-            body.ownerUserId,
-            body.metadata ? JSON.stringify(body.metadata) : null,
-            now,
-          );
-        const info = this.vaultInfo(id);
-        this.audit({
+type AuditEntry = {
+  actor: string;
+  action: string;
+  outcome: string;
+  vaultId?: string;
+  credentialId?: string;
+  sessionId?: string;
+  target?: string;
+};
+
+export interface VaultServiceOptions {
+  store: SessionStore;
+  /** The Tenant key-encryption key. May read or create the key file. */
+  kek: () => Buffer;
+  /** Used only for OAuth refresh, always outside a transaction. */
+  fetch: typeof fetch;
+}
+
+export class VaultService {
+  private readonly store: SessionStore;
+  private readonly kek: () => Buffer;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: VaultServiceOptions) {
+    this.store = options.store;
+    this.kek = options.kek;
+    this.fetchImpl = options.fetch;
+  }
+
+  // --- administration --------------------------------------------------------
+
+  async createVault(body: CreateVaultRequest): Promise<VaultInfo> {
+    return this.store.tx((t) =>
+      this.replay(t, `create-vault:${body.idempotencyKey}`, body, async () => {
+        const row: VaultRow = {
+          id: randomUUID(),
+          name: body.name,
+          ownerUserId: body.ownerUserId,
+          metadataJson: body.metadata ? JSON.stringify(body.metadata) : null,
+          createdAt: new Date().toISOString(),
+          scope: "user",
+        };
+        await t.insertVault(row);
+        await this.audit(t, {
           actor: "application",
           action: "create",
-          vaultId: id,
+          vaultId: row.id,
           outcome: "created",
         });
-        return info;
+        return vaultInfoOf(row);
       }),
     );
   }
 
-  listVaults(ownerUserId: string): VaultInfo[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id FROM vaults WHERE owner_user_id=? AND scope='user' ORDER BY created_at, id`,
-      )
-      .all(ownerUserId) as { id: string }[];
-    return rows.map((row) => this.vaultInfo(row.id));
+  async listVaults(ownerUserId: string): Promise<VaultInfo[]> {
+    return this.store.tx(async (t) =>
+      (await t.vaultsByOwner(ownerUserId)).map(vaultInfoOf),
+    );
   }
 
-  getVault(id: string): VaultInfo {
-    return this.vaultInfo(id);
+  async getVault(id: string): Promise<VaultInfo> {
+    return this.store.tx((t) => this.vaultInfo(t, id));
   }
 
-  deleteVault(id: string): { id: string } {
-    return this.tx(() => {
-      this.vaultInfo(id);
-      const credentials = this.db
-        .prepare(`SELECT id FROM vault_credentials WHERE vault_id=?`)
-        .all(id) as { id: string }[];
-      for (const credential of credentials) {
-        this.audit({
+  async deleteVault(id: string): Promise<{ id: string }> {
+    return this.store.tx(async (t) => {
+      await this.vaultInfo(t, id);
+      for (const credential of await t.credentialsForVault(id)) {
+        await this.audit(t, {
           actor: "application",
           action: "delete",
           vaultId: id,
@@ -149,9 +216,8 @@ export class VaultService {
           outcome: "deleted",
         });
       }
-      this.db.prepare(`DELETE FROM vault_credentials WHERE vault_id=?`).run(id);
-      this.db.prepare(`DELETE FROM vaults WHERE id=?`).run(id);
-      this.audit({
+      await t.deleteVault(id);
+      await this.audit(t, {
         actor: "application",
         action: "delete",
         vaultId: id,
@@ -161,72 +227,83 @@ export class VaultService {
     });
   }
 
-  createCredential(
+  async createCredential(
     vaultId: string,
     body: CreateCredentialRequest,
-  ): CredentialInfo {
-    return this.tx(() =>
+  ): Promise<CredentialInfo> {
+    const kek = this.kek();
+    return this.store.tx((t) =>
       this.replay(
+        t,
         `create-credential:${vaultId}:${body.idempotencyKey}`,
         body,
-        () => {
-          this.vaultInfo(vaultId);
+        async () => {
+          await this.vaultInfo(t, vaultId);
           const id = randomUUID();
           const url = normalizeVaultUrl(body.auth.url);
-          const payload = payloadFromCreate(body);
-          this.insertCredential({
+          const type = body.auth.type;
+          const sealed = encryptSecret(
+            kek,
+            credentialAad(vaultId, id, type, url),
+            Buffer.from(JSON.stringify(payloadFromCreate(body)), "utf8"),
+          );
+          const row: UserCredentialRow = {
             id,
             vaultId,
             name: body.name,
-            type: body.auth.type,
-            url,
+            type,
+            bindingJson: JSON.stringify({ url }),
             expiresAt: expiresFromCreate(body),
-            payload,
+            createdAt: new Date().toISOString(),
             rotatedAt: null,
-          });
-          this.audit({
+            ...sealed,
+          };
+          await t.insertCredential(row);
+          await this.audit(t, {
             actor: "application",
             action: "create",
             vaultId,
             credentialId: id,
             outcome: "created",
           });
-          return this.credentialInfo(vaultId, id);
+          return credentialInfoOf(row);
         },
       ),
     );
   }
 
-  listCredentials(vaultId: string): CredentialInfo[] {
-    this.vaultInfo(vaultId);
-    const rows = this.db
-      .prepare(
-        `SELECT id FROM vault_credentials WHERE vault_id=? ORDER BY created_at, id`,
-      )
-      .all(vaultId) as { id: string }[];
-    return rows.map((row) => this.credentialInfo(vaultId, row.id));
+  async listCredentials(vaultId: string): Promise<CredentialInfo[]> {
+    return this.store.tx(async (t) => {
+      await this.vaultInfo(t, vaultId);
+      return (await t.credentialsForVault(vaultId))
+        .filter(isUserCredential)
+        .map(credentialInfoOf);
+    });
   }
 
-  getCredential(vaultId: string, id: string): CredentialInfo {
-    return this.credentialInfo(vaultId, id);
+  async getCredential(vaultId: string, id: string): Promise<CredentialInfo> {
+    return this.store.tx(async (t) =>
+      credentialInfoOf(await this.credentialRow(t, vaultId, id)),
+    );
   }
 
-  rotateCredential(
+  async rotateCredential(
     vaultId: string,
     id: string,
     body: RotateCredentialRequest,
-  ): CredentialInfo {
-    return this.tx(() =>
+  ): Promise<CredentialInfo> {
+    const kek = this.kek();
+    return this.store.tx((t) =>
       this.replay(
+        t,
         `rotate:${vaultId}:${id}:${body.idempotencyKey}`,
         body,
-        () => {
-          const row = this.credentialRow(vaultId, id);
+        async () => {
+          const row = await this.credentialRow(t, vaultId, id);
           if (row.type !== body.auth.type)
             throw new VaultError(409, "Credential type cannot change");
-          const current = this.readPayload(row);
-          const next: SecretPayload = { ...current };
-          let expiresAt = row.expires_at;
+          const next: SecretPayload = { ...readPayload(kek, row) };
+          let expiresAt = row.expiresAt;
           if (body.auth.type === "bearer") next.token = body.auth.token;
           else {
             next.accessToken = body.auth.accessToken;
@@ -235,27 +312,32 @@ export class VaultService {
                 ? null
                 : requireTimestamp(body.auth.expiresAt);
           }
-          this.writePayload(row, next, expiresAt, new Date().toISOString());
-          this.audit({
+          const updated = await this.writePayload(
+            t,
+            kek,
+            row,
+            next,
+            expiresAt,
+            new Date().toISOString(),
+          );
+          await this.audit(t, {
             actor: "application",
             action: "rotate",
             vaultId,
             credentialId: id,
             outcome: "rotated",
           });
-          return this.credentialInfo(vaultId, id);
+          return credentialInfoOf(updated);
         },
       ),
     );
   }
 
-  deleteCredential(vaultId: string, id: string): { id: string } {
-    return this.tx(() => {
-      this.credentialRow(vaultId, id);
-      this.db
-        .prepare(`DELETE FROM vault_credentials WHERE id=? AND vault_id=?`)
-        .run(id, vaultId);
-      this.audit({
+  async deleteCredential(vaultId: string, id: string): Promise<{ id: string }> {
+    return this.store.tx(async (t) => {
+      await this.credentialRow(t, vaultId, id);
+      await t.deleteCredential(vaultId, id);
+      await this.audit(t, {
         actor: "application",
         action: "delete",
         vaultId,
@@ -266,34 +348,41 @@ export class VaultService {
     });
   }
 
-  assertAttachment(
+  // --- attachment (caller's transaction) --------------------------------------
+
+  /** Checks a session's vaults and selections. Run in the session PUT transaction. */
+  async assertAttachment(
+    t: Tx,
     ownerUserId: string,
     vaultIds: readonly string[],
     selections: readonly CredentialSelection[],
-  ): void {
+  ): Promise<void> {
     if (new Set(vaultIds).size !== vaultIds.length)
       throw new VaultError(400, "Duplicate vault id");
     if (new Set(selections.map((item) => item.serverName)).size !== selections.length)
       throw new VaultError(400, "Duplicate credential selection");
     for (const id of vaultIds) {
-      const vault = this.vaultRow(id);
+      const vault = await t.getVault(id);
       if (!vault) throw new VaultError(404, "Vault not found");
       if (vault.scope === "host")
         throw new VaultError(400, "Host vault cannot be attached to a session");
-      if (vault.owner_user_id !== ownerUserId)
+      if (vault.ownerUserId !== ownerUserId)
         throw new VaultError(403, "Vault belongs to another user");
     }
     for (const selection of selections) {
-      const row = this.db
-        .prepare(`SELECT vault_id FROM vault_credentials WHERE id=?`)
-        .get(selection.credentialId) as { vault_id: string } | undefined;
-      if (!row || !vaultIds.includes(row.vault_id))
+      const row = await t.getCredential(selection.credentialId);
+      if (!row || !vaultIds.includes(row.vaultId))
         throw new VaultError(400, "Credential is not in an attached vault");
     }
   }
 
-  recordAttachment(sessionId: string, vaultIds: readonly string[]): void {
-    this.audit({
+  /** Writes the `attach` audit row. Run in the session PUT transaction. */
+  async recordAttachment(
+    t: Tx,
+    sessionId: string,
+    vaultIds: readonly string[],
+  ): Promise<void> {
+    await this.audit(t, {
       actor: "application",
       action: "attach",
       sessionId,
@@ -301,6 +390,8 @@ export class VaultService {
       outcome: "attached",
     });
   }
+
+  // --- use ---------------------------------------------------------------------
 
   async authorize(input: {
     sessionId: string;
@@ -310,64 +401,80 @@ export class VaultService {
     serverName?: string;
   }): Promise<AuthorizeResult> {
     const url = normalizeVaultUrl(input.url);
-    const missing = input.vaultIds.filter((id) => !this.vaultRow(id));
-    if (missing.length > 0) {
-      this.audit({
-        actor: "host",
-        action: "use",
-        sessionId: input.sessionId,
-        target: url,
-        outcome: "refused",
-      });
-      return {
-        status: "refused",
-        url,
-        credentialIds: [],
-        reason: "vault_missing",
-      };
-    }
-    const matches = input.vaultIds
-      .flatMap((vaultId) => this.rowsForVault(vaultId))
-      .filter((row) => JSON.parse(row.binding_json).url === url)
-      .sort((a, b) => a.id.localeCompare(b.id));
-    const selection = input.serverName
-      ? input.credentialSelections.find(
-          (item) => item.serverName === input.serverName,
-        )
-      : undefined;
-    if (matches.length === 0)
-      return { status: "unauthenticated", url, headers: {} };
-    const chosen = choose(matches, selection);
-    if (chosen.kind === "refused") {
-      this.audit({
-        actor: "host",
-        action: "use",
-        sessionId: input.sessionId,
-        target: url,
-        outcome: "refused",
-      });
-      return {
-        status: "refused",
-        url,
-        credentialIds: chosen.credentialIds,
-        reason: chosen.reason,
-      };
-    }
-    let row = chosen.row;
+    const decided = await this.store.tx(
+      async (t): Promise<{ result: AuthorizeResult } | { row: UserCredentialRow }> => {
+        for (const id of input.vaultIds) {
+          if (await t.getVault(id)) continue;
+          await this.audit(t, {
+            actor: "host",
+            action: "use",
+            sessionId: input.sessionId,
+            target: url,
+            outcome: "refused",
+          });
+          return {
+            result: {
+              status: "refused",
+              url,
+              credentialIds: [],
+              reason: "vault_missing",
+            },
+          };
+        }
+        const matches: VaultCredentialRow[] = [];
+        for (const vaultId of input.vaultIds)
+          for (const row of await t.credentialsForVault(vaultId))
+            if (bindingUrl(row) === url) matches.push(row);
+        matches.sort((a, b) => a.id.localeCompare(b.id));
+        if (matches.length === 0)
+          return { result: { status: "unauthenticated", url, headers: {} } };
+        const selection = input.serverName
+          ? input.credentialSelections.find(
+              (item) => item.serverName === input.serverName,
+            )
+          : undefined;
+        const chosen = choose(matches, selection);
+        if (chosen.kind === "refused") {
+          await this.audit(t, {
+            actor: "host",
+            action: "use",
+            sessionId: input.sessionId,
+            target: url,
+            outcome: "refused",
+          });
+          return {
+            result: {
+              status: "refused",
+              url,
+              credentialIds: chosen.credentialIds,
+              reason: chosen.reason,
+            },
+          };
+        }
+        return { row: chosen.row as UserCredentialRow };
+      },
+    );
+    if ("result" in decided) return decided.result;
+
+    // Committed. Plaintext exists only from here to the return.
+    const row = decided.row;
+    const kek = this.kek();
     let payload: SecretPayload;
     try {
-      payload = this.readPayload(row);
+      payload = readPayload(kek, row);
     } catch (error) {
       if (!(error instanceof VaultCryptoError)) throw error;
-      this.audit({
-        actor: "host",
-        action: "use",
-        vaultId: row.vault_id,
-        credentialId: row.id,
-        sessionId: input.sessionId,
-        target: url,
-        outcome: "refused",
-      });
+      await this.store.tx((t) =>
+        this.audit(t, {
+          actor: "host",
+          action: "use",
+          vaultId: row.vaultId,
+          credentialId: row.id,
+          sessionId: input.sessionId,
+          target: url,
+          outcome: "refused",
+        }),
+      );
       return {
         status: "refused",
         url,
@@ -375,10 +482,9 @@ export class VaultService {
         reason: "unreadable",
       };
     }
-    if (row.type === "oauth" && dueForRefresh(row.expires_at)) {
-      const refreshed = await this.refresh(row, payload, input.sessionId, url);
+    if (row.type === "oauth" && dueForRefresh(row.expiresAt)) {
+      const refreshed = await this.refresh(kek, row, payload, input.sessionId, url);
       if (refreshed.status === "refused") return refreshed;
-      row = this.credentialRow(row.vault_id, row.id);
       payload = refreshed.payload;
     }
     const token = row.type === "bearer" ? payload.token : payload.accessToken;
@@ -390,15 +496,17 @@ export class VaultService {
         reason: "unreadable",
       };
     }
-    this.audit({
-      actor: "host",
-      action: "use",
-      vaultId: row.vault_id,
-      credentialId: row.id,
-      sessionId: input.sessionId,
-      target: url,
-      outcome: "approved",
-    });
+    await this.store.tx((t) =>
+      this.audit(t, {
+        actor: "host",
+        action: "use",
+        vaultId: row.vaultId,
+        credentialId: row.id,
+        sessionId: input.sessionId,
+        target: url,
+        outcome: "approved",
+      }),
+    );
     return {
       status: "authorized",
       url,
@@ -406,59 +514,55 @@ export class VaultService {
     };
   }
 
-  getHostModel(): HostModelView {
-    const row = this.activeHostCredentialRow();
-    if (!row) return { configured: false };
-    const binding = modelBinding(row);
-    return {
-      configured: true,
-      provider: binding.provider,
-      model: binding.model,
-      authType: binding.authType,
-      ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
-    };
+  // --- host model ----------------------------------------------------------------
+
+  async getHostModel(): Promise<HostModelView> {
+    return this.store.tx((t) => this.hostModelView(t));
   }
 
-  listHostProviders(): { providers: HostModelProviderInfo[] } {
-    const active = this.activeProviderId();
-    const catalog = new Map(
-      hostModelCatalog().providers.map((provider) => [provider.id, provider.name]),
-    );
-    const providers = this.hostModelRows().map((row) => {
-      const binding = modelBinding(row);
-      return {
-        id: binding.provider,
-        name:
-          catalog.get(binding.provider) ??
-          (binding.provider === "custom"
-            ? "Custom OpenAI-compatible"
-            : binding.provider),
-        model: binding.model,
-        authType: binding.authType,
-        ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
-        lastUpdated: row.rotated_at ?? row.created_at,
-        active: binding.provider === active,
-      };
+  async listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }> {
+    return this.store.tx(async (t) => {
+      const active = await this.activeProviderId(t);
+      const catalog = new Map(
+        hostModelCatalog().providers.map((provider) => [provider.id, provider.name]),
+      );
+      const providers = (await this.hostModelRows(t)).map((row) => {
+        const binding = modelBinding(row);
+        return {
+          id: binding.provider,
+          name:
+            catalog.get(binding.provider) ??
+            (binding.provider === "custom"
+              ? "Custom OpenAI-compatible"
+              : binding.provider),
+          model: binding.model,
+          authType: binding.authType,
+          ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
+          lastUpdated: row.rotatedAt ?? row.createdAt,
+          active: binding.provider === active,
+        };
+      });
+      providers.sort((left, right) => left.name.localeCompare(right.name));
+      return { providers };
     });
-    providers.sort((left, right) => left.name.localeCompare(right.name));
-    return { providers };
   }
 
-  putHostModel(body: PutHostModelRequest): HostModelView {
-    return this.tx(() =>
-      this.replay(`host-model:${body.idempotencyKey}`, body, () => {
+  async putHostModel(body: PutHostModelRequest): Promise<HostModelView> {
+    const kek = this.kek();
+    return this.store.tx((t) =>
+      this.replay(t, `host-model:${body.idempotencyKey}`, body, async () => {
         this.validateHostModel(body);
-        this.ensureHostVault();
+        await this.ensureHostVault(t);
         const credentialId = hostModelCredentialId(body.provider);
-        this.deleteHostProviderRows(body.provider);
-        const payload =
+        await this.deleteHostProviderRows(t, body.provider);
+        const payload: HostSecretPayload =
           body.auth.type === "api_key"
             ? {
                 apiKey: body.auth.key,
                 ...(body.auth.env ? { env: body.auth.env } : {}),
               }
             : { oauth: body.auth };
-        this.insertHostCredential({
+        await this.insertHostCredential(t, kek, {
           id: credentialId,
           provider: body.provider,
           model: body.model,
@@ -466,31 +570,32 @@ export class VaultService {
           authType: body.auth.type,
           payload,
         });
-        this.setActiveProvider(body.provider);
-        this.audit({
+        await this.setActiveProvider(t, body.provider);
+        await this.audit(t, {
           actor: "application",
           action: "rotate",
           vaultId: HOST_VAULT_ID,
           credentialId,
           outcome: "rotated",
         });
-        return this.getHostModel();
+        return this.hostModelView(t);
       }),
     );
   }
 
-  selectHostModel(body: SelectHostModelRequest): HostModelView {
-    return this.tx(() =>
-      this.replay(`host-model-select:${body.idempotencyKey}`, body, () => {
+  async selectHostModel(body: SelectHostModelRequest): Promise<HostModelView> {
+    const kek = this.kek();
+    return this.store.tx((t) =>
+      this.replay(t, `host-model-select:${body.idempotencyKey}`, body, async () => {
         this.validateHostModel(body);
-        const row = this.hostCredentialRowFor(body.provider);
+        const row = await this.hostCredentialRowFor(t, body.provider);
         if (!row)
           throw new VaultError(404, "Model provider is not configured");
         const binding = modelBinding(row);
-        const payload = this.readHostPayload(row, binding);
+        const payload = readHostPayload(kek, row, binding);
         const credentialId = hostModelCredentialId(body.provider);
-        this.deleteHostProviderRows(body.provider);
-        this.insertHostCredential({
+        await this.deleteHostProviderRows(t, body.provider);
+        await this.insertHostCredential(t, kek, {
           id: credentialId,
           provider: body.provider,
           model: body.model,
@@ -498,24 +603,25 @@ export class VaultService {
           authType: binding.authType,
           payload,
         });
-        this.setActiveProvider(body.provider);
-        this.audit({
+        await this.setActiveProvider(t, body.provider);
+        await this.audit(t, {
           actor: "application",
           action: "rotate",
           vaultId: HOST_VAULT_ID,
           credentialId,
           outcome: "rotated",
         });
-        return this.getHostModel();
+        return this.hostModelView(t);
       }),
     );
   }
 
-  readHostModel(): HostModelSecret | undefined {
-    const row = this.activeHostCredentialRow();
+  /** Reads the active host model secret. Decrypts after the read commits. */
+  async readHostModel(): Promise<HostModelSecret | undefined> {
+    const row = await this.store.tx((t) => this.activeHostCredentialRow(t));
     if (!row) return undefined;
     const binding = modelBinding(row);
-    const payload = this.readHostPayload(row, binding);
+    const payload = readHostPayload(this.kek(), row, binding);
     const credential =
       binding.authType === "oauth"
         ? { type: "oauth" as const, ...payload.oauth }
@@ -533,16 +639,17 @@ export class VaultService {
     };
   }
 
-  updateHostCredential(credential: {
+  async updateHostCredential(credential: {
     type: "api_key" | "oauth";
     key?: string;
     env?: Record<string, string>;
     refresh?: string;
     access?: string;
     expires?: number;
-  }): void {
-    this.tx(() => {
-      const row = this.activeHostCredentialRow();
+  }): Promise<void> {
+    const kek = this.kek();
+    await this.store.tx(async (t) => {
+      const row = await this.activeHostCredentialRow(t);
       if (!row) throw new VaultError(404, "Model provider is not configured");
       const binding = modelBinding(row);
       const payload =
@@ -552,58 +659,55 @@ export class VaultService {
               apiKey: credential.key,
               ...(credential.env ? { env: credential.env } : {}),
             };
-      const aad = hostModelAad(binding.provider, binding.model);
       const sealed = encryptSecret(
-        this.kek(),
-        aad,
+        kek,
+        hostModelAad(binding.provider, binding.model),
         Buffer.from(JSON.stringify(payload), "utf8"),
       );
-      this.db
-        .prepare(
-          `UPDATE vault_credentials
-           SET type='model', binding_json=?, kek_id=?, nonce=?, ciphertext=?, wrapped_dek=?, rotated_at=?
-           WHERE id=?`,
-        )
-        .run(
-          JSON.stringify({ ...binding, authType: credential.type }),
-          sealed.kekId,
-          sealed.nonce,
-          sealed.ciphertext,
-          sealed.wrappedDek,
-          new Date().toISOString(),
-          row.id,
-        );
+      await t.updateCredential(HOST_VAULT_ID, row.id, {
+        type: "model",
+        bindingJson: JSON.stringify({ ...binding, authType: credential.type }),
+        ...sealed,
+        rotatedAt: new Date().toISOString(),
+      });
     });
   }
 
-  reject(route: string): void {
-    this.audit({
-      actor: "executor",
-      action: "reject",
-      target: route,
-      outcome: "rejected",
-    });
+  // --- rejected callers ---------------------------------------------------------
+
+  async reject(route: string): Promise<void> {
+    await this.store.tx((t) =>
+      this.audit(t, {
+        actor: "executor",
+        action: "reject",
+        target: route,
+        outcome: "rejected",
+      }),
+    );
   }
 
+  // --- internals -----------------------------------------------------------------
+
+  /** Calls the token endpoint outside any transaction, then stores the result. */
   private async refresh(
-    row: CredentialRow,
+    kek: Buffer,
+    row: UserCredentialRow,
     payload: SecretPayload,
     sessionId: string,
     url: string,
-  ): Promise<
-    | { status: "ok"; payload: SecretPayload }
-    | Extract<AuthorizeResult, { status: "refused" }>
-  > {
-    const failRefresh = (): Extract<AuthorizeResult, { status: "refused" }> => {
-      this.audit({
-        actor: "host",
-        action: "refresh",
-        vaultId: row.vault_id,
-        credentialId: row.id,
-        sessionId,
-        target: payload.tokenEndpoint,
-        outcome: "refresh_failed",
-      });
+  ): Promise<{ status: "ok"; payload: SecretPayload } | Refused> {
+    const failRefresh = async (): Promise<Refused> => {
+      await this.store.tx((t) =>
+        this.audit(t, {
+          actor: "host",
+          action: "refresh",
+          vaultId: row.vaultId,
+          credentialId: row.id,
+          sessionId,
+          target: payload.tokenEndpoint,
+          outcome: "refresh_failed",
+        }),
+      );
       return {
         status: "refused",
         url,
@@ -613,6 +717,7 @@ export class VaultService {
     };
     if (!payload.refreshToken || !payload.tokenEndpoint || !payload.clientId)
       return failRefresh();
+    let next: SecretPayload;
     try {
       const body = new URLSearchParams({
         grant_type: "refresh_token",
@@ -647,7 +752,7 @@ export class VaultService {
       };
       if (typeof json.access_token !== "string" || json.access_token.length === 0)
         return failRefresh();
-      const next: SecretPayload = {
+      next = {
         ...payload,
         accessToken: json.access_token,
         refreshToken:
@@ -659,189 +764,94 @@ export class VaultService {
         typeof json.expires_in === "number" && Number.isFinite(json.expires_in)
           ? new Date(Date.now() + json.expires_in * 1000).toISOString()
           : null;
-      this.tx(() => {
-        const current = this.credentialRow(row.vault_id, row.id);
-        this.writePayload(current, next, expiresAt, new Date().toISOString());
-        this.audit({
+      await this.store.tx(async (t) => {
+        const current = await this.credentialRow(t, row.vaultId, row.id);
+        await this.writePayload(
+          t,
+          kek,
+          current,
+          next,
+          expiresAt,
+          new Date().toISOString(),
+        );
+        await this.audit(t, {
           actor: "host",
           action: "refresh",
-          vaultId: row.vault_id,
+          vaultId: row.vaultId,
           credentialId: row.id,
           sessionId,
           target: payload.tokenEndpoint,
           outcome: "approved",
         });
       });
-      return { status: "ok", payload: next };
     } catch {
       return failRefresh();
     }
+    return { status: "ok", payload: next };
   }
 
-  private replay<T>(key: string, body: unknown, create: () => T): T {
+  private async replay<T>(
+    t: Tx,
+    key: string,
+    body: unknown,
+    create: () => Promise<T>,
+  ): Promise<T> {
     const hash = createHash("sha256")
       .update(requestHash(body))
       .digest("hex");
-    const existing = this.db
-      .prepare(`SELECT body_hash, response FROM vault_idempotency WHERE id=?`)
-      .get(key) as { body_hash: string; response: string } | undefined;
+    const existing = await t.getVaultIdempotency(key);
     if (existing) {
-      if (existing.body_hash !== hash)
+      if (existing.bodyHash !== hash)
         throw new VaultError(409, "Idempotency key already binds another request");
       return JSON.parse(existing.response) as T;
     }
-    const created = create();
-    this.db
-      .prepare(
-        `INSERT INTO vault_idempotency(id, body_hash, response) VALUES(?,?,?)`,
-      )
-      .run(key, hash, JSON.stringify(created));
+    const created = await create();
+    await t.insertVaultIdempotency({
+      id: key,
+      bodyHash: hash,
+      response: JSON.stringify(created),
+    });
     return created;
   }
 
-  private insertCredential(input: {
-    id: string;
-    vaultId: string;
-    name: string;
-    type: "bearer" | "oauth";
-    url: string;
-    expiresAt: string | null;
-    payload: SecretPayload;
-    rotatedAt: string | null;
-  }): void {
-    const aad = credentialAad(input.vaultId, input.id, input.type, input.url);
-    const sealed = encryptSecret(
-      this.kek(),
-      aad,
-      Buffer.from(JSON.stringify(input.payload), "utf8"),
-    );
-    this.db
-      .prepare(
-        `INSERT INTO vault_credentials(
-          id, vault_id, name, type, binding_json, expires_at, created_at, rotated_at,
-          kek_id, nonce, ciphertext, wrapped_dek
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-      )
-      .run(
-        input.id,
-        input.vaultId,
-        input.name,
-        input.type,
-        JSON.stringify({ url: input.url }),
-        input.expiresAt,
-        new Date().toISOString(),
-        input.rotatedAt,
-        sealed.kekId,
-        sealed.nonce,
-        sealed.ciphertext,
-        sealed.wrappedDek,
-      );
-  }
-
-  private writePayload(
-    row: CredentialRow,
+  /** Re-seals a user credential's payload and returns the updated row. */
+  private async writePayload(
+    t: Tx,
+    kek: Buffer,
+    row: UserCredentialRow,
     payload: SecretPayload,
     expiresAt: string | null,
     rotatedAt: string,
-  ): void {
-    const url = JSON.parse(row.binding_json).url as string;
-    const aad = credentialAad(row.vault_id, row.id, row.type, url);
+  ): Promise<UserCredentialRow> {
     const sealed = encryptSecret(
-      this.kek(),
-      aad,
+      kek,
+      credentialAad(row.vaultId, row.id, row.type, bindingUrl(row)),
       Buffer.from(JSON.stringify(payload), "utf8"),
     );
-    this.db
-      .prepare(
-        `UPDATE vault_credentials
-         SET expires_at=?, rotated_at=?, kek_id=?, nonce=?, ciphertext=?, wrapped_dek=?
-         WHERE id=?`,
-      )
-      .run(
-        expiresAt,
-        rotatedAt,
-        sealed.kekId,
-        sealed.nonce,
-        sealed.ciphertext,
-        sealed.wrappedDek,
-        row.id,
-      );
+    const patch = { expiresAt, rotatedAt, ...sealed };
+    if (!(await t.updateCredential(row.vaultId, row.id, patch)))
+      throw new VaultError(404, "Credential not found");
+    return { ...row, ...patch };
   }
 
-  private readPayload(row: CredentialRow): SecretPayload {
-    const url = JSON.parse(row.binding_json).url as string;
-    const aad = credentialAad(row.vault_id, row.id, row.type, url);
-    const plaintext = decryptSecret(
-      this.kek(),
-      aad,
-      Buffer.from(row.nonce),
-      Buffer.from(row.ciphertext),
-      Buffer.from(row.wrapped_dek),
-      row.kek_id,
-    );
-    try {
-      return JSON.parse(plaintext.toString("utf8")) as SecretPayload;
-    } finally {
-      plaintext.fill(0);
-    }
-  }
-
-  private vaultInfo(id: string): VaultInfo {
-    const row = this.vaultRow(id);
+  private async vaultInfo(t: Tx, id: string): Promise<VaultInfo> {
+    const row = await t.getVault(id);
     if (!row || row.scope === "host") throw new VaultError(404, "Vault not found");
-    return {
-      id: row.id,
-      name: row.name,
-      ownerUserId: row.owner_user_id,
-      ...(row.metadata_json
-        ? { metadata: JSON.parse(row.metadata_json) as Record<string, string> }
-        : {}),
-      createdAt: row.created_at,
-    };
+    return vaultInfoOf(row);
   }
 
-  private vaultRow(id: string):
-    | {
-        id: string;
-        name: string;
-        owner_user_id: string;
-        metadata_json: string | null;
-        created_at: string;
-        scope: "user" | "host";
-      }
-    | undefined {
-    return this.db
-      .prepare(
-        `SELECT id, name, owner_user_id, metadata_json, created_at, scope FROM vaults WHERE id=?`,
-      )
-      .get(id) as
-      | {
-          id: string;
-          name: string;
-          owner_user_id: string;
-          metadata_json: string | null;
-          created_at: string;
-          scope: "user" | "host";
-        }
-      | undefined;
-  }
-
-  private ensureHostVault(): void {
-    const existing = this.vaultRow(HOST_VAULT_ID);
+  private async ensureHostVault(t: Tx): Promise<void> {
+    const existing = await t.getVault(HOST_VAULT_ID);
     if (existing?.scope === "host") return;
     if (existing) throw new VaultError(409, "Host vault id is already used");
-    this.db
-      .prepare(
-        `INSERT INTO vaults(id,name,owner_user_id,metadata_json,created_at,scope) VALUES(?,?,?,?,?,?)`,
-      )
-      .run(
-        HOST_VAULT_ID,
-        "Host",
-        "host",
-        null,
-        new Date().toISOString(),
-        "host",
-      );
+    await t.insertVault({
+      id: HOST_VAULT_ID,
+      name: "Host",
+      ownerUserId: "host",
+      metadataJson: null,
+      createdAt: new Date().toISOString(),
+      scope: "host",
+    });
   }
 
   private validateHostModel(body: {
@@ -878,77 +888,57 @@ export class VaultService {
       throw new VaultError(400, "Unknown model.");
   }
 
-  private insertHostCredential(input: {
-    id: string;
-    provider: string;
-    model: string;
-    baseUrl?: string;
-    authType: "api_key" | "oauth";
-    payload: HostSecretPayload;
-  }): void {
-    const aad = hostModelAad(input.provider, input.model);
+  private async insertHostCredential(
+    t: Tx,
+    kek: Buffer,
+    input: {
+      id: string;
+      provider: string;
+      model: string;
+      baseUrl?: string;
+      authType: "api_key" | "oauth";
+      payload: HostSecretPayload;
+    },
+  ): Promise<void> {
     const sealed = encryptSecret(
-      this.kek(),
-      aad,
+      kek,
+      hostModelAad(input.provider, input.model),
       Buffer.from(JSON.stringify(input.payload), "utf8"),
     );
-    this.db
-      .prepare(
-        `INSERT INTO vault_credentials(
-          id, vault_id, name, type, binding_json, expires_at, created_at, rotated_at,
-          kek_id, nonce, ciphertext, wrapped_dek
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-      )
-      .run(
-        input.id,
-        HOST_VAULT_ID,
-        input.provider,
-        "model",
-        JSON.stringify({
-          provider: input.provider,
-          model: input.model,
-          ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
-          authType: input.authType,
-        }),
-        null,
-        new Date().toISOString(),
-        null,
-        sealed.kekId,
-        sealed.nonce,
-        sealed.ciphertext,
-        sealed.wrappedDek,
-      );
+    await t.insertCredential({
+      id: input.id,
+      vaultId: HOST_VAULT_ID,
+      name: input.provider,
+      type: "model",
+      bindingJson: JSON.stringify({
+        provider: input.provider,
+        model: input.model,
+        ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+        authType: input.authType,
+      }),
+      expiresAt: null,
+      createdAt: new Date().toISOString(),
+      rotatedAt: null,
+      ...sealed,
+    });
   }
 
-  private readHostPayload(
-    row: CredentialRow,
-    binding: ModelBinding,
-  ): HostSecretPayload {
-    const plaintext = decryptSecret(
-      this.kek(),
-      hostModelAad(binding.provider, binding.model),
-      Buffer.from(row.nonce),
-      Buffer.from(row.ciphertext),
-      Buffer.from(row.wrapped_dek),
-      row.kek_id,
-    );
-    try {
-      return JSON.parse(plaintext.toString("utf8")) as HostSecretPayload;
-    } finally {
-      plaintext.fill(0);
-    }
+  private async hostModelView(t: Tx): Promise<HostModelView> {
+    const row = await this.activeHostCredentialRow(t);
+    if (!row) return { configured: false };
+    const binding = modelBinding(row);
+    return {
+      configured: true,
+      provider: binding.provider,
+      model: binding.model,
+      authType: binding.authType,
+      ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
+    };
   }
 
-  private hostModelRows(): CredentialRow[] {
+  private async hostModelRows(t: Tx): Promise<VaultCredentialRow[]> {
     return (
-      this.db
-        .prepare(
-          `SELECT id, vault_id, name, type, binding_json, expires_at, created_at, rotated_at,
-                  kek_id, nonce, ciphertext, wrapped_dek
-           FROM vault_credentials WHERE vault_id=? AND type='model'
-           ORDER BY created_at, id`,
-        )
-        .all(HOST_VAULT_ID) as CredentialRow[]
+      await t.credentialsForVault(HOST_VAULT_ID, { type: "model" })
     ).filter((row) => {
       try {
         modelBinding(row);
@@ -959,39 +949,47 @@ export class VaultService {
     });
   }
 
-  private hostCredentialRowFor(provider: string): CredentialRow | undefined {
+  private async hostCredentialRowFor(
+    t: Tx,
+    provider: string,
+  ): Promise<VaultCredentialRow | undefined> {
     const preferred = hostModelCredentialId(provider);
-    const rows = this.hostModelRows();
+    const rows = await this.hostModelRows(t);
     return (
       rows.find((row) => row.id === preferred) ??
       rows.find((row) => modelBinding(row).provider === provider)
     );
   }
 
-  private activeHostCredentialRow(): CredentialRow | undefined {
-    const active = this.activeProviderId();
+  private async activeHostCredentialRow(
+    t: Tx,
+  ): Promise<VaultCredentialRow | undefined> {
+    const active = await this.activeProviderId(t);
     if (!active) return undefined;
-    return this.hostCredentialRowFor(active);
+    return this.hostCredentialRowFor(t, active);
   }
 
-  private activeProviderId(): string | undefined {
-    const vault = this.vaultRow(HOST_VAULT_ID);
-    if (vault?.metadata_json) {
+  private async activeProviderId(t: Tx): Promise<string | undefined> {
+    const vault = await t.getVault(HOST_VAULT_ID);
+    if (vault?.metadataJson) {
+      let activeProvider: unknown;
       try {
-        const metadata = JSON.parse(vault.metadata_json) as {
-          activeProvider?: unknown;
-        };
-        if (
-          typeof metadata.activeProvider === "string" &&
-          metadata.activeProvider &&
-          this.hostCredentialRowFor(metadata.activeProvider)
-        )
-          return metadata.activeProvider;
+        activeProvider = (
+          JSON.parse(vault.metadataJson) as { activeProvider?: unknown }
+        ).activeProvider;
       } catch {
         /* Fall through to the only configured provider. */
       }
+      if (typeof activeProvider === "string" && activeProvider) {
+        try {
+          if (await this.hostCredentialRowFor(t, activeProvider))
+            return activeProvider;
+        } catch {
+          /* An invalid provider id falls through, as before. */
+        }
+      }
     }
-    const rows = this.hostModelRows();
+    const rows = await this.hostModelRows(t);
     if (rows.length === 0) return undefined;
     if (rows.length === 1) return modelBinding(rows[0]!).provider;
     const legacy = rows.find((row) => row.id === HOST_MODEL_ID);
@@ -999,97 +997,123 @@ export class VaultService {
     return modelBinding(rows[0]!).provider;
   }
 
-  private setActiveProvider(provider: string): void {
-    this.ensureHostVault();
-    this.db
-      .prepare(`UPDATE vaults SET metadata_json=? WHERE id=?`)
-      .run(JSON.stringify({ activeProvider: provider }), HOST_VAULT_ID);
+  private async setActiveProvider(t: Tx, provider: string): Promise<void> {
+    await this.ensureHostVault(t);
+    await t.updateVaultMetadata(
+      HOST_VAULT_ID,
+      JSON.stringify({ activeProvider: provider }),
+    );
   }
 
-  private deleteHostProviderRows(provider: string): void {
-    const ids = this.hostModelRows()
+  private async deleteHostProviderRows(t: Tx, provider: string): Promise<void> {
+    const ids = (await this.hostModelRows(t))
       .filter((row) => modelBinding(row).provider === provider)
       .map((row) => row.id);
     ids.push(hostModelCredentialId(provider));
-    for (const id of new Set(ids))
-      this.db
-        .prepare(`DELETE FROM vault_credentials WHERE id=? AND vault_id=?`)
-        .run(id, HOST_VAULT_ID);
+    for (const id of new Set(ids)) await t.deleteCredential(HOST_VAULT_ID, id);
   }
 
-  private credentialInfo(vaultId: string, id: string): CredentialInfo {
-    const row = this.credentialRow(vaultId, id);
-    return {
-      id: row.id,
-      vaultId: row.vault_id,
-      name: row.name,
-      type: row.type,
-      binding: JSON.parse(row.binding_json) as { url: string },
-      ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
-      createdAt: row.created_at,
-      ...(row.rotated_at ? { rotatedAt: row.rotated_at } : {}),
-    };
-  }
-
-  private credentialRow(
+  private async credentialRow(
+    t: Tx,
     vaultId: string,
     id: string,
-  ): CredentialRow & { type: "bearer" | "oauth" } {
-    const row = this.db
-      .prepare(
-        `SELECT id, vault_id, name, type, binding_json, expires_at, created_at, rotated_at,
-                kek_id, nonce, ciphertext, wrapped_dek
-         FROM vault_credentials WHERE id=? AND vault_id=?`,
-      )
-      .get(id, vaultId) as CredentialRow | undefined;
-    if (!row || row.type === "model")
+  ): Promise<UserCredentialRow> {
+    const row = await t.getCredential(id);
+    if (!row || row.vaultId !== vaultId || !isUserCredential(row))
       throw new VaultError(404, "Credential not found");
-    return row as CredentialRow & { type: "bearer" | "oauth" };
+    return row;
   }
 
-  private rowsForVault(vaultId: string): CredentialRow[] {
-    return this.db
-      .prepare(
-        `SELECT id, vault_id, name, type, binding_json, expires_at, created_at, rotated_at,
-                kek_id, nonce, ciphertext, wrapped_dek
-         FROM vault_credentials WHERE vault_id=?`,
-      )
-      .all(vaultId) as CredentialRow[];
+  private async audit(t: Tx, entry: AuditEntry): Promise<void> {
+    await t.insertVaultAudit({
+      id: randomUUID(),
+      at: new Date().toISOString(),
+      actor: entry.actor,
+      action: entry.action,
+      vaultId: entry.vaultId ?? null,
+      credentialId: entry.credentialId ?? null,
+      sessionId: entry.sessionId ?? null,
+      target: entry.target ?? null,
+      outcome: entry.outcome,
+    });
   }
+}
 
-  private audit(entry: {
-    actor: string;
-    action: string;
-    outcome: string;
-    vaultId?: string;
-    credentialId?: string;
-    sessionId?: string;
-    target?: string;
-  }): void {
-    this.db
-      .prepare(
-        `INSERT INTO vault_audit(id, at, actor, action, vault_id, credential_id, session_id, target, outcome)
-         VALUES(?,?,?,?,?,?,?,?,?)`,
-      )
-      .run(
-        randomUUID(),
-        new Date().toISOString(),
-        entry.actor,
-        entry.action,
-        entry.vaultId ?? null,
-        entry.credentialId ?? null,
-        entry.sessionId ?? null,
-        entry.target ?? null,
-        entry.outcome,
-      );
+function isUserCredential(row: VaultCredentialRow): row is UserCredentialRow {
+  return row.type !== "model";
+}
+
+function bindingUrl(row: VaultCredentialRow): string | undefined {
+  return (JSON.parse(row.bindingJson) as { url?: string }).url;
+}
+
+function vaultInfoOf(row: VaultRow): VaultInfo {
+  return {
+    id: row.id,
+    name: row.name,
+    ownerUserId: row.ownerUserId,
+    ...(row.metadataJson
+      ? { metadata: JSON.parse(row.metadataJson) as Record<string, string> }
+      : {}),
+    createdAt: row.createdAt,
+  };
+}
+
+function credentialInfoOf(row: UserCredentialRow): CredentialInfo {
+  return {
+    id: row.id,
+    vaultId: row.vaultId,
+    name: row.name,
+    type: row.type,
+    binding: JSON.parse(row.bindingJson) as { url: string },
+    ...(row.expiresAt ? { expiresAt: row.expiresAt } : {}),
+    createdAt: row.createdAt,
+    ...(row.rotatedAt ? { rotatedAt: row.rotatedAt } : {}),
+  };
+}
+
+function readPayload(kek: Buffer, row: UserCredentialRow): SecretPayload {
+  const aad = credentialAad(row.vaultId, row.id, row.type, bindingUrl(row));
+  const plaintext = decryptSecret(
+    kek,
+    aad,
+    Buffer.from(row.nonce),
+    Buffer.from(row.ciphertext),
+    Buffer.from(row.wrappedDek),
+    row.kekId,
+  );
+  try {
+    return JSON.parse(plaintext.toString("utf8")) as SecretPayload;
+  } finally {
+    plaintext.fill(0);
+  }
+}
+
+function readHostPayload(
+  kek: Buffer,
+  row: VaultCredentialRow,
+  binding: ModelBinding,
+): HostSecretPayload {
+  const plaintext = decryptSecret(
+    kek,
+    hostModelAad(binding.provider, binding.model),
+    Buffer.from(row.nonce),
+    Buffer.from(row.ciphertext),
+    Buffer.from(row.wrappedDek),
+    row.kekId,
+  );
+  try {
+    return JSON.parse(plaintext.toString("utf8")) as HostSecretPayload;
+  } finally {
+    plaintext.fill(0);
   }
 }
 
 function choose(
-  matches: CredentialRow[],
+  matches: VaultCredentialRow[],
   selection: CredentialSelection | undefined,
 ):
-  | { kind: "use"; row: CredentialRow }
+  | { kind: "use"; row: VaultCredentialRow }
   | { kind: "refused"; credentialIds: string[]; reason: string } {
   const ids = matches.map((row) => row.id);
   if (matches.length === 1) {
@@ -1166,8 +1190,8 @@ type HostSecretPayload = {
   oauth?: HostModelSecret["credential"];
 };
 
-function modelBinding(row: CredentialRow): ModelBinding {
-  const binding = JSON.parse(row.binding_json) as ModelBinding;
+function modelBinding(row: VaultCredentialRow): ModelBinding {
+  const binding = JSON.parse(row.bindingJson) as ModelBinding;
   if (!binding.provider || !binding.model || !binding.authType)
     throw new VaultError(500, "Host model credential is unreadable");
   return binding;
@@ -1197,7 +1221,7 @@ function credentialAad(
   vaultId: string,
   credentialId: string,
   type: string,
-  url: string,
+  url: string | undefined,
 ): Buffer {
   return Buffer.from(
     canonical({ vaultId, credentialId, type, url }),

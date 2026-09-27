@@ -2,14 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import {
   Agent,
   SANDBOX_INSTRUCTIONS,
   createSandboxTools,
 } from "@nylorun/core/define";
-import { startTestTenant } from "./support/tenant.js";
+import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { TenantConfig } from "../src/tenant/types.js";
@@ -213,12 +212,7 @@ it("treats a backend failure during a write tool as uncertain and never re-runs 
     await runtime.close();
   }
   const dbPath = join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-  const db = new DatabaseSync(dbPath);
-  const row = db.prepare("SELECT body FROM sessions WHERE id=?").get("s1") as { body: string };
-  const stored = JSON.parse(row.body);
-  stored.status = "runnable";
-  db.prepare("UPDATE sessions SET body=? WHERE id=?").run(JSON.stringify(stored), "s1");
-  db.close();
+  await patchStoredSession(dbPath, runtime.tenantId, "s1", { status: "runnable" });
   const again = await boot({
     hostRoot: runtime.root,
     tenantId: runtime.tenantId,

@@ -2,9 +2,11 @@
  * The Action service and the executor registry: discover pending Actions, claim, heartbeat,
  * claim-scoped sandbox tool calls, and executor registration, listing and removal.
  *
- * Later waves: Wave 1 / A makes the transactions async, replaces the `GET /v1/actions` scan
- * with `pendingActions(agentId)` and seeds the registry asynchronously; Wave 2 / Y reads the
- * executor `connected` flag from the work stream instead of `executorStreams`.
+ * A claim or heartbeat locks the Action's session and commits in one transaction; the
+ * registry is updated only after the executors table commits.
+ *
+ * Later waves: Wave 2 / Y reads the executor `connected` flag from the work stream instead
+ * of `executorStreams`.
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
@@ -12,7 +14,6 @@ import {
   ActionClaimRequestSchema,
   ActionHeartbeatRequestSchema,
   type Action,
-  type LiveEvent,
   type RegisterExecutorsRequestSchema,
 } from "@nylorun/core/contracts";
 import {
@@ -23,12 +24,13 @@ import {
 import {
   SandboxRouteError,
   handleActionSandboxTool,
+  type SandboxRouteDeps,
 } from "../core/sandbox-routes.js";
-import { applicationTokenHashes } from "./principals.js";
 import {
+  lockedSession,
+  sandboxLookup,
   sessionOf,
   type AuthScope,
-  type Session,
   type TenantContext,
 } from "./context.js";
 import { fail, readBody, requestAborted } from "./http.js";
@@ -40,24 +42,25 @@ type RegisterExecutorsRequest = ReturnType<
 >;
 
 /** Session and Action lookups for the sandbox route handlers. */
-export function sandboxRouteDeps(ctx: TenantContext) {
+export function sandboxRouteDeps(ctx: TenantContext): SandboxRouteDeps {
   return {
     sandbox: ctx.sandbox,
-    session: (id: string) => sessionOf(ctx, id),
-    lookup: (id: string) => ctx.store.get<Session>("sessions", id),
-    getAction: (id: string) => ctx.store.get<Action>("actions", id),
+    session: (id) =>
+      ctx.store.tx(async (t) => {
+        const session = await sessionOf(t, id);
+        return { session, lookup: await sandboxLookup(t, id) };
+      }),
+    getAction: (id) => ctx.store.tx((t) => t.get<Action>("actions", id)),
   };
 }
 
 /** `GET /v1/actions`: the pending Actions of the executor's agent. */
-export function listPendingActions(
+export async function listPendingActions(
   ctx: TenantContext,
   executor: ExecutorRecord
 ) {
   return {
-    actions: ctx.store
-      .all<Action>("actions")
-      .filter((a) => a.status === "pending" && a.agentId === executor.agentId),
+    actions: await ctx.store.tx((t) => t.pendingActions(executor.agentId)),
   };
 }
 
@@ -70,7 +73,7 @@ export async function actionSandboxTool(
   request: IncomingMessage
 ) {
   const action =
-    ctx.store.get<Action>("actions", actionId) ??
+    (await ctx.store.tx((t) => t.get<Action>("actions", actionId))) ??
     fail(404, "Action not found");
   scoped(scope, action);
   try {
@@ -95,19 +98,23 @@ export function updateAction(
   method: string | undefined,
   operation: string | undefined,
   body: unknown
-) {
-  const { store } = ctx;
-  let event: LiveEvent | undefined;
-  const result = store.tx(() => {
+): Promise<unknown> {
+  return ctx.store.tx(async (t) => {
+    const found =
+      (await t.get<Action>("actions", actionId)) ??
+      fail(404, "Action not found");
+    scoped(scope, found);
+    const s = await lockedSession(t, found.sessionId);
+    // Read again under the session lock.
     const action =
-      store.get<Action>("actions", actionId) ?? fail(404, "Action not found");
-    scoped(scope, action);
+      (await t.get<Action>("actions", actionId)) ??
+      fail(404, "Action not found");
     if (method === "POST" && operation === "claim") {
       ActionClaimRequestSchema.parse(body);
       if (
         action.status !== "pending" ||
-        sessionOf(ctx, action.sessionId).status === "cancelled" ||
-        sessionOf(ctx, action.sessionId).activeTurnId !== action.turnId
+        s.status === "cancelled" ||
+        s.activeTurnId !== action.turnId
       )
         fail(409, "Action unavailable");
       action.status = "claimed";
@@ -116,8 +123,8 @@ export function updateAction(
       action.leaseExpiresAt = new Date(
         Date.now() + (ctx.config.leaseMs ?? 30000)
       ).toISOString();
-      store.put("actions", actionId, action);
-      event = store.event(action.sessionId, action.turnId, "action.claimed", {
+      await t.put("actions", actionId, action);
+      await t.event(action.sessionId, action.turnId, "action.claimed", {
         actionId,
         generation: action.generation,
         ...(action.agent ? { agent: action.agent } : {}),
@@ -132,7 +139,7 @@ export function updateAction(
     if (method === "POST" && operation === "heartbeat") {
       const beat = ActionHeartbeatRequestSchema.parse(body);
       if (
-        sessionOf(ctx, action.sessionId).activeTurnId !== action.turnId ||
+        s.activeTurnId !== action.turnId ||
         action.status !== "claimed" ||
         action.claimId !== beat.claimId ||
         action.generation !== beat.generation ||
@@ -142,13 +149,11 @@ export function updateAction(
       action.leaseExpiresAt = new Date(
         Date.now() + (ctx.config.leaseMs ?? 30000)
       ).toISOString();
-      store.put("actions", actionId, action);
+      await t.put("actions", actionId, action);
       return { leaseExpiresAt: action.leaseExpiresAt };
     }
     return fail(404, "Route not found");
   });
-  if (event) ctx.publish(event);
-  return result;
 }
 
 /** `GET /v1/executors`. */
@@ -165,7 +170,7 @@ export function listExecutors(ctx: TenantContext) {
 }
 
 /** `PUT /v1/executors`: persist the batch, then update the registry and end rotated streams. */
-export function registerExecutors(
+export async function registerExecutors(
   ctx: TenantContext,
   principalId: string,
   body: RegisterExecutorsRequest
@@ -173,7 +178,7 @@ export function registerExecutors(
   const { store, registry } = ctx;
   // Credential rules are shared with startup validation, which throws plainly; on the
   // wire a rejected registration is a bad request, not a server fault.
-  const applicationHashes = applicationTokenHashes(store.db);
+  const applicationHashes = await store.tx((t) => t.applicationTokenHashes());
   try {
     for (const executor of body.executors)
       assertExecutorCredential(executor, applicationHashes);
@@ -209,10 +214,10 @@ export function registerExecutors(
         "Executor tokens require independent credentials and an agent id"
       );
   }
-  // Persist the whole batch first; the in-memory registry must never run ahead of SQLite.
-  store.tx(() => {
+  // Persist the whole batch first; the in-memory registry must never run ahead of the store.
+  await store.tx(async (t) => {
     for (const record of records)
-      store.putExecutor({
+      await t.putExecutor({
         agentId: record.agentId,
         tokenHash: record.tokenHash,
         implementationVersion: record.implementationVersion,
@@ -251,10 +256,10 @@ export function registerExecutors(
 }
 
 /** `DELETE /v1/executors/:agentId`: forget the executor and end its streams. */
-export function deleteExecutor(ctx: TenantContext, agentId: string) {
+export async function deleteExecutor(ctx: TenantContext, agentId: string) {
   const existing =
     ctx.registry.get(agentId) ?? fail(404, "Executor not found");
-  ctx.store.tx(() => ctx.store.deleteExecutor(agentId));
+  await ctx.store.tx((t) => t.deleteExecutor(agentId));
   ctx.registry.remove(agentId);
   endExecutorStreams(ctx.live, existing.tokenHash);
   return { agentId, deleted: true };

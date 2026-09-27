@@ -2,8 +2,7 @@
  * Tenant administration and vault routes: `/v1/tenant` (status, reset, config seed, host
  * model and providers, sandbox report) and `/v1/vaults` (vaults and credentials).
  *
- * Later waves: Wave 1 / A (A-vault) converts the vault calls to the async `Tx` vault
- * methods and moves the status/reset SQL behind the store; Wave 2 / X and Y change what
+ * Later waves: Wave 2 / X and Y change what
  * reset clears once work and live state leave process memory.
  */
 import type { IncomingMessage } from "node:http";
@@ -33,11 +32,11 @@ export async function dispatchTenant(
 ): Promise<unknown> {
   const { vault } = ctx;
   if (scope.kind !== "application") {
-    vault.reject(path.join("/"));
+    await vault.reject(path.join("/"));
     fail(403, "Application credential required");
   }
   if (path.length === 2 && method === "GET")
-    return buildTenantStatus({
+    return await buildTenantStatus({
       envelope: ctx.envelope,
       config: ctx.config,
       store: ctx.store,
@@ -46,7 +45,7 @@ export async function dispatchTenant(
       sandbox: ctx.sandbox,
       closing: ctx.closing || ctx.closed,
       modelConfigured: ctx.useVaultModel
-        ? vault.getHostModel().configured
+        ? (await vault.getHostModel()).configured
         : true,
       executorStreams: ctx.live.executorStreams,
     });
@@ -78,7 +77,7 @@ export async function dispatchTenant(
     method === "PUT"
   ) {
     const body = SeedTenantConfigRequestSchema.parse(await readBody(request));
-    return seedTenantConfig({ store: ctx.store, vault }, body);
+    return await seedTenantConfig({ store: ctx.store, vault }, body);
   }
   if (path[2] === "models" && path.length === 3 && method === "GET")
     return hostModelCatalog();
@@ -114,7 +113,7 @@ export async function dispatchVault(
 ): Promise<unknown> {
   const { vault } = ctx;
   if (scope.kind !== "application") {
-    vault.reject(path.join("/"));
+    await vault.reject(path.join("/"));
     fail(403, "Application credential required");
   }
   if (path.length === 2 && method === "POST") {
@@ -125,7 +124,7 @@ export async function dispatchVault(
     const ownerUserId =
       url.searchParams.get("ownerUserId") ??
       fail(400, "ownerUserId is required");
-    return { vaults: vault.listVaults(ownerUserId) };
+    return { vaults: await vault.listVaults(ownerUserId) };
   }
   const vaultId = path[2];
   if (!vaultId) fail(404, "Vault not found");
@@ -138,7 +137,7 @@ export async function dispatchVault(
     return vault.createCredential(vaultId, body);
   }
   if (path.length === 4 && method === "GET")
-    return { credentials: vault.listCredentials(vaultId) };
+    return { credentials: await vault.listCredentials(vaultId) };
   const credentialId = path[4];
   if (!credentialId) fail(404, "Credential not found");
   if (path.length === 5 && method === "GET")

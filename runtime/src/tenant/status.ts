@@ -3,23 +3,17 @@ import type {
   SeedTenantConfigResponse,
   TenantStatus,
 } from "@nylorun/core/contracts";
-import type { Store } from "../core/store.js";
+import type { SessionStore } from "../store/types.js";
 import type { ExecutorRegistry } from "../core/executors.js";
 import type { VaultService } from "../vault/service.js";
 import type { SandboxManager } from "../sandbox/manager.js";
-import {
-  readTenantSetting,
-  schemaVersionOf,
-  TENANT_SCHEMA_VERSION,
-  writeTenantSetting,
-} from "./schema.js";
 import type { TenantConfig } from "./types.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
   config: TenantConfig;
-  store: Store;
+  store: SessionStore;
   registry: ExecutorRegistry;
   vault: VaultService;
   sandbox: SandboxManager;
@@ -32,34 +26,17 @@ export interface TenantStatusContext {
 export async function buildTenantStatus(
   ctx: TenantStatusContext,
 ): Promise<TenantStatus> {
-  const sessions = ctx.store.all<{ id: string; status: string }>("sessions");
-  const runningSessions = sessions.filter(
-    (s) => s.status === "running" || s.status === "runnable",
-  ).length;
-  const pendingActions = ctx.store
-    .all<{ status: string }>("actions")
-    .filter((a) => a.status === "pending" || a.status === "claimed").length;
-  const uncertainEffects = ctx.store
-    .all<{ status: string }>("effects")
-    .filter((e) => e.status === "uncertain").length;
-
-  let sqlite = false;
-  try {
-    ctx.store.db.prepare("SELECT 1").get();
-    sqlite = true;
-  } catch {
-    sqlite = false;
-  }
-
-  const schemaOk = schemaVersionOf(ctx.store.db) === TENANT_SCHEMA_VERSION;
-  const modelView = ctx.vault.getHostModel();
+  const health = await ctx.store.health();
+  const { counts, definitions } = await ctx.store.tx(async (t) => ({
+    counts: await t.counts(),
+    definitions: await t.listDefinitions(),
+  }));
+  const modelView = await ctx.vault.getHostModel();
   const sandboxReport = await ctx.sandbox.report();
-  const retained = ctx.store.all("sandboxes").length;
 
   const definitionIds = new Set(
-    ctx.store
-      .all<{ manifest?: { id?: string } }>("definitions")
-      .map((d) => d.manifest?.id)
+    definitions
+      .map((d) => (d.manifest as { id?: unknown } | undefined)?.id)
       .filter((id): id is string => typeof id === "string"),
   );
   const executorIds = new Set(ctx.registry.list().map((e) => e.agentId));
@@ -79,23 +56,23 @@ export async function buildTenantStatus(
     tenant: ctx.envelope,
     path: ctx.config.paths.root,
     checks: {
-      sqlite,
+      sqlite: health.schemaVersion > 0,
       scheduler: !ctx.closing,
       model: ctx.modelConfigured || modelView.configured,
       executors: true,
-      schema: schemaOk,
+      schema: health.ok,
     },
     model: modelView,
     agents,
     counts: {
-      sessions: sessions.length,
-      runningSessions,
-      pendingActions,
-      uncertainEffects,
+      sessions: counts.sessions,
+      runningSessions: counts.runningSessions,
+      pendingActions: counts.pendingActions,
+      uncertainEffects: counts.uncertainEffects,
     },
     sandbox: {
       backend: sandboxReport.backend,
-      retained,
+      retained: counts.sandboxes,
     },
   };
 }
@@ -104,32 +81,32 @@ export async function buildTenantStatus(
  * Insert-if-absent Tenant configuration seed (A18).
  * Response lists field names only; never secret values.
  */
-export function seedTenantConfig(
+export async function seedTenantConfig(
   ctx: {
-    store: Store;
+    store: SessionStore;
     vault: VaultService;
   },
   body: SeedTenantConfigRequest,
-): SeedTenantConfigResponse {
+): Promise<SeedTenantConfigResponse> {
   const applied: string[] = [];
   const kept: string[] = [];
 
-  if (body.sandbox?.backend) {
-    const existing = readTenantSetting(ctx.store.db, "sandbox.backend");
-    if (existing === undefined) {
-      writeTenantSetting(ctx.store.db, "sandbox.backend", body.sandbox.backend);
-      applied.push("sandbox.backend");
-    } else {
-      kept.push("sandbox.backend");
-    }
+  const backend = body.sandbox?.backend;
+  if (backend) {
+    const inserted = await ctx.store.tx(async (t) => {
+      if ((await t.getSetting("sandbox.backend")) !== undefined) return false;
+      await t.putSetting("sandbox.backend", backend);
+      return true;
+    });
+    (inserted ? applied : kept).push("sandbox.backend");
   }
 
   if (body.model) {
-    const current = ctx.vault.getHostModel();
+    const current = await ctx.vault.getHostModel();
     if (current.configured) {
       kept.push("model");
     } else {
-      ctx.vault.putHostModel({
+      await ctx.vault.putHostModel({
         requestId: body.requestId,
         idempotencyKey: `seed-model:${body.requestId}`,
         ...body.model,

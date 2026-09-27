@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { ExecutorScope } from "@nylorun/core/contracts";
+import type { SessionStore } from "../store/types.js";
 
 const equals = (a: string, b: string) => {
   const aa = Buffer.from(a),
@@ -104,4 +105,28 @@ export class ExecutorRegistry {
     this.byAgent.set(record.agentId, record);
     this.byHash.set(record.tokenHash, record);
   }
+}
+
+/** A registry seeded from the executors the store persisted (at Tenant open). */
+export async function loadExecutorRegistry(
+  store: SessionStore,
+): Promise<ExecutorRegistry> {
+  const registry = new ExecutorRegistry();
+  const rows = await store.tx((t) => t.listExecutors());
+  registry.seed(
+    rows.map((row) => ({
+      agentId: row.agentId,
+      implementationVersion: row.implementationVersion,
+      ...(row.manifestHash === undefined
+        ? {}
+        : { manifestHash: row.manifestHash }),
+      tokenHash: row.tokenHash,
+      persisted: true,
+      updatedAt: row.updatedAt,
+      ...(row.principalId === undefined
+        ? {}
+        : { principalId: row.principalId }),
+    })),
+  );
+  return registry;
 }

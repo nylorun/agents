@@ -2,14 +2,15 @@
  * Live delivery in process: session observers (SSE on `/v1/sessions/:id/events`), executor
  * streams (`/v1/executors/connect`), `publish` and `notify`, and the history reads.
  *
- * Business code never calls `publish` or `notify` here directly; it goes through
- * `ctx.publish` / `ctx.notify`, which `runtime.ts` wires to these functions.
+ * Business code never calls `publish` or `notify`: `runtime.ts` subscribes them to the Session
+ * Store's commit listener, so an event reaches observers only after its transaction commits.
  *
  * Later waves: Wave 2 / Y replaces `observers`/`publish` with history and SSE readers over
  * Durable Streams, and `executorStreams`/`notify` with the `tenant/work` stream.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
+import { decodeCursor, encodeCursor } from "../store/cursor.js";
 import type { TenantContext } from "./context.js";
 
 export interface LiveHub {
@@ -17,10 +18,16 @@ export interface LiveHub {
   readonly observers: Map<string, Set<ServerResponse>>;
   // Keyed by token hash so a rotation can end exactly the streams that the replaced token owns.
   readonly executorStreams: Map<string, Set<ServerResponse>>;
+  /** Observers still replaying history: live events wait here until the replay is written. */
+  readonly replaying: WeakMap<ServerResponse, LiveEvent[]>;
 }
 
 export function createLiveHub(): LiveHub {
-  return { observers: new Map(), executorStreams: new Map() };
+  return {
+    observers: new Map(),
+    executorStreams: new Map(),
+    replaying: new WeakMap(),
+  };
 }
 
 const WORK_AVAILABLE =
@@ -37,8 +44,11 @@ export function send(response: ServerResponse, data: string): void {
 }
 
 export function publish(hub: LiveHub, event: LiveEvent): void {
-  for (const response of hub.observers.get(event.sessionId) ?? [])
-    send(response, frame(event));
+  for (const response of hub.observers.get(event.sessionId) ?? []) {
+    const buffer = hub.replaying.get(response);
+    if (buffer) buffer.push(event);
+    else send(response, frame(event));
+  }
 }
 
 export function notify(hub: LiveHub): void {
@@ -83,29 +93,72 @@ export function requestCursor(
   );
 }
 
+/** The sequence after which to read: the cursor's, or before the first event. */
+function afterSeq(sessionId: string, cursor: string | undefined): number {
+  return cursor ? decodeCursor(sessionId, cursor) : -1;
+}
+
+/** `agent` keeps only events of one agent used as a tool, by delegationId or path. */
+function belongsTo(event: LiveEvent, agent: string): boolean {
+  const ref = (
+    event.payload as {
+      agent?: { path?: unknown; delegationId?: unknown };
+    } | null
+  )?.agent;
+  return ref?.delegationId === agent || ref?.path === agent;
+}
+
 /** `GET /v1/sessions/:id/items`. */
-export function readHistory(
+export async function readHistory(
   ctx: TenantContext,
   sessionId: string,
   cursor: string | undefined,
   agent: string | undefined
-) {
-  return ctx.store.history(sessionId, cursor, agent);
+): Promise<{ items: LiveEvent[]; cursor: string | null }> {
+  const { events, lastSeq } = await ctx.history.readEvents(
+    sessionId,
+    afterSeq(sessionId, cursor)
+  );
+  return {
+    items:
+      agent === undefined
+        ? events
+        : events.filter((event) => belongsTo(event, agent)),
+    cursor: lastSeq === null ? null : encodeCursor(sessionId, lastSeq),
+  };
 }
 
-/** `GET /v1/sessions/:id/events`: replay history after the cursor, then follow live. */
-export function streamSessionEvents(
+/**
+ * `GET /v1/sessions/:id/events`: replay history after the cursor, then follow live. The
+ * observer is registered before the history read and buffers live events until the replay
+ * is written, so an event committed in between is neither lost nor sent twice.
+ */
+export async function streamSessionEvents(
   ctx: TenantContext,
   request: IncomingMessage,
   response: ServerResponse,
   sessionId: string,
   cursor: string | undefined
-): void {
-  const history = ctx.store.history(sessionId, cursor);
+): Promise<void> {
+  let last = afterSeq(sessionId, cursor);
+  const buffered: LiveEvent[] = [];
+  ctx.live.replaying.set(response, buffered);
   const set = ctx.live.observers.get(sessionId) ?? new Set<ServerResponse>();
   ctx.live.observers.set(sessionId, set);
   openSse(request, response, set);
-  for (const event of history.items) send(response, frame(event));
+  try {
+    const history = await ctx.history.readEvents(sessionId, last);
+    for (const event of [...history.events, ...buffered]) {
+      const seq = decodeCursor(sessionId, event.cursor);
+      if (seq <= last) continue;
+      last = seq;
+      send(response, frame(event));
+    }
+  } catch {
+    response.end();
+  } finally {
+    ctx.live.replaying.delete(response);
+  }
 }
 
 /** `GET /v1/executors/connect`: an executor's work stream, primed with one `work_available`. */

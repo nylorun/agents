@@ -1,11 +1,11 @@
 /**
  * The session command service: `message`, `approve`/`respond`, `action_result` and `cancel`,
- * with per-session idempotency keys. A command commits its state change and event in one
- * transaction, then publishes, aborts a cancelled advance, cascades workflow cancels, and
- * asks for an advance through `ctx.schedule`.
+ * with per-session idempotency keys. A command locks its session and commits its state
+ * change, events and wakes in one transaction (the store publishes the events and runs the
+ * `afterCommit` wakes), then aborts a cancelled advance and cascades workflow cancels to the
+ * linked agent sessions, one transaction each.
  *
- * Later waves: Wave 1 / A makes the transaction async and replaces the `store.all` scans
- * with typed queries; Wave 2 / X routes the abort through `DurableExecution.abortLocal`
+ * Later waves: Wave 2 / X routes the abort through `DurableExecution.abortLocal`
  * and the control stream.
  */
 import { randomUUID } from "node:crypto";
@@ -32,9 +32,9 @@ import {
   wakeLinkedWorkflow,
 } from "../core/flow-host.js";
 import { resolveMessageManifest } from "../core/turn-manifest.js";
-import { canonical } from "../core/store.js";
+import { canonical } from "../store/canonical.js";
 import {
-  sessionOf,
+  lockedSession,
   type AuthScope,
   type Session,
   type TenantContext,
@@ -110,23 +110,20 @@ const semantic = (value: any): string => {
   return canonical(body);
 };
 
-export function command(
+export async function command(
   ctx: TenantContext,
   id: string,
   input: SessionCommand,
   scope: AuthScope
-): unknown {
+): Promise<unknown> {
   const { store } = ctx;
-  let event: LiveEvent | undefined;
-  const extraEvents: LiveEvent[] = [];
   const cascadeCancelIds: string[] = [];
-  let schedule = false;
-  const response = store.tx(() => {
-    const s = sessionOf(ctx, id);
+  const response = await store.tx(async (t) => {
+    const s = await lockedSession(t, id);
     let command = input;
     if (command.type === "action_result") {
       const a =
-        store.get<Action>("actions", command.actionId) ??
+        (await t.get<Action>("actions", command.actionId)) ??
         fail(404, "Action not found");
       if (a.sessionId !== id) fail(403, "Action belongs to another session");
       scoped(scope, a);
@@ -134,15 +131,16 @@ export function command(
     } else if (scope.kind !== "application")
       fail(403, "Application credential required");
     const key = JSON.stringify([id, command.idempotencyKey]);
-    const existing = store.get("commands", key);
+    const existing = await t.get("commands", key);
     if (existing) {
       if (semantic(existing.command) !== semantic(command))
         fail(409, "Idempotency key already binds another command");
       return existing.response;
     }
+    let event: LiveEvent;
     if (command.type === "action_result") {
-      const action = store.get<Action>("actions", command.actionId)!;
-      const prior = store.get("effects", command.actionId);
+      const action = (await t.get<Action>("actions", command.actionId))!;
+      const prior = await t.get("effects", command.actionId);
       if (action.status === "completed") {
         if (
           action.claimId !== command.claimId ||
@@ -150,7 +148,7 @@ export function command(
           canonical(prior.outcome) !== canonical(command.outcome)
         )
           fail(409, "Conflicting action result");
-        store.put("commands", key, { command, response: prior.receipt });
+        await t.put("commands", key, { command, response: prior.receipt });
         return prior.receipt;
       }
       if (
@@ -163,12 +161,12 @@ export function command(
       )
         fail(409, "Stale, expired, or cancelled claim");
       action.status = "completed";
-      store.put("actions", action.actionId, action);
+      await t.put("actions", action.actionId, action);
       prior.status = "completed";
       prior.outcome = command.outcome;
       s.status = "runnable";
-      schedule = true;
-      event = store.event(id, s.activeTurnId, "action.completed", {
+      t.afterCommit(() => ctx.schedule(id));
+      event = await t.event(id, s.activeTurnId, "action.completed", {
         actionId: action.actionId,
         ...actionTarget(action),
         kind: action.kind,
@@ -182,17 +180,15 @@ export function command(
           kind?: string;
         };
         if (verdict?.kind !== "failed") {
-          extraEvents.push(
-            store.event(id, s.activeTurnId, "loop.verified", {
-              path: String(action.context?.loopPath ?? action.path ?? ""),
-              n: Number(action.context?.n ?? 1),
-              pass: Boolean(verdict?.pass),
-              ...(verdict?.feedback !== undefined
-                ? { feedback: verdict.feedback }
-                : {}),
-              ...(verdict?.data !== undefined ? { data: verdict.data } : {}),
-            })
-          );
+          await t.event(id, s.activeTurnId, "loop.verified", {
+            path: String(action.context?.loopPath ?? action.path ?? ""),
+            n: Number(action.context?.n ?? 1),
+            pass: Boolean(verdict?.pass),
+            ...(verdict?.feedback !== undefined
+              ? { feedback: verdict.feedback }
+              : {}),
+            ...(verdict?.data !== undefined ? { data: verdict.data } : {}),
+          });
         }
       } else if (action.kind === "fn" && action.context?.role === "decide") {
         const decision = command.outcome.value as {
@@ -200,17 +196,15 @@ export function command(
           output?: unknown;
           agent?: unknown;
         };
-        extraEvents.push(
-          store.event(id, s.activeTurnId, "loop.decided", {
-            path: String(action.context?.loopPath ?? action.path ?? ""),
-            n: Number(action.context?.n ?? 1),
-            next:
-              "output" in decision && !("input" in decision)
-                ? "output"
-                : "input",
-            patched: Boolean(decision.agent),
-          })
-        );
+        await t.event(id, s.activeTurnId, "loop.decided", {
+          path: String(action.context?.loopPath ?? action.path ?? ""),
+          n: Number(action.context?.n ?? 1),
+          next:
+            "output" in decision && !("input" in decision)
+              ? "output"
+              : "input",
+          patched: Boolean(decision.agent),
+        });
       }
       const receipt = {
         status: "accepted",
@@ -219,63 +213,60 @@ export function command(
         requestId: command.requestId,
       };
       prior.receipt = receipt;
-      store.put("effects", action.actionId, prior);
+      await t.put("effects", action.actionId, prior);
       if (isWorkflowManifest(s.manifest) && s.activeTurnId) {
-        wakeForQueuedEffects({
-          store,
+        await wakeForQueuedEffects({
+          t,
           workflowSessionId: id,
           turnId: s.activeTurnId,
           limits: ctx.flowLimits,
-          schedule: (sid) => {
-            schedule = true;
-            void sid;
-          },
+          schedule: (sid) => ctx.schedule(sid),
         });
       }
     } else if (command.type === "cancel") {
       const cancelledTurnId = s.activeTurnId;
       const workflowCancel = isWorkflowManifest(s.manifest);
       const cascade = workflowCancel
-        ? planCancelCascade({
-            store,
+        ? await planCancelCascade({
+            t,
             workflowSessionId: id,
             turnId: cancelledTurnId,
           })
         : null;
       s.status = "cancelled";
       if (workflowCancel) {
-        fenceWorkflowActions({
-          store,
+        await fenceWorkflowActions({
+          t,
           workflowSessionId: id,
           turnId: cancelledTurnId,
         });
-      } else {
-        for (const a of store.all<Action>("actions"))
-          if (
-            a.sessionId === id &&
-            a.turnId === cancelledTurnId &&
-            ["pending", "claimed"].includes(a.status)
-          ) {
-            // Claimed work may already have an external effect. Preserve it for reconciliation.
-            a.status = a.status === "claimed" ? "uncertain" : "cancelled";
-            store.put("actions", a.actionId, a);
-            const effect = store.get("effects", a.actionId);
+      } else if (cancelledTurnId !== null) {
+        for (const a of await t.actionsForSession(id, {
+          turnId: cancelledTurnId,
+          statuses: ["pending", "claimed"],
+        })) {
+          // Claimed work may already have an external effect. Preserve it for reconciliation.
+          a.status = a.status === "claimed" ? "uncertain" : "cancelled";
+          await t.put("actions", a.actionId, a);
+          const effect = await t.get("effects", a.actionId);
+          if (effect) {
             effect.status = a.status;
-            store.put("effects", a.actionId, effect);
+            await t.put("effects", a.actionId, effect);
           }
+        }
       }
-      for (const effect of store.all("effects"))
-        if (
-          effect.request.sessionId === id &&
-          effect.request.turnId === cancelledTurnId &&
-          effect.status === "invoking"
-        ) {
+      if (cancelledTurnId !== null)
+        for (const effect of await t.effectsForTurn<any>(
+          id,
+          cancelledTurnId,
+          ["invoking"]
+        )) {
           effect.status = "uncertain";
           effect.error =
             "Turn cancelled before model outcome was durably recorded";
-          store.put("effects", effect.request.effectId, effect);
+          await t.put("effects", effect.request.effectId, effect);
         }
-      event = store.event(id, cancelledTurnId, "turn.cancelled", {
+      event = await t.event(id, cancelledTurnId, "turn.cancelled", {
         reason: command.reason,
       });
       s.activeTurnId = null;
@@ -284,10 +275,11 @@ export function command(
       s.checkpoint = undefined;
       s.waits = undefined;
       s.error = undefined;
-      // Cascade: cancel linked agent sessions deepest-first (after fencing this session).
+      // Cascade: cancel linked agent sessions deepest-first (after fencing this session), each
+      // in its own transaction after this one commits (child sessions are never locked here).
       if (cascade) {
         for (const agentId of cascade.agentSessionIds) {
-          const agent = store.get<Session>("sessions", agentId);
+          const agent = await t.get<Session>("sessions", agentId);
           if (
             !agent ||
             !agent.activeTurnId ||
@@ -367,8 +359,8 @@ export function command(
               };
         if (isWorkflowManifest(s.manifest)) {
           // Approvals owned by linked agent sessions must be answered there (WF-R52).
-          const conflict = foreignInteractionConflict({
-            store,
+          const conflict = await foreignInteractionConflict({
+            t,
             workflowSessionId: id,
             interactionId: command.interactionId,
           });
@@ -390,38 +382,46 @@ export function command(
           segment: (s.checkpoint?.segment ?? 0) + 1,
         });
       }
-      store.put(
+      await t.put(
         "checkpoints",
         JSON.stringify([id, s.activeTurnId, s.checkpoint!.segment]),
         { checkpoint: s.checkpoint, status: "runnable" }
       );
       s.status = "runnable";
       s.waits = undefined;
-      schedule = true;
-      event = store.event(
+      t.afterCommit(() => ctx.schedule(id));
+      event = await t.event(
         id,
         s.activeTurnId,
         `command.${command.type}`,
         command
       );
     }
-    store.put("sessions", id, s);
+    await t.put("sessions", id, s);
+    // Direct cancel of a linked agent fails that node with agent.cancelled (WF-R54). The agent
+    // session is locked above, before wakeLinkedWorkflow locks its workflow.
+    if (command.type === "cancel")
+      await wakeLinkedWorkflow({
+        t,
+        agentSessionId: id,
+        cancelled: true,
+        error: "Agent turn was cancelled",
+        schedule: (sid) => ctx.schedule(sid),
+      });
     const response = {
       status: "accepted",
       turnId: s.activeTurnId,
-      cursor: event?.cursor ?? store.history(id).cursor,
+      cursor: event.cursor,
       requestId: command.requestId,
     };
-    store.put("commands", key, { command, response });
+    await t.put("commands", key, { command, response });
     return response;
   });
-  if (event) ctx.publish(event);
-  for (const extra of extraEvents) ctx.publish(extra);
   if (input.type === "cancel") ctx.abortLocal(id);
   // Cascade cancel linked agents deepest-first under existing fencing (WF-R53).
   for (const agentId of cascadeCancelIds) {
     try {
-      command(
+      await command(
         ctx,
         agentId,
         {
@@ -436,22 +436,5 @@ export function command(
       /* agent may already be terminal */
     }
   }
-  // Direct cancel of a linked agent fails that node with agent.cancelled (WF-R54).
-  if (input.type === "cancel") {
-    const link = store.get("links", id);
-    if (link) {
-      store.tx(() => {
-        wakeLinkedWorkflow({
-          agentSessionId: id,
-          store,
-          cancelled: true,
-          error: "Agent turn was cancelled",
-          schedule: (sid) => ctx.schedule(sid),
-          publish: (e) => ctx.publish(e),
-        });
-      });
-    }
-  }
-  if (schedule) ctx.schedule(id);
   return response;
 }

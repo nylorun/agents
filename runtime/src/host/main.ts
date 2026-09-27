@@ -14,8 +14,6 @@ import { hostPaths } from "../tenant/paths.js";
 import { createTenantModule } from "../tenant/module.js";
 import { createFsTenantStore } from "../tenant/store-fs.js";
 import { openTenantRuntime } from "../tenant/runtime.js";
-import { bootstrapPrincipal } from "../tenant/principals.js";
-import { migrateTenantDatabase } from "../tenant/schema.js";
 import type { TenantConfig } from "../tenant/types.js";
 import type {
   HostConfigFile,
@@ -110,10 +108,6 @@ export async function main(): Promise<void> {
     openRuntime,
     configFor,
     logger,
-    writeBootstrap: (db, bootstrap) => {
-      migrateTenantDatabase(db);
-      bootstrapPrincipal(db, bootstrap);
-    },
   });
 
   const module = createTenantModule({
