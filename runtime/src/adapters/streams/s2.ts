@@ -30,12 +30,16 @@
  *   is honoured too (used for the work and control streams). `deleteOnEmpty`
  *   defaults to disabled (`minAgeSecs: 0`).
  * - **Stream deletion** is immediate for our purposes: right after `DELETE`,
- *   `checkTail` and reads return 404 `stream_not_found`, and an append
- *   re-creates the stream from sequence 0. Deleting a missing stream succeeds.
+ *   `checkTail` and reads return 404 `stream_not_found` (new read sessions
+ *   can briefly see 409 `stream_deletion_pending`), and an append re-creates
+ *   the stream from sequence 0. Deleting a missing stream succeeds. Open read
+ *   sessions see a command record, then fail with `stream_not_found`.
  * - **Basin deletion** is asynchronous: `DELETE` returns at once (also for a
  *   basin already being deleted), after which appends and `ensure` fail with
  *   409 `basin_deletion_pending` for about a minute (55 s measured) until the
- *   name is free again. `ensureTenant` waits that out (up to
+ *   name is free again. Meanwhile the basin is listed with `deletedAt`, and
+ *   its streams answer `stream_not_found`, so live reads check the basin when
+ *   their stream is missing. `ensureTenant` waits the deletion out (up to
  *   `basinDeletionWaitMs`), so a Tenant reset that recreates the basin stalls
  *   for up to a minute on s2-lite.
  * - **Conditional appends.** `match_seq_num` equal to the tail appends;
@@ -43,7 +47,10 @@
  *   `expectedSeqNum`, and writes nothing. A retry of an acknowledged append
  *   with the same `match_seq_num` is rejected this way, never duplicated. On a
  *   missing stream a failed conditional append still creates the (empty)
- *   stream when `createStreamOnAppend` is on.
+ *   stream when `createStreamOnAppend` is on. Concurrent appends to one stream
+ *   can fail with 409 `transaction_conflict` (nothing written); `append`
+ *   retries those, and the conditional retry then resolves to ok or
+ *   `seq_mismatch`.
  * - **Reads.** A read starting at or past the tail fails with 416
  *   (`RangeNotSatisfiableError`); with `clamp` a read session starts at the
  *   tail instead and follows it. Reading a missing stream is 404
@@ -314,6 +321,13 @@ class S2Streams implements DurableStreams {
           }
         } catch (error) {
           if (aborted.aborted || isTenantGone(error)) return;
+          // While a basin is being deleted its streams report
+          // `stream_not_found`, so a missing stream also checks the basin.
+          if (
+            (isMissing(error) || isCode(error, "stream_deletion_pending")) &&
+            (await this.basinGone(tenantId, aborted))
+          )
+            return;
           // Stream not created yet, or S2 unreachable: retry below.
         }
         await sleep(delay, aborted);
@@ -321,6 +335,18 @@ class S2Streams implements DurableStreams {
       }
     } finally {
       await handle.close().catch(() => {});
+    }
+  }
+
+  /** True when the Tenant's basin does not exist or is being deleted. */
+  private async basinGone(tenantId: string, signal: AbortSignal): Promise<boolean> {
+    const basin = this.basinName(tenantId);
+    try {
+      const { basins } = await this.s2.basins.list({ prefix: basin, limit: 1 }, { signal });
+      const info = basins.find((b) => b.name === basin);
+      return !info || info.deletedAt != null;
+    } catch {
+      return false;
     }
   }
 
@@ -350,17 +376,18 @@ function isMissing(error: unknown): boolean {
   return error instanceof S2Error && error.status === 404;
 }
 
+function isCode(error: unknown, code: string): boolean {
+  return error instanceof S2Error && error.code === code;
+}
+
 /** 409 `transaction_conflict`: a concurrent append to the stream won; nothing was written. */
 function isTransactionConflict(error: unknown): boolean {
-  return error instanceof S2Error && error.code === "transaction_conflict";
+  return isCode(error, "transaction_conflict");
 }
 
 /** The Tenant's basin is missing or being deleted: live reads end. */
 function isTenantGone(error: unknown): boolean {
-  return (
-    error instanceof S2Error &&
-    (error.code === "basin_not_found" || error.code === "basin_deletion_pending")
-  );
+  return isCode(error, "basin_not_found") || isCode(error, "basin_deletion_pending");
 }
 
 function anySignal(...signals: (AbortSignal | undefined)[]): AbortSignal {
