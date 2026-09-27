@@ -1,27 +1,21 @@
 /**
- * Composition root of an open Tenant: validates the config, takes the Tenant lock, opens the
- * Session Store and the vault key, builds the services and the `TenantContext`, wires the
- * seams, runs startup recovery, and implements `TenantHandle` (handle, summary, drain, close)
- * by delegating to the Tenant modules.
+ * Composition root of an open Tenant: validates the config, opens the Session Store and the
+ * vault key, builds the services and the `TenantContext`, wires the seams, registers the
+ * Tenant's Worker handlers and arms its sweep, and implements `TenantHandle` (handle,
+ * summary, drain, close) by delegating to the Tenant modules.
  *
- * Seams wired here: the store's commit listener delivers committed events to live observers
- * (`publish`) and `workAvailable` to connected executors (`notify`); `schedule` and
- * `abortLocal` drive in-process advances; `history` reads the SQLite events table.
+ * Seams wired here: `wireStreams()` connects the store's commits to Durable Streams (the
+ * relay, and the history, SSE, work and control readers); `wake` goes to the
+ * `DurableExecution`, whose handlers (`worker.ts`) call `advance` and `sweep`; `abortLocal`
+ * aborts an advance running on this process. The sweep also drains the outbox.
  *
- * Later waves: Wave 2 / X replaces the lock file and startup recovery with ownership
- * takeover and wires `DurableExecution`; Wave 2 / Y replaces the commit listener and
- * `history` with one `wireStreams()` call.
+ * Execution: the Host passes one `TenantExecution` for every Tenant it opens
+ * (`TenantOpenHooks.execution`); without one, the Tenant runs its own in-process
+ * `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
+ * session (§10.6) keeps its advances apart.
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
-import {
-  mkdirSync,
-  openSync,
-  closeSync,
-  unlinkSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { resolveFlowLimits, type FlowLimits } from "../core/limits.js";
@@ -41,27 +35,37 @@ import { VaultService, type AuthorizeResult } from "../vault/service.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
+import { MemoryExecution } from "../execution/memory.js";
 import { QuarantineError } from "./quarantine-error.js";
+import type { DurableStreams } from "../streams/types.js";
 import type { TenantConfig, TenantHandle, TenantSummary } from "./types.js";
 import type { TenantContext } from "./context.js";
 import {
   connectedExecutorCount,
   createLiveHub,
   endAllStreams,
-  notify,
-  publish,
 } from "./live.js";
+import {
+  closeStreams,
+  drainOutbox,
+  wireStreams,
+  type StreamsWiring,
+} from "./streams.js";
 import {
   abortAll,
   abortLocal,
   createWorkState,
   drain,
-  recoverOnOpen,
-  rescheduleOnOpen,
-  schedule,
-  startLeaseTimer,
   waitForIdle,
 } from "./scheduler.js";
+import { advance } from "./advance.js";
+import { sweep } from "./sweep.js";
+import {
+  TenantWorkers,
+  WORKER_ID,
+  type TenantExecution,
+  type TenantWorker,
+} from "./worker.js";
 import { authorize } from "./effects.js";
 import { handle } from "./routes.js";
 
@@ -71,14 +75,30 @@ export type TenantOpenHooks = {
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
+  /**
+   * The Host's Durable Session Execution and the registry its handlers dispatch through.
+   * The Host starts it; the Tenant registers its worker and arms its sweep. Without one,
+   * the Tenant starts and stops its own in-process `MemoryExecution`.
+   */
+  execution?: TenantExecution;
+  /** The Worker id written as session owner. Defaults to this process's `WORKER_ID`. */
+  workerId?: string;
+  /**
+   * Durable Streams for this Tenant, owned by the caller. Without them the Tenant uses
+   * in-memory streams re-hydrated from its SQLite events (until Wave 3 wires S2).
+   */
+  streams?: DurableStreams;
 };
 
+/** Default ownership lease of an advance; the heartbeat renews it every third. */
+const DEFAULT_OWNER_LEASE_MS = 30_000;
+
 function validateConfig(config: TenantConfig): FlowLimits {
-  if (
-    config.leaseMs !== undefined &&
-    (!Number.isFinite(config.leaseMs) || config.leaseMs <= 0)
-  )
-    throw new Error("leaseMs must be finite and positive");
+  for (const key of ["leaseMs", "ownerLeaseMs", "sweepIntervalMs"] as const) {
+    const value = config[key];
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0))
+      throw new Error(`${key} must be finite and positive`);
+  }
   const flowLimits = resolveFlowLimits({
     flow: config.flow,
     env: config.flowEnv,
@@ -91,41 +111,13 @@ function validateConfig(config: TenantConfig): FlowLimits {
   return flowLimits;
 }
 
-/** Take the Tenant lock file, clearing a stale one left by a dead process. */
-function claimLock(lockPath: string): void {
-  try {
-    const oldPid = Number(readFileSync(lockPath, "utf8"));
-    if (!Number.isSafeInteger(oldPid) || oldPid < 1)
-      throw new Error("Invalid runtime lock; inspect before removing");
-    try {
-      process.kill(oldPid, 0);
-      throw new QuarantineError(
-        "locked",
-        "Another Runtime owns this Tenant database",
-        "nylorun tenant status",
-        { lockPath, lockPid: oldPid }
-      );
-    } catch (error) {
-      if (error instanceof QuarantineError) throw error;
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-      unlinkSync(lockPath);
-    }
-  } catch (error) {
-    if (error instanceof QuarantineError) throw error;
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  const fd = openSync(lockPath, "wx");
-  writeFileSync(fd, String(process.pid));
-  closeSync(fd);
-}
-
 export class TenantRuntime implements TenantHandle {
-  private timer: NodeJS.Timeout | undefined;
-
   private constructor(
     private readonly ctx: TenantContext,
-    private readonly lockPath: string,
-    readonly envelope: TenantEnvelope
+    readonly envelope: TenantEnvelope,
+    /** This Tenant's Worker handlers, as registered with the execution. */
+    readonly worker: TenantWorker,
+    private readonly detach: () => Promise<void>
   ) {}
 
   static async open(
@@ -144,10 +136,9 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(paths.logs, { recursive: true });
     mkdirSync(dirname(paths.database), { recursive: true });
 
-    const lockPath = paths.lock;
-    claimLock(lockPath);
-
     let store: SqliteSessionStore | undefined;
+    let wired: StreamsWiring | undefined;
+    let detach: (() => Promise<void>) | undefined;
     try {
       store = createSqliteSessionStore({
         path: paths.database,
@@ -217,7 +208,6 @@ export class TenantRuntime implements TenantHandle {
           }
         },
       });
-      await sandbox.init();
 
       const useVaultModel = config.model.kind === "vault";
       let modelProvider: ModelProvider;
@@ -243,11 +233,25 @@ export class TenantRuntime implements TenantHandle {
       } else modelProvider = scriptedModel();
 
       const live = createLiveHub();
+      const local = hooks.execution
+        ? undefined
+        : new MemoryExecution({
+            sweepIntervalMs:
+              config.sweepIntervalMs ?? Math.min(config.leaseMs ?? 30_000, 5000),
+            onError: (error) =>
+              config.logger.error("tenant execution failed", {
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          });
+      const { execution, workers } = hooks.execution ?? {
+        execution: local!,
+        workers: new TenantWorkers(),
+      };
+      const sweepHooks = new Set<() => Promise<void>>();
       ctx = {
         config,
         envelope,
         store: opened,
-        history: opened,
         vault,
         registry,
         mcp,
@@ -259,32 +263,52 @@ export class TenantRuntime implements TenantHandle {
         closed: false,
         work: createWorkState(),
         live,
-        schedule: (sessionId) => schedule(ctx, sessionId),
+        workerId: hooks.workerId ?? WORKER_ID,
+        ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
+        wake: async (sessionId, wake) => {
+          if (ctx.closing || ctx.closed) return;
+          await execution.wake(config.tenantId, sessionId, wake);
+        },
         abortLocal: (sessionId) => abortLocal(ctx, sessionId),
+        sweepHooks,
+        onSweep: (hook) => {
+          sweepHooks.add(hook);
+          return () => sweepHooks.delete(hook);
+        },
       };
-      // The seams: committed events go to live observers, work to connected executors.
-      opened.onCommit((commit) => {
-        for (const event of commit.events) publish(live, event);
-        if (commit.workAvailable) notify(live);
+      wired = await wireStreams(ctx, {
+        store: opened,
+        streams: hooks.streams,
+        tenantId: config.tenantId,
+      });
+      // Outbox rows a lost relay step left behind are appended by the sweep.
+      sweepHooks.add(async () => {
+        await drainOutbox(ctx);
       });
 
-      if (!ephemeral && (await sandbox.hasRecords()))
-        void sandbox
-          .reconcile(
-            async (id) =>
-              !ctx.closed &&
-              !!(await opened.tx((t) => t.get("sessions", id)).catch(() => 1))
-          )
-          .catch(() => undefined);
-
-      await recoverOnOpen(ctx);
-      await rescheduleOnOpen(ctx);
-      const runtime = new TenantRuntime(ctx, lockPath, envelope);
-      runtime.timer = startLeaseTimer(ctx);
-      return runtime;
+      // Register the handlers, then arm the sweep: its first pass runs at once and re-wakes
+      // sessions a previous process left runnable or running (takeover handles the rest).
+      let afterOpen = true;
+      const worker: TenantWorker = {
+        advance: (sessionId, signal) => advance(ctx, sessionId, signal),
+        sweep: async () => {
+          const first = afterOpen;
+          afterOpen = false;
+          await sweep(ctx, { afterOpen: first });
+        },
+      };
+      const unregister = workers.register(config.tenantId, worker);
+      detach = async () => {
+        unregister();
+        await local?.stop();
+      };
+      if (local) await local.start(workers.handlers);
+      await execution.armSweep(config.tenantId);
+      return new TenantRuntime(ctx, envelope, worker, detach);
     } catch (error) {
+      await detach?.().catch(() => undefined);
+      await wired?.close().catch(() => undefined);
       await store?.close().catch(() => undefined);
-      if (existsSync(lockPath)) unlinkSync(lockPath);
       throw error;
     }
   }
@@ -320,18 +344,31 @@ export class TenantRuntime implements TenantHandle {
     return drain(this.ctx, activeWork, timeoutMs);
   }
 
+  /**
+   * Aborts the advance of `sessionId` if it runs on this process. Cancel calls it after
+   * committing `cancelled`; the control stream calls it for cancels made elsewhere.
+   */
+  abortLocal(sessionId: string): void {
+    this.ctx.abortLocal(sessionId);
+  }
+
+  /** Adds a callback to the Tenant sweep. Returns a function that removes it. */
+  onSweep(hook: () => Promise<void>): () => void {
+    return this.ctx.onSweep(hook);
+  }
+
   async close(): Promise<void> {
     const ctx = this.ctx;
     ctx.closing = true;
-    clearInterval(this.timer);
     abortAll(ctx);
+    await this.detach();
     await ctx.mcp.close();
     endAllStreams(ctx.live);
     await waitForIdle(ctx);
     await ctx.sandbox.close();
     ctx.closed = true;
+    await closeStreams(ctx);
     await ctx.store.close();
-    if (existsSync(this.lockPath)) unlinkSync(this.lockPath);
   }
 }
 

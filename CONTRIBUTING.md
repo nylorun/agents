@@ -78,6 +78,22 @@ preview agents and credentials are never overwritten.
 For focused checks: `npm run check --workspace @nylorun/runtime` (substitute another
 package). CI uses `-- --built` on root checks after setup to avoid rebuilding.
 
+The Runtime and Studio also ship as the images `ghcr.io/nylorun/runtime` and
+`ghcr.io/nylorun/studio`, built from the repository root. To run your changes
+under `nylorun start`, build them and point the CLI at the local tags:
+
+```sh
+docker build --file runtime/Dockerfile --tag nylorun-runtime:dev .
+docker build --file studio/Dockerfile --tag nylorun-studio:dev .
+NYLORUN_RUNTIME_IMAGE=nylorun-runtime:dev NYLORUN_STUDIO_IMAGE=nylorun-studio:dev npx nylorun start
+```
+
+CI's `stack` job does the same with images built from the PR, and `integration`
+runs the Runtime's integration tests against the Docker test stack
+(`npm run test:stack:up --workspace @nylorun/runtime`, then
+`NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
+Releases publish both images; see [RELEASING.md](./RELEASING.md).
+
 ## Generated examples and dependencies
 
 Edit starter files or the examples recipe, then:

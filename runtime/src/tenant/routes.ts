@@ -1,10 +1,8 @@
 /**
  * The Tenant HTTP router: authenticates the bearer token, matches `/v1/...` routes and
  * delegates to the service modules (commands, actions, sessions, live, routes-tenant). It
- * maps typed errors to responses and owns no business logic of its own.
- *
- * Later waves: Wave 2 / Y swaps the history and SSE
- * handlers for stream readers. Route shapes do not change.
+ * maps typed errors to responses and owns no business logic of its own. History, SSE and
+ * executor work streams read Durable Streams (`live.ts`).
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -50,7 +48,6 @@ import {
   streamExecutorWork,
   streamSessionEvents,
 } from "./live.js";
-import { expireClaims } from "./scheduler.js";
 import { dispatchTenant, dispatchVault } from "./routes-tenant.js";
 
 export async function handle(
@@ -85,7 +82,6 @@ export async function handle(
     if (path[1] === "actions") {
       if (scope.kind !== "executor")
         return fail(403, "Executor credential required");
-      await expireClaims(ctx);
       if (path.length === 2 && method === "GET")
         return json(await listPendingActions(ctx, scope.executor));
       const actionId = path[2];

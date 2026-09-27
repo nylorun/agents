@@ -1,37 +1,65 @@
 /**
- * Live delivery in process: session observers (SSE on `/v1/sessions/:id/events`), executor
- * streams (`/v1/executors/connect`), `publish` and `notify`, and the history reads.
+ * Live delivery over Durable Streams (architecture §12.4, "Reading"): session history
+ * (`GET /v1/sessions/:id/items`), session SSE (`GET /v1/sessions/:id/events`) and executor
+ * work streams (`GET /v1/executors/connect`).
  *
- * Business code never calls `publish` or `notify`: `runtime.ts` subscribes them to the Session
- * Store's commit listener, so an event reaches observers only after its transaction commits.
+ * - **History** reads `sessions/<id>` from the cursor up to the tail seen when the read starts.
+ *   The `agent` filter runs here, and the response cursor is the last record read. If the
+ *   streams fail, history answers `503`.
+ * - **SSE** shares one stream read per observed session in this process (a `SessionFeed`)
+ *   among that session's observers. Each observer keeps the next sequence it needs and skips
+ *   what it already has, so a client resuming from `Last-Event-ID` sees no gap and no
+ *   duplicate. An observer behind the feed restarts the shared read from its own position.
+ * - **Executor streams** receive `work_available` from the `tenant/work` reader that
+ *   `tenant/streams.ts` runs (one per Tenant per process); discovery stays `GET /v1/actions`.
  *
- * Later waves: Wave 2 / Y replaces `observers`/`publish` with history and SSE readers over
- * Durable Streams, and `executorStreams`/`notify` with the `tenant/work` stream.
+ * Business code never writes here: events reach streams only through the relay, after commit.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../store/cursor.js";
+import {
+  sessionStream,
+  type DurableStreams,
+  type StreamRecord,
+} from "../streams/types.js";
 import type { TenantContext } from "./context.js";
+import { fail } from "./http.js";
+import type { StreamsWiring } from "./streams.js";
+
+/** One SSE client of a session: the next sequence it needs. */
+interface Observer {
+  readonly response: ServerResponse;
+  next: number;
+}
+
+/** The shared stream read of one observed session. */
+interface SessionFeed {
+  readonly sessionId: string;
+  /** The sequence the shared read yields next. Every observer's `next` is at or past it. */
+  next: number;
+  readonly observers: Set<Observer>;
+  /** Aborts the current read; replaced when the read restarts from an earlier sequence. */
+  read: AbortController;
+}
 
 export interface LiveHub {
-  /** Session id → open SSE responses. */
-  readonly observers: Map<string, Set<ServerResponse>>;
+  /** Set once by `wireStreams`. */
+  wiring: StreamsWiring | undefined;
+  /** Session id → its shared read and observers. */
+  readonly feeds: Map<string, SessionFeed>;
   // Keyed by token hash so a rotation can end exactly the streams that the replaced token owns.
   readonly executorStreams: Map<string, Set<ServerResponse>>;
-  /** Observers still replaying history: live events wait here until the replay is written. */
-  readonly replaying: WeakMap<ServerResponse, LiveEvent[]>;
 }
 
 export function createLiveHub(): LiveHub {
-  return {
-    observers: new Map(),
-    executorStreams: new Map(),
-    replaying: new WeakMap(),
-  };
+  return { wiring: undefined, feeds: new Map(), executorStreams: new Map() };
 }
 
 const WORK_AVAILABLE =
   'event: work_available\ndata: {"type":"work_available"}\n\n';
+const RETRY_MIN_MS = 100;
+const RETRY_MAX_MS = 2000;
 
 function frame(event: LiveEvent): string {
   return `id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(
@@ -43,25 +71,11 @@ export function send(response: ServerResponse, data: string): void {
   if (!response.write(data)) response.destroy();
 }
 
-export function publish(hub: LiveHub, event: LiveEvent): void {
-  for (const response of hub.observers.get(event.sessionId) ?? []) {
-    const buffer = hub.replaying.get(response);
-    if (buffer) buffer.push(event);
-    else send(response, frame(event));
-  }
-}
-
-export function notify(hub: LiveHub): void {
-  for (const streams of hub.executorStreams.values())
-    for (const response of streams) send(response, WORK_AVAILABLE);
-}
-
-/** Start an SSE response and keep it in `set` until the client goes away. */
+/** Start an SSE response with keepalives; `onClose` runs once the client goes away. */
 export function openSse(
   request: IncomingMessage,
   response: ServerResponse,
-  set: Set<ServerResponse>,
-  whenEmpty?: () => void
+  onClose: () => void
 ): void {
   response.writeHead(200, {
     "content-type": "text/event-stream",
@@ -70,13 +84,11 @@ export function openSse(
     "x-accel-buffering": "no",
   });
   response.flushHeaders();
-  set.add(response);
   const timer = setInterval(() => send(response, ": keepalive\n\n"), 15000);
   timer.unref();
   request.on("close", () => {
     clearInterval(timer);
-    set.delete(response);
-    if (!set.size) whenEmpty?.();
+    onClose();
   });
 }
 
@@ -93,9 +105,9 @@ export function requestCursor(
   );
 }
 
-/** The sequence after which to read: the cursor's, or before the first event. */
-function afterSeq(sessionId: string, cursor: string | undefined): number {
-  return cursor ? decodeCursor(sessionId, cursor) : -1;
+/** The first sequence to read: after the cursor's, or the session's first event. */
+function startSeq(sessionId: string, cursor: string | undefined): number {
+  return cursor ? decodeCursor(sessionId, cursor) + 1 : 0;
 }
 
 /** `agent` keeps only events of one agent used as a tool, by delegationId or path. */
@@ -108,30 +120,55 @@ function belongsTo(event: LiveEvent, agent: string): boolean {
   return ref?.delegationId === agent || ref?.path === agent;
 }
 
-/** `GET /v1/sessions/:id/items`. */
+function streamsOf(ctx: TenantContext): DurableStreams {
+  return (
+    ctx.live.wiring?.streams ?? fail(503, "Session streams are unavailable")
+  );
+}
+
+/**
+ * `GET /v1/sessions/:id/items`: the session stream after the cursor, up to its tail when the
+ * read starts. The cursor returned is the last record read (the request's cursor when none
+ * was), whatever the `agent` filter kept.
+ */
 export async function readHistory(
   ctx: TenantContext,
   sessionId: string,
   cursor: string | undefined,
   agent: string | undefined
 ): Promise<{ items: LiveEvent[]; cursor: string | null }> {
-  const { events, lastSeq } = await ctx.history.readEvents(
-    sessionId,
-    afterSeq(sessionId, cursor)
-  );
+  const from = startSeq(sessionId, cursor);
+  const streams = streamsOf(ctx);
+  const items: LiveEvent[] = [];
+  let last: number | undefined;
+  try {
+    for await (const record of streams.read<LiveEvent>(
+      ctx.config.tenantId,
+      sessionStream(sessionId),
+      from,
+      { follow: false }
+    )) {
+      last = record.seq;
+      if (agent === undefined || belongsTo(record.body, agent))
+        items.push(record.body);
+    }
+  } catch (error) {
+    ctx.config.logger.warn("session history read failed", {
+      sessionId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    fail(503, "Session history is unavailable");
+  }
   return {
-    items:
-      agent === undefined
-        ? events
-        : events.filter((event) => belongsTo(event, agent)),
-    cursor: lastSeq === null ? null : encodeCursor(sessionId, lastSeq),
+    items,
+    cursor:
+      last !== undefined ? encodeCursor(sessionId, last) : cursor ?? null,
   };
 }
 
 /**
- * `GET /v1/sessions/:id/events`: replay history after the cursor, then follow live. The
- * observer is registered before the history read and buffers live events until the replay
- * is written, so an event committed in between is neither lost nor sent twice.
+ * `GET /v1/sessions/:id/events`: joins the session's shared read at the client's cursor and
+ * follows it until the client leaves, the session's streams are reset, or the Tenant closes.
  */
 export async function streamSessionEvents(
   ctx: TenantContext,
@@ -140,25 +177,94 @@ export async function streamSessionEvents(
   sessionId: string,
   cursor: string | undefined
 ): Promise<void> {
-  let last = afterSeq(sessionId, cursor);
-  const buffered: LiveEvent[] = [];
-  ctx.live.replaying.set(response, buffered);
-  const set = ctx.live.observers.get(sessionId) ?? new Set<ServerResponse>();
-  ctx.live.observers.set(sessionId, set);
-  openSse(request, response, set);
-  try {
-    const history = await ctx.history.readEvents(sessionId, last);
-    for (const event of [...history.events, ...buffered]) {
-      const seq = decodeCursor(sessionId, event.cursor);
-      if (seq <= last) continue;
-      last = seq;
-      send(response, frame(event));
-    }
-  } catch {
-    response.end();
-  } finally {
-    ctx.live.replaying.delete(response);
+  const from = startSeq(sessionId, cursor);
+  streamsOf(ctx);
+  const hub = ctx.live;
+  const observer: Observer = { response, next: from };
+  let feed = hub.feeds.get(sessionId);
+  if (!feed) {
+    feed = {
+      sessionId,
+      next: from,
+      observers: new Set(),
+      read: new AbortController(),
+    };
+    hub.feeds.set(sessionId, feed);
+    runFeed(ctx, feed);
+  } else if (from < feed.next) {
+    // Behind the shared read: restart it here; observers ahead skip what they have.
+    feed.read.abort();
+    feed.read = new AbortController();
+    feed.next = from;
+    runFeed(ctx, feed);
   }
+  const joined = feed;
+  joined.observers.add(observer);
+  openSse(request, response, () => leave(hub, joined, observer));
+}
+
+function leave(hub: LiveHub, feed: SessionFeed, observer: Observer): void {
+  feed.observers.delete(observer);
+  if (feed.observers.size > 0) return;
+  feed.read.abort();
+  if (hub.feeds.get(feed.sessionId) === feed) hub.feeds.delete(feed.sessionId);
+}
+
+function deliver(observer: Observer, record: StreamRecord<LiveEvent>): void {
+  if (record.seq < observer.next) return;
+  observer.next = record.seq + 1;
+  send(observer.response, frame(record.body));
+}
+
+/**
+ * Follows the session stream from `feed.next` for the current `feed.read`, retrying failed
+ * reads from where it stopped. A read that ends by itself (the stream's Tenant is gone or the
+ * streams closed) ends the observers.
+ */
+function runFeed(ctx: TenantContext, feed: SessionFeed): void {
+  const read = feed.read;
+  const signal = read.signal;
+  void (async () => {
+    let delay = RETRY_MIN_MS;
+    while (!signal.aborted) {
+      const streams = ctx.live.wiring?.streams;
+      if (!streams) break;
+      try {
+        for await (const record of streams.read<LiveEvent>(
+          ctx.config.tenantId,
+          sessionStream(feed.sessionId),
+          feed.next,
+          { signal }
+        )) {
+          // A restart replaced this read: the new one owns `feed.next`.
+          if (signal.aborted || feed.read !== read) return;
+          if (record.seq < feed.next) continue;
+          feed.next = record.seq + 1;
+          delay = RETRY_MIN_MS;
+          for (const observer of feed.observers) deliver(observer, record);
+        }
+        if (signal.aborted) return;
+        break;
+      } catch (error) {
+        if (signal.aborted) return;
+        ctx.config.logger.warn("session stream read failed; retrying", {
+          sessionId: feed.sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      await sleep(delay, signal);
+      delay = Math.min(delay * 2, RETRY_MAX_MS);
+    }
+    if (signal.aborted || feed.read !== read) return;
+    endFeed(ctx.live, feed);
+  })();
+}
+
+function endFeed(hub: LiveHub, feed: SessionFeed): void {
+  feed.read.abort();
+  if (hub.feeds.get(feed.sessionId) === feed) hub.feeds.delete(feed.sessionId);
+  for (const observer of feed.observers) observer.response.end();
+  feed.observers.clear();
 }
 
 /** `GET /v1/executors/connect`: an executor's work stream, primed with one `work_available`. */
@@ -170,10 +276,20 @@ export function streamExecutorWork(
 ): void {
   let streams = hub.executorStreams.get(tokenHash);
   if (!streams) hub.executorStreams.set(tokenHash, (streams = new Set()));
-  openSse(request, response, streams, () =>
-    hub.executorStreams.delete(tokenHash)
-  );
+  const set = streams;
+  set.add(response);
+  openSse(request, response, () => {
+    set.delete(response);
+    if (!set.size && hub.executorStreams.get(tokenHash) === set)
+      hub.executorStreams.delete(tokenHash);
+  });
   send(response, WORK_AVAILABLE);
+}
+
+/** Called by the `tenant/work` reader for each signal: wake every connected executor. */
+export function announceWork(hub: LiveHub): void {
+  for (const streams of hub.executorStreams.values())
+    for (const response of streams) send(response, WORK_AVAILABLE);
 }
 
 export function executorConnected(hub: LiveHub, tokenHash: string): boolean {
@@ -191,10 +307,10 @@ export function endExecutorStreams(hub: LiveHub, tokenHash: string): void {
   hub.executorStreams.delete(tokenHash);
 }
 
-/** Reset: end and forget every session observer. */
+/** Reset or close: end every session observer and stop every shared read. */
 export function clearObservers(hub: LiveHub): void {
-  for (const set of hub.observers.values()) for (const r of set) r.end();
-  hub.observers.clear();
+  for (const feed of [...hub.feeds.values()]) endFeed(hub, feed);
+  hub.feeds.clear();
 }
 
 /** Reset: end and forget every executor stream. */
@@ -206,7 +322,19 @@ export function clearExecutorStreams(hub: LiveHub): void {
 
 /** Close: end every executor stream, then every session observer. */
 export function endAllStreams(hub: LiveHub): void {
-  for (const streams of hub.executorStreams.values())
-    for (const r of streams) r.end();
-  for (const set of hub.observers.values()) for (const r of set) r.end();
+  clearExecutorStreams(hub);
+  clearObservers(hub);
+}
+
+export function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }

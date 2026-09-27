@@ -4,16 +4,16 @@
  * in-process work and live-stream state.
  *
  * Business code changes state only inside `ctx.store.tx(async (t) => …)` and follows the
- * seam rules: events through `t.event(...)` (the store delivers them to live observers after
+ * seam rules: events through `t.event(...)` (the relay appends them to Durable Streams after
  * commit), executor wakes through `t.signalWork()`, and advances through
- * `t.afterCommit(() => ctx.schedule(id))`. It never calls `publish` or `notify` itself;
- * `runtime.ts` wires the store's commit listener to them. No external I/O runs inside a tx.
+ * `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never publishes or notifies
+ * itself; `runtime.ts` wires the streams with `wireStreams()`. No external I/O runs inside a
+ * tx.
  *
- * Later waves replace each seam in one place (`runtime.ts` wires them): Wave 2 / X puts
- * `schedule` and `abortLocal` behind `DurableExecution`, and Wave 2 / Y puts the commit
- * listener and `history` behind Durable Streams.
+ * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
+ * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
-import type { LiveEvent, TenantEnvelope } from "@nylorun/core/contracts";
+import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type {
   DurableCheckpoint,
   FlowCheckpoint,
@@ -30,6 +30,7 @@ import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantConfig } from "./types.js";
 import type { LiveHub } from "./live.js";
+import type { Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
 import { fail } from "./http.js";
 
@@ -67,20 +68,10 @@ export type AuthScope =
   | { kind: "application"; principalId: string }
   | { kind: "executor"; executor: ExecutorRecord };
 
-/** Reads a session's committed events (the SQLite events table until Wave 2 / Y). */
-export interface EventHistory {
-  readEvents(
-    sessionId: string,
-    afterSeq?: number
-  ): Promise<{ events: LiveEvent[]; lastSeq: number | null }>;
-}
-
 export interface TenantContext {
   readonly config: TenantConfig;
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
-  /** Seam: session history for `GET …/items` and SSE replay. */
-  readonly history: EventHistory;
   readonly vault: VaultService;
   readonly registry: ExecutorRegistry;
   readonly mcp: McpPool;
@@ -93,14 +84,26 @@ export interface TenantContext {
   closing: boolean;
   /** Set once close has finished releasing resources. */
   closed: boolean;
-  /** In-process advances: running controllers and pending wakes. */
+  /** Advances running on this process, for `abortLocal`, drain and close. */
   readonly work: WorkState;
-  /** In-process live streams: session observers and executor streams. */
+  /** Live delivery over Durable Streams: session feeds, executor streams, the streams wiring. */
   readonly live: LiveHub;
-  /** Seam: request an advance of a session. Call it from `t.afterCommit`, never inside a tx. */
-  schedule(sessionId: string): void;
+  /** The Worker id this process writes as session `owner` (§10.6). */
+  readonly workerId: string;
+  /** How long an advance's ownership lease lasts; the heartbeat renews it. */
+  readonly ownerLeaseMs: number;
+  /**
+   * Seam: request an advance of a session (`DurableExecution.wake`). Call it from
+   * `t.afterCommit`, never inside a tx. Dropped while the Tenant is closing; the sweep
+   * re-wakes anything left runnable.
+   */
+  wake(sessionId: string, wake: Wake): Promise<void>;
   /** Seam: abort the advance of a session running in this process, if any. */
   abortLocal(sessionId: string): void;
+  /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */
+  readonly sweepHooks: ReadonlySet<() => Promise<void>>;
+  /** Adds a sweep callback (the outbox drain, Wave 2 / Y). Returns a function that removes it. */
+  onSweep(hook: () => Promise<void>): () => void;
 }
 
 /** The session, or a 404. Reads without locking. */
@@ -116,6 +119,28 @@ export async function lockedSession(t: Tx, id: string): Promise<Session> {
   return (
     (await t.lockSession<Session>(id)) ?? fail(404, "Session not found")
   );
+}
+
+/** An advance's hold on its session (§10.6): every write the advance makes presents `epoch`. */
+export interface Lease {
+  readonly sessionId: string;
+  readonly owner: string;
+  readonly epoch: number;
+}
+
+/**
+ * Locks `id` for the advance holding `lease`. The advance's own session is epoch-checked: a
+ * mismatch (or a deleted session) throws `ownership.lost` before anything is written. Any
+ * other session is only locked (or a 404).
+ */
+export async function ownedSession(
+  t: Tx,
+  lease: Lease,
+  id: string
+): Promise<Session> {
+  if (id === lease.sessionId)
+    return t.assertEpoch<Session>(id, lease.epoch);
+  return lockedSession(t, id);
 }
 
 /** The session read in its own transaction, or a 404. */

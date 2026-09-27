@@ -25,7 +25,7 @@ afterEach(async () => {
 async function setup() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-delete-"));
   roots.push(hostRoot);
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
   const store = createFsTenantStore({ hostRoot, openRuntime, configFor });
   const module = createTenantModule({
@@ -78,7 +78,6 @@ it("delete with cancel drains then moves the directory to trash", async () => {
   let drained: string | undefined;
   const openRuntime = createFakeOpenRuntime({
     hostRoot,
-    claimLock: true,
   });
   // Re-bind drain observation via handle after create.
   const configFor = configForRoot(hostRoot);

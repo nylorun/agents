@@ -13,6 +13,8 @@ export interface MemoryExecutionOptions {
   retryDelayMs?: number;
   /** Attempts before giving up on a throwing `advance` and reporting it. Default 5. */
   maxAttempts?: number;
+  /** How long a dedupe key merges repeated wakes. Default 24 hours. */
+  dedupeRetentionMs?: number;
   /** Receives handler failures that are not retried. */
   onError?: (error: unknown) => void;
 }
@@ -46,7 +48,8 @@ interface Sweep {
 export class MemoryExecution implements DurableExecution {
   private handlers?: WorkerHandlers;
   private readonly keys = new Map<string, KeyState>();
-  private readonly seen = new Set<string>();
+  /** Dedupe keys seen, with the time each was first seen; insertion order is age order. */
+  private readonly seen = new Map<string, number>();
   private readonly timers = new Map<string, PendingTimer>();
   private readonly sweeps = new Map<string, Sweep>();
   private readonly delayed = new Set<NodeJS.Timeout>();
@@ -54,12 +57,14 @@ export class MemoryExecution implements DurableExecution {
   private readonly sweepIntervalMs: number;
   private readonly retryDelayMs: number;
   private readonly maxAttempts: number;
+  private readonly dedupeRetentionMs: number;
   private readonly onError: (error: unknown) => void;
 
   constructor(options: MemoryExecutionOptions = {}) {
     this.sweepIntervalMs = options.sweepIntervalMs ?? 5000;
     this.retryDelayMs = options.retryDelayMs ?? 50;
     this.maxAttempts = options.maxAttempts ?? 5;
+    this.dedupeRetentionMs = options.dedupeRetentionMs ?? 24 * 60 * 60_000;
     this.onError =
       options.onError ??
       ((error) =>
@@ -73,9 +78,11 @@ export class MemoryExecution implements DurableExecution {
       throw new Error(`Unknown wake reason: ${String(wake.reason)}`);
     const key = sessionKey(tenantId, sessionId);
     if (wake.dedupeKey !== undefined) {
+      const now = Date.now();
+      this.forgetDedupeKeys(now);
       const dedupe = `${key}\u0000${wake.dedupeKey}`;
       if (this.seen.has(dedupe)) return;
-      this.seen.add(dedupe);
+      this.seen.set(dedupe, now);
     }
     this.enqueue(tenantId, sessionId);
   }
@@ -166,9 +173,22 @@ export class MemoryExecution implements DurableExecution {
           }
         } finally {
           state.running = false;
+          // Idle keys hold nothing (a retry keeps its attempt count); forget them so
+          // long-lived processes stay small.
+          const key = sessionKey(state.tenantId, state.sessionId);
+          if (!state.queued && state.attempts === 0 && this.keys.get(key) === state)
+            this.keys.delete(key);
         }
       })(),
     );
+  }
+
+  /** Drops dedupe keys older than the retention window. */
+  private forgetDedupeKeys(now: number): void {
+    for (const [dedupe, seenAt] of this.seen) {
+      if (now - seenAt < this.dedupeRetentionMs) break;
+      this.seen.delete(dedupe);
+    }
   }
 
   private async advanceOnce(

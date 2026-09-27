@@ -15,7 +15,6 @@ export interface TenantPaths {
   root: string;
   envelope: string;
   database: string;
-  lock: string;
   kek: string;
   home: string;
   tmp: string;
@@ -43,7 +42,15 @@ export interface TenantConfig {
   };
   model: TenantModelConfig;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
+  /** Action claim lease. Default 30 s. */
   leaseMs?: number;
+  /** Ownership lease of an advance (§10.6); renewed every third while it runs. Default 30 s. */
+  ownerLeaseMs?: number;
+  /**
+   * Delay between Tenant sweep passes when the Tenant runs its own in-process execution.
+   * Default `min(leaseMs, 5 s)`. A Host-level execution sets its own.
+   */
+  sweepIntervalMs?: number;
   /** Operator flow limits (`RuntimeOptions.flow` / `workflows.md` §13). */
   flow?: Partial<FlowLimits>;
   /**
@@ -92,7 +99,6 @@ export type TenantResolution =
 
 export interface Quarantine {
   code:
-    | "locked"
     | "kek-missing"
     | "corrupt"
     | "schema-too-new"
@@ -102,8 +108,6 @@ export interface Quarantine {
     | "open-failed";
   message: string; // redacted, no secrets
   repair: string; // CLI command or instruction
-  lockPath?: string;
-  lockPid?: number;
 }
 
 export interface BootstrapPrincipal {

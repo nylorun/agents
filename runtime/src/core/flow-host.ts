@@ -4,7 +4,7 @@
  * Every function that touches state takes the caller's transaction `t: Tx` and
  * is async. Nothing here publishes, notifies or schedules directly (seam rule
  * 1): events go through `t.event(...)`, which the store publishes after
- * commit, and wakes go through `t.afterCommit(() => schedule(id))`. Functions
+ * commit, and wakes go through `t.afterCommit(() => schedule(id, wake))`. Functions
  * that rewrite a session-scoped document lock that session first with
  * `t.lockSession` (a no-op when the caller already holds it).
  *
@@ -17,8 +17,10 @@
  * - `pathDepth(path): number`
  * - `countActiveFlowWork(t, workflowSessionId, turnId): Promise<number>`
  * - `wakeLinkedWorkflow({ t, agentSessionId, output?, failed?, cancelled?, error?, schedule }): Promise<void>`
- * - `reconcilePendingAgentEffects({ t, schedule }): Promise<void>`
- * - `reofferOrphanedFnVerifyClaims(t): Promise<number>`
+ * - `pendingAgentEffects(t): Promise<FlowEffect[]>`
+ * - `reconcilePendingAgentEffect({ t, effectId, schedule }): Promise<boolean>`
+ * - `claimedFnVerifyActions(t): Promise<Action[]>`
+ * - `reofferFnVerifyClaim(t, actionId): Promise<boolean>`
  * - `planCancelCascade({ t, workflowSessionId, turnId }): Promise<CascadeCancelPlan>`
  * - `cancelSiblingWork({ t, workflowSessionId, turnId, siblingPaths?, cancelEffectIds? }): Promise<CancelSiblingResult>`
  * - `fenceWorkflowActions({ t, workflowSessionId, turnId }): Promise<{ cancelled; uncertain }>`
@@ -27,12 +29,17 @@
  * - `foreignInteractionConflict({ t, workflowSessionId, interactionId }): Promise<{ status: 409; message; ownerSessionId } | undefined>`
  * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits, schedule }): Promise<boolean>`
  *
- * `schedule: (sessionId: string) => void` runs after commit, never inside `t`.
+ * `schedule: (sessionId, wake) => void | Promise<void>` runs after commit, never inside `t`;
+ * `wake` carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key.
+ *
+ * The Tenant sweep (`tenant/sweep.ts`) calls the reconcile and re-offer functions, one
+ * transaction per effect or Action.
  */
 import { createHash } from "node:crypto";
 import type { Action, ActionOutcome } from "@nylorun/core/contracts";
 import type { JsonValue, WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
+import type { Wake } from "../execution/types.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import { mayDispatchMore, type FlowLimits } from "./limits.js";
 
@@ -157,11 +164,11 @@ export type CascadeCancelPlan = {
   readonly claimedActionIds: string[];
 };
 
-/** Wakes a session after commit. */
-type Schedule = (sessionId: string) => void;
+/** Wakes a session after commit (`DurableExecution.wake` through the Tenant context). */
+type Schedule = (sessionId: string, wake: Wake) => void | Promise<void>;
 
 /** Effect documents as the flow host writes them. */
-type FlowEffect = EffectDoc & {
+export type FlowEffect = EffectDoc & {
   agentSessionId?: string;
   outcome?: ActionOutcome;
   error?: string;
@@ -169,8 +176,13 @@ type FlowEffect = EffectDoc & {
 
 const OPEN_ACTION: Action["status"][] = ["pending", "claimed"];
 
-function scheduleAfterCommit(t: Tx, schedule: Schedule, id: string): void {
-  t.afterCommit(() => schedule(id));
+function scheduleAfterCommit(
+  t: Tx,
+  schedule: Schedule,
+  id: string,
+  wake: Wake
+): void {
+  t.afterCommit(() => schedule(id, wake));
 }
 
 /** Active agent turns + pending/claimed actions for one workflow turn. */
@@ -253,93 +265,99 @@ export async function wakeLinkedWorkflow(input: {
 
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);
-  scheduleAfterCommit(t, input.schedule, workflow.id);
+  scheduleAfterCommit(t, input.schedule, workflow.id, {
+    reason: "linked",
+    dedupeKey: `linked:${link.turnId}:${link.effectId}`,
+  });
 }
 
-/** On Runtime start: settle pending agent effects whose linked turns already finished. */
-export async function reconcilePendingAgentEffects(input: {
+/** Pending workflow `agent` effects with a linked session, for the Tenant sweep. */
+export async function pendingAgentEffects(t: Tx): Promise<FlowEffect[]> {
+  return (
+    await t.effectsWithStatus<FlowEffect>(["pending"], { kinds: ["agent"] })
+  ).filter((effect) => typeof effect.agentSessionId === "string");
+}
+
+/**
+ * Tenant sweep: settle one pending `agent` effect whose linked turn already finished (the
+ * linked settle normally does this in its own transaction). Runs in its own transaction and
+ * locks the linked agent (child) session before the workflow (parent), per the lock order in
+ * `store/types.ts`. A linked session still `running` or `runnable` is left to the sweep's
+ * orphan re-wake; a paused one surfaces on the workflow when the workflow settles. Returns
+ * true when it changed something.
+ */
+export async function reconcilePendingAgentEffect(input: {
   readonly t: Tx;
+  readonly effectId: string;
   readonly schedule: Schedule;
-}): Promise<void> {
+}): Promise<boolean> {
   const { t } = input;
-  const effects = await t.effectsWithStatus<FlowEffect>(["pending"], {
-    kinds: ["agent"],
-  });
-  for (const effect of effects) {
-    const id =
-      typeof effect.agentSessionId === "string"
-        ? effect.agentSessionId
-        : undefined;
-    if (!id) continue;
-    const workflow = await t.lockSession<FlowHostSession>(
-      effect.request.sessionId
-    );
-    const agent = await t.get<FlowHostSession>("sessions", id);
-    if (workflow && workflow.status === "waiting") {
-      workflow.status = "runnable";
-      await t.put("sessions", workflow.id, workflow);
-      scheduleAfterCommit(t, input.schedule, workflow.id);
-    }
-    if (!agent) continue;
-    if (agent.status === "completed") {
-      await wakeLinkedWorkflow({
-        t,
-        agentSessionId: id,
-        output: agent.lastOutput ?? null,
-        schedule: input.schedule,
-      });
-    } else if (agent.status === "failed") {
-      await wakeLinkedWorkflow({
-        t,
-        agentSessionId: id,
-        failed: true,
-        error: agent.error,
-        schedule: input.schedule,
-      });
-    } else if (agent.status === "cancelled") {
-      await wakeLinkedWorkflow({
-        t,
-        agentSessionId: id,
-        cancelled: true,
-        error: agent.error,
-        schedule: input.schedule,
-      });
-    } else if (agent.status === "running" || agent.status === "runnable") {
-      scheduleAfterCommit(t, input.schedule, id);
-    } else if (agent.status === "paused") {
-      // Linked pause surfaces on the workflow waits list; keep waiting.
-      if (workflow && workflow.status !== "paused") {
-        const waits = await aggregateWaits({
-          t,
-          workflowSessionId: workflow.id,
-        });
-        if (waits.length > 0) {
-          workflow.status = "paused";
-          workflow.waits = waits;
-          await t.put("sessions", workflow.id, workflow);
-        }
-      }
-    }
+  const found = await t.get<FlowEffect>("effects", input.effectId);
+  const id = found?.agentSessionId;
+  if (!found || found.request?.kind !== "agent" || typeof id !== "string")
+    return false;
+  const agent = await t.lockSession<FlowHostSession>(id);
+  const workflow = await t.lockSession<FlowHostSession>(
+    found.request.sessionId
+  );
+  // Read again under both locks.
+  const effect = await t.get<FlowEffect>("effects", input.effectId);
+  if (!effect || effect.status !== "pending" || !agent || !workflow)
+    return false;
+  if (agent.status === "completed") {
+    await wakeLinkedWorkflow({
+      t,
+      agentSessionId: id,
+      output: agent.lastOutput ?? null,
+      schedule: input.schedule,
+    });
+    return true;
   }
+  if (agent.status === "failed" || agent.status === "cancelled") {
+    await wakeLinkedWorkflow({
+      t,
+      agentSessionId: id,
+      ...(agent.status === "failed" ? { failed: true } : { cancelled: true }),
+      error: agent.error,
+      schedule: input.schedule,
+    });
+    return true;
+  }
+  return false;
 }
 
-/** Re-offer orphaned fn/verify claims after a process restart (SD-P7 / WF-C9). */
-export async function reofferOrphanedFnVerifyClaims(t: Tx): Promise<number> {
-  const claimed = await t.actionsWithStatus(["claimed"], {
-    kinds: ["fn", "verify"],
-  });
-  for (const action of claimed) {
-    const s = await t.lockSession<FlowHostSession>(action.sessionId);
-    action.status = "pending";
-    (action as { claimId: null }).claimId = null;
-    (action as { leaseExpiresAt: null }).leaseExpiresAt = null;
-    await t.put("actions", action.actionId, action);
-    if (s && (s.status === "waiting" || s.status === "running")) {
-      s.status = "runnable";
-      await t.put("sessions", s.id, s);
-    }
-  }
-  return claimed.length;
+/** Claimed `fn`/`verify` Actions, for the re-offer after a Tenant opens. */
+export async function claimedFnVerifyActions(t: Tx): Promise<Action[]> {
+  return t.actionsWithStatus(["claimed"], { kinds: ["fn", "verify"] });
+}
+
+/**
+ * Re-offer one claimed `fn`/`verify` Action (SD-P7 / WF-C9): they are pure or repeat-safe, so
+ * a claim left by an executor of an earlier process is offered again at once rather than
+ * after its lease. The next claim bumps the generation, which fences a late result. Locks
+ * only the Action's session. Returns true when it re-offered.
+ */
+export async function reofferFnVerifyClaim(
+  t: Tx,
+  actionId: string
+): Promise<boolean> {
+  const found = await t.get<Action>("actions", actionId);
+  if (!found) return false;
+  await t.lockSession(found.sessionId);
+  // Read again under the session lock.
+  const action = await t.get<Action>("actions", actionId);
+  if (
+    !action ||
+    action.status !== "claimed" ||
+    (action.kind !== "fn" && action.kind !== "verify")
+  )
+    return false;
+  action.status = "pending";
+  (action as { claimId: null }).claimId = null;
+  (action as { leaseExpiresAt: null }).leaseExpiresAt = null;
+  await t.put("actions", action.actionId, action);
+  t.signalWork();
+  return true;
 }
 
 /** Path depth for deepest-first cancel ordering. */
@@ -648,6 +666,8 @@ export async function wakeForQueuedEffects(input: {
     workflow.status = "runnable";
     await t.put("sessions", workflow.id, workflow);
   }
-  scheduleAfterCommit(t, input.schedule, input.workflowSessionId);
+  scheduleAfterCommit(t, input.schedule, input.workflowSessionId, {
+    reason: "flow",
+  });
   return true;
 }

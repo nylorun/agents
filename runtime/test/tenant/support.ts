@@ -10,10 +10,6 @@ import type {
   TenantHandle,
   TenantSummary,
 } from "../../src/tenant/types.js";
-import {
-  claimTenantLock,
-  releaseTenantLock,
-} from "../../src/tenant/store-fs.js";
 
 export function silentLogger(): Logger {
   return {
@@ -26,7 +22,6 @@ export function silentLogger(): Logger {
 export interface FakeHandleOptions {
   envelope: TenantEnvelope;
   summary?: TenantSummary;
-  lockPath?: string;
   onDrain?: (activeWork: "drain" | "cancel") => void | Promise<void>;
   onClose?: () => void | Promise<void>;
 }
@@ -64,15 +59,12 @@ export function createFakeHandle(
     },
     async close() {
       await options.onClose?.();
-      if (options.lockPath) releaseTenantLock(options.lockPath);
     },
   };
 }
 
 export interface FakeRuntimeOptions {
   hostRoot: string;
-  /** Claim .runtime-lock when opening (FS adapter tests). */
-  claimLock?: boolean;
   beforeOpen?: (config: TenantConfig) => void | Promise<void>;
   openDelayMs?: number;
   failFor?: ReadonlySet<string> | ((id: string) => Error | undefined);
@@ -115,15 +107,8 @@ export function createFakeOpenRuntime(
           : undefined;
     if (fail) throw fail;
 
-    const paths = config.paths;
-    if (options.claimLock) {
-      claimTenantLock(paths.lock);
-    }
-    const envelope = readEnvelopeIfPresent(paths, config.tenantId);
-    return createFakeHandle({
-      envelope,
-      lockPath: options.claimLock ? paths.lock : undefined,
-    });
+    const envelope = readEnvelopeIfPresent(config.paths, config.tenantId);
+    return createFakeHandle({ envelope });
   };
 }
 

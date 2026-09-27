@@ -6,7 +6,7 @@ import readChangesets from "@changesets/read";
 import { readConfig } from "@changesets/config";
 import { getPackages } from "@manypkg/get-packages";
 import { root, packages, readJson, writeJson, run } from "../lib/repo.mjs";
-import { syncCliRuntimePin } from "./pins.mjs";
+import { syncCliPins } from "./pins.mjs";
 import { planVersions } from "./version-policy.mjs";
 
 export async function prepareVersions(repo, channel) {
@@ -108,12 +108,13 @@ export async function prepareVersions(repo, channel) {
       "Clear legacy prerelease state before a latest dist-tag promotion.",
     );
   }
-  // D7: keep cli/package.json nylorun.runtime equal to the tested runtime.
-  const runtimePin =
-    calculated.plan.packages.runtime ??
-    calculated.plan.compatibility.runtime ??
-    before.runtime;
-  await syncCliRuntimePin(repo, runtimePin);
+  // D7: the CLI's image pins (nylorun.runtime, nylorun.studio) equal the
+  // tested Runtime and Studio.
+  const pin = (name) =>
+    calculated.plan.packages[name] ??
+    calculated.plan.compatibility[name] ??
+    before[name];
+  await syncCliPins(repo, { runtime: pin("runtime"), studio: pin("studio") });
   await validatePlan(calculated.plan, repo);
   for (const [name, version] of Object.entries(calculated.plan.packages))
     await releaseNotes(repo, name, version);
@@ -209,7 +210,9 @@ export async function releaseNotes(repo, name, version) {
  * Registry boundary: retries may skip only byte-identical completed publications.
  *
  * Publish the engines back to back and wait for them together, then the
- * creator, which is never published before its pins exist.
+ * creator, which is never published before its pins exist. Image-only
+ * packages (artifact `image: true`, e.g. a private Studio) are never
+ * published to npm; the release workflow pushed their images before this.
  */
 export async function publishCandidates(
   plan,
@@ -217,7 +220,12 @@ export async function publishCandidates(
   registry,
   report = () => {},
 ) {
-  const names = packages.filter((name) => plan.packages[name]);
+  const imageOnly = (name) => artifacts[name]?.image === true;
+  for (const name of packages.filter((name) => plan.packages[name] && imageOnly(name)))
+    report(`${name}@${plan.packages[name]}: image only, not published to npm`);
+  const names = packages.filter(
+    (name) => plan.packages[name] && !imageOnly(name),
+  );
   await Promise.all(
     names.map((name) =>
       registry.checkTag(name, plan.packages[name], plan.channel),
@@ -238,6 +246,7 @@ export async function publishCandidates(
       "studio",
       "cli",
     ]) {
+      if (imageOnly(engine)) continue;
       if (!(await registry.lookup(engine, plan.compatibility[engine])))
         throw new Error(
           `Creator pin is unavailable: ${engine}@${plan.compatibility[engine]}`,

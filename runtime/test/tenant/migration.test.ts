@@ -34,7 +34,7 @@ it("snapshots database, envelope and KEK before migrating", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-mig-"));
   roots.push(hostRoot);
   const id = newTenantId();
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
   const store = createFsTenantStore({ hostRoot, openRuntime, configFor });
   const iso = new Date().toISOString();
@@ -91,7 +91,7 @@ it("schema-too-new never mutates and quarantines", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-new-"));
   roots.push(hostRoot);
   const id = newTenantId();
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
   const store = createFsTenantStore({
     hostRoot,
@@ -115,7 +115,7 @@ it("failed migration restores the snapshot and quarantines", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-migfail-"));
   roots.push(hostRoot);
   const id = newTenantId();
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
   const store = createFsTenantStore({ hostRoot, openRuntime, configFor });
   const iso = new Date().toISOString();

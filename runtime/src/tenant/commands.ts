@@ -5,8 +5,14 @@
  * `afterCommit` wakes), then aborts a cancelled advance and cascades workflow cancels to the
  * linked agent sessions, one transaction each.
  *
- * Later waves: Wave 2 / X routes the abort through `DurableExecution.abortLocal`
- * and the control stream.
+ * Wakes (`ctx.wake`, architecture §12.3) carry the command type as the reason and a dedupe
+ * key naming the cause: `<type>:<turnId>:<segment>` for `message`, `approve` and `respond`
+ * (every accepted one writes a new checkpoint segment), and
+ * `action_result:<turnId>:<actionId>:<generation>` for executor results.
+ *
+ * Cancel commits `cancelled` first; the engine host sees it before its next effect and before
+ * settlement on any Worker. It then aborts an advance running on this process
+ * (`ctx.abortLocal`); reaching an advance on another process is the control stream's job.
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -47,6 +53,7 @@ import {
   turnManifestOf,
   variantStore,
 } from "./session.js";
+import { signalSessionCancel } from "./streams.js";
 
 /** A tool result whose output does not match the Action's stored output schema fails the tool. */
 function acceptedToolResult(
@@ -165,7 +172,11 @@ export async function command(
       prior.status = "completed";
       prior.outcome = command.outcome;
       s.status = "runnable";
-      t.afterCommit(() => ctx.schedule(id));
+      const resultWake = {
+        reason: "action_result" as const,
+        dedupeKey: `action_result:${action.turnId}:${action.actionId}:${action.generation}`,
+      };
+      t.afterCommit(() => ctx.wake(id, resultWake));
       event = await t.event(id, s.activeTurnId, "action.completed", {
         actionId: action.actionId,
         ...actionTarget(action),
@@ -220,7 +231,7 @@ export async function command(
           workflowSessionId: id,
           turnId: s.activeTurnId,
           limits: ctx.flowLimits,
-          schedule: (sid) => ctx.schedule(sid),
+          schedule: ctx.wake,
         });
       }
     } else if (command.type === "cancel") {
@@ -269,6 +280,8 @@ export async function command(
       event = await t.event(id, cancelledTurnId, "turn.cancelled", {
         reason: command.reason,
       });
+      // The process running the advance aborts it on `session.cancel` (tenant/control).
+      t.afterCommit(() => signalSessionCancel(ctx, id));
       s.activeTurnId = null;
       // The next turn starts from the state preceding the cancelled turn, never its paused plan.
       if (cancelledTurnId !== null) s.state = s.turnStartState;
@@ -389,7 +402,11 @@ export async function command(
       );
       s.status = "runnable";
       s.waits = undefined;
-      t.afterCommit(() => ctx.schedule(id));
+      const commandWake = {
+        reason: command.type,
+        dedupeKey: `${command.type}:${s.activeTurnId}:${s.checkpoint!.segment}`,
+      };
+      t.afterCommit(() => ctx.wake(id, commandWake));
       event = await t.event(
         id,
         s.activeTurnId,
@@ -406,7 +423,7 @@ export async function command(
         agentSessionId: id,
         cancelled: true,
         error: "Agent turn was cancelled",
-        schedule: (sid) => ctx.schedule(sid),
+        schedule: ctx.wake,
       });
     const response = {
       status: "accepted",
