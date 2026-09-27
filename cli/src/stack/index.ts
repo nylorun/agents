@@ -1,13 +1,22 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
-import { runtimeVersion } from "../runtime/version.js";
-import { runStackCommand, type StackDeps } from "./commands.js";
+import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js";
 import { spawnDocker } from "./docker.js";
-import { STUDIO_VERSION } from "./images.js";
+import { pinnedVersion } from "./versions.js";
 import { loopbackPorts } from "./ports.js";
 
-export { isStackCommand, stackUsage, STACK_SERVICES } from "./commands.js";
-export type { StackDeps } from "./commands.js";
+export {
+  ensureStack,
+  isStackCommand,
+  readStackStatus,
+  stackUsage,
+  studioLoginUrl,
+  tenantStudioPath,
+  STACK_SERVICES,
+} from "./commands.js";
+export type { StackDeps, StackEndpoints, StackStatus } from "./commands.js";
+export { checkDocker } from "./docker.js";
+export type { Check, DockerChecks } from "./docker.js";
 
 function browserCommand(env: Readonly<Record<string, string | undefined>>): string {
   if (process.platform === "darwin") return "open";
@@ -27,8 +36,8 @@ export function defaultStackDeps(
     ports: loopbackPorts,
     uid: typeof process.getuid === "function" ? process.getuid() : 1000,
     gid: typeof process.getgid === "function" ? process.getgid() : 1000,
-    runtimeVersion: runtimeVersion(),
-    studioVersion: STUDIO_VERSION,
+    runtimeVersion: pinnedVersion("runtime"),
+    studioVersion: pinnedVersion("studio"),
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     ...(interactive
@@ -68,11 +77,20 @@ export function defaultStackDeps(
   };
 }
 
-/** Entry for `nylorun start|stop|status|reset` and `nylorun stack <command>`. */
+/** Entry for `nylorun start|stop|status|logs|reset|studio`. */
 export async function stackCommand(
   name: string,
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<number> {
   return await runStackCommand(name, args, defaultStackDeps(env));
+}
+
+/** `nylorun studio`, landing on `next` (a Tenant page) when given. */
+export async function studioCommand(
+  args: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+  options: { next?: string } = {},
+): Promise<number> {
+  return await runStudioCommand(args, defaultStackDeps(env), options);
 }

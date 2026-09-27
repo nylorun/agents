@@ -73,6 +73,9 @@ export function checkBoundaries(name) {
     Object.keys(pkg.bin ?? {}).some((bin) => bin !== "nylorun-runtime")
   )
     throw new Error("The CLI owns the nylorun binary; Runtime exposes only nylorun-runtime");
+  // Studio ships only as the ghcr.io/nylorun/studio image, never to npm.
+  if (name === "studio" && (pkg.private !== true || pkg.bin !== undefined))
+    throw new Error("Studio must be private with no bin: it ships only as the ghcr.io/nylorun/studio image");
   console.log(`${name}: package, source and declaration dependencies passed.`);
 }
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url)

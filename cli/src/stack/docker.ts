@@ -64,25 +64,52 @@ function firstLine(text: string): string {
   return text.trim().split(/\r?\n/)[0] ?? "";
 }
 
-/** Fail with a clear message when Docker or Compose v2 is unavailable. */
-export async function dockerPreflight(docker: DockerRunner): Promise<void> {
+export type Check =
+  | { ok: true; version: string }
+  | { ok: false; problem: string };
+
+export interface DockerChecks {
+  docker: Check;
+  /** Absent when Docker itself failed (Compose was not asked). */
+  compose?: Check;
+}
+
+/** Check the Docker engine and Compose v2; never throws. */
+export async function checkDocker(docker: DockerRunner): Promise<DockerChecks> {
   const server = await docker.run(["version", "--format", "{{.Server.Version}}"]);
   if (server.missing)
-    throw new CliError(
-      "Docker is required for the Nylorun stack, and the docker command was not found. Install Docker Desktop, OrbStack, Colima or another Docker engine with Compose v2, then retry.",
-      1,
-    );
+    return {
+      docker: {
+        ok: false,
+        problem:
+          "Docker is required for the Nylorun stack, and the docker command was not found. Install Docker Desktop, OrbStack, Colima or another Docker engine with Compose v2, then retry.",
+      },
+    };
   if (server.code !== 0)
-    throw new CliError(
-      `Docker is installed but its engine is not reachable (${firstLine(server.stderr) || `exit ${server.code}`}). Start Docker Desktop or your Docker engine, then retry.`,
-      1,
-    );
+    return {
+      docker: {
+        ok: false,
+        problem: `Docker is installed but its engine is not reachable (${firstLine(server.stderr) || `exit ${server.code}`}). Start Docker Desktop, OrbStack, Colima or your Docker engine, then retry.`,
+      },
+    };
+  const engine: Check = { ok: true, version: server.stdout.trim() };
   const compose = await docker.run(["compose", "version", "--short"]);
   if (compose.code !== 0 || !/^v?[2-9]\./.test(compose.stdout.trim()))
-    throw new CliError(
-      `Docker Compose v2 is required (the "docker compose" plugin); ${compose.code === 0 ? `found ${compose.stdout.trim()}` : firstLine(compose.stderr) || "it is not installed"}. Install or update Docker Compose, then retry.`,
-      1,
-    );
+    return {
+      docker: engine,
+      compose: {
+        ok: false,
+        problem: `Docker Compose v2 is required (the "docker compose" plugin); ${compose.code === 0 ? `found ${compose.stdout.trim()}` : firstLine(compose.stderr) || "it is not installed"}. Install or update Docker Compose, then retry.`,
+      },
+    };
+  return { docker: engine, compose: { ok: true, version: compose.stdout.trim() } };
+}
+
+/** Fail with a clear message when Docker or Compose v2 is unavailable. */
+export async function dockerPreflight(docker: DockerRunner): Promise<void> {
+  const checks = await checkDocker(docker);
+  if (!checks.docker.ok) throw new CliError(checks.docker.problem, 1);
+  if (checks.compose && !checks.compose.ok) throw new CliError(checks.compose.problem, 1);
 }
 
 export interface ComposeService {

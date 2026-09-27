@@ -2,7 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isStackCommand, runStackCommand, stackProject } from "../../src/stack/commands.js";
+import {
+  ensureStack,
+  isStackCommand,
+  runStackCommand,
+  runStudioCommand,
+  stackProject,
+  tenantStudioPath,
+  withNext,
+} from "../../src/stack/commands.js";
 import { parseComposePs } from "../../src/stack/docker.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.js";
@@ -133,7 +141,7 @@ describe("start", () => {
     await mkdir(home, { recursive: true });
     await writeFile(stackPaths(home).state, JSON.stringify({ pid: 4242 }));
     const deps = testDeps(home, { pidAlive: (pid) => pid === 4242 });
-    await expect(runStackCommand("start", [], deps)).rejects.toThrow(/nylorun runtime down/);
+    await expect(runStackCommand("start", [], deps)).rejects.toThrow(/nylorun-runtime --home .* down/);
   });
 
   it("rejects unknown options", async () => {
@@ -327,11 +335,84 @@ describe("studio", () => {
     expect(deps.opened).toEqual([]);
   });
 
+  it("lands on a Tenant page when given one", async () => {
+    const home = await temporaryHome();
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    const next = tenantStudioPath("tn_01TESTSTUDIO00000000000001");
+    expect(await runStudioCommand([], deps, { next })).toBe(0);
+    const expected =
+      "http://localhost:4161/login?token=tok+en&next=%2Ftenants%2Ftn_01TESTSTUDIO00000000000001";
+    expect(deps.lines.at(-1)).toBe(`Studio    ${expected}`);
+    expect(deps.opened).toEqual([expected]);
+    const url = new URL(expected);
+    expect(url.searchParams.get("token")).toBe("tok en");
+    expect(url.searchParams.get("next")).toBe("/tenants/tn_01TESTSTUDIO00000000000001");
+  });
+
+  it("withNext keeps the login URL when there is no next", () => {
+    expect(withNext("http://localhost:1/login?token=a", undefined)).toBe(
+      "http://localhost:1/login?token=a",
+    );
+  });
+
   it("fails when Studio cannot start", async () => {
     const home = await temporaryHome();
     const docker = fakeDocker({ streamCode: (args) => (args.includes("studio") ? 1 : 0) });
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     await expect(runStackCommand("studio", ["--no-open"], deps)).rejects.toMatchObject({ exitCode: 7 });
+  });
+});
+
+describe("ensureStack", () => {
+  it("reuses a running stack without Compose up", async () => {
+    const home = await temporaryHome();
+    const psUp = {
+      code: 0,
+      stdout: JSON.stringify([
+        { Service: "runtime", State: "running", Health: "healthy" },
+        { Service: "studio", State: "running", Health: "healthy" },
+      ]),
+      stderr: "",
+    };
+    const docker = fakeDocker({ respond: (args) => (args.includes("ps") ? psUp : undefined) });
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    await runStackCommand("start", [], deps);
+    docker.streamed.length = 0;
+    deps.lines.length = 0;
+    const stack = await ensureStack(deps, { studio: true });
+    expect(docker.streamed).toEqual([]);
+    expect(deps.lines).toEqual([]);
+    expect(stack).toMatchObject({
+      home,
+      runtimeUrl: "http://localhost:8787",
+      hostId: hostId(home),
+      studioPort: 4161,
+      studioUp: true,
+      started: false,
+    });
+    expect(stack.adminKey).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("starts a stopped stack quietly; without Studio only the core services", async () => {
+    const home = await temporaryHome();
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    const stack = await ensureStack(deps, { studio: false });
+    expect(docker.streamed.map((args) => args.at(-1))).toEqual(["runtime"]);
+    expect(deps.lines).toEqual([]);
+    expect(stack).toMatchObject({ started: true, studioUp: false, runtimeUrl: "http://localhost:8787" });
+  });
+
+  it("checks Docker first", async () => {
+    const home = await temporaryHome();
+    const docker = fakeDocker({
+      respond: (args) =>
+        args[0] === "version" ? { code: 127, stdout: "", stderr: "", missing: true } : undefined,
+    });
+    await expect(ensureStack(testDeps(home, { docker }), { studio: true })).rejects.toThrow(
+      /Docker Desktop, OrbStack, Colima/,
+    );
   });
 });
 

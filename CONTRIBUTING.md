@@ -54,7 +54,7 @@ Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 | `npm run dev -- --no-open`                            | Keep the browser closed                                    |
 | `npm run dev -- --no-studio`                          | Run only the agent server                                  |
 | `npm run dev -- --no-autostart`                       | Fail instead of starting a Runtime (use in CI)             |
-| `npx nylorun runtime up` / `npx nylorun runtime down` | Start or stop the Runtime Host                             |
+| `npx nylorun start` / `npx nylorun stop`              | Start or stop the local Docker stack                       |
 | `npx nylorun runtime status`                          | Report Host id, address, protocol and Tenants              |
 | `eval "$(npx nylorun runtime status --env)"`          | Export URL, key and Tenant for the linked Project          |
 | `npx nylorun runtime logs --follow`                   | Multiplex Host + Tenant logs                               |
@@ -126,7 +126,7 @@ See [RELEASING.md](./RELEASING.md) for administrators and
 | Occupied port                   | The CLI exits 4 and names the port; stop the other service or pass `--port`. First automatic Host setup may pick a free loopback port and persist it in `host.json`             |
 | Protocol `426`                  | Upgrade CLI (`nylorun runtime restart`) or pin `@nylorun/cli` / `@nylorun/agents` within the Host protocol range                                                                |
 | Quarantined Tenant              | `nylorun tenant status` shows `code` and `repair` (`locked`, `kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`) |
-| Model setup error               | Run `npx nylorun runtime up`, then `npm run configure`, or replace the vault credential from Studio                                                                             |
+| Model setup error               | Run `npx nylorun start`, then `npm run configure`, or replace the vault credential from Studio                                                                             |
 | Need Host / Tenant logs         | `npx nylorun runtime logs --follow`                                                                                                                                             |
 | Generated-file conflict         | Move the intended change into the template/recipe, then sync                                                                                                                    |
 | Interrupted release preparation | Inspect the diff; do not blindly rerun or discard it                                                                                                                            |

@@ -11,7 +11,6 @@
   "devDependencies": {
     "@nylorun/cli": "file:../cli",
     "@nylorun/admin": "file:../admin",
-    "@nylorun/studio": "file:../studio",
     "vitest": "^4.1.11"
   },
   "scripts": {

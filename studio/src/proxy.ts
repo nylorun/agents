@@ -4,7 +4,6 @@ import {
   PROTOCOL_VERSION,
   TENANT_HEADER,
 } from "@nylorun/agents";
-import { studioCorsHeaders } from "./access.js";
 
 const LOCAL_OWNER = "local-developer";
 
@@ -38,9 +37,8 @@ export type StudioProxyOptions = {
   tenantId: string;
   /** Request path prefix stripped before forwarding. Default `/_studio/runtime`. */
   prefix?: string;
-  /** When omitted, only `origin` is treated as allowed (legacy callers). */
+  /** Origins allowed to change state. Default: only `origin`. */
   allowedOrigins?: ReadonlySet<string>;
-  corsOrigin?: string;
 };
 
 /**
@@ -59,12 +57,8 @@ export async function proxyRuntime(
   const method = request.method ?? "GET";
   const allowed =
     options.allowedOrigins ?? new Set<string>([options.origin]);
-  const cors = studioCorsHeaders(options.corsOrigin);
   const fail = (status: number, message: string) => {
-    response.writeHead(status, {
-      "content-type": "application/json",
-      ...cors,
-    });
+    response.writeHead(status, { "content-type": "application/json" });
     response.end(JSON.stringify({ message }));
   };
   const health = method === "GET" && path === "/health";
@@ -150,7 +144,6 @@ export async function proxyRuntime(
         upstream.headers.get("content-type") ?? "application/json",
       "cache-control": "no-store",
       "x-accel-buffering": "no",
-      ...cors,
     });
     response.flushHeaders();
     if (upstream.body)

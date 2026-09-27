@@ -17,7 +17,6 @@ const compatibility = {
   agents: "4",
   admin: "7",
   runtime: "2",
-  studio: "3",
 };
 const options = { creatorVersion: "1" };
 const roots: string[] = [];

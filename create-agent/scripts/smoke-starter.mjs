@@ -50,7 +50,8 @@ const names = [
   "agents",
   "admin",
   "runtime",
-  "studio",
+  // @nylorun/studio is private: it ships only as the ghcr.io/nylorun/studio
+  // image, so there is no Studio tarball.
   "cli",
   "create-agent",
 ];
@@ -128,7 +129,9 @@ try {
   for (const studio of [true, false]) {
     const project = join(temporary, studio ? "with-studio" : "headless");
     await mkdir(project);
-    const files = await starterFiles(pins, studio);
+    // The starter has no Studio dependency (W4b); W4c moves this smoke onto
+    // the Docker stack and drops the headless/with-Studio split.
+    const files = await starterFiles(pins);
     for (const [path, content] of Object.entries(files)) {
       await mkdir(dirname(join(project, path)), { recursive: true });
       await writeFile(join(project, path), content);
@@ -145,10 +148,7 @@ try {
     manifest.devDependencies["@nylorun/cli"] = `file:${tarballs.cli}`;
     // CLI depends on @nylorun/admin; pack the workspace tarball for offline install.
     manifest.devDependencies["@nylorun/admin"] = `file:${tarballs.admin}`;
-    if (studio) {
-      assert.equal(manifest.scripts.studio, "nylorun-studio");
-      manifest.devDependencies["@nylorun/studio"] = `file:${tarballs.studio}`;
-    }
+    assert.equal(manifest.devDependencies["@nylorun/studio"], undefined);
     await writeFile(
       join(project, "package.json"),
       JSON.stringify(manifest, null, 2),
