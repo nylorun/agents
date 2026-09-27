@@ -1,6 +1,11 @@
 # Releasing packages and images
 
-Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime changes advance CLI. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Nothing publishes on merge or tag push.
+Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime and Studio changes advance CLI, which pins their images. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Nothing publishes on merge or tag push.
+
+The creator's compatibility combination (`create-agent/compatibility.json`)
+pins exactly what a generated project installs or depends on: Core, Harness,
+Agents, Admin, Runtime and CLI. Studio is not in it: it ships only as its
+image, and the CLI pins that image.
 
 A release publishes two kinds of artifact:
 
@@ -63,7 +68,7 @@ npm run release:check
 ```
 
 Preparation requires a clean branch. It applies Changesets, ensures a creator
-bump, updates compatibility pins, sets the CLI's image pins
+bump, updates the creator's compatibility pins, sets the CLI's image pins
 (`cli/package.json` `nylorun.runtime` and `nylorun.studio`) to the Runtime and
 Studio versions of this release, synchronizes examples, refreshes both
 lockfiles, and writes `.release/plan.json`. It does not commit, push, or
@@ -141,8 +146,14 @@ The jobs run in this order:
    release keeps rather than publishes must already have its image.
 4. **publish** runs only after both images exist, because the CLI it publishes
    pins them. It publishes the same tarballs: the engines first, then the
-   creator. It verifies registry availability and installation through the
-   public creator command without making model calls.
+   creator. Then it smokes the public creator on the Docker stack
+   (`scripts/release/smoke.mjs`): `npm exec @nylorun/create-agent@<version>`
+   with no credentials and an empty npm config creates a project and runs
+   `nylorun dev --no-open`, which pulls the CLI's pinned
+   `ghcr.io/nylorun/runtime` and `ghcr.io/nylorun/studio` images. The smoke
+   checks that the stack runs exactly those images, that the Tenant is created
+   and the starter's executor connects, and that the Studio login works. It
+   makes no model calls, and it resets the stack's containers and volumes.
 
 Tags use `@nylorun/<package>@<version>`, Studio's included. Images carry only
 the version tag; there is no `latest` image.
@@ -164,6 +175,7 @@ the version tag; there is no `latest` image.
 | Missing/older dist-tag after publication | Prefer rerunning the same commit so publish can retry `npm dist-tag add` (needs a classic token such as `NPM_BOOTSTRAP_TOKEN`). Otherwise an npm administrator must run `npm dist-tag add @nylorun/<pkg>@<version> <channel>`; OIDC alone does not authenticate standalone tag edits |
 | A newer dist-tag exists | Do not move it backward; prepare a newer release |
 | `Tag … points to a different commit` on a channel promotion | Expected when version tags already exist from an earlier publish of the same versions. Publish tooling allows this when the version is already on the registry; fix/rerun on a commit that updates `.release/plan.json` if an older publish script still rejects it |
+| Public creator smoke cannot pull `ghcr.io/nylorun/…` (`denied`, `unauthorized`) | The smoke pulls without logging in, as developers do. Set that image's visibility to **public** (see Administrator setup), then rerun the same workflow |
 | Public creator smoke or GitHub release creation failed | Inspect the already-published versions. If smoke needs a code fix, land it on main then rerun publish for that tip (plan unchanged; packages skip on matching integrity). Otherwise rerun the same prepare commit |
 
 Publication cannot be treated as an atomic transaction. Do not delete/reuse a
@@ -177,8 +189,9 @@ confirm the version's integrity before retrying the same reviewed release.
 `release:check` smokes the packed starter on the local Docker stack, so it
 needs Docker with Compose v2. It builds `nylorun-runtime:local` and
 `nylorun-studio:local` from the checkout unless `NYLORUN_RUNTIME_IMAGE` and
-`NYLORUN_STUDIO_IMAGE` name images that are already built. No browser is
-needed.
+`NYLORUN_STUDIO_IMAGE` name images that are already built. The workflow's
+`validate` job builds both once with buildx and a GitHub Actions layer cache,
+and passes them that way. No browser is needed.
 
 ## Images
 
