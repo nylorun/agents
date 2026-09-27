@@ -247,7 +247,7 @@ export async function startTestTenant(
       );
       return;
     }
-    void handle.handle(req, res);
+    void handle.handle(req, res, new URL(req.url ?? "/", "http://127.0.0.1"));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
