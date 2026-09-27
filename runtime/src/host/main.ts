@@ -171,8 +171,14 @@ export async function main(): Promise<void> {
       ? { onCreated: (tenantId: string) => createTenantStreams(streams, tenantId) }
       : {}),
     onDeleted: async (tenantId) => {
-      await hostExecution.disarm(tenantId);
-      if (streams) await deleteTenantStreams(streams, tenantId);
+      const failed = (
+        await Promise.allSettled([
+          hostExecution.disarm(tenantId),
+          ...(streams ? [deleteTenantStreams(streams, tenantId)] : []),
+        ])
+      ).flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+      if (failed.length > 0)
+        throw new AggregateError(failed, "Deleted Tenant cleanup failed");
     },
   });
 
