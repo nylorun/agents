@@ -84,7 +84,7 @@ await connection.close();
 ```
 
 ```sh
-eval "$(npx nylorun runtime status --env)"
+eval "$(npx nylorun status --env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
 ```
 

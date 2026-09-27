@@ -5,9 +5,8 @@ import { CliError } from "../errors.js";
 import type { StackPaths } from "./paths.js";
 
 /**
- * host.json and host-credentials.json in the formats the Runtime launcher
- * writes (`runtime/src/launcher/{host-config,host-state}.ts`), so
- * `@nylorun/admin`, the launcher and the Runtime container all read them.
+ * host.json and host-credentials.json (format 1), which `@nylorun/admin`,
+ * Studio and the Runtime container all read.
  *
  * For the stack, host.json names the client-facing address: `localhost` and
  * the published port. The container binds 0.0.0.0:4000 on its own.
@@ -39,7 +38,7 @@ async function writeAtomic(path: string, text: string): Promise<void> {
   await chmod(path, 0o600);
 }
 
-/** The launcher's Host root layout, mode 0700. */
+/** The Host root layout, mode 0700. */
 export async function ensureHostLayout(paths: StackPaths): Promise<void> {
   for (const dir of [paths.root, paths.home, paths.tmp, paths.tenants, paths.stack])
     await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -66,7 +65,7 @@ export async function readHostConfig(
 
 /**
  * Write host.json with the published port. Keeps the hostId and unknown fields
- * of an existing file; refuses a newer format, as the launcher does.
+ * of an existing file; refuses a newer format.
  */
 export async function writeStackHostConfig(
   paths: StackPaths,

@@ -21,7 +21,8 @@
  * 3. **Per-session event sequence.** `event` allocates the session's next
  *    sequence under the session lock, starting at 0, without gaps across
  *    committed transactions. The sequence is also the S2 sequence number of the
- *    event in `sessions/<id>`, and the cursor is `base64url("<sessionId>:<seq>")`
+ *    event in the session's stream (`sessions/<id>/<incarnation>`,
+ *    `streams/types.ts`), and the cursor is `base64url("<sessionId>:<seq>")`
  *    (see `store/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
  *    S2 call, and no `fetch`, runs inside a transaction. Wakes go through
@@ -42,51 +43,15 @@
  *    through `takeOwnership`, `renewOwnership` and `releaseOwnership`; `put`
  *    ignores them. A session starts with no owner and epoch 0.
  *
- * ## `store.all(...)` replacements
+ * ## Typed queries, no scans
  *
- * Every full-table scan in the Runtime today maps to a typed query:
- *
- * | Call site (today) | What it scans for | Replacement |
- * | --- | --- | --- |
- * | `tenant/runtime.ts:535` startup recovery | `effects` with status `invoking` | `effectsWithStatus(["invoking"])`; after Wave 2, `invokingEffects(sessionId)` during takeover |
- * | `tenant/runtime.ts:568` reschedule on open | `sessions` running or runnable | `sessionsWithStatus(["running","runnable"])`; with Restate, `orphanedSessions(now, limit)` in the sweep |
- * | `tenant/runtime.ts:619` `retireLegacyHooks` | legacy hook `actions` | removed in Wave 0a |
- * | `tenant/runtime.ts:632` `retireLegacyHooks` | `sessions` with an active v3 turn | removed in Wave 0a |
- * | `tenant/runtime.ts:655` `expireClaims` | `actions` claimed past their lease | `expiredClaims(now, limit)` |
- * | `tenant/runtime.ts:1641` cancel (agent) | `actions` of the session and turn, pending or claimed | `actionsForSession(id, { turnId, statuses: ["pending","claimed"] })` |
- * | `tenant/runtime.ts:1655` cancel | `effects` of the session and turn, invoking | `effectsForTurn(id, turnId, ["invoking"])` |
- * | `tenant/runtime.ts:1923` `GET /v1/actions` | pending `actions` of one agent | `pendingActions(agentId)` |
- * | `tenant/runtime.ts:2158` `GET /v1/agents` | all `definitions` | `listDefinitions()` |
- * | `tenant/runtime.ts:2168` `GET /v1/sessions` | all `sessions`, optional agent filter | `listSessions({ agentId })` |
- * | `tenant/runtime.ts:2389` session view | open `actions` of the session | `actionsForSession(id, { statuses: ["pending","claimed","uncertain"] })` |
- * | `tenant/runtime.ts:2396` session view | uncertain `effects` of the session | `effectsForSession(id, { statuses: ["uncertain"] })` |
- * | `tenant/runtime.ts:2662-2673` `summary` | counts over sessions, actions, effects | `counts()` |
- * | `tenant/runtime.ts:2690` `drain` (cancel) | `sessions` running, runnable or paused | `sessionsWithStatus(["running","runnable","paused"])` |
- * | `tenant/status.ts:35-43` | counts over sessions, actions, effects | `counts()` |
- * | `tenant/status.ts:57` | number of `sandboxes` | `counts().sandboxes` |
- * | `tenant/status.ts:61` | agent ids of `definitions` | `listDefinitions()` |
- * | `sandbox/manager.ts:96` startup | all `sandboxes` | `listSandboxes()` |
- * | `sandbox/manager.ts:119` `hasRecords` | any `sandboxes` | `counts().sandboxes > 0` |
- * | `core/flow-host.ts:223` `countActiveFlowWork` | `effects` of the workflow turn, then their actions | `effectsForTurn(wf, turnId)` + `actionsForSession(wf, { turnId, statuses: ["pending","claimed"] })` |
- * | `core/flow-host.ts:599` `reconcilePendingAgentEffects` | pending `agent` effects | `effectsWithStatus(["pending"], { kinds: ["agent"] })` |
- * | `core/flow-host.ts:666` `reofferOrphanedFnVerifyClaims` | claimed fn/verify `actions` | `actionsWithStatus(["claimed"], { kinds: ["fn","verify"] })` |
- * | `core/flow-host.ts:894` `planCancelCascade` | `sessions` joined to `links` of the workflow | `linkedSessions(wf)` |
- * | `core/flow-host.ts:903` `planCancelCascade` | `actions` of the workflow (turn) | `actionsForSession(wf, { turnId, statuses: ["pending","claimed"] })` |
- * | `core/flow-host.ts:964` `cancelSiblingWork` | linked agent sessions | `linkedSessions(wf)` |
- * | `core/flow-host.ts:975` `cancelSiblingWork` | `actions` of the workflow turn | `actionsForSession(wf, { turnId, statuses: ["pending","claimed"] })` |
- * | `core/flow-host.ts:1013` `fenceWorkflowActions` | `actions` of the workflow (turn) | `actionsForSession(wf, { turnId, statuses: ["pending","claimed"] })` |
- * | `core/flow-host.ts:1029` `fenceWorkflowActions` | queued `effects` of the workflow (turn) | `effectsForSession(wf, { turnId, statuses: ["queued"] })` |
- * | `core/flow-host.ts:1090` `aggregateWaits` | paused linked agent sessions | `linkedSessions(wf)` |
- * | `core/flow-host.ts:1113` `findInteractionOwner` | linked agent sessions | `linkedSessions(wf)` |
- * | `core/flow-host.ts:1165` `wakeForQueuedEffects` | queued `effects` of the workflow turn | `effectsForTurn(wf, turnId, ["queued"])` |
- * | `core/store.ts` `allExecutors` | `executors` | `listExecutors()` |
- * | `core/store.ts` `credentialCount` | `vault_credentials` | `countCredentials()` |
- * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(streamOfSession(session))` |
- *
- * Raw SQL outside the store moves behind typed methods too: `tenant/principals.ts`
- * (principal methods), `tenant/status.ts` and `host/config-for.ts`
- * (`getSetting`/`putSetting`, `SessionStore.health`), `tenant/reset.ts`
- * (`reset(scope)`), and `vault/service.ts` (vault methods).
+ * There is no generic table scan. Every read the Runtime needs is a typed
+ * method on `Tx` (`sessionsWithStatus`, `expiredClaims`, `pendingActions`,
+ * `effectsForTurn`, `linkedSessions`, `counts`, …) that an implementation can
+ * back with an index, and principals, executors, vaults and Tenant settings
+ * have their own methods rather than raw SQL outside the store. Session history
+ * is not read from the store: the relay moves events from the outbox to
+ * Durable Streams, and history and SSE read them there (`tenant/streams.ts`).
  */
 import type { Action, LiveEvent } from "@nylorun/core/contracts";
 import type { HostEffect } from "@nylorun/harness/run";

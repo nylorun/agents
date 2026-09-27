@@ -1,17 +1,34 @@
-# Local stack: Docker Compose (breaking beta)
+# Runtime V1: the Docker stack (breaking beta)
 
-The local Runtime and Studio now run as a Docker Compose stack that `nylorun`
-manages (Postgres, Restate, S2, the Runtime and Studio). The prerequisites are
+The local Runtime moves from one SQLite file per Tenant, run by the
+`nylorun-runtime` launcher, to a Docker Compose stack that `nylorun` manages:
+
+| Service | Role |
+| --- | --- |
+| `postgres` | Session Store: one schema `tenant_<id>` per Tenant |
+| `restate` | Durable Session Execution: wakes, one advance per session, the Tenant sweep |
+| `s2` (s2-lite) | Durable Streams: one event stream per session, read by history and SSE |
+| `runtime` | The Runtime, image `ghcr.io/nylorun/runtime` |
+| `studio` | Studio's dashboard and trusted proxy, image `ghcr.io/nylorun/studio` |
+
+Upgrade in this order: install the prerequisites, move to the new commands,
+recreate your Tenants, then update generated projects. Upgrade
+`@nylorun/core`, `@nylorun/agents`, `@nylorun/admin`, `@nylorun/cli` and
+`@nylorun/create-agent` together; the CLI pins the Runtime and Studio images.
+
+### 1. Prerequisites
+
 Node 24 or newer and Docker with Compose v2 (Docker Desktop, OrbStack or
-Colima); a global `@nylorun/runtime` is no longer needed. `nylorun doctor`
-checks them.
+Colima); on Windows, both inside WSL2. A global `@nylorun/runtime` is no longer
+used: remove it with `npm uninstall --global @nylorun/runtime`. `nylorun doctor`
+checks the prerequisites and the stack's health.
 
-### Commands
+### 2. Commands
 
 | Before | After |
 | --- | --- |
 | `nylorun runtime up`, `nylorun up`, `nylorun runtime run` | `nylorun start` |
-| `nylorun runtime down`, `nylorun down` | `nylorun stop` |
+| `nylorun runtime down`, `nylorun down` | `nylorun stop` (volumes are kept) |
 | `nylorun runtime restart` | `nylorun stop`, then `nylorun start` |
 | `nylorun runtime status [--json]` | `nylorun status [--json]` |
 | `nylorun runtime status --env` | `nylorun status --env` |
@@ -19,21 +36,55 @@ checks them.
 | `nylorun stack logs`, `nylorun stack studio` | `nylorun logs`, `nylorun studio` (the `stack` spelling still works) |
 | `nylorun studio [--local-ui] [--port <n>]` (in-process proxy) | `nylorun studio [--no-open]`: a fresh login URL for the stack's Studio, on the linked Project's Tenant |
 | `nylorun dev --local-ui` | `nylorun dev` (opens Studio on the Project's Tenant) |
-| `nylorun dev --ephemeral` (in-process Runtime) | `nylorun dev --ephemeral`: a temporary Tenant on the stack with the fixture model, deleted on exit ([below](#nylorun-dev---ephemeral)) |
+| `nylorun dev --ephemeral` (in-process Runtime) | `nylorun dev --ephemeral`: a temporary Tenant on the stack ([step 6](#6-nylorun-dev---ephemeral-and-the-fixture-model)) |
 | `nylorun doctor runtime` | `nylorun doctor` (Node, Docker, Compose v2, stack health) |
-| — | `nylorun reset [--yes]` deletes the stack's volumes and every Tenant |
+| `nylorun-runtime up\|down\|status\|logs` | `nylorun start\|stop\|status\|logs` |
+| — | `nylorun reset [--yes]`: delete the stack's volumes and every Tenant |
 
-The removed commands exit 2 and name their replacement.
+The removed `nylorun` commands exit 2 and name their replacement. `nylorun
+start` writes `compose.yaml` and `.env` (mode 0600) under `<Host root>/stack/`
+and publishes on loopback only: the Runtime on `8787` and Studio on `4161` by
+default, or free ports chosen on the first start and kept in `.env`.
+`NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace the pinned images.
 
-### Studio
+### 3. Tenants move to Postgres; SQLite Tenants are not migrated
+
+A Tenant is now a Postgres schema, and the SQLite Session Store is removed.
+On its first start the Runtime moves every Tenant directory from the SQLite
+Runtime (`~/.nylorun/tenants/<id>/` holding a `tenant.sqlite`) to
+`~/.nylorun/trash/<id>-sqlite-<time>/` and logs `sqlite_tenant_moved_to_trash`
+with its id. Copy anything you still need out of `trash/`, then delete it.
+
+Recreate each Tenant. `nylorun dev` keeps an existing Project link when the
+stack's Host has the same Host id (the stack reuses `host.json`'s id and
+rewrites its URL to `http://localhost:<port>`). When it reports the linked
+Tenant as unknown, let it create a new one (in a terminal), or remove
+`.nylorun/link.json` and `.nylorun/credentials.json` and run it again.
+
+### 4. The `nylorun-runtime` launcher is removed
+
+`@nylorun/runtime` is a library with no bin. The launcher and its
+`host-state.json` are gone; the Runtime runs only as the
+`ghcr.io/nylorun/runtime` image, whose entry requires `NYLORUN_DATABASE_URL`.
+`openTenantRuntime(config, hooks)` requires the Tenant's opened `store` and
+`envelope`, and `HostStateFile` is no longer exported.
+
+### 5. Studio is a stack service
 
 `@nylorun/studio` is no longer published to npm; it ships only as the
-`ghcr.io/nylorun/studio` image, which the stack runs on
-`http://localhost:4161`. The hosted dashboard at `local.nylorun.studio`, the
-local UI mode (`--local-ui`, `ui: "local" | "hosted"`), the pairing fragment,
-the `nylorun-studio` bin and `startStudio()` are removed. The CLI asks the
-Studio container for a single-use login token (valid for two minutes) and opens
-`/login?token=…`; `nylorun studio` mints a fresh one.
+`ghcr.io/nylorun/studio` image, served on `http://localhost:4161`. The hosted
+dashboard at `local.nylorun.studio`, the local UI mode (`--local-ui`,
+`ui: "local" | "hosted"`), the pairing fragment, the `nylorun-studio` bin and
+`startStudio()` are removed. The CLI asks the Studio container for a
+single-use login token (valid for two minutes) with the admin key and opens
+`/login?token=…`, which sets an `HttpOnly`, `SameSite=Strict` cookie;
+`nylorun studio` mints a fresh one.
+
+Studio reaches each Tenant as the **Studio principal**: application principal
+`studio`, whose key Studio derives from the admin key and the Tenant id
+(`deriveStudioToken` in `@nylorun/admin`). `createTenant` registers its hash
+when it creates the Tenant. Tenants created before this release have no Studio
+principal, which is one more reason to recreate them.
 
 In a generated project, remove the Studio dependency and script:
 
@@ -49,44 +100,11 @@ In a generated project, remove the Studio dependency and script:
 ```
 
 Then run `npm install` and use `npx nylorun studio` (or just `npm run dev`).
-
 `npm create @nylorun/agent` no longer adds Studio, checks for Docker with
 Compose v2 instead of `nylorun-runtime`, and accepts `--no-studio` only as a
 deprecated no-op.
 
-### Project links
-
-`nylorun dev` keeps an existing Project link when the stack's Host has the same
-Host id (the stack reuses `host.json`'s id and rewrites its URL to
-`http://localhost:<port>`). Tenants created by the old launcher-managed Runtime
-are not supported on the stack: when `nylorun dev` reports the linked Tenant as
-unknown, let it create a new one (in a terminal), or remove
-`.nylorun/link.json` and `.nylorun/credentials.json` and run it again.
-
-### SQLite Tenants are not migrated
-
-Tenants are Postgres schemas now; the SQLite Session Store is removed. A Tenant
-directory from the SQLite Runtime (`~/.nylorun/tenants/<id>/` holding a
-`tenant.sqlite`) is not migrated: on its first start the Runtime moves it to
-`~/.nylorun/trash/<id>-sqlite-<time>/` and logs
-`sqlite_tenant_moved_to_trash` with its id. Recreate the Tenant (`nylorun dev`
-creates one for a Project), and copy anything you still need out of `trash/`
-before you delete it.
-
-### The `nylorun-runtime` launcher is removed
-
-`@nylorun/runtime` has no bin: the `nylorun-runtime` launcher (`up`, `down`,
-`status`, `logs`, `--json`) and its `host-state.json` are gone, and the Runtime
-runs only as the `ghcr.io/nylorun/runtime` image. Uninstall a global copy with
-`npm uninstall --global @nylorun/runtime` and use `nylorun start|stop|status|logs`.
-`@nylorun/core` drops `LAUNCHER_PROTOCOL` and the launcher error codes
-(`platform_unsupported`, `launcher_failed`, `lock_timeout`, `foreign_port`,
-`host_unresponsive`, `host_start_failed`, `host_schema_newer`,
-`host_format_newer`, `downgrade_refused`, `upgrade_failed`), and the quarantine
-code `locked` with `lockPath`/`lockPid`. `GET /v1/tenant` reports
-`checks.store` instead of `checks.sqlite`.
-
-### `nylorun dev --ephemeral`
+### 6. `nylorun dev --ephemeral` and the fixture model
 
 `--ephemeral` no longer starts a private in-process Runtime. On the running
 stack it creates a temporary Tenant through `@nylorun/admin` (no Project link
@@ -95,25 +113,57 @@ model, opens Studio on it, runs the watcher, and deletes the Tenant with its
 active work cancelled when the watcher ends, Ctrl-C included. If the CLI cannot
 delete it, it prints the `nylorun tenant delete <id> --yes` to run.
 
-The fixture model is now a Tenant setting rather than a Host-wide mode:
+The fixture model is a Tenant setting rather than a Host-wide mode:
 `PUT /v1/tenant/config/seed` accepts `fixtureModel: true` (stored as
-`model.fixture`, insert-if-absent), behind the optional Host feature
-`tenant-fixture-model`, which clients do not require. Other Tenants on the same
-Host keep their model. `NYLORUN_DEV_MODEL=fixture` still switches a whole Host
-to the fixture model for release smokes; prefer the Tenant setting.
-
-### `startEphemeralRuntime` keeps its Tenants in memory
+`model.fixture`, insert-if-absent). Other Tenants on the same Host keep their
+model. In the CLI, `NYLORUN_DEV_MODEL=fixture` now only skips model setup; the
+stack does not pass it to the Runtime container.
 
 `startEphemeralRuntime()` (`@nylorun/runtime`, `@nylorun/runtime/core`) keeps
-its signature, but its Tenants now live in memory (the memory Session Store and
+its signature, but its Tenants live in memory (the memory Session Store and
 memory Durable Streams) instead of SQLite under the Host root. Nothing survives
 `close()`, and a retained Host root cannot be reopened with its sessions. Use it
 for tests and embeds that need the Runtime's HTTP API without Docker; use the
 stack for anything durable.
 
+### 7. Sandboxes: the microsandbox backend is removed
+
+The Runtime has one sandbox backend, `virtual` (an emulated shell in the
+Runtime process; not a VM boundary). The optional `microsandbox` dependency is
+gone.
+
+- `sandbox.backend` (`PUT /v1/tenant/config/seed`) and `NYLORUN_SANDBOX` accept
+  `auto` or `virtual`; `microsandbox` is rejected. `auto` selects `virtual`.
+- A Tenant that stored `sandbox.backend=microsandbox` reads it as `auto`.
+- Sandbox reports (`GET /v1/tenant/sandbox`, `nylorun doctor sandbox`) list only
+  `virtual` with `process` isolation.
+- Remove leftover microVMs with the `msb` commands under
+  [Microsandbox cleanup](#microsandbox-cleanup-old-nylorun-scopeid--prefixes),
+  or `msb rm --force` on names starting with `nylorun-`, then uninstall `msb`.
+
+### 8. Wire and contract changes
+
+Protocol stays `2`. Clients from this release require `studio-principal`, so
+they report an older Host as `incompatible_host`.
+
+| Change | Where |
+| --- | --- |
+| Required feature `studio-principal`: `POST /v1/admin/tenants` accepts optional `studioCredentialHash` (SHA-256 of the derived Studio key) and stores application principal `studio`; idempotent create compares it too. `principalId: "studio"` is reserved (400) | `PROTOCOL_FEATURES`, `CreateTenantRequestSchema` |
+| Optional Host feature `tenant-fixture-model`: `fixtureModel: true` on the Tenant seed. Clients do not require it; `nylorun dev --ephemeral` checks `/health` for it | `OPTIONAL_HOST_FEATURES`, `SeedTenantConfigRequestSchema` |
+| `GET /v1/tenant` reports `checks.store` instead of `checks.sqlite`, and gains optional `execution` (stuck Restate invocations) and `streams` (basin, outbox depth, relay lag) | `TenantStatusSchema` |
+| `GET /v1/admin/status` aggregates gain optional `outboxDepth` and `relayLagMs` | `HostAggregateSchema` |
+| Quarantine code `locked` and its `lockPath`/`lockPid` are removed; the codes are `kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout` and `open-failed`. A schema newer than the Runtime is `schema-too-new` | `QuarantineSchema` |
+| `sandbox.backend` accepts `auto` or `virtual` | `SeedTenantConfigRequestSchema` |
+| `LAUNCHER_PROTOCOL` and the launcher `ERROR_CODES` (`platform_unsupported`, `launcher_failed`, `lock_timeout`, `foreign_port`, `host_unresponsive`, `host_start_failed`, `host_schema_newer`, `host_format_newer`, `downgrade_refused`, `upgrade_failed`) are removed | `@nylorun/core/compatibility` |
+| `GET /ready` covers Postgres, Restate and S2 (`checks`); a Tenant whose Postgres or Restate is unreachable answers `503` | Runtime Host |
+
 # Runtime Clients and Admin API (breaking beta)
 
 Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
+
+> Runtime V1 (above) replaces this release's launcher, its global
+> `@nylorun/runtime` install and the `nylorun-studio` binary. The client
+> packages, `src/main.ts` and the three deployment variables below still apply.
 
 Every process that talks to a Runtime is a **client**. Two client packages
 cover the two surfaces: `@nylorun/agents` (Tenant API) and `@nylorun/admin`
@@ -265,31 +315,6 @@ Admin API. Developer applications do **not** depend on it — only
 `@nylorun/agents`. Local Host start/stop/upgrade goes through the launcher,
 never through an import of `@nylorun/runtime`.
 
-### Sandbox: microsandbox backend removed
-
-The Runtime has one sandbox backend, `virtual` (an emulated shell in the
-Runtime process; not a VM boundary). The optional `microsandbox` dependency is
-gone.
-
-- `sandbox.backend` (`PUT /v1/tenant/config/seed`) and `NYLORUN_SANDBOX` accept
-  `auto` or `virtual`; `microsandbox` is rejected. `auto` selects `virtual`.
-- A Tenant that stored `sandbox.backend=microsandbox` reads it as `auto`.
-- Sandbox reports (`GET /v1/tenant/sandbox`, `nylorun doctor sandbox`) list only
-  `virtual` with `process` isolation.
-- Remove leftover microVMs with the `msb` commands under
-  [Microsandbox cleanup](#microsandbox-cleanup-old-nylorun-scopeid--prefixes),
-  or `msb rm --force` on names starting with `nylorun-`, then uninstall `msb`.
-
-### Studio principal
-
-`POST /v1/admin/tenants` accepts an optional `studioCredentialHash` (protocol
-feature `studio-principal`). When present, the Tenant also stores application
-principal `studio` with that hash. `@nylorun/admin`'s `createTenant` always
-sends it: the SHA-256 of `deriveStudioToken(adminKey, tenantId)`, an
-HMAC-SHA256 keyed by the admin key. Studio derives the same key to call the
-Tenant API; the admin key itself is never a Tenant bearer. Tenants created
-before this release have no Studio principal; recreate them during the beta.
-
 ### Existing Host roots
 
 - A Host started by the Tenants-era CLI is reused while it runs.
@@ -300,9 +325,8 @@ before this release have no Studio principal; recreate them during the beta.
 
 Upgrade `@nylorun/core`, `@nylorun/agents`, `@nylorun/admin`, `@nylorun/cli`,
 `@nylorun/studio` and the installed `@nylorun/runtime` together (breaking beta
-set). Protocol features `admin-status` and `studio-principal` are additive on
-protocol `2`; clients require both, so an older Host is reported as
-`incompatible_host`.
+set). Protocol feature `admin-status` is additive on
+protocol `2`.
 
 # Scoped hooks and manifest schema 4
 

@@ -5,15 +5,17 @@ state-in/state-out; the optional **Runtime Host** owns sessions across isolated
 **Tenants**.
 
 This repository contains core (definitions/contracts), harness (engine), agents
-(SDK), runtime (OSS Host), CLI, Studio and the project creator. Cloud lives in
-the private agents-api repository. Vocabulary:
+(SDK), admin (Admin API client), runtime (OSS Host), CLI, Studio and the project
+creator. Cloud lives in the private agents-api repository. Vocabulary:
 [runtime/src/CONTEXT.md](runtime/src/CONTEXT.md).
+
+The Runtime runs as a container next to Postgres (the Session Store), Restate
+(Durable Session Execution) and S2 (Durable Streams, `s2-lite` locally). Studio,
+the dashboard, is a service of the same stack. On a developer machine
+`nylorun start` runs all five with Docker Compose.
 
 For the core-runtime beta, start with [the SDK](agents/README.md),
 [Runtime Host](runtime/README.md), and [host contract](harness/HOST_CONTRACT.md).
-The local starter/Studio workflow uses this architecture. The packed-package
-text/tool workflow is covered by the focused release smoke; broader recovery
-and conformance gates remain open.
 
 > **Experimental beta.** Public APIs may change before 1.0. Prefer the `@beta`
 > dist-tag for installs until then.
@@ -69,11 +71,11 @@ npm run setup
 npm run dev
 ```
 
-`npm run setup` installs both lockfiles and builds packages. `npm run dev` uses
-the workspace Runtime (no global install needed here) and starts (or attaches
-to) a Runtime Host and stores the model provider in the
-linked Tenant vault on first run. The Host keeps running after you stop `dev`,
-so sessions survive a source change; `npx nylorun runtime down` stops it.
+`npm run setup` installs both lockfiles and builds packages. `npm run dev`
+builds the Runtime and Studio images from your checkout, runs the stack on them
+(`nylorun start`), and runs the examples on their own Tenant, rebuilding
+packages and images as you edit. The stack keeps running after you stop `dev`,
+so sessions survive a source change; `npx nylorun stop` stops it.
 
 Print the three export lines for a linked Project:
 
@@ -88,10 +90,11 @@ eval "$(npx nylorun status --env)"
 | ----------------------------------------- | ----------------------------------------------------------------- |
 | [`@nylorun/core`](./core)                 | Shared definitions, contracts and manifest identity               |
 | [`@nylorun/harness`](./harness)           | Execution engine and checkpoints                                  |
-| [`@nylorun/cli`](./cli)                   | Host lifecycle, Project link and local orchestration              |
+| [`@nylorun/cli`](./cli)                   | Local Docker stack, Project link and `nylorun dev`                |
 | [`@nylorun/agents`](./agents)             | Session SDK, authoring and authenticated SSE customer executor    |
-| [`@nylorun/runtime`](./runtime)           | Runtime Host, Tenant Runtime and providers                        |
-| [`@nylorun/studio`](./studio)             | Local dashboard for a linked Tenant                               |
+| [`@nylorun/admin`](./admin)               | Admin API client: Tenants and Host status                         |
+| [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
+| [`@nylorun/studio`](./studio)             | Dashboard and trusted proxy; the `ghcr.io/nylorun/studio` image   |
 | [`@nylorun/create-agent`](./create-agent) | Project scaffolding, compatibility pins, and examples sync        |
 | [`examples`](./examples)                  | Authored capability demonstrations on the generated project shell |
 
@@ -101,13 +104,13 @@ eval "$(npx nylorun status --env)"
 | ---------------------------------------------------- | ----------------------------------------------- |
 | [CONTRIBUTING.md](./CONTRIBUTING.md)                 | Contributors — setup, checks, workflow          |
 | [RELEASING.md](./RELEASING.md)                       | Maintainers — version, publish, dist-tags       |
-| [MIGRATION.md](./MIGRATION.md)                       | Breaking beta migration (incl. Runtime Tenants) |
+| [MIGRATION.md](./MIGRATION.md)                       | Breaking beta migration (incl. Runtime V1)      |
 | [DEPLOYMENT.md](./DEPLOYMENT.md)                     | Application hosting                             |
 | [agents/README.md](./agents/README.md)               | Authoring agents against a Tenant               |
 | [SECURITY.md](./SECURITY.md)                         | Vulnerability reports                           |
 | [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)           | Community standards                             |
 
-Package-level READMEs: [Harness](./harness/README.md) · [Runtime](./runtime/README.md) · [Studio](./studio/README.md) · [Examples](./examples/README.md)
+Package-level READMEs: [Harness](./harness/README.md) · [Runtime](./runtime/README.md) · [CLI](./cli/README.md) · [Admin](./admin/README.md) · [Studio](./studio/README.md) · [Examples](./examples/README.md)
 
 ## License
 

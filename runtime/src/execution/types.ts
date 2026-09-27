@@ -5,7 +5,8 @@
  * holds session state: every outcome lives in the Session Store, and `advance`
  * is safe to repeat (§10.1). Restate is the supported implementation
  * (`adapters/execution/restate.ts`); `execution/memory.ts` is the in-process
- * implementation used by unit tests and, until Wave 3, by the Runtime.
+ * implementation used by unit tests, `startEphemeralRuntime` and a Host
+ * started without Restate endpoints.
  *
  * ## Guarantees every implementation keeps
  *

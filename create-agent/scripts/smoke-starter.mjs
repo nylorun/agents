@@ -15,10 +15,15 @@
  *   proxy).
  * - A source edit re-registers the agent; stopping dev keeps the stack; a
  *   second dev reuses the link; the compiled `npm start` connects with the
- *   three Project variables; without Docker on PATH, dev says so.
+ *   three Project variables.
+ * - `nylorun dev --ephemeral` runs the starter on a temporary Tenant with the
+ *   fixture model: one turn through Studio's proxy calls the starter's own
+ *   `lookup_order` tool on its executor and answers with the result; Ctrl-C
+ *   deletes the temporary Tenant and leaves the Project's Tenant and link.
+ * - Without Docker on PATH, dev says so.
  *
- * No turn runs: the stack has no fixture model until `nylorun dev --ephemeral`
- * lands (W4a), so the model is checked as not configured instead.
+ * The Project's own Tenant has no model (the starter seeds none), so it is
+ * checked as not configured; the turn runs on the ephemeral Tenant only.
  */
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
@@ -202,7 +207,7 @@ try {
       await registered("Order assistant");
       await connected();
 
-      // No model: the stack has no fixture model yet, and the starter seeds none.
+      // No model: the starter seeds none (the ephemeral run below uses the fixture model).
       const model = await tenantGet(runtimeUrl, tenantId, key, "/v1/tenant/model");
       assert.equal(model.configured, false, JSON.stringify(model));
 
@@ -279,7 +284,94 @@ try {
       await connected();
       await started.stop();
 
-      // 7. Without Docker, dev says what to install and starts nothing.
+      // 7. `--ephemeral`: a temporary Tenant with the fixture model runs a turn
+      // that calls the starter's tool, and is deleted when dev stops.
+      const ephemeral = group.start(
+        "dev-ephemeral",
+        process.execPath,
+        [cliBin, "dev", "--ephemeral", "--no-open"],
+        { cwd: project, env },
+      );
+      await ephemeral.line(bannerLine, 120_000);
+      const ephemeralLines = output.get("dev-ephemeral");
+      assert.ok(
+        ephemeralLines.some((l) => /^Tenant\s.*\(temporary, fixture model; deleted on exit\)/.test(l)),
+        ephemeralLines.join("\n"),
+      );
+      const ephemeralLogin = field(ephemeralLines, "Studio");
+      assert.match(ephemeralLogin ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
+      const temporaryId = /^\/tenants\/(.+)$/.exec(
+        new URL(ephemeralLogin).searchParams.get("next") ?? "",
+      )?.[1];
+      assert.ok(temporaryId && temporaryId !== tenantId, "a new, temporary Tenant");
+      assert.ok(
+        (await admin.listTenants()).some((t) => t.id === temporaryId),
+        "the Admin API lists the temporary Tenant",
+      );
+      assert.equal((await readProject(project)).link.tenantId, tenantId, "the link is untouched");
+
+      const ephemeralStudio = await studioSession(ephemeralLogin);
+      assert.equal(ephemeralStudio.location, `/tenants/${temporaryId}`);
+      const tenantApi = (path, init = {}) =>
+        ephemeralStudio.get(`/_studio/tenants/${temporaryId}/runtime${path}`, {
+          ...init,
+          headers: {
+            ...(init.body ? { "content-type": "application/json", origin: ephemeralStudio.origin } : {}),
+            ...init.headers,
+          },
+        });
+      await eventually(
+        async () =>
+          (await (await tenantApi("/v1/agents")).json()).agents?.some(
+            (agent) => agent.manifest?.id === "assistant",
+          ),
+        { message: "the assistant on the temporary Tenant" },
+      );
+      const sessionId = `smoke-${Date.now()}`;
+      const created = await tenantApi(`/v1/sessions/${sessionId}`, {
+        method: "PUT",
+        body: JSON.stringify({ requestId: `${sessionId}-create`, agentId: "assistant" }),
+      });
+      assert.ok(created.ok, `create session: ${created.status} ${await created.clone().text()}`);
+      const sent = await tenantApi(`/v1/sessions/${sessionId}/commands`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "message",
+          requestId: `${sessionId}-message`,
+          idempotencyKey: `${sessionId}-message`,
+          content: "Look up order demo-123",
+        }),
+      });
+      assert.ok(sent.ok, `send message: ${sent.status} ${await sent.clone().text()}`);
+      // The fixture model calls lookup_order; the starter's executor runs it
+      // and the model answers with its result.
+      const answer = await eventually(
+        async () => {
+          const { items } = await (await tenantApi(`/v1/sessions/${sessionId}/items`)).json();
+          const text = JSON.stringify(items ?? []);
+          return text.includes("Order lookup complete") && text.includes("shipped") ? text : undefined;
+        },
+        { timeout: 120_000, message: "the assistant's answer from lookup_order" },
+      );
+      assert.ok(answer.includes("demo-123"), "the tool ran for demo-123");
+
+      // Ctrl-C deletes the temporary Tenant, not the Project's.
+      process.kill(ephemeral.child.pid, "SIGINT");
+      const exitCode = await Promise.race([
+        ephemeral.exit,
+        new Promise((resolve) => setTimeout(() => resolve("timeout"), 60_000)),
+      ]);
+      await ephemeral.stop();
+      assert.notEqual(exitCode, "timeout", "dev --ephemeral exits after Ctrl-C");
+      assert.ok(
+        ephemeralLines.some((l) => l.includes(`Deleted temporary Tenant ${temporaryId}.`)),
+        ephemeralLines.join("\n"),
+      );
+      const remaining = await admin.listTenants();
+      assert.ok(!remaining.some((t) => t.id === temporaryId), "the temporary Tenant is gone");
+      assert.ok(remaining.some((t) => t.id === tenantId), "the Project's Tenant remains");
+
+      // 8. Without Docker, dev says what to install and starts nothing.
       const noDocker = await run(process.execPath, [cliBin, "dev", "--no-open"], {
         cwd: project,
         capture: true,
@@ -294,7 +386,7 @@ try {
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on the stack: dev starts the stack, creates and links the Tenant, registers and connects the executor, Studio login lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, Docker missing.",
+    "PASS: packed starter (agents + core only) on the stack: dev starts the stack, creates and links the Tenant, registers and connects the executor, Studio login lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, an --ephemeral turn with the fixture model and its Tenant deleted, Docker missing.",
   );
 } catch (error) {
   console.error(error);
