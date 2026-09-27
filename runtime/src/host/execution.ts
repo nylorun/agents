@@ -13,6 +13,11 @@
  *   sessions without a live owner (§14.8).
  * - `disarm` stops a deleted Tenant's sweep.
  *
+ * **Order at startup.** Call `start` before opening any Tenant. Opening a Tenant arms its
+ * sweep through Restate's ingress, which answers 404 until a Worker has registered the
+ * services, so the open would fail. An api-role process relies on a Worker having registered
+ * them first.
+ *
  * **One Worker URL.** `start` registers the Worker endpoint (`NYLORUN_WORKER_URL`) with
  * Restate once. Restate sends new invocations to the latest registered deployment, so
  * several Workers that each register their own URL do not share load: the last one to start
