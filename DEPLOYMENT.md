@@ -1,31 +1,35 @@
-# Runtime Host deployment
+# Runtime deployment
 
-This release supports one local Node 24 **Runtime Host** process with SQLite
-**Tenants**, connected customer executors, and optional local Studio.
-Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
+This release supports one machine: the **local Docker stack** that
+`nylorun start` runs (the Runtime, Studio, Postgres, Restate and s2-lite, as
+Docker Compose project `nylorun`), with **Tenants** served by that Runtime and
+customer executors running on the same machine. Vocabulary:
+[runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ```sh
+npx nylorun start
 npm run build
+eval "$(npx nylorun status --env)"
 npm start
 ```
 
-`npm start` runs `nylorun serve`, which loads `dist/agents/index.js`, attaches
-to the Runtime Host on loopback (default port 8787; `--port` override) and
-connects the SDK executor for the linked Tenant. It does not start Studio or
-watch files. If no Host is listening it starts one in the background and leaves
-it running. For a container or any supervised deployment, start the Host
-explicitly — `nylorun runtime up`, or run `@nylorun/runtime/server` as its own
-process under a dedicated Host root — and pass `nylorun serve --no-autostart` so
-a missing Host fails the process instead of spawning an unsupervised one.
+`nylorun start` starts the stack, or leaves it running when it already is, and
+prints the Runtime URL and a Studio login URL. `npm start` runs
+`node dist/src/main.js`, which connects the application's executor to the
+Runtime with three variables: `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` and
+`NYLORUN_SERVER_KEY`. `nylorun status --env` prints them for the Project that
+`nylorun dev` linked; a supervisor can set them directly instead. The
+application does not start the stack, Studio or a file watcher; start the
+stack first (`nylorun start`), under the same supervisor if you use one.
 
 Keep the **Host root** (`NYLORUN_HOME` or `~/.nylorun`) private and persistent
-across ordinary restarts: `host.json`, admin credentials, installed runtimes,
-and every Tenant directory. Keep each Project's `.nylorun/link.json` and
-`credentials.json` private as well. The first Project run stores the provider
-credential in that Tenant's vault. `nylorun runtime down` stops the Host and
-keeps Host config and Tenants.
+across ordinary restarts: `host.json`, the admin key in
+`host-credentials.json`, the stack's `stack/.env` and Compose file, and every
+Tenant directory. The databases live in the stack's Docker volumes. Keep each
+Project's `.nylorun/link.json` and `credentials.json` private as well; model
+credentials live in the Tenant's vault. `nylorun stop` stops the containers and
+keeps the volumes; `nylorun reset` deletes the volumes and every Tenant.
 
-For explicit standalone Host configuration, see [Runtime](runtime/README.md).
 Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
