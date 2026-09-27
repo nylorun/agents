@@ -7,8 +7,8 @@
 | `core/`         | Shared definitions and contracts                        |
 | `harness/`      | Agent execution engine                                  |
 | `cli/`          | Local `nylorun` orchestration                           |
-| `runtime/`      | Providers, hosting and persistence                      |
-| `studio/`       | Dashboard and programmatic startup                      |
+| `runtime/`      | Runtime Host, execution and persistence (runtime image) |
+| `studio/`       | Studio server and dashboard (the `studio` stack image)  |
 | `create-agent/` | Starter, renderer, compatibility pins, and stack tests  |
 | `examples/`     | Generated application shell and authored demonstrations |
 | `scripts/`      | Repository development, validation, and release tooling |

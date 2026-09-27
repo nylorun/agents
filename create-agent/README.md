@@ -31,6 +31,8 @@ depend on `@nylorun/studio`. `--yes` affects installation only. The first
 Studio on it, and asks for the model provider when the terminal is interactive,
 storing the credential in the Tenant vault. A non-interactive start without a
 credential exits and names that setup. `NYLORUN_DEV_MODEL=fixture` skips it.
+`npm run dev -- --ephemeral` needs no credential: it runs the project on a
+temporary Tenant with a fixture model, deleted when `dev` stops.
 
 ```sh
 cd my-agent
@@ -49,8 +51,8 @@ Runtime. The Project link and application credentials are stored in gitignored
 have no model provider or `agent.run()`.
 
 `starter/` is the canonical template. `compatibility.json` pins core, harness,
-agents, admin, Runtime and CLI (its `studio` entry is kept for the release
-tooling; generated projects do not use it). The examples recipe adds local
+agents, admin, Runtime and CLI. The CLI pins the Runtime and Studio images it
+runs (`cli/package.json` `nylorun`). The examples recipe adds local
 package dependencies. Run `npm run examples:sync` after template changes, then
 `npm install --prefix examples`. Sync preserves authored agents, tests,
 credentials, and local state; it rejects conflicting edits to generated files.
@@ -60,7 +62,9 @@ remain outside that registry for later migration.
 
 `npm run test:starter` (`create-agent/scripts/smoke-starter.mjs`) packs the
 workspace, scaffolds the starter from the packed creator and runs
-`nylorun dev` against a temporary local Docker stack.
+`nylorun dev` against a temporary local Docker stack, then runs one turn with
+`nylorun dev --ephemeral` (fixture model, the starter's own tool) and checks
+that the temporary Tenant is deleted.
 
 See [RELEASING](../RELEASING.md) for the Changesets beta workflow. Nothing is
 published by the smoke check.

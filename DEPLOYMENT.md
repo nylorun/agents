@@ -25,7 +25,8 @@ stack first (`nylorun start`), under the same supervisor if you use one.
 Keep the **Host root** (`NYLORUN_HOME` or `~/.nylorun`) private and persistent
 across ordinary restarts: `host.json`, the admin key in
 `host-credentials.json`, the stack's `stack/.env` and Compose file, and every
-Tenant directory. The databases live in the stack's Docker volumes. Keep each
+Tenant directory. Tenant data lives in the stack's Docker volumes: Postgres (each
+Tenant's schema), s2-lite (session history), Restate and the workspaces. Keep each
 Project's `.nylorun/link.json` and `credentials.json` private as well; model
 credentials live in the Tenant's vault. `nylorun stop` stops the containers and
 keeps the volumes; `nylorun reset` deletes the volumes and every Tenant.
@@ -49,7 +50,7 @@ Each release publishes the Runtime and Studio as multi-arch images
 and s2-lite images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
 the pinned images, for example with a local build. Tags are never moved, and
 there is no `latest` tag. Studio is not published to npm; it ships only as its
-image, and `local.nylorun.studio` no longer hosts it.
+image.
 
 Remote ingress, TLS, server deployment of these images (Compose on a server,
 Helm), replicas, hosted customer executors, backups/migrations, crash recovery

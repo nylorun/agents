@@ -55,10 +55,6 @@ function pass(id, message) {
   results.push({ id, status: "PASS", message });
   console.log(`PASS ${id}: ${message}`);
 }
-function skip(id, message) {
-  results.push({ id, status: "SKIP", message });
-  console.log(`SKIP ${id}: ${message}`);
-}
 
 function assertNotRealHome(path) {
   const real = join(homedir(), ".nylorun").replace(/\\/g, "/");
@@ -508,12 +504,14 @@ async function h3(stack, admin) {
   // The Postgres Session Store keeps each Tenant in schema "tenant_<id>" with a
   // schema_version table (runtime/src/store/postgres/migrations).
   const schema = `tenant_${gamma.id}`;
-  const inPostgres =
-    (await stack.psql(`SELECT to_regclass('"${schema}".schema_version') IS NOT NULL`)) === "t";
-  if (inPostgres)
-    await stack.psql(
-      `INSERT INTO "${schema}".schema_version (version, name) VALUES (999999, 'from-a-newer-runtime')`,
-    );
+  assert.equal(
+    await stack.psql(`SELECT to_regclass('"${schema}".schema_version') IS NOT NULL`),
+    "t",
+    `Tenant schema ${schema} has a schema_version table`,
+  );
+  await stack.psql(
+    `INSERT INTO "${schema}".schema_version (version, name) VALUES (999999, 'from-a-newer-runtime')`,
+  );
 
   await stack.nylorun(["stop"]);
   await stack.start(["--no-studio"]);
@@ -524,15 +522,6 @@ async function h3(stack, admin) {
   }
   pass("H3", "a stack restart restores sessions and agents in both Tenants");
 
-  if (!inPostgres) {
-    // TODO(W4a/P): drop this skip once the stack's Runtime keeps Tenants in
-    // Postgres; until then Tenants live in tenant.sqlite under the Host root.
-    skip(
-      "H3",
-      `quarantine: Tenant schema ${schema} is not in Postgres (this Runtime still keeps Tenants in SQLite)`,
-    );
-    return;
-  }
   const quarantined = await eventually(
     async () => {
       const tenant = await admin.getTenant(gamma.id);
