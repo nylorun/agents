@@ -1,22 +1,19 @@
 /**
  * Session and definition resources: `PUT/GET /v1/agents`, `PUT /v1/sessions/:id` (create or
- * re-attach vaults), the session list and the session view.
- *
- * Later waves: Wave 1 / A makes the transactions async and replaces the `store.all` scans
- * with typed queries (`listDefinitions`, `listSessions`, `actionsForSession`,
- * `effectsForSession`).
+ * re-attach vaults), the session list and the session view. Reads use the store's typed
+ * queries; `PUT /v1/sessions/:id` runs in one transaction with the vault attachment checks.
  */
 import {
   DefinitionDocumentSchema,
-  type Action,
   type PutAgentRequest,
   type PutSessionRequest,
 } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/compatibility";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
-import { canonical } from "../core/store.js";
+import { canonical } from "../store/canonical.js";
+import type { Tx } from "../store/types.js";
 import { validateSandboxAttach } from "../core/sandbox-routes.js";
-import type { Session, TenantContext } from "./context.js";
+import { sandboxLookup, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
 /** A session's creation identity: everything but the request id and vault attachments. */
@@ -30,9 +27,19 @@ const sessionIdentity = (value: any): string => {
   return canonical(body);
 };
 
-export function listDefinitions(ctx: TenantContext) {
+interface Definition {
+  manifest: any;
+  manifestHash: string;
+  implementationVersion: string;
+  pluginRoots?: Record<string, string>;
+}
+
+export async function listDefinitions(ctx: TenantContext) {
+  const definitions = await ctx.store.tx((t) =>
+    t.listDefinitions<Definition>()
+  );
   return {
-    agents: ctx.store.all("definitions").map((d) => ({
+    agents: definitions.map((d) => ({
       agentId: d.manifest.id,
       manifest: d.manifest,
       manifestHash: d.manifestHash,
@@ -41,7 +48,7 @@ export function listDefinitions(ctx: TenantContext) {
   };
 }
 
-export function putDefinition(
+export async function putDefinition(
   ctx: TenantContext,
   agentId: string,
   body: PutAgentRequest
@@ -52,9 +59,7 @@ export function putDefinition(
     ...body,
     manifestHash: hashManifest(body.manifest as any),
   };
-  ctx.store.tx(() => {
-    ctx.store.put("definitions", agentId, definition);
-  });
+  await ctx.store.tx((t) => t.put("definitions", agentId, definition));
   return {
     agentId,
     manifestHash: definition.manifestHash,
@@ -62,18 +67,18 @@ export function putDefinition(
   };
 }
 
-export function listSessions(ctx: TenantContext, agentId: string | null) {
+export async function listSessions(ctx: TenantContext, agentId: string | null) {
+  const sessions = await ctx.store.tx((t) =>
+    t.listSessions<Session>(agentId === null ? {} : { agentId })
+  );
   return {
-    sessions: ctx.store
-      .all<Session>("sessions")
-      .filter((s) => agentId === null || s.agentId === agentId)
-      .map((s) => ({
-        id: s.id,
-        agentId: s.agentId,
-        ownerUserId: s.ownerUserId,
-        status: s.status,
-        activeTurnId: s.activeTurnId,
-      })),
+    sessions: sessions.map((s) => ({
+      id: s.id,
+      agentId: s.agentId,
+      ownerUserId: s.ownerUserId,
+      status: s.status,
+      activeTurnId: s.activeTurnId,
+    })),
   };
 }
 
@@ -82,44 +87,39 @@ export function putSession(
   ctx: TenantContext,
   id: string,
   body: PutSessionRequest
-): Session {
-  const { store } = ctx;
+): Promise<Session> {
   const vaultIds = body.vaultIds ?? [];
   const credentialSelections = body.credentialSelections ?? [];
-  const prior = store.get<Session>("sessions", id);
-  const definition =
-    prior === undefined || body.sandbox
-      ? store.get<{
-          manifest: unknown;
-          manifestHash: string;
-          implementationVersion: string;
-          pluginRoots?: Record<string, string>;
-        }>("definitions", body.agentId) ?? fail(404, "Definition not found")
+  return ctx.store.tx(async (t) => {
+    const prior = await t.lockSession<Session>(id);
+    const definition =
+      prior === undefined || body.sandbox
+        ? (await t.get<Definition>("definitions", body.agentId)) ??
+          fail(404, "Definition not found")
+        : undefined;
+    const sandboxOwnerId = body.sandbox
+      ? validateSandboxAttach(
+          body,
+          (definition ?? prior)!.manifest as never,
+          await sandboxLookup(t, body.sandbox.session)
+        )
       : undefined;
-  const sandboxOwnerId = body.sandbox
-    ? validateSandboxAttach(
-        body,
-        (definition ?? prior)!.manifest as never,
-        (sid) => store.get<Session>("sessions", sid)
-      )
-    : undefined;
-  return store.tx(() => {
-    ctx.vault.assertAttachment(
+    await ctx.vault.assertAttachment(
+      t,
       body.ownerUserId,
       vaultIds,
       credentialSelections
     );
-    const existing = store.get<Session>("sessions", id);
-    if (existing) {
-      if (sessionIdentity(existing.creation) !== sessionIdentity(body))
+    if (prior) {
+      if (sessionIdentity(prior.creation) !== sessionIdentity(body))
         fail(409, "Session already exists with different creation parameters");
-      existing.vaultIds = vaultIds;
-      existing.credentialSelections = credentialSelections;
-      existing.creation = body;
-      if (sandboxOwnerId !== undefined) existing.sandboxOwnerId = sandboxOwnerId;
-      store.put("sessions", id, existing);
-      ctx.vault.recordAttachment(id, vaultIds);
-      return existing;
+      prior.vaultIds = vaultIds;
+      prior.credentialSelections = credentialSelections;
+      prior.creation = body;
+      if (sandboxOwnerId !== undefined) prior.sandboxOwnerId = sandboxOwnerId;
+      await t.put("sessions", id, prior);
+      await ctx.vault.recordAttachment(t, id, vaultIds);
+      return prior;
     }
     const created: Session = {
       id,
@@ -137,14 +137,32 @@ export function putSession(
       pluginRoots: definition!.pluginRoots ?? {},
       ...(sandboxOwnerId !== undefined ? { sandboxOwnerId } : {}),
     };
-    store.put("sessions", id, created);
-    ctx.vault.recordAttachment(id, vaultIds);
+    await t.put("sessions", id, created);
+    await ctx.vault.recordAttachment(t, id, vaultIds);
     return created;
   });
 }
 
 /** The session resource returned by `GET`/`PUT /v1/sessions/:id`. */
-export function sessionView(ctx: TenantContext, s: Session): unknown {
+export async function sessionView(t: Tx, s: Session): Promise<unknown> {
+  let waits: unknown = Array.isArray(s.waits)
+    ? s.waits.map((call: any) => ({
+        invocationId: call.invocationId,
+        interaction: call.interaction,
+        wait: call.wait,
+        status: call.status,
+      }))
+    : s.waits;
+  if (isWorkflowManifest(s.manifest)) {
+    const aggregated = await aggregateWaits({ t, workflowSessionId: s.id });
+    if (aggregated.length > 0) waits = aggregated;
+  }
+  const actions = await t.actionsForSession(s.id, {
+    statuses: ["pending", "claimed", "uncertain"],
+  });
+  const uncertain = await t.effectsForSession<any>(s.id, {
+    statuses: ["uncertain"],
+  });
   return {
     id: s.id,
     agentId: s.agentId,
@@ -158,38 +176,14 @@ export function sessionView(ctx: TenantContext, s: Session): unknown {
     sandboxOwnerId: s.sandboxOwnerId ?? null,
     mcpSnapshot: s.mcpSnapshot ?? null,
     mcpDiagnostics: s.mcpDiagnostics ?? [],
-    waits: (() => {
-      if (isWorkflowManifest(s.manifest)) {
-        const aggregated = aggregateWaits({
-          store: ctx.store,
-          workflowSessionId: s.id,
-        });
-        if (aggregated.length > 0) return aggregated;
-      }
-      return Array.isArray(s.waits)
-        ? s.waits.map((call: any) => ({
-            invocationId: call.invocationId,
-            interaction: call.interaction,
-            wait: call.wait,
-            status: call.status,
-          }))
-        : s.waits;
-    })(),
+    waits,
     error: s.error,
-    actions: ctx.store
-      .all<Action>("actions")
-      .filter(
-        (a) =>
-          a.sessionId === s.id && !["completed", "cancelled"].includes(a.status)
-      ),
-    uncertainEffects: ctx.store
-      .all("effects")
-      .filter((e) => e.request.sessionId === s.id && e.status === "uncertain")
-      .map((e) => ({
-        effectId: e.request.effectId,
-        turnId: e.request.turnId,
-        kind: e.request.kind,
-        error: e.error,
-      })),
+    actions,
+    uncertainEffects: uncertain.map((e) => ({
+      effectId: e.request.effectId,
+      turnId: e.request.turnId,
+      kind: e.request.kind,
+      error: e.error,
+    })),
   };
 }

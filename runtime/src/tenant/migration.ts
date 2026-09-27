@@ -7,11 +7,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
   TENANT_SCHEMA_VERSION,
+  checkpointTenantDatabase,
   migrateTenantDatabase as defaultMigrate,
   schemaVersionOf as defaultSchemaVersionOf,
+  withTenantDatabase,
+  type TenantDatabase,
 } from "./schema.js";
 import { writeEnvelopeFile } from "./envelope.js";
 import { quarantine } from "./quarantine.js";
@@ -19,9 +21,10 @@ import type { TenantPaths } from "./types.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 
 export interface MigrationHooks {
-  schemaVersionOf?: (db: DatabaseSync) => number;
+  schemaVersionOf?: (db: TenantDatabase) => number;
+  /** Runs its own transaction; the caller never holds one on `db`. */
   migrateTenantDatabase?: (
-    db: DatabaseSync,
+    db: TenantDatabase,
   ) => { from: number; to: number };
   targetVersion?: number;
 }
@@ -49,17 +52,9 @@ export function migrateTenantWithSnapshot(
     hooks.migrateTenantDatabase ?? defaultMigrate;
   const target = hooks.targetVersion ?? TENANT_SCHEMA_VERSION;
 
-  const db = new DatabaseSync(paths.database);
-  let from: number;
-  try {
-    from = schemaVersionOf(db);
-  } catch (error) {
-    db.close();
-    throw error;
-  }
+  const from = withTenantDatabase(paths.database, schemaVersionOf);
 
   if (from > target) {
-    db.close();
     throw quarantine(
       "schema-too-new",
       `Tenant schema version ${from} is newer than Host ${target}`,
@@ -67,10 +62,7 @@ export function migrateTenantWithSnapshot(
     );
   }
 
-  if (from === target) {
-    db.close();
-    return envelope;
-  }
+  if (from === target) return envelope;
 
   const dirName = `${from}-${target}-${stamp(now)}`;
   mkdirSync(paths.migration, { recursive: true });
@@ -79,8 +71,7 @@ export function migrateTenantWithSnapshot(
 
   try {
     // Checkpoint WAL so the database file is self-contained (invariant 7).
-    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    db.close();
+    checkpointTenantDatabase(paths.database);
 
     copyIfPresent(paths.database, join(snapshotDir, "tenant.sqlite"));
     copyIfPresent(paths.envelope, join(snapshotDir, "tenant.json"));
@@ -95,22 +86,8 @@ export function migrateTenantWithSnapshot(
       join(snapshotDir, "tenant.sqlite-shm"),
     );
 
-    const migrating = new DatabaseSync(paths.database);
-    let result: { from: number; to: number };
-    try {
-      migrating.exec("BEGIN IMMEDIATE");
-      result = migrateTenantDatabase(migrating);
-      migrating.exec("COMMIT");
-    } catch (error) {
-      try {
-        migrating.exec("ROLLBACK");
-      } catch {
-        /* ignore */
-      }
-      migrating.close();
-      throw error;
-    }
-    migrating.close();
+    // The migration runs its own transaction (no outer BEGIN: SQLite cannot nest them).
+    const result = withTenantDatabase(paths.database, migrateTenantDatabase);
 
     const updated: TenantEnvelope = {
       ...envelope,

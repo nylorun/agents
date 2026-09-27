@@ -4,17 +4,15 @@
  * `resolveNewFlowEffect` does the same for workflow effects (linked agent sessions, tool
  * nodes, fn, verify). Also MCP preparation and vault authorization for MCP servers.
  *
+ * Every journal write runs in a transaction that locks the effect's session first. The
+ * model, MCP, sandbox and vault calls run between transactions, never inside one.
+ *
  * `invokeModel` lives here rather than in `advance.ts`: it is one of the effect dispatchers,
  * and keeping it here avoids an import cycle between the advance and the engine host.
  *
- * Later waves: Wave 1 / A makes every transaction here async (no external I/O inside a
- * `tx`); Wave 2 / X adds the epoch check to each write.
+ * Later waves: Wave 2 / X adds the epoch check to each write.
  */
-import type {
-  Action,
-  LiveEvent,
-  SessionCommand,
-} from "@nylorun/core/contracts";
+import type { Action, SessionCommand } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue } from "@nylorun/core/define";
 import {
@@ -24,14 +22,21 @@ import {
   isFlowToolEffect,
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
-import { canonical } from "../core/store.js";
+import { canonical } from "../store/canonical.js";
 import { piModel } from "../model/pi-model.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import { serversOf } from "../mcp/pool.js";
 import { sandboxCapabilityOf } from "../sandbox/manager.js";
 import { owningSandboxSessionId, sandboxSpecOf } from "../sandbox/share.js";
-import { sessionOf, type Session, type TenantContext } from "./context.js";
+import {
+  loadSession,
+  lockedSession,
+  sandboxLookup,
+  sessionOf,
+  type Session,
+  type TenantContext,
+} from "./context.js";
 import { fail } from "./http.js";
 import {
   actionTarget,
@@ -62,41 +67,47 @@ export function invokeModel(
   });
 }
 
+type Journaled =
+  | { kind: "resolved"; resolution: EffectResolution }
+  | { kind: "flow" }
+  | { kind: "invoke"; invoke: "model" | "mcp" | "sandbox" };
+
 export async function resolveEffect(
   ctx: TenantContext,
   request: HostEffect,
   signal: AbortSignal
 ): Promise<EffectResolution> {
   const { store } = ctx;
-  let invoke: "model" | "mcp" | "sandbox" | undefined;
-  let notify = false;
-  let event: LiveEvent | undefined;
-  const resolution = store.tx((): EffectResolution | undefined => {
-    const s = sessionOf(ctx, request.sessionId);
+  const journaled = await store.tx(async (t): Promise<Journaled> => {
+    const s = await lockedSession(t, request.sessionId);
     if (
       s.status === "cancelled" ||
       s.activeTurnId !== request.turnId ||
       signal.aborted
     )
       throw new Error("Turn cancelled");
-    const existing = store.get("effects", request.effectId);
+    const resolved = (resolution: EffectResolution): Journaled => ({
+      kind: "resolved",
+      resolution,
+    });
+    const existing = await t.get("effects", request.effectId);
     if (existing) {
       if (canonical(existing.request) !== canonical(request))
         throw new Error("Effect identity request drift");
       if (existing.status === "completed")
-        return { status: "completed", outcome: existing.outcome };
+        return resolved({ status: "completed", outcome: existing.outcome });
       if (request.kind === "agent" && existing.status === "pending") {
         const agentSessionId = existing.agentSessionId as string | undefined;
         if (agentSessionId) {
-          const agent = store.get<Session>("sessions", agentSessionId);
+          const agent = await t.get<Session>("sessions", agentSessionId);
           if (agent?.status === "completed") {
             const outcome = {
               value: linkedAgentOutput(agent, agent.lastOutput ?? null),
             };
             existing.status = "completed";
             existing.outcome = outcome;
-            store.put("effects", request.effectId, existing);
-            return { status: "completed", outcome };
+            await t.put("effects", request.effectId, existing);
+            return resolved({ status: "completed", outcome });
           }
           if (agent?.status === "failed") {
             const outcome = {
@@ -108,17 +119,17 @@ export async function resolveEffect(
             };
             existing.status = "completed";
             existing.outcome = outcome;
-            store.put("effects", request.effectId, existing);
-            return { status: "completed", outcome };
+            await t.put("effects", request.effectId, existing);
+            return resolved({ status: "completed", outcome });
           }
         }
       }
-      return {
+      return resolved({
         status:
           existing.status === "uncertain" || existing.status === "invoking"
             ? "uncertain"
             : "pending",
-      };
+      });
     }
     if (
       request.kind === "agent" ||
@@ -127,24 +138,24 @@ export async function resolveEffect(
       isFlowToolEffect(request)
     ) {
       // Handled outside the agent-manifest path below.
-      return { status: "pending", __flow: true } as any;
+      return { kind: "flow" };
     }
     if (request.kind === "delegation") {
       // Lifecycle points of an agent used as a tool: journaled once, so replays never re-emit.
       const outcome = { value: null };
-      store.put("effects", request.effectId, {
+      await t.put("effects", request.effectId, {
         request,
         status: "completed",
         outcome,
       });
       const settled = request.effectId.endsWith(":settled");
-      event = store.event(
+      await t.event(
         s.id,
         s.activeTurnId,
         settled ? "delegation.completed" : "delegation.started",
         { agent: request.agent, ...(request.input as object) }
       );
-      return { status: "completed", outcome };
+      return resolved({ status: "completed", outcome });
     }
     const agentManifest = manifestFor(s.manifest, request.agent);
     if (!agentManifest)
@@ -160,17 +171,18 @@ export async function resolveEffect(
             request.toolName
           )
         : undefined;
-    store.put("effects", request.effectId, {
+    await t.put("effects", request.effectId, {
       request,
       status:
         request.kind === "model" || mcpTool || sandboxTool
           ? "invoking"
           : "pending",
     });
-    if (request.kind === "model" || mcpTool || sandboxTool) {
-      invoke = mcpTool ? "mcp" : sandboxTool ? "sandbox" : "model";
-      return undefined;
-    }
+    if (request.kind === "model" || mcpTool || sandboxTool)
+      return {
+        kind: "invoke",
+        invoke: mcpTool ? "mcp" : sandboxTool ? "sandbox" : "model",
+      };
     const tool =
       request.kind === "tool"
         ? pinnedTool(agentManifest, request.capabilityId, request.toolName)
@@ -209,61 +221,66 @@ export async function resolveEffect(
             ...(tool?.inputSchema ? { inputSchema: tool.inputSchema } : {}),
             ...(tool?.outputSchema ? { outputSchema: tool.outputSchema } : {}),
           };
-    store.put("actions", action.actionId, action);
-    event = store.event(s.id, s.activeTurnId, "action.pending", {
+    await t.put("actions", action.actionId, action);
+    await t.event(s.id, s.activeTurnId, "action.pending", {
       actionId: action.actionId,
       kind: action.kind,
       ...actionTarget(action),
       input: action.input,
     });
-    notify = true;
-    return { status: "pending" };
+    t.signalWork();
+    return resolved({ status: "pending" });
   });
-  if (event) ctx.publish(event);
-  if (notify) ctx.notify();
-  if (resolution && (resolution as any).__flow && isFlowEffect(request)) {
-    return resolveNewFlowEffect(ctx, request, signal);
+  if (journaled.kind === "resolved") return journaled.resolution;
+  if (journaled.kind === "flow") {
+    if (isFlowEffect(request))
+      return resolveNewFlowEffect(ctx, request, signal);
+    return { status: "pending" };
   }
-  if (!invoke) return resolution!;
+  const invoke = journaled.invoke;
   try {
+    // The intent is committed; the call itself runs outside any transaction.
     const value =
       invoke === "mcp"
         ? await callMcpTool(ctx, request)
         : invoke === "sandbox"
         ? await callSandboxTool(ctx, request, signal)
         : await invokeModel(ctx, request, signal);
-    return store.tx(() => {
-      const s = sessionOf(ctx, request.sessionId);
+    return await store.tx(async (t) => {
+      const s = await lockedSession(t, request.sessionId);
       if (
         s.status === "cancelled" ||
         s.activeTurnId !== request.turnId ||
         signal.aborted
       )
         throw new Error("Turn cancelled");
-      const effect = store.get("effects", request.effectId);
+      const effect = await t.get("effects", request.effectId);
       effect.status = "completed";
       effect.outcome = { value };
-      store.put("effects", request.effectId, effect);
+      await t.put("effects", request.effectId, effect);
       return { status: "completed" as const, outcome: effect.outcome };
     });
   } catch (error) {
-    let event: LiveEvent | undefined;
-    store.tx(() => {
-      const effect = store.get("effects", request.effectId);
+    await store.tx(async (t) => {
+      const s = await t.lockSession<Session>(request.sessionId);
+      const effect = await t.get("effects", request.effectId);
+      if (!effect) return;
       effect.status = "uncertain";
       effect.error = error instanceof Error ? error.message : String(error);
-      store.put("effects", request.effectId, effect);
-      const s = sessionOf(ctx, request.sessionId);
-      if (s.status !== "cancelled" && s.activeTurnId === request.turnId)
-        event = store.event(s.id, request.turnId, "effect.uncertain", {
+      await t.put("effects", request.effectId, effect);
+      if (s && s.status !== "cancelled" && s.activeTurnId === request.turnId)
+        await t.event(s.id, request.turnId, "effect.uncertain", {
           effectId: request.effectId,
           message: effect.error,
         });
     });
-    if (event) ctx.publish(event);
     return { status: "uncertain" };
   }
 }
+
+type FlowStep =
+  | { kind: "resolved"; resolution: EffectResolution }
+  | { kind: "agent"; workflow: Session };
 
 /** Journal and dispatch a new flow effect (agent / tool node / fn / verify). */
 export async function resolveNewFlowEffect(
@@ -273,87 +290,70 @@ export async function resolveNewFlowEffect(
 ): Promise<EffectResolution> {
   const { store } = ctx;
   if (signal.aborted) throw new Error("Turn cancelled");
-  const existing = store.get("effects", request.effectId);
-  if (existing) {
-    if (existing.status === "completed")
-      return { status: "completed", outcome: existing.outcome };
-    if (existing.status === "queued") {
-      // Fall through to dispatch when a concurrency slot is free.
-    } else if (request.kind === "agent") {
-      const agentSessionId = existing.agentSessionId as string | undefined;
-      if (agentSessionId) {
-        const agent = store.get<Session>("sessions", agentSessionId);
-        if (agent?.status === "completed") {
-          const outcome = {
-            value: linkedAgentOutput(agent, agent.lastOutput ?? null),
-          };
-          store.tx(() => {
-            existing.status = "completed";
-            existing.outcome = outcome;
-            store.put("effects", request.effectId, existing);
-          });
-          return { status: "completed", outcome };
-        }
-        if (agent?.status === "cancelled") {
-          const outcome = {
-            value: {
-              kind: "failed" as const,
-              code: "agent.cancelled",
-              message: agent.error ?? "Agent turn was cancelled",
-            },
-          };
-          store.tx(() => {
-            existing.status = "completed";
-            existing.outcome = outcome;
-            store.put("effects", request.effectId, existing);
-          });
-          return { status: "completed", outcome };
-        }
-        if (agent?.status === "failed") {
-          const outcome = {
-            value: {
-              kind: "failed" as const,
-              code: "agent.failed",
-              message: agent.error ?? "Agent turn failed",
-            },
-          };
-          store.tx(() => {
-            existing.status = "completed";
-            existing.outcome = outcome;
-            store.put("effects", request.effectId, existing);
-          });
-          return { status: "completed", outcome };
-        }
+  const step = await store.tx(async (t): Promise<FlowStep> => {
+    const resolved = (resolution: EffectResolution): FlowStep => ({
+      kind: "resolved",
+      resolution,
+    });
+    const workflow = await lockedSession(t, request.sessionId);
+    const existing = await t.get("effects", request.effectId);
+    if (existing) {
+      if (existing.status === "completed")
+        return resolved({ status: "completed", outcome: existing.outcome });
+      if (existing.status === "queued") {
+        // Fall through to dispatch when a concurrency slot is free.
+      } else if (request.kind === "agent") {
+        const agentSessionId = existing.agentSessionId as string | undefined;
+        const agent = agentSessionId
+          ? await t.get<Session>("sessions", agentSessionId)
+          : undefined;
+        const settled = (value: unknown) => ({ value }) as { value: any };
+        const outcome =
+          agent?.status === "completed"
+            ? settled(linkedAgentOutput(agent, agent.lastOutput ?? null))
+            : agent?.status === "cancelled"
+            ? settled({
+                kind: "failed" as const,
+                code: "agent.cancelled",
+                message: agent.error ?? "Agent turn was cancelled",
+              })
+            : agent?.status === "failed"
+            ? settled({
+                kind: "failed" as const,
+                code: "agent.failed",
+                message: agent.error ?? "Agent turn failed",
+              })
+            : undefined;
+        if (!outcome) return resolved({ status: "pending" });
+        existing.status = "completed";
+        existing.outcome = outcome;
+        await t.put("effects", request.effectId, existing);
+        return resolved({ status: "completed", outcome });
+      } else {
+        return resolved({ status: "pending" });
       }
-      return { status: "pending" };
-    } else {
-      return { status: "pending" };
     }
-  }
 
-  const active = countActiveFlowWork(store, request.sessionId, request.turnId);
-  if (!mayDispatchMore(active, ctx.flowLimits)) {
-    if (!existing || existing.status !== "queued") {
-      store.tx(() => {
-        store.put("effects", request.effectId, {
+    const active = await countActiveFlowWork(
+      t,
+      request.sessionId,
+      request.turnId
+    );
+    if (!mayDispatchMore(active, ctx.flowLimits)) {
+      if (!existing || existing.status !== "queued")
+        await t.put("effects", request.effectId, {
           request,
           status: "queued",
         });
-      });
+      return resolved({ status: "pending" });
     }
-    return { status: "pending" };
-  }
 
-  if (
-    request.kind === "fn" ||
-    request.kind === "verify" ||
-    isFlowToolEffect(request)
-  ) {
-    let event: LiveEvent | undefined;
-    let started: LiveEvent | undefined;
-    store.tx(() => {
-      const s = sessionOf(ctx, request.sessionId);
-      store.put("effects", request.effectId, {
+    if (
+      request.kind === "fn" ||
+      request.kind === "verify" ||
+      isFlowToolEffect(request)
+    ) {
+      await t.put("effects", request.effectId, {
         request,
         status: "pending",
       });
@@ -365,7 +365,7 @@ export async function resolveNewFlowEffect(
               turnId: request.turnId,
               agentId: request.agentId,
               manifestHash: request.manifestHash,
-              implementationVersion: s.implementationVersion,
+              implementationVersion: workflow.implementationVersion,
               input: request.input as any,
               context: request.context,
               status: "pending" as const,
@@ -382,7 +382,7 @@ export async function resolveNewFlowEffect(
               turnId: request.turnId,
               agentId: request.agentId,
               manifestHash: request.manifestHash,
-              implementationVersion: s.implementationVersion,
+              implementationVersion: workflow.implementationVersion,
               input: request.input as any,
               context: request.context,
               status: "pending" as const,
@@ -393,9 +393,9 @@ export async function resolveNewFlowEffect(
               path: request.path!,
               key: request.key!,
             } satisfies Action);
-      store.put("actions", action.actionId, action);
+      await t.put("actions", action.actionId, action);
       if (isFlowToolEffect(request)) {
-        started = store.event(s.id, s.activeTurnId, "node.started", {
+        await t.event(workflow.id, workflow.activeTurnId, "node.started", {
           path: request.path!,
           kind: "tool",
           key: request.key!,
@@ -404,21 +404,22 @@ export async function resolveNewFlowEffect(
             : {}),
         });
       }
-      event = store.event(s.id, s.activeTurnId, "action.pending", {
+      await t.event(workflow.id, workflow.activeTurnId, "action.pending", {
         actionId: action.actionId,
         kind: action.kind,
         path: action.path,
         key: action.key,
         input: action.input,
       });
-    });
-    if (started) ctx.publish(started);
-    if (event) ctx.publish(event);
-    ctx.notify();
-    return { status: "pending" };
-  }
+      t.signalWork();
+      return resolved({ status: "pending" });
+    }
+    return { kind: "agent", workflow };
+  });
+  if (step.kind === "resolved") return step.resolution;
 
   // agent effect: create linked session + message via the public contract path
+  const workflow = step.workflow;
   const body = request.input as {
     agentId: string;
     input: JsonValue;
@@ -426,7 +427,6 @@ export async function resolveNewFlowEffect(
     manifest?: AgentManifest;
   };
   const path = body.path ?? request.path!;
-  const workflow = sessionOf(ctx, request.sessionId);
   const agentSessionId = deriveAgentEffectSessionId(
     workflow.id,
     path,
@@ -435,13 +435,14 @@ export async function resolveNewFlowEffect(
   const iterations = request.iterations ?? "-";
   const n = Number(request.context.n ?? iterations.split(".")[0] ?? 1);
 
-  store.tx(() => {
-    store.put("effects", request.effectId, {
+  await store.tx(async (t) => {
+    await t.lockSession(workflow.id);
+    await t.put("effects", request.effectId, {
       request,
       status: "pending",
       agentSessionId,
     });
-    store.put("links", agentSessionId, {
+    await t.put("links", agentSessionId, {
       workflowSessionId: workflow.id,
       path,
       effectId: request.effectId,
@@ -449,14 +450,16 @@ export async function resolveNewFlowEffect(
     });
   });
 
-  if (!store.get<Session>("sessions", agentSessionId)) {
+  await store.tx(async (t) => {
+    if (await t.lockSession(agentSessionId)) return;
     const definition =
-      store.get("definitions", body.agentId) ??
+      (await t.get("definitions", body.agentId)) ??
       fail(404, "Definition not found");
     const sandboxOwnerId =
       sandboxSpecOf(workflow.manifest) || workflow.sandboxOwnerId
-        ? owningSandboxSessionId(workflow, (sid) =>
-            store.get<Session>("sessions", sid)
+        ? owningSandboxSessionId(
+            workflow,
+            await sandboxLookup(t, workflow.sandboxOwnerId)
           )
         : undefined;
     const created: Session = {
@@ -479,8 +482,8 @@ export async function resolveNewFlowEffect(
       pluginRoots: definition.pluginRoots ?? {},
       ...(sandboxOwnerId ? { sandboxOwnerId } : {}),
     };
-    store.tx(() => store.put("sessions", agentSessionId, created));
-  }
+    await t.put("sessions", agentSessionId, created);
+  });
 
   const idempotencyKey = `${request.turnId}:${path}:${iterations}`;
   const messageInput = body.input;
@@ -500,52 +503,43 @@ export async function resolveNewFlowEffect(
           idempotencyKey,
           ...(body.manifest ? { manifest: body.manifest } : {}),
         };
-  const accepted = command(ctx, agentSessionId, messageCommand, {
+  const accepted = (await command(ctx, agentSessionId, messageCommand, {
     kind: "application",
     principalId: "flow-host",
-  }) as { turnId: string | null };
+  })) as { turnId: string | null };
 
-  const events: LiveEvent[] = [];
-  store.tx(() => {
-    const s = sessionOf(ctx, request.sessionId);
-    const agentSession = sessionOf(ctx, agentSessionId);
-    events.push(
-      store.event(s.id, s.activeTurnId, "loop.iteration", {
-        path: String(request.context.loopPath ?? path.split("/")[0]),
-        n,
-        sessionId: agentSessionId,
-        turnId: accepted.turnId ?? undefined,
-        manifestHash: agentSession.checkpoint?.manifestHash,
-      })
-    );
-    events.push(
-      store.event(s.id, s.activeTurnId, "node.agent", {
-        path,
-        iterations,
-        sessionId: agentSessionId,
-        turnId: accepted.turnId,
-      })
-    );
-  });
-  for (const e of events) ctx.publish(e);
-
-  // May already be settled if the agent was fast / replayed.
-  const agent = sessionOf(ctx, agentSessionId);
-  if (agent.status === "completed") {
-    const outcome = {
-      value: linkedAgentOutput(agent, agent.lastOutput ?? null),
-    };
-    store.tx(() => {
-      store.put("effects", request.effectId, {
+  // Workflow events; the linked agent session is only read here, never locked.
+  return store.tx(async (t): Promise<EffectResolution> => {
+    const s = await lockedSession(t, request.sessionId);
+    const agent = await sessionOf(t, agentSessionId);
+    await t.event(s.id, s.activeTurnId, "loop.iteration", {
+      path: String(request.context.loopPath ?? path.split("/")[0]),
+      n,
+      sessionId: agentSessionId,
+      turnId: accepted.turnId ?? undefined,
+      manifestHash: agent.checkpoint?.manifestHash,
+    });
+    await t.event(s.id, s.activeTurnId, "node.agent", {
+      path,
+      iterations,
+      sessionId: agentSessionId,
+      turnId: accepted.turnId,
+    });
+    // May already be settled if the agent was fast / replayed.
+    if (agent.status === "completed") {
+      const outcome = {
+        value: linkedAgentOutput(agent, agent.lastOutput ?? null),
+      };
+      await t.put("effects", request.effectId, {
         request,
         status: "completed",
         outcome,
         agentSessionId,
       });
-    });
-    return { status: "completed", outcome };
-  }
-  return { status: "pending" };
+      return { status: "completed", outcome };
+    }
+    return { status: "pending" };
+  });
 }
 
 /** Discover the session's MCP tools once, or reconnect and refresh diagnostics. */
@@ -555,7 +549,7 @@ export async function prepareMcp(
   signal: AbortSignal
 ): Promise<void> {
   const { store } = ctx;
-  const s = sessionOf(ctx, id);
+  const s = await loadSession(ctx, id);
   if (serversOf(s.manifest).length === 0) return;
   if (!s.mcpSnapshot) {
     const found = await ctx.mcp.discover({
@@ -565,12 +559,12 @@ export async function prepareMcp(
       pluginRoots: s.pluginRoots ?? {},
       signal,
     });
-    store.tx(() => {
-      const current = sessionOf(ctx, id);
+    await store.tx(async (t) => {
+      const current = await lockedSession(t, id);
       if (current.mcpSnapshot) return;
       current.mcpSnapshot = found.snapshot;
       current.mcpDiagnostics = found.diagnostics;
-      store.put("sessions", id, current);
+      await t.put("sessions", id, current);
     });
     return;
   }
@@ -582,8 +576,8 @@ export async function prepareMcp(
     signal,
   });
   if (diagnostics.length === 0) return;
-  store.tx(() => {
-    const current = sessionOf(ctx, id);
+  await store.tx(async (t) => {
+    const current = await lockedSession(t, id);
     const prior = [...(current.mcpDiagnostics ?? [])];
     for (const item of diagnostics) {
       const index = prior.findIndex(
@@ -595,7 +589,7 @@ export async function prepareMcp(
       else prior.push(item);
     }
     current.mcpDiagnostics = prior;
-    store.put("sessions", id, current);
+    await t.put("sessions", id, current);
   });
 }
 
@@ -603,7 +597,7 @@ async function callMcpTool(
   ctx: TenantContext,
   request: HostEffect
 ): Promise<unknown> {
-  const s = sessionOf(ctx, request.sessionId);
+  const s = await loadSession(ctx, request.sessionId);
   const tool = mcpToolOf(s, request);
   if (!tool)
     throw new Error(
@@ -626,8 +620,12 @@ async function callSandboxTool(
   request: HostEffect,
   signal: AbortSignal
 ): Promise<unknown> {
-  const s = sessionOf(ctx, request.sessionId);
-  // Agents used as tools share the session's sandbox; the tree declares one sandbox spec.
+  const { s, ownerId } = await ctx.store.tx(async (t) => {
+    const s = await sessionOf(t, request.sessionId);
+    // Agents used as tools share the session's sandbox; the tree declares one sandbox spec.
+    const lookup = await sandboxLookup(t, s.id);
+    return { s, ownerId: owningSandboxSessionId(s, lookup) };
+  });
   const capability = sandboxCapabilityOf(
     manifestFor(s.manifest, request.agent),
     request.capabilityId,
@@ -635,9 +633,6 @@ async function callSandboxTool(
   );
   if (!capability)
     throw new Error(`'${request.toolName ?? ""}' is not a sandbox tool`);
-  const ownerId = owningSandboxSessionId(s, (id) =>
-    ctx.store.get<Session>("sessions", id)
-  );
   return ctx.sandbox.run(
     { id: ownerId, activeTurnId: s.activeTurnId, manifest: s.manifest },
     capability,
@@ -653,7 +648,7 @@ export async function authorize(
   sessionId: string,
   request: { url: string; serverName?: string }
 ): Promise<AuthorizeResult> {
-  const s = sessionOf(ctx, sessionId);
+  const s = await loadSession(ctx, sessionId);
   const result = await ctx.vault.authorize({
     sessionId,
     vaultIds: s.vaultIds ?? [],

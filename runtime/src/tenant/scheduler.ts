@@ -3,19 +3,21 @@
  * sets, the claim-lease interval (`expireClaims`), startup recovery (`invoking` effects become
  * `uncertain`), the re-offer of orphaned fn/verify claims, reschedule-on-open, and drain.
  *
- * Business code asks for an advance through `ctx.schedule`, never by calling `schedule` here.
+ * Business code asks for an advance through `ctx.schedule`, from `t.afterCommit`, never by
+ * calling `schedule` here.
  *
  * Later waves: Wave 2 / X replaces this module. `schedule`, `pending`, `running` and the
  * interval move behind an in-process `DurableExecution` (with `abortLocal`), `expireClaims`
  * and reconcile move into the Tenant sweep, and takeover replaces the startup recovery.
  */
 import { randomUUID } from "node:crypto";
-import type { Action, LiveEvent } from "@nylorun/core/contracts";
+import type { Action } from "@nylorun/core/contracts";
 import {
   reconcilePendingAgentEffects,
   reofferOrphanedFnVerifyClaims,
 } from "../core/flow-host.js";
-import { sessionOf, type Session, type TenantContext } from "./context.js";
+import type { EffectDoc } from "../store/types.js";
+import type { Session, TenantContext } from "./context.js";
 import { execute } from "./advance.js";
 import { command } from "./commands.js";
 
@@ -49,17 +51,31 @@ export function abortLocal(ctx: TenantContext, id: string): void {
   ctx.work.running.get(id)?.abort();
 }
 
-/** Expire lapsed Action claims: hooks/fn/verify are re-offered, tools become `uncertain`. */
-export function expireClaims(ctx: TenantContext): void {
+const CLAIM_BATCH = 100;
+
+/**
+ * Expire lapsed Action claims: hooks/fn/verify are re-offered, tools become `uncertain`.
+ * One transaction per claim, so each locks only its own session.
+ */
+export async function expireClaims(ctx: TenantContext): Promise<void> {
   const { store } = ctx;
-  const events: LiveEvent[] = [];
-  let redeliver = false;
-  store.tx(() => {
-    for (const action of store.all<Action>("actions"))
-      if (
-        action.status === "claimed" &&
-        Date.parse(action.leaseExpiresAt!) <= Date.now()
-      ) {
+  const seen = new Set<string>();
+  for (;;) {
+    const now = new Date();
+    const expired = (
+      await store.tx((t) => t.expiredClaims(now, CLAIM_BATCH))
+    ).filter((action) => !seen.has(action.actionId));
+    for (const found of expired) {
+      seen.add(found.actionId);
+      await store.tx(async (t) => {
+        const s = await t.lockSession<Session>(found.sessionId);
+        const action = await t.get<Action>("actions", found.actionId);
+        if (
+          !action ||
+          action.status !== "claimed" ||
+          Date.parse(action.leaseExpiresAt!) > Date.now()
+        )
+          return;
         if (
           action.kind === "hook" ||
           action.kind === "fn" ||
@@ -70,88 +86,94 @@ export function expireClaims(ctx: TenantContext): void {
           action.status = "pending";
           action.claimId = null;
           action.leaseExpiresAt = null;
-          store.put("actions", action.actionId, action);
-          redeliver = true;
-          continue;
+          await t.put("actions", action.actionId, action);
+          t.signalWork();
+          return;
         }
         action.status = "uncertain";
-        store.put("actions", action.actionId, action);
-        const effect = store.get("effects", action.actionId);
-        effect.status = "uncertain";
-        store.put("effects", action.actionId, effect);
-        const s = sessionOf(ctx, action.sessionId);
-        if (s.status !== "cancelled" && s.activeTurnId === action.turnId) {
-          s.status = "uncertain";
-          store.put("sessions", s.id, s);
-          events.push(
-            store.event(s.id, s.activeTurnId, "action.uncertain", {
-              actionId: action.actionId,
-              ...(action.agent ? { agent: action.agent } : {}),
-            })
-          );
+        await t.put("actions", action.actionId, action);
+        const effect = await t.get("effects", action.actionId);
+        if (effect) {
+          effect.status = "uncertain";
+          await t.put("effects", action.actionId, effect);
         }
-      }
-  });
-  events.forEach((e) => ctx.publish(e));
-  if (redeliver) ctx.notify();
+        if (s && s.status !== "cancelled" && s.activeTurnId === action.turnId) {
+          s.status = "uncertain";
+          await t.put("sessions", s.id, s);
+          await t.event(s.id, s.activeTurnId, "action.uncertain", {
+            actionId: action.actionId,
+            ...(action.agent ? { agent: action.agent } : {}),
+          });
+        }
+      });
+    }
+    if (expired.length < CLAIM_BATCH) return;
+  }
 }
 
 /**
  * Startup recovery, before any advance runs: effects left `invoking` by a previous process
  * become `uncertain`, expired claims lapse, and orphaned fn/verify claims are offered again.
  */
-export function recoverOnOpen(ctx: TenantContext): void {
+export async function recoverOnOpen(ctx: TenantContext): Promise<void> {
   const { store } = ctx;
-  store.tx(() => {
-    for (const effect of store.all("effects"))
-      if (effect.status === "invoking") {
-        effect.status = "uncertain";
-        store.put("effects", effect.request.effectId, effect);
-        const sess = store.get<Session>("sessions", effect.request.sessionId);
-        if (
-          sess &&
-          sess.status !== "cancelled" &&
-          sess.activeTurnId === effect.request.turnId
-        ) {
-          sess.status = "uncertain";
-          store.put("sessions", sess.id, sess);
-          store.event(sess.id, sess.activeTurnId, "effect.uncertain", {
-            effectId: effect.request.effectId,
-          });
-        }
+  const invoking = await store.tx((t) =>
+    t.effectsWithStatus<EffectDoc>(["invoking"])
+  );
+  for (const found of invoking)
+    await store.tx(async (t) => {
+      const sess = await t.lockSession<Session>(found.request.sessionId);
+      const effect = await t.get("effects", found.request.effectId);
+      if (!effect || effect.status !== "invoking") return;
+      effect.status = "uncertain";
+      await t.put("effects", found.request.effectId, effect);
+      if (
+        sess &&
+        sess.status !== "cancelled" &&
+        sess.activeTurnId === found.request.turnId
+      ) {
+        sess.status = "uncertain";
+        await t.put("sessions", sess.id, sess);
+        await t.event(sess.id, sess.activeTurnId, "effect.uncertain", {
+          effectId: found.request.effectId,
+        });
       }
-  });
-  expireClaims(ctx);
+    });
+  await expireClaims(ctx);
   // Orphaned fn/verify claims from a prior process: re-offer immediately.
-  store.tx(() => {
-    reofferOrphanedFnVerifyClaims(store);
+  await store.tx(async (t) => {
+    await reofferOrphanedFnVerifyClaims(t);
+    t.signalWork();
   });
-  ctx.notify();
 }
 
 /** The claim-lease interval; the caller clears it on close. */
 export function startLeaseTimer(ctx: TenantContext): NodeJS.Timeout {
-  const timer = setInterval(
-    () => expireClaims(ctx),
-    Math.min(ctx.config.leaseMs ?? 30000, 5000)
-  );
+  const timer = setInterval(() => {
+    if (ctx.closed) return;
+    expireClaims(ctx).catch((error) =>
+      ctx.config.logger.warn("claim expiry failed", {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }, Math.min(ctx.config.leaseMs ?? 30000, 5000));
   timer.unref();
   return timer;
 }
 
 /** Wake sessions a previous process left running or runnable, and settle linked agents. */
-export function rescheduleOnOpen(ctx: TenantContext): void {
+export async function rescheduleOnOpen(ctx: TenantContext): Promise<void> {
   const { store } = ctx;
-  for (const sess of store.all<Session>("sessions"))
-    if (sess.status === "running" || sess.status === "runnable")
-      ctx.schedule(sess.id);
-  store.tx(() => {
+  const open = await store.tx((t) =>
+    t.sessionsWithStatus(["running", "runnable"])
+  );
+  for (const sess of open) ctx.schedule(sess.id);
+  await store.tx((t) =>
     reconcilePendingAgentEffects({
-      store,
+      t,
       schedule: (sid) => ctx.schedule(sid),
-      publish: (e) => ctx.publish(e),
-    });
-  });
+    })
+  );
 }
 
 /** Reset: forget queued wakes and abort every running advance. */
@@ -169,12 +191,12 @@ export async function drain(
 ): Promise<void> {
   ctx.closing = true;
   if (activeWork === "cancel") {
-    for (const sess of ctx.store.all<Session>("sessions"))
-      if (
-        sess.activeTurnId &&
-        ["running", "runnable", "paused"].includes(sess.status)
-      )
-        command(
+    const active = await ctx.store.tx((t) =>
+      t.sessionsWithStatus<Session>(["running", "runnable", "paused"])
+    );
+    for (const sess of active)
+      if (sess.activeTurnId)
+        await command(
           ctx,
           sess.id,
           {

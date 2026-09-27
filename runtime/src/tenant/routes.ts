@@ -3,7 +3,7 @@
  * delegates to the service modules (commands, actions, sessions, live, routes-tenant). It
  * maps typed errors to responses and owns no business logic of its own.
  *
- * Later waves: Wave 1 / A awaits the async services; Wave 2 / Y swaps the history and SSE
+ * Later waves: Wave 2 / Y swaps the history and SSE
  * handlers for stream readers. Route shapes do not change.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -18,7 +18,7 @@ import {
   SandboxRouteError,
   handleSessionSandboxTool,
 } from "../core/sandbox-routes.js";
-import { sessionOf, type TenantContext } from "./context.js";
+import { loadSession, sessionOf, type TenantContext } from "./context.js";
 import {
   HttpError,
   OpaqueAuthError,
@@ -74,7 +74,7 @@ export async function handle(
       .filter(Boolean)
       .map(decodeURIComponent);
     const method = request.method;
-    const scope = authenticate(ctx, request);
+    const scope = await authenticate(ctx, request);
     if (path[0] !== "v1") fail(404, "Route not found");
     if (path[1] === "executors" && path[2] === "connect" && method === "GET") {
       if (scope.kind !== "executor")
@@ -85,9 +85,9 @@ export async function handle(
     if (path[1] === "actions") {
       if (scope.kind !== "executor")
         return fail(403, "Executor credential required");
-      expireClaims(ctx);
+      await expireClaims(ctx);
       if (path.length === 2 && method === "GET")
-        return json(listPendingActions(ctx, scope.executor));
+        return json(await listPendingActions(ctx, scope.executor));
       const actionId = path[2];
       if (!actionId) fail(404, "Action not found");
       if (
@@ -100,7 +100,9 @@ export async function handle(
           await actionSandboxTool(ctx, scope, actionId!, path[4], request)
         );
       const body = await readBody(request);
-      return json(updateAction(ctx, scope, actionId!, method, path[3], body));
+      return json(
+        await updateAction(ctx, scope, actionId!, method, path[3], body)
+      );
     }
     if (
       path[1] === "sessions" &&
@@ -109,7 +111,7 @@ export async function handle(
       method === "POST"
     )
       return json(
-        command(
+        await command(
           ctx,
           path[2],
           SessionCommandSchema.parse(await readBody(request)),
@@ -127,7 +129,7 @@ export async function handle(
     // PUT to /v1/executors/connect would register an agent literally named "connect".
     if (path[1] === "executors" && path.length === 2 && method === "PUT")
       return json(
-        registerExecutors(
+        await registerExecutors(
           ctx,
           principalId,
           RegisterExecutorsRequestSchema.parse(await readBody(request))
@@ -139,11 +141,11 @@ export async function handle(
       path[2] &&
       method === "DELETE"
     )
-      return json(deleteExecutor(ctx, path[2]));
+      return json(await deleteExecutor(ctx, path[2]));
     if (path[1] === "agents" && path.length === 2 && method === "GET")
-      return json(listDefinitions(ctx));
+      return json(await listDefinitions(ctx));
     if (path[1] === "sessions" && path.length === 2 && method === "GET")
-      return json(listSessions(ctx, url.searchParams.get("agentId")));
+      return json(await listSessions(ctx, url.searchParams.get("agentId")));
     if (
       path[1] === "agents" &&
       path[2] &&
@@ -151,7 +153,7 @@ export async function handle(
       method === "PUT"
     )
       return json(
-        putDefinition(
+        await putDefinition(
           ctx,
           path[2],
           PutAgentRequestSchema.parse(await readBody(request))
@@ -159,24 +161,23 @@ export async function handle(
       );
     if (path[1] === "sessions" && path[2]) {
       const id = path[2];
-      if (method === "PUT" && path.length === 3)
+      if (method === "PUT" && path.length === 3) {
+        const body = PutSessionRequestSchema.parse(await readBody(request));
+        const session = await putSession(ctx, id, body);
+        return json(await ctx.store.tx((t) => sessionView(t, session)));
+      }
+      if (method === "GET" && path.length === 3)
         return json(
-          sessionView(
-            ctx,
-            putSession(
-              ctx,
-              id,
-              PutSessionRequestSchema.parse(await readBody(request))
-            )
+          await ctx.store.tx(async (t) =>
+            sessionView(t, await sessionOf(t, id))
           )
         );
-      const s = sessionOf(ctx, id);
-      if (method === "GET" && path.length === 3)
-        return json(sessionView(ctx, s));
+      // Every other session route needs the session to exist.
+      await loadSession(ctx, id);
       const cursor = requestCursor(request, url);
       if (method === "GET" && path[3] === "items")
         return json(
-          readHistory(
+          await readHistory(
             ctx,
             id,
             cursor,
@@ -184,7 +185,7 @@ export async function handle(
           )
         );
       if (method === "GET" && path[3] === "events") {
-        streamSessionEvents(ctx, request, response, id, cursor);
+        await streamSessionEvents(ctx, request, response, id, cursor);
         return;
       }
       if (

@@ -2,7 +2,7 @@
  * Event cursors. A cursor names the last event a client has seen:
  * `base64url("<sessionId>:<seq>")`, where `seq` is the per-session event
  * sequence and also the S2 sequence number in `sessions/<sessionId>`.
- * The encoding matches `core/store.ts`, so existing clients see no change.
+ * The encoding matches the old global-sequence cursors, so clients see no format change.
  */
 
 export function encodeCursor(sessionId: string, seq: number): string {

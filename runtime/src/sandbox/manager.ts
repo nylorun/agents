@@ -10,7 +10,7 @@ import {
   type CapabilityManifest,
   type SandboxToolName,
 } from "@nylorun/core/define";
-import type { Store } from "../core/store.js";
+import type { SessionStore } from "../store/types.js";
 import {
   DEFAULT_SANDBOX_CPUS,
   DEFAULT_SANDBOX_IMAGE,
@@ -59,13 +59,19 @@ interface Live {
 export interface SandboxManagerOptions {
   /** Distinguishes this Runtime's sandboxes from other Runtimes on the same machine. */
   readonly scope: string;
-  readonly store: Store;
+  readonly store: SessionStore;
   readonly backends: readonly SandboxBackend[];
   /** `auto` or `virtual`. Undefined means an invalid NYLORUN_SANDBOX value. */
   readonly preference: string | undefined;
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
-  readonly emit: (sessionId: string, turnId: string | null, type: string, payload: unknown) => void;
+  /** Writes a session event in its own transaction; never called inside one. */
+  readonly emit: (
+    sessionId: string,
+    turnId: string | null,
+    type: string,
+    payload: unknown
+  ) => void | Promise<void>;
 }
 
 const READ_TOOLS = new Set<SandboxToolName>(["read", "grep", "glob"]);
@@ -91,11 +97,14 @@ export class SandboxManager {
 
   constructor(private readonly options: SandboxManagerOptions) {
     this.prefix = `nylorun-${options.scope}-`;
-    // Compute is gone after a Runtime restart; files remain and the next call reattaches.
-    options.store.tx(() => {
-      for (const record of options.store.all<SandboxRecord>("sandboxes"))
+  }
+
+  /** Startup step: compute is gone after a Runtime restart; files remain and the next call reattaches. */
+  async init(): Promise<void> {
+    await this.options.store.tx(async (t) => {
+      for (const record of await t.listSandboxes<SandboxRecord>())
         if (record.state !== "stopped")
-          options.store.put("sandboxes", record.key, { ...record, state: "stopped" });
+          await t.put("sandboxes", record.key, { ...record, state: "stopped" });
     });
   }
 
@@ -115,8 +124,8 @@ export class SandboxManager {
   }
 
   /** Whether any sandbox was ever recorded, so startup can skip probing for agents without one. */
-  hasRecords(): boolean {
-    return this.options.store.all("sandboxes").length > 0;
+  async hasRecords(): Promise<boolean> {
+    return (await this.options.store.tx((t) => t.counts())).sandboxes > 0;
   }
 
   keyOf(sessionId: string): string {
@@ -184,8 +193,8 @@ export class SandboxManager {
         live.handle = await this.open(live, session, spec);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.record(spec.key, session.id, live.backend.name, spec.image, "stopped");
-        this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
+        await this.record(spec.key, session.id, live.backend.name, spec.image, "stopped");
+        await this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
           state: "stopped",
           backend: live.backend.name,
           error: message,
@@ -210,7 +219,7 @@ export class SandboxManager {
           report = value;
         }
       );
-      this.options.emit(session.id, session.activeTurnId, "sandbox.exec", {
+      await this.options.emit(session.id, session.activeTurnId, "sandbox.exec", {
         tool: toolName,
         ...report,
         ...(report.command ? { command: report.command.slice(0, 500) } : {}),
@@ -234,22 +243,24 @@ export class SandboxManager {
   }
 
   private async open(live: Live, session: SandboxSessionRef, spec: SandboxSpec): Promise<SandboxHandle> {
-    const existing = this.options.store.get<SandboxRecord>("sandboxes", spec.key);
+    const existing = await this.options.store.tx((t) =>
+      t.get<SandboxRecord>("sandboxes", spec.key)
+    );
     const payload = {
       backend: live.backend.name,
       isolation: live.backend.isolation,
       image: spec.image,
       network: describeNetwork(spec.network),
     };
-    this.record(spec.key, session.id, live.backend.name, spec.image, "creating", existing);
-    this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
+    await this.record(spec.key, session.id, live.backend.name, spec.image, "creating", existing);
+    await this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
       state: "creating",
       ...payload,
       ...(existing ? { reattach: true } : {}),
     });
     const handle = await live.backend.open(spec);
-    this.record(spec.key, session.id, live.backend.name, spec.image, "running", existing);
-    this.options.emit(session.id, session.activeTurnId, "sandbox.state", { state: "running", ...payload });
+    await this.record(spec.key, session.id, live.backend.name, spec.image, "running", existing);
+    await this.options.emit(session.id, session.activeTurnId, "sandbox.state", { state: "running", ...payload });
     return handle;
   }
 
@@ -269,22 +280,23 @@ export class SandboxManager {
     try {
       await handle.stop();
     } finally {
-      this.record(key, live.sessionId, live.backend.name, undefined, "stopped");
-      this.options.emit(live.sessionId, null, "sandbox.state", { state: "stopped", backend: live.backend.name });
+      await this.record(key, live.sessionId, live.backend.name, undefined, "stopped");
+      await this.options.emit(live.sessionId, null, "sandbox.state", { state: "stopped", backend: live.backend.name });
     }
   }
 
-  private record(
+  private async record(
     key: string,
     sessionId: string,
     backend: string,
     image: string | undefined,
     state: SandboxState,
-    existing = this.options.store.get<SandboxRecord>("sandboxes", key)
-  ) {
+    known?: SandboxRecord
+  ): Promise<void> {
     const now = new Date().toISOString();
-    this.options.store.tx(() =>
-      this.options.store.put("sandboxes", key, {
+    await this.options.store.tx(async (t) => {
+      const existing = known ?? (await t.get<SandboxRecord>("sandboxes", key));
+      await t.put("sandboxes", key, {
         key,
         sessionId,
         backend,
@@ -292,24 +304,30 @@ export class SandboxManager {
         state,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
-      } satisfies SandboxRecord)
-    );
+      } satisfies SandboxRecord);
+    });
   }
 
   /** The sandbox record for a session, if one was ever created. */
-  status(sessionId: string): SandboxRecord | undefined {
-    return this.options.store.get<SandboxRecord>("sandboxes", this.keyOf(sessionId));
+  status(sessionId: string): Promise<SandboxRecord | undefined> {
+    return this.options.store.tx((t) =>
+      t.get<SandboxRecord>("sandboxes", this.keyOf(sessionId))
+    );
   }
 
   /** Delete sandboxes this Runtime owns whose session no longer exists. */
-  async reconcile(sessionExists: (sessionId: string) => boolean): Promise<void> {
+  async reconcile(
+    sessionExists: (sessionId: string) => boolean | Promise<boolean>
+  ): Promise<void> {
     const { backend } = await this.ready;
     if (!backend) return;
     for (const key of await backend.list(this.prefix)) {
-      const record = this.options.store.get<SandboxRecord>("sandboxes", key);
-      if (record && sessionExists(record.sessionId)) continue;
+      const record = await this.options.store.tx((t) =>
+        t.get<SandboxRecord>("sandboxes", key)
+      );
+      if (record && (await sessionExists(record.sessionId))) continue;
       await backend.remove(key);
-      this.options.store.tx(() => this.options.store.delete("sandboxes", key));
+      await this.options.store.tx((t) => t.delete("sandboxes", key));
     }
   }
 

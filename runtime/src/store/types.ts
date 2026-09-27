@@ -82,7 +82,7 @@
  * | `core/flow-host.ts:1165` `wakeForQueuedEffects` | queued `effects` of the workflow turn | `effectsForTurn(wf, turnId, ["queued"])` |
  * | `core/store.ts` `allExecutors` | `executors` | `listExecutors()` |
  * | `core/store.ts` `credentialCount` | `vault_credentials` | `countCredentials()` |
- * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(sessionStream(id))` (Wave 2 Y); SQLite keeps it until then |
+ * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(sessionStream(id))` (Wave 2 Y); SQLite serves it from `SqliteSessionStore.readEvents` until then |
  *
  * Raw SQL outside the store moves behind typed methods too: `tenant/principals.ts`
  * (principal methods), `tenant/status.ts` and `host/config-for.ts`

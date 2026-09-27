@@ -6,31 +6,23 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { Store } from "../core/store.js";
+import type { ResetScope, SessionStore } from "../store/types.js";
 import type { ExecutorRegistry } from "../core/executors.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantPaths } from "./types.js";
 
-export type ResetScope = "sessions" | "sandboxes" | "all";
+export type { ResetScope } from "../store/types.js";
 
 export interface ResetTenantContext {
-  store: Store;
+  store: SessionStore;
   registry: ExecutorRegistry;
   sandbox: SandboxManager;
   paths: TenantPaths;
-  /** Clear in-memory session observers after DB wipe. */
+  /** Clear in-memory session observers after the store wipe. */
   clearSessionState: () => void;
   /** Clear executor SSE streams when registrations are removed. */
   clearExecutorStreams: () => void;
 }
-
-const SESSION_TABLES = [
-  "sessions",
-  "commands",
-  "checkpoints",
-  "effects",
-  "actions",
-] as const;
 
 /**
  * Rename `dir` to a sibling, delete the sibling, recreate an empty `dir`.
@@ -58,45 +50,11 @@ function replaceDirectory(dir: string): void {
   }
 }
 
-function clearSessionTables(store: Store): void {
-  for (const table of SESSION_TABLES) {
-    store.db.prepare(`DELETE FROM ${table}`).run();
-  }
-  store.db.prepare("DELETE FROM events").run();
-}
-
-function clearSandboxRows(store: Store): void {
-  store.db.prepare("DELETE FROM sandboxes").run();
-}
-
-function clearDefinitions(store: Store): void {
-  store.db.prepare("DELETE FROM definitions").run();
-}
-
-function clearExecutors(store: Store, registry: ExecutorRegistry): void {
-  for (const row of registry.list()) registry.remove(row.agentId);
-  store.db.prepare("DELETE FROM executors").run();
-}
-
-/** Delete user-scoped vaults; keep the host vault (model credentials). */
-function clearUserVaults(store: Store): void {
-  const userVaults = store.db
-    .prepare(`SELECT id FROM vaults WHERE scope != 'host'`)
-    .all() as { id: string }[];
-  for (const vault of userVaults) {
-    store.db
-      .prepare(`DELETE FROM vault_credentials WHERE vault_id=?`)
-      .run(vault.id);
-    store.db.prepare(`DELETE FROM vaults WHERE id=?`).run(vault.id);
-  }
-  // Drop audit / idempotency rows that referenced user vaults only when all.
-  // Keep host-model idempotency so seed replay stays stable.
-}
-
 /**
  * Reset Tenant durable state for `scope` (A17).
- * Caller must have already drained (`activeWork`). Runs SQLite work in one
- * transaction, then filesystem rename+delete for sandboxes / log as needed.
+ * Caller must have already drained (`activeWork`). Deletes store state in one
+ * transaction (`Tx.reset`), then does the filesystem rename+delete for sandboxes /
+ * log as needed. The host vault (model credentials), principals and settings stay.
  */
 export async function resetTenant(
   ctx: ResetTenantContext,
@@ -110,16 +68,10 @@ export async function resetTenant(
     await ctx.sandbox.reconcile(() => false);
   }
 
-  ctx.store.tx(() => {
-    if (clearSessions) clearSessionTables(ctx.store);
-    if (clearSandboxes) clearSandboxRows(ctx.store);
-    if (clearAll) {
-      clearDefinitions(ctx.store);
-      clearExecutors(ctx.store, ctx.registry);
-      clearUserVaults(ctx.store);
-    }
-  });
+  await ctx.store.tx((t) => t.reset(scope));
 
+  if (clearAll)
+    for (const row of ctx.registry.list()) ctx.registry.remove(row.agentId);
   if (clearSessions) ctx.clearSessionState();
   if (clearAll) ctx.clearExecutorStreams();
 

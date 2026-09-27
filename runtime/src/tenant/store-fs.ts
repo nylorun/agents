@@ -10,7 +10,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { isTenantId } from "@nylorun/core/compatibility";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { hostPaths, tenantPaths } from "./paths.js";
@@ -22,7 +21,10 @@ import {
   TENANT_SCHEMA_VERSION,
   migrateTenantDatabase as defaultMigrate,
   schemaVersionOf as defaultSchemaVersionOf,
+  withTenantDatabase,
 } from "./schema.js";
+import { createSqliteSessionStore } from "../store/sqlite.js";
+import type { Tx } from "../store/types.js";
 import type {
   BootstrapPrincipal,
   Logger,
@@ -39,21 +41,20 @@ export interface FsTenantStoreOptions {
   configFor: (tenantId: string) => TenantConfig;
   logger?: Logger;
   migration?: MigrationHooks;
-  /** Writes the application principal into a fresh Tenant database. */
+  /** Writes the application principal into a fresh, migrated Tenant database, in `t`. */
   writeBootstrap?: (
-    db: DatabaseSync,
+    t: Tx,
     bootstrap: BootstrapPrincipal,
     now: Date,
-  ) => void;
+  ) => Promise<void>;
 }
 
 function defaultWriteBootstrap(
-  db: DatabaseSync,
+  t: Tx,
   bootstrap: BootstrapPrincipal,
-  _now: Date,
-): void {
-  defaultMigrate(db);
-  bootstrapPrincipal(db, bootstrap);
+  now: Date,
+): Promise<void> {
+  return bootstrapPrincipal(t, bootstrap, now);
 }
 
 function assertLiveLock(lockPath: string, tenantId: string): void {
@@ -140,11 +141,14 @@ export function createFsTenantStore(
           mkdirSync(dir, { recursive: true });
         }
         writeEnvelopeFile(paths.envelope, envelope);
-        const db = new DatabaseSync(paths.database);
+        const store = createSqliteSessionStore({
+          path: paths.database,
+          tenantId: envelope.id,
+        });
         try {
-          writeBootstrap(db, bootstrap, now);
+          await store.tx((t) => writeBootstrap(t, bootstrap, now));
         } finally {
-          db.close();
+          await store.close();
         }
         // Exclusive create marker for the lock file is owned by openRuntime (WS-A);
         // we only ensure the parent exists.
@@ -158,13 +162,19 @@ export function createFsTenantStore(
     async bootstrapMatches(id, bootstrap) {
       const paths = tenantPaths(options.hostRoot, id);
       if (!existsSync(paths.database)) return false;
-      const db = new DatabaseSync(paths.database, { readOnly: true });
       try {
-        return bootstrapPrincipalMatches(db, bootstrap);
+        const store = createSqliteSessionStore({
+          path: paths.database,
+          tenantId: id,
+          readOnly: true,
+        });
+        try {
+          return await store.tx((t) => bootstrapPrincipalMatches(t, bootstrap));
+        } finally {
+          await store.close();
+        }
       } catch {
         return false;
-      } finally {
-        db.close();
       }
     },
 
@@ -191,13 +201,10 @@ export function createFsTenantStore(
       }
 
       // Probe schema before openRuntime so schema-too-new never mutates.
-      const probe = new DatabaseSync(paths.database);
-      let version: number;
-      try {
-        version = migrationHooks.schemaVersionOf!(probe);
-      } finally {
-        probe.close();
-      }
+      const version = withTenantDatabase(
+        paths.database,
+        migrationHooks.schemaVersionOf!,
+      );
       const target = migrationHooks.targetVersion ?? TENANT_SCHEMA_VERSION;
       if (version > target) {
         throw quarantine(

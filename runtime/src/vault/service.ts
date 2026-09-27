@@ -72,7 +72,7 @@ import type {
   SelectHostModelRequest,
   VaultInfo,
 } from "@nylorun/core/contracts";
-import { canonical } from "../core/store.js";
+import { canonical } from "../store/canonical.js";
 import type {
   SessionStore,
   Tx,
