@@ -67,7 +67,7 @@ it("lock held by a live PID quarantines as locked with path and pid", async () =
   writeFileSync(paths.lock, String(holder.pid));
 
   await module.start();
-  const resolution = module.resolve(id);
+  const resolution = await module.resolve(id);
   expect(resolution.kind).toBe("quarantined");
   if (resolution.kind !== "quarantined") return;
   expect(resolution.quarantine.code).toBe("locked");

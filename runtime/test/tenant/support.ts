@@ -51,7 +51,7 @@ export function createFakeHandle(
       _response: ServerResponse,
       _url: URL,
     ) {},
-    summary() {
+    async summary() {
       return { ...summary };
     },
     async drain(activeWork) {

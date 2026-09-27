@@ -79,7 +79,7 @@ export interface TenantHandle {
     response: ServerResponse,
     url: URL,
   ): Promise<void>;
-  summary(): TenantSummary;
+  summary(): Promise<TenantSummary>;
   /** Stop scheduling; wait for or cancel active turns. */
   drain(activeWork: "drain" | "cancel", timeoutMs?: number): Promise<void>;
   close(): Promise<void>; // ends every stream this Tenant holds
@@ -116,7 +116,7 @@ export interface BootstrapPrincipal {
 export interface TenantModule {
   start(): Promise<void>; // discover + open all (pool 4, 30 s)
   readonly started: boolean;
-  resolve(id: string): TenantResolution;
+  resolve(id: string): Promise<TenantResolution>;
   create(
     input: { tenantId: string; name: string } & BootstrapPrincipal,
   ): Promise<{ envelope: TenantEnvelope; created: boolean }>;
@@ -126,7 +126,7 @@ export interface TenantModule {
     id: string,
     activeWork: "refuse" | "drain" | "cancel",
   ): Promise<void>;
-  summarize(): HostAggregate;
+  summarize(): Promise<HostAggregate>;
   close(): Promise<void>;
 }
 

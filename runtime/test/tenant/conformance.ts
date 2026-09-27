@@ -92,7 +92,7 @@ function conformance(adapter: AdapterName) {
 
       await module.start();
       expect(module.started).toBe(true);
-      const resolution = module.resolve(id);
+      const resolution = await module.resolve(id);
       expect(resolution.kind).toBe("open");
       if (resolution.kind === "open") {
         expect(resolution.handle.envelope.id).toBe(id);
@@ -174,7 +174,7 @@ function conformance(adapter: AdapterName) {
         ...bootstrapMaterial(),
       });
       await module.start();
-      const resolution = module.resolve(id);
+      const resolution = await module.resolve(id);
       expect(resolution.kind).toBe("open");
       if (resolution.kind !== "open") return;
       (
@@ -198,7 +198,7 @@ function conformance(adapter: AdapterName) {
         TenantBusyError,
       );
       await module.delete(id, "drain");
-      expect(module.resolve(id).kind).toBe("not-found");
+      expect((await module.resolve(id)).kind).toBe("not-found");
       expect(await module.status(id)).toBeUndefined();
     });
 
@@ -211,7 +211,7 @@ function conformance(adapter: AdapterName) {
         ...bootstrapMaterial(),
       });
       await module.start();
-      const resolution = module.resolve(id);
+      const resolution = await module.resolve(id);
       if (resolution.kind === "open") {
         (
           resolution.handle as {
@@ -231,7 +231,7 @@ function conformance(adapter: AdapterName) {
           uncertainEffects: 4,
         });
       }
-      const aggregate = module.summarize();
+      const aggregate = await module.summarize();
       expect(aggregate).toEqual({
         runningSessions: 2,
         connectedExecutors: 3,
@@ -289,8 +289,8 @@ function conformance(adapter: AdapterName) {
         logger: silentLogger(),
       });
       await module.start();
-      expect(module.resolve(okId).kind).toBe("open");
-      const bad = module.resolve(failId);
+      expect((await module.resolve(okId)).kind).toBe("open");
+      const bad = await module.resolve(failId);
       expect(bad.kind).toBe("quarantined");
       if (bad.kind === "quarantined") {
         expect(bad.quarantine.code).toBe("open-failed");
@@ -314,10 +314,10 @@ function conformance(adapter: AdapterName) {
         },
         bootstrapMaterial(),
       );
-      expect(module.resolve(id).kind).toBe("not-found");
+      expect((await module.resolve(id)).kind).toBe("not-found");
       const listed = await module.list();
       expect(listed.some((t) => t.id === id && t.state === "open")).toBe(true);
-      expect(module.resolve(id).kind).toBe("open");
+      expect((await module.resolve(id)).kind).toBe("open");
     });
   });
 }

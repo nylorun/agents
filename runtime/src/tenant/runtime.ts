@@ -2619,7 +2619,7 @@ export class TenantRuntime implements TenantHandle {
     fail(404, "Route not found");
   }
 
-  summary(): TenantSummary {
+  async summary(): Promise<TenantSummary> {
     const sessions = this.store.all<Session>("sessions");
     const runningSessions = sessions.filter(
       (sess) => sess.status === "running" || sess.status === "runnable"

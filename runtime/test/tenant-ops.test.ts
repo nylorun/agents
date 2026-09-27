@@ -58,7 +58,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
 it("summary() returns counts only with no string fields (A15)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
-  const summary = runtime.handle.summary();
+  const summary = await runtime.handle.summary();
   expect(summary).toEqual({
     ready: true,
     runningSessions: 0,
@@ -75,7 +75,7 @@ it("drain(cancel) stops scheduling and clears running work (A16)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   await runtime.handle.drain("cancel", 1_000);
-  const summary = runtime.handle.summary();
+  const summary = await runtime.handle.summary();
   expect(summary.ready).toBe(false);
   expect(summary.runningSessions).toBe(0);
 });
