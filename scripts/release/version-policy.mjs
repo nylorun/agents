@@ -5,6 +5,22 @@ import semver from "semver";
 import { packages, root } from "../lib/repo.mjs";
 
 const impact = { none: 0, patch: 1, minor: 2, major: 3 };
+
+/**
+ * The packages the creator pins in create-agent/compatibility.json: what a
+ * generated project installs (core, agents, cli, admin) and the versions
+ * those depend on (harness, runtime). Studio is not one: it ships only as
+ * `ghcr.io/nylorun/studio`, pinned by the CLI (`cli/package.json`
+ * `nylorun.studio`), so a Studio release reaches projects through the CLI.
+ */
+export const CREATOR_PINS = Object.freeze([
+  "core",
+  "harness",
+  "agents",
+  "admin",
+  "runtime",
+  "cli",
+]);
 const fullName = (name) => `@nylorun/${name}`;
 const core = (version) => {
   const parsed = semver.parse(version);
@@ -145,13 +161,11 @@ export function planVersions(
   for (const name of packages) core(before[name]);
   if (
     !compatibility ||
-    Object.keys(compatibility).length !== 7 ||
-    ["core", "harness", "agents", "admin", "runtime", "studio", "cli"].some(
-      (name) => !semver.valid(compatibility[name]),
-    )
+    Object.keys(compatibility).length !== CREATOR_PINS.length ||
+    CREATOR_PINS.some((name) => !semver.valid(compatibility[name]))
   )
     throw new Error(
-      "Compatibility must contain exactly seven valid package pins.",
+      `Compatibility must contain exactly the valid creator pins: ${CREATOR_PINS.join(", ")}.`,
     );
   const changesets = [...pending];
   const bumps = new Map();
@@ -202,6 +216,8 @@ export function planVersions(
     ["agents", ["studio", "cli"]],
     ["admin", ["cli"]],
     ["runtime", ["cli"]],
+    // The CLI pins the Studio image (nylorun.studio).
+    ["studio", ["cli"]],
   ]) {
     if (versions[dependency] && versions[dependency] !== before[dependency])
       for (const name of consumers) {
@@ -229,7 +245,7 @@ export function planVersions(
     changesets.push({
       id: "release-creator-compatibility",
       summary:
-        "Update the tested Harness, SDK, Runtime, and Studio compatibility combination.",
+        "Update the tested Harness, SDK, Runtime, and CLI compatibility combination.",
       releases: [{ name: fullName("create-agent"), type: "patch" }],
     });
   }
@@ -270,7 +286,7 @@ export function planVersions(
         throw new Error(
           `Version must advance: ${name} ${before[name]} → ${versions[name]}`,
         );
-      if (name !== "create-agent") pinned[name] = versions[name];
+      if (CREATOR_PINS.includes(name)) pinned[name] = versions[name];
       return {
         name: fullName(name),
         type: bumps.get(name) ?? "patch",

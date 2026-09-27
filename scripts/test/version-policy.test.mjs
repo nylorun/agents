@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  CREATOR_PINS,
   isBreakingBump,
   parseProtocolConstants,
   planVersions,
@@ -24,7 +25,6 @@ const pins = {
   agents: versions.agents,
   admin: versions.admin,
   runtime: versions.runtime,
-  studio: versions.studio,
 };
 const intent = (name, type = "patch") => ({
   id: `change-${name}`,
@@ -51,8 +51,10 @@ test("the migration computes the approved package targets and exact pins", () =>
     studio: "0.4.0-beta",
     "create-agent": "0.2.0-beta",
   });
-  for (const name of ["core", "harness", "agents", "admin", "runtime", "studio", "cli"])
+  for (const name of CREATOR_PINS)
     assert.equal(plan.compatibility[name], plan.packages[name] ?? versions[name]);
+  // Studio ships as an image the CLI pins; the creator does not pin it.
+  assert.deepEqual(Object.keys(plan.compatibility).sort(), [...CREATOR_PINS].sort());
   for (const release of releases)
     assert.equal(release.newVersion, plan.packages[release.name.slice(9)]);
 });
@@ -97,7 +99,6 @@ test("pre-1.0 latest promotion keeps *-beta versions for dist-tag moves", () => 
       agents: current.agents,
       admin: current.admin,
       runtime: current.runtime,
-      studio: current.studio,
     },
     [],
     "latest"
@@ -134,7 +135,7 @@ test("post-1.0 latest promotion strips -beta from the promoted package", () => {
   assert.deepEqual(
     planVersions(
       before,
-      { core: "1.0.0", cli: "1.0.0", harness: "1.0.0", agents: "1.0.0", admin: "1.0.0", runtime: "1.1.0-beta", studio: "1.0.0" },
+      { core: "1.0.0", cli: "1.0.0", harness: "1.0.0", agents: "1.0.0", admin: "1.0.0", runtime: "1.1.0-beta" },
       [],
       "latest"
     ).plan.packages,
@@ -193,6 +194,30 @@ test("a Harness release also advances Runtime and pins the canonical contracts t
   assert.ok(changesets.some(item => item.id === "release-runtime-harness"));
 });
 
+
+test("a Studio release advances the CLI, which pins its image, and the creator", () => {
+  const { plan, changesets } = planVersions(versions, pins, [intent("studio", "minor")], "beta");
+  assert.deepEqual(plan.packages, {
+    cli: "0.1.1-beta",
+    studio: "0.4.0-beta",
+    "create-agent": "0.1.1-beta",
+  });
+  assert.ok(changesets.some((item) => item.id === "release-cli-studio"));
+  assert.deepEqual(plan.compatibility, { ...pins, cli: "0.1.1-beta" });
+});
+
+test("the creator pins exactly core, harness, agents, admin, runtime and cli", () => {
+  assert.deepEqual([...CREATOR_PINS], ["core", "harness", "agents", "admin", "runtime", "cli"]);
+  assert.throws(
+    () => planVersions(versions, { ...pins, studio: versions.studio }, [intent("runtime")], "beta"),
+    /exactly the valid creator pins/,
+  );
+  const { runtime: _runtime, ...missing } = pins;
+  assert.throws(
+    () => planVersions(versions, missing, [intent("cli")], "beta"),
+    /exactly the valid creator pins/,
+  );
+});
 
 test("core releases propagate to both hosts and SDK without coupling engine releases to SDK", () => {
   const shared = planVersions(versions, pins, [intent("core", "minor")], "beta").plan;
@@ -300,7 +325,6 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
     agents: "1.0.0",
     admin: "1.0.0",
     runtime: "1.0.0",
-    studio: "1.0.0",
   };
   assert.throws(
     () =>

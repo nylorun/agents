@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packages, writeJson } from "../lib/repo.mjs";
 import { packRelease, readArtifacts } from "../release/artifacts.mjs";
+import { CREATOR_PINS } from "../release/version-policy.mjs";
 
 test(
   "release artifacts are repeatable and modified bytes are rejected before publication",
@@ -21,7 +22,6 @@ test(
         harness: "1.0.0-beta", agents: "1.0.0-beta",
         admin: "1.0.0-beta",
         runtime: "1.0.0-beta",
-        studio: "1.0.0-beta",
       };
       for (const name of packages) {
         await mkdir(join(repo, name), { recursive: true });
@@ -69,9 +69,7 @@ test(
       const repo = join(temporary, "repo");
       const version = "1.0.0-beta";
       const compatibility = Object.fromEntries(
-        packages
-          .filter((name) => name !== "create-agent")
-          .map((name) => [name, version]),
+        CREATOR_PINS.map((name) => [name, version]),
       );
       for (const name of packages) {
         await mkdir(join(repo, name), { recursive: true });
