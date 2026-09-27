@@ -279,6 +279,12 @@ export class TenantRuntime implements TenantHandle {
           await execution.wake(config.tenantId, sessionId, wake);
         },
         abortLocal: (sessionId) => abortLocal(ctx, sessionId),
+        ...(hooks.execution?.stuckInvocations
+          ? {
+              stuckInvocations: () =>
+                hooks.execution!.stuckInvocations!(config.tenantId),
+            }
+          : {}),
         sweepHooks,
         onSweep: (hook) => {
           sweepHooks.add(hook);

@@ -9,6 +9,7 @@ import type { VaultService } from "../vault/service.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantConfig } from "./types.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
+import type { StuckInvocation } from "../execution/types.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
@@ -20,6 +21,55 @@ export interface TenantStatusContext {
   closing: boolean;
   modelConfigured: boolean;
   executorStreams: Map<string, Set<unknown>>;
+  /**
+   * This Tenant's execution invocations that need an operator (`TenantExecution`). Absent
+   * when the execution cannot report them.
+   */
+  stuckInvocations?: () => Promise<StuckInvocation[]>;
+}
+
+/** How long status waits for the execution to list stuck invocations. */
+const STUCK_TIMEOUT_MS = 5000;
+
+/** `TenantStatus.execution`: paused and backing-off invocations, or why they are unknown. */
+async function executionStatus(
+  stuckInvocations: () => Promise<StuckInvocation[]>,
+): Promise<NonNullable<TenantStatus["execution"]>> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const stuck = await Promise.race([
+      stuckInvocations(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Timed out listing stuck invocations")),
+          STUCK_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    return {
+      stuckInvocations: stuck.map((invocation) => ({
+        id: invocation.id,
+        status: invocation.status,
+        service: invocation.service,
+        handler: invocation.handler,
+        key: invocation.key,
+        retryCount: invocation.retryCount,
+        ...(invocation.lastFailure !== undefined
+          ? { lastFailure: invocation.lastFailure }
+          : {}),
+        ...(invocation.modifiedAt !== undefined
+          ? { modifiedAt: invocation.modifiedAt }
+          : {}),
+      })),
+    };
+  } catch (error) {
+    return {
+      stuckInvocations: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Build `TenantStatusSchema` with secrets redacted (A14). */
@@ -31,8 +81,11 @@ export async function buildTenantStatus(
     counts: await t.counts(),
     definitions: await t.listDefinitions(),
   }));
-  const modelView = await ctx.vault.getHostModel();
-  const sandboxReport = await ctx.sandbox.report();
+  const [modelView, sandboxReport, execution] = await Promise.all([
+    ctx.vault.getHostModel(),
+    ctx.sandbox.report(),
+    ctx.stuckInvocations ? executionStatus(ctx.stuckInvocations) : undefined,
+  ]);
 
   const definitionIds = new Set(
     definitions
@@ -74,6 +127,7 @@ export async function buildTenantStatus(
       backend: sandboxReport.backend,
       retained: counts.sandboxes,
     },
+    ...(execution ? { execution } : {}),
   };
 }
 
