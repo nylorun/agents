@@ -88,8 +88,9 @@ connect, action discovery, claims, renewal and results. Session observers cannot
 claim actions.
 
 SQLite transactions persist session checkpoints, command receipts, individual
-effects/actions, waits and canonical history — **per Tenant**. One process owns
-each Tenant database (`.runtime-lock`). Keep the database and its WAL/journal
+effects/actions, waits and canonical history — **per Tenant**. An advance owns
+its session through a lease with an epoch; a Worker that takes over after a
+crash marks in-flight effects `uncertain`. Keep the database and its WAL/journal
 together. Vault ciphertext needs that Tenant's own KEK.
 
 Agents that declare `.use(sandbox())` get Runtime-executed sandbox tools. The
@@ -110,7 +111,6 @@ eval "$(npx nylorun runtime status --env)"
 
 | Symptom | What to do |
 | --- | --- |
-| Tenant `locked` | Another process holds `.runtime-lock`. `nylorun tenant status` prints `repair` |
 | `kek-missing` | Restore the Tenant KEK beside the database |
 | `corrupt` / `migration-failed` / `envelope-invalid` | Follow `nylorun tenant status` repair string |
 | `schema-too-new` / `host_schema_newer` | Upgrade the Host build (`nylorun runtime restart`) |

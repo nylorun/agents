@@ -1,13 +1,9 @@
 import {
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
-  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { isTenantId } from "@nylorun/core/compatibility";
@@ -55,39 +51,6 @@ function defaultWriteBootstrap(
   now: Date,
 ): Promise<void> {
   return bootstrapPrincipal(t, bootstrap, now);
-}
-
-function assertLiveLock(lockPath: string, tenantId: string): void {
-  if (!existsSync(lockPath)) return;
-  let raw: string;
-  try {
-    raw = readFileSync(lockPath, "utf8").trim();
-  } catch {
-    throw quarantine("corrupt", "could not read .runtime-lock", { tenantId });
-  }
-  const lockPid = Number(raw);
-  if (!Number.isSafeInteger(lockPid) || lockPid < 1) {
-    throw quarantine("locked", "invalid .runtime-lock contents", {
-      tenantId,
-      lockPath,
-    });
-  }
-  try {
-    process.kill(lockPid, 0);
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === "ESRCH") {
-      rmSync(lockPath, { force: true });
-      return;
-    }
-    // EPERM: process exists but we cannot signal it — treat as live owner.
-    if (err.code !== "EPERM") throw error;
-  }
-  throw quarantine("locked", "another process holds this Tenant lock", {
-    tenantId,
-    lockPath,
-    lockPid,
-  });
 }
 
 function trashStamp(now: Date): string {
@@ -150,8 +113,6 @@ export function createFsTenantStore(
         } finally {
           await store.close();
         }
-        // Exclusive create marker for the lock file is owned by openRuntime (WS-A);
-        // we only ensure the parent exists.
         return "created";
       } catch (error) {
         rmSync(paths.root, { recursive: true, force: true });
@@ -185,8 +146,6 @@ export function createFsTenantStore(
           tenantId: id,
         });
       }
-      assertLiveLock(paths.lock, id);
-
       let envelope: TenantEnvelope;
       try {
         envelope = readEnvelopeFile(paths.envelope, id);
@@ -244,18 +203,4 @@ export function createFsTenantStore(
       }
     },
   };
-}
-
-/** Claim the Tenant lock file (used by fake openRuntime in tests). */
-export function claimTenantLock(lockPath: string, pid = process.pid): void {
-  const fd = openSync(lockPath, "wx");
-  try {
-    writeFileSync(fd, String(pid));
-  } finally {
-    closeSync(fd);
-  }
-}
-
-export function releaseTenantLock(lockPath: string): void {
-  rmSync(lockPath, { force: true });
 }

@@ -56,7 +56,6 @@ async function setup(adapter: AdapterName) {
   const hostRoot = await tempRoot();
   const openRuntime = createFakeOpenRuntime({
     hostRoot,
-    claimLock: adapter === "fs",
   });
   const configFor = configForRoot(hostRoot);
   const store: TenantStore =
@@ -249,7 +248,6 @@ function conformance(adapter: AdapterName) {
       const okId = newTenantId();
       const openRuntime = createFakeOpenRuntime({
         hostRoot,
-        claimLock: adapter === "fs",
         failFor: (id) => (id === failId ? new Error("boom") : undefined),
       });
       const configFor = configForRoot(hostRoot);

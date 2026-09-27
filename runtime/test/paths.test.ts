@@ -36,7 +36,6 @@ it("derives tenant paths and rejects invalid ids", async () => {
   expect(paths.root).toBe(join(root, "tenants", id));
   expect(paths.envelope).toBe(join(paths.root, "tenant.json"));
   expect(paths.database).toBe(join(paths.root, "tenant.sqlite"));
-  expect(paths.lock).toBe(join(paths.root, ".runtime-lock"));
   expect(paths.kek).toBe(join(paths.root, "vault-kek"));
   expect(paths.log).toBe(join(paths.root, "logs", "tenant.log"));
   expect(() => tenantPaths(root, "not-a-tenant")).toThrow(/Invalid tenant id/);

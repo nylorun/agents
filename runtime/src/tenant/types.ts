@@ -15,7 +15,6 @@ export interface TenantPaths {
   root: string;
   envelope: string;
   database: string;
-  lock: string;
   kek: string;
   home: string;
   tmp: string;
@@ -100,7 +99,6 @@ export type TenantResolution =
 
 export interface Quarantine {
   code:
-    | "locked"
     | "kek-missing"
     | "corrupt"
     | "schema-too-new"
@@ -110,8 +108,6 @@ export interface Quarantine {
     | "open-failed";
   message: string; // redacted, no secrets
   repair: string; // CLI command or instruction
-  lockPath?: string;
-  lockPid?: number;
 }
 
 export interface BootstrapPrincipal {
