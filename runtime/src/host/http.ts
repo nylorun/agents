@@ -78,6 +78,9 @@ export function sendProtocolRejected(
 /**
  * D§11 Host allowlist: loopback forms with the listening port, plus the
  * configured host when `allowNonLoopback` is set.
+ *
+ * An explicit `allowedHosts` list (container mode) replaces that rule: only
+ * those exact `name:port` values are accepted.
  */
 export function isAllowedRequestHost(
   hostHeader: string | undefined,
@@ -85,10 +88,16 @@ export function isAllowedRequestHost(
     port: number;
     host: string;
     allowNonLoopback?: boolean;
+    allowedHosts?: readonly string[];
   },
 ): boolean {
   if (hostHeader === undefined) return false;
   const normalized = hostHeader.trim().toLowerCase();
+  if (options.allowedHosts !== undefined) {
+    return options.allowedHosts.some(
+      (entry) => entry.trim().toLowerCase() === normalized,
+    );
+  }
   const port = String(options.port);
   const allowed = new Set([
     `127.0.0.1:${port}`,

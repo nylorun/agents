@@ -1,8 +1,9 @@
 /**
  * Runtime Host process entry (`@nylorun/runtime/server`).
  *
- * Reads only `NYLORUN_HOME` from the environment (falls back to `~/.nylorun`).
- * Absolute Host root is resolved once and passed down.
+ * Reads `NYLORUN_HOME` (falls back to `~/.nylorun`), and hands an environment
+ * snapshot and argv to `parseStackConfig` (container listen mode, `--role`,
+ * stack endpoints). Absolute Host root is resolved once and passed down.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -33,6 +34,7 @@ import {
   EXIT_NON_LOOPBACK,
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
+import { describeEndpoints, parseStackConfig } from "./stack-config.js";
 import { RUNTIME_VERSION } from "../version.js";
 
 const entry = fileURLToPath(import.meta.url);
@@ -58,26 +60,33 @@ function resolveHostRoot(): string {
 }
 
 export async function main(): Promise<void> {
+  const stack = parseStackConfig(process.env, process.argv.slice(2));
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
   mkdirSync(paths.tmp, { recursive: true });
   mkdirSync(paths.tenants, { recursive: true });
 
+  const setup = stack.listen ? "nylorun start" : "nylorun runtime up";
   if (!existsSync(paths.config)) {
     throw new Error(
-      `Missing host.json at ${paths.config}; run \`nylorun runtime up\` first`,
+      `Missing host.json at ${paths.config}; run \`${setup}\` first`,
     );
   }
   if (!existsSync(paths.credentials)) {
     throw new Error(
-      `Missing host-credentials.json at ${paths.credentials}; run \`nylorun runtime up\` first`,
+      `Missing host-credentials.json at ${paths.credentials}; run \`${setup}\` first`,
     );
   }
 
   const config = loadJson<HostConfigFile>(paths.config);
   const credentials = loadJson<HostCredentialsFile>(paths.credentials);
   const logger = createHostLogger();
+  logger.info("host_stack_config", {
+    role: stack.role,
+    mode: stack.listen ? "container" : "local",
+    endpoints: describeEndpoints(stack.endpoints),
+  });
   const baseline = baselineEnvironment(process.env);
   void hostProcessEnvironment(baseline, config, paths);
 
@@ -122,6 +131,7 @@ export async function main(): Promise<void> {
     credentials,
     logger,
     coreVersion: coreVersion(),
+    ...(stack.listen ? { listen: stack.listen, ownsStateFile: false } : {}),
   };
   const host = createHost(options);
 
@@ -139,16 +149,20 @@ export async function main(): Promise<void> {
     throw error;
   }
 
-  const state: HostStateFile = {
-    pid: process.pid,
-    startedAt: new Date().toISOString(),
-    version: RUNTIME_VERSION,
-    entry,
-    url: host.url,
-  };
-  writeFileSync(paths.state, `${JSON.stringify(state, null, 2)}\n`, {
-    mode: 0o600,
-  });
+  // host-state.json tracks a launcher-spawned process on this machine. A
+  // container's pid means nothing on the Docker host, so it writes none.
+  if (!stack.listen) {
+    const state: HostStateFile = {
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      version: RUNTIME_VERSION,
+      entry,
+      url: host.url,
+    };
+    writeFileSync(paths.state, `${JSON.stringify(state, null, 2)}\n`, {
+      mode: 0o600,
+    });
+  }
 
   logger.info("host_ready", { url: host.url, hostId: config.hostId });
   process.send?.({ type: "ready", url: host.url });
