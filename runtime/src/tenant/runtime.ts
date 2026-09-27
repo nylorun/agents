@@ -138,6 +138,7 @@ export class TenantRuntime implements TenantHandle {
 
     let store: SqliteSessionStore | undefined;
     let wired: StreamsWiring | undefined;
+    let detach: (() => Promise<void>) | undefined;
     try {
       store = createSqliteSessionStore({
         path: paths.database,
@@ -297,13 +298,15 @@ export class TenantRuntime implements TenantHandle {
         },
       };
       const unregister = workers.register(config.tenantId, worker);
-      if (local) await local.start(workers.handlers);
-      await execution.armSweep(config.tenantId);
-      return new TenantRuntime(ctx, envelope, worker, async () => {
+      detach = async () => {
         unregister();
         await local?.stop();
-      });
+      };
+      if (local) await local.start(workers.handlers);
+      await execution.armSweep(config.tenantId);
+      return new TenantRuntime(ctx, envelope, worker, detach);
     } catch (error) {
+      await detach?.().catch(() => undefined);
       await wired?.close().catch(() => undefined);
       await store?.close().catch(() => undefined);
       throw error;

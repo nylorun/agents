@@ -18,9 +18,10 @@
  *    holds are marked stopped, and sandboxes whose session is gone are removed.
  * 5. **Hooks.** Callbacks registered with `ctx.onSweep` (the outbox drain, Wave 2 / Y).
  *
- * Every step runs its own transactions and never holds more than one session's lock
- * order at a time. A failing step does not stop the others; the first error is rethrown at
- * the end so the execution reports it.
+ * Every step runs one transaction per session it changes (a linked agent and its workflow
+ * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
+ * step does not stop the others; the first error is rethrown at the end so the execution
+ * reports it.
  */
 import type { Action } from "@nylorun/core/contracts";
 import {
@@ -33,15 +34,17 @@ import type { Session, TenantContext } from "./context.js";
 
 const BATCH = 100;
 
+type Step = [name: string, run: () => Promise<unknown>];
+
 export async function sweep(
   ctx: TenantContext,
   options: { afterOpen?: boolean } = {}
 ): Promise<void> {
   if (ctx.closing || ctx.closed) return;
   const now = new Date();
-  const steps: [string, () => Promise<unknown>][] = [
+  const steps: Step[] = [
     ...(options.afterOpen
-      ? [["reoffer", () => reofferFnVerifyClaims(ctx)] as [string, () => Promise<unknown>]]
+      ? [["reoffer", () => reofferFnVerifyClaims(ctx)] satisfies Step]
       : []),
     ["claims", () => expireClaims(ctx, now)],
     ["linked", () => reconcileLinkedAgents(ctx)],
@@ -55,9 +58,7 @@ export async function sweep(
             !!(await ctx.store.tx((t) => t.get("sessions", id))),
         }),
     ],
-    ...[...ctx.sweepHooks].map(
-      (hook): [string, () => Promise<unknown>] => ["hook", hook]
-    ),
+    ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
   ];
   let failure: { error: unknown } | undefined;
   for (const [step, run] of steps) {
