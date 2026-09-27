@@ -145,6 +145,33 @@ jobs:
         run: npm test --workspace @nylorun/runtime -- test/launcher
       - name: Supervisor and release tooling
         run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs
+  # Runtime integration tests against the Docker test stack (Postgres 17,
+  # Restate, s2-lite) in runtime/test/stack/compose.yaml.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      # Workspaces run in flag order: keep dependency order.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/harness --workspace @nylorun/runtime
+      - name: Start the test stack
+        run: npm run test:stack:up --workspace @nylorun/runtime
+      - name: Integration tests
+        env:
+          NYLORUN_TEST_STACK: "1"
+        run: npm run test:integration --workspace @nylorun/runtime
+      - name: Test stack logs
+        if: failure()
+        run: docker compose -f runtime/test/stack/compose.yaml logs --no-color
+      - name: Stop the test stack
+        if: always()
+        run: npm run test:stack:down --workspace @nylorun/runtime
   # Newest Node line with its bundled npm, as a consumer would run it.
   consumers:
     strategy:
@@ -164,7 +191,7 @@ jobs:
       - run: npm run check --workspaces
   ci:
     if: always()
-    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers]
+    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration]
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI job to pass

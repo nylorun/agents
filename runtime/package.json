@@ -50,6 +50,9 @@
     "check": "npm run build && npm test && node scripts/check-package.mjs",
     "typecheck": "node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:stack:up": "node test/stack/up.mjs up",
+    "test:stack:down": "node test/stack/up.mjs down",
     "prepack": "npm run build",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
     "start": "node dist/host/main.js"
