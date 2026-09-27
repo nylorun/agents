@@ -80,11 +80,24 @@ export interface CreateHostOptions {
    * only.
    */
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
+  /**
+   * Shutdown steps around closing the Tenants. `close()` runs them whatever asked for it
+   * (SIGTERM in `host/main.ts`, `POST /v1/admin/host/shutdown`): the listener stops, then
+   * `beforeTenants` (stop the Worker so no advance starts on a closing Tenant), the Tenants
+   * close, then `afterTenants` (end the infrastructure clients). A failing step is logged
+   * and shutdown goes on.
+   */
+  shutdown?: {
+    beforeTenants?(): Promise<void>;
+    afterTenants?(): Promise<void>;
+  };
 }
 
 export interface HostServer {
   listen(): Promise<void>;
   close(): Promise<void>;
+  /** Settles once `close()` has finished, whatever called it. */
+  readonly closed: Promise<void>;
   readonly url: string;
 }
 
@@ -556,6 +569,22 @@ export function createHost(options: CreateHostOptions): HostServer {
     });
   }
 
+  const step = async (name: string, run: (() => Promise<void>) | undefined) => {
+    try {
+      await run?.();
+    } catch (error) {
+      logger.error("host_shutdown_step_failed", {
+        step: name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  let settleClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    settleClosed = resolve;
+  });
+
   async function close(): Promise<void> {
     if (closePromise) return closePromise;
     closePromise = (async () => {
@@ -568,7 +597,9 @@ export function createHost(options: CreateHostOptions): HostServer {
         });
         server = undefined;
       }
-      await module.close();
+      await step("beforeTenants", options.shutdown?.beforeTenants);
+      await step("tenants", () => module.close());
+      await step("afterTenants", options.shutdown?.afterTenants);
       if (ownsStateFile && existsSync(paths.state)) {
         try {
           unlinkSync(paths.state);
@@ -576,13 +607,14 @@ export function createHost(options: CreateHostOptions): HostServer {
           /* best-effort */
         }
       }
-    })();
+    })().finally(settleClosed);
     return closePromise;
   }
 
   return {
     listen,
     close,
+    closed,
     get url() {
       return url;
     },
