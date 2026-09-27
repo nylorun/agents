@@ -53,11 +53,14 @@ services:
 
   s2: # Durable Streams; not published, only the Runtime reaches it
     image: ${PINNED_IMAGES.s2}
-    command: ["lite", "--local-root", "/data"] # local disk; listens on port 80
+    command: ["lite", "--local-root", "/home/nonroot/data"] # local disk; listens on port 80
+    # The image runs as uid 65532. Docker fills a new volume with the image's
+    # /home/nonroot, owned by that user; a volume at a path the image lacks
+    # (e.g. /data) is root-owned and s2-lite cannot write it.
     volumes:
-      - s2:/data
+      - s2:/home/nonroot
     # The s2 image has no shell or HTTP client, so it has no health check;
-    # the Runtime's /ready covers it once it uses S2.
+    # the Runtime's /ready covers it.
     restart: unless-stopped
 
   runtime:

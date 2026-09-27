@@ -77,6 +77,11 @@ describe("compose.yaml", () => {
     expect(compose).toContain("NYLORUN_PUBLIC_URL: http://localhost:${NYLORUN_PORT}");
   });
 
+  it("keeps s2-lite's data in a volume its non-root user can write", () => {
+    expect(compose).toContain('command: ["lite", "--local-root", "/home/nonroot/data"]');
+    expect(compose).toContain("- s2:/home/nonroot\n");
+  });
+
   it("mounts the Restate identity key read-only into Restate and gives the Runtime its public key", () => {
     expect(compose).toContain(
       "RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem",
