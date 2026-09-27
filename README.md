@@ -20,39 +20,43 @@ and conformance gates remain open.
 
 ## Quick start
 
-Install the prerequisites once: Node.js 24 or newer, and the Runtime. Nylorun
-runs on macOS and Linux; on Windows, use [WSL2](https://learn.microsoft.com/windows/wsl/install) and
-install both inside your WSL distribution (native Windows is not supported).
+Install the prerequisites once: Node.js 24 or newer, and Docker with Compose v2
+([Docker Desktop](https://docs.docker.com/get-started/get-docker/),
+[OrbStack](https://orbstack.dev) or [Colima](https://github.com/abiosoft/colima)).
+The local Runtime and Studio run as a Docker Compose stack. Nylorun runs on
+macOS and Linux; on Windows, use [WSL2](https://learn.microsoft.com/windows/wsl/install) with Docker
+Desktop's WSL integration (native Windows is not supported).
 
 ```sh
-node --version                                 # 24 or newer
-npm install --global @nylorun/runtime@beta     # provides nylorun-runtime
+node --version             # 24 or newer
+docker compose version     # v2
 ```
 
-Create a local agent project (Studio enabled by default):
+Create a local agent project:
 
 ```sh
 npm create @nylorun/agent@beta my-agent
 ```
 
 The creator installs dependencies and starts development. If a prerequisite
-is missing, it stops after creating the project and prints what to install;
-nothing is downloaded for you. The first start asks
-for a model provider, creates a **Tenant** on the **Runtime Host**, writes a
-**Project link** under `.nylorun/`, and stores the provider credential in that
-Tenant's vault.
+is missing, it stops after creating the project and prints what to set up;
+nothing is downloaded for you. The first start pulls and starts the local stack
+(`nylorun start`), creates a **Tenant** for the project, writes a **Project
+link** under `.nylorun/`, opens Studio on that Tenant, and asks for a model
+provider, whose credential it stores in the Tenant's vault.
 
 Useful flags (after `--`):
 
 | Flag          | Effect                                      |
 | ------------- | ------------------------------------------- |
-| `--no-studio` | Scaffold a headless project without Studio  |
 | `--no-open`   | Start development without opening a browser |
 | `--yes`       | Accept npm install prompts                  |
 
-The generated app depends on the SDK and CLI; Studio is a development
-dependency. The `@nylorun/cli` package provides `nylorun`, which runs the
-installed OSS Runtime (`nylorun doctor runtime` checks the prerequisites).
+The generated app depends on the SDK and, for development, the CLI. The
+`@nylorun/cli` package provides `nylorun`, which runs the local stack
+(`nylorun start|stop|status|logs|studio|reset`; `nylorun doctor` checks the
+prerequisites). Studio ships in the stack as the `ghcr.io/nylorun/studio`
+image.
 
 ## Develop this repository
 
@@ -74,7 +78,7 @@ so sessions survive a source change; `npx nylorun runtime down` stops it.
 Print the three export lines for a linked Project:
 
 ```sh
-eval "$(npx nylorun runtime status --env)"
+eval "$(npx nylorun status --env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
 ```
 

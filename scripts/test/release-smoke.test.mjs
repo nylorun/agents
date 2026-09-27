@@ -49,9 +49,9 @@ test("the publication smoke creates and starts a project without a terminal or p
         commands.push(args);
         return { status: 0 };
       },
-      // The smoke installs the published Runtime first (the prerequisite).
+      // The smoke host has Docker with Compose v2 (the prerequisite).
       nodeVersion: process.versions.node,
-      findOnPath: () => "/prefix/bin/nylorun-runtime",
+      checkDocker: async () => ({ ok: true }),
     },
   );
   assert.deepEqual(commands, [
