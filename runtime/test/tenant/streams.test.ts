@@ -3,15 +3,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor } from "../../src/store/cursor.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
-import { tenantPaths } from "../../src/tenant/paths.js";
+import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
-import { tenantStreamsSuite } from "./streams.suite.js";
+import { contextOf, tenantStreamsSuite } from "./streams.suite.js";
 
 tenantStreamsSuite("memory streams", async () => ({ streams: new MemoryStreams() }));
 
-describe("interim streams on SQLite (until Wave 3)", () => {
+describe("streams passed by the caller", () => {
   const APP = "server-token-value-aaaaaaaa";
   const headers = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
   const roots: string[] = [];
@@ -43,8 +42,10 @@ describe("interim streams on SQLite (until Wave 3)", () => {
     throw new Error("turn did not complete");
   }
 
-  it("re-hydrates history from SQLite after a restart and drains unrelayed rows", async () => {
-    const first = await startTestTenant({ applicationKey: APP, retainRoot: true });
+  it("keeps history across a restart with the same streams and drains unrelayed rows", async () => {
+    const streams = new MemoryStreams();
+    open.push(streams);
+    const first = await startTestTenant({ applicationKey: APP, retainRoot: true, streams });
     roots.push(first.root);
     open.push(first);
     const agent = Agent({ id: "bot", name: "Bot" }).build();
@@ -62,10 +63,7 @@ describe("interim streams on SQLite (until Wave 3)", () => {
     await first.close();
 
     // A row committed without a relay (a crash between commit and append) stays in the outbox.
-    const store = createSqliteSessionStore({
-      path: tenantPaths(first.root, first.tenantId).database,
-      tenantId: first.tenantId,
-    });
+    const store = await openTestSessionStore(first);
     const offline = await store.tx((t) => t.event("s1", null, "test.offline", {}));
     await store.close();
 
@@ -73,10 +71,23 @@ describe("interim streams on SQLite (until Wave 3)", () => {
       applicationKey: APP,
       hostRoot: first.root,
       tenantId: first.tenantId,
+      streams,
     });
     open.push(second);
+    // The drain at open appends the row in the background.
+    for (let attempt = 0; attempt < 500 && (await items(second.url)).length <= before.length; attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
     expect(await items(second.url)).toEqual([...before, offline]);
     const after = await turn(second.url, "m2", 2);
     expect(after.map((e) => decodeCursor("s1", e.cursor))).toEqual(after.map((_, i) => i));
+  });
+
+  it("gives each Tenant opened without streams its own in-process streams", async () => {
+    const node = await startTestTenant({ applicationKey: APP });
+    roots.push(node.root);
+    open.push(node);
+    const wiring = contextOf(node.handle).live.wiring!;
+    expect(wiring.streams).toBeInstanceOf(MemoryStreams);
+    expect(wiring.basin()).toEqual({ ready: true, failures: 0, lastError: null });
   });
 });

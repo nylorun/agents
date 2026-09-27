@@ -82,7 +82,7 @@
  * | `core/flow-host.ts:1165` `wakeForQueuedEffects` | queued `effects` of the workflow turn | `effectsForTurn(wf, turnId, ["queued"])` |
  * | `core/store.ts` `allExecutors` | `executors` | `listExecutors()` |
  * | `core/store.ts` `credentialCount` | `vault_credentials` | `countCredentials()` |
- * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(sessionStream(id))` (Wave 2 Y); SQLite serves it from `SqliteSessionStore.readEvents` until then |
+ * | `core/store.ts` `history` | `events` of a session | `DurableStreams.read(streamOfSession(session))` |
  *
  * Raw SQL outside the store moves behind typed methods too: `tenant/principals.ts`
  * (principal methods), `tenant/status.ts` and `host/config-for.ts`
@@ -165,6 +165,11 @@ export interface SessionDoc {
   agentId: string;
   status: SessionStatus | (string & {});
   activeTurnId: string | null;
+  /**
+   * Names the session's event stream (`sessions/<id>/<incarnation>`, `streams/types.ts`).
+   * Set when the session is created; `event` reports it with each event (`Commit`).
+   */
+  streamIncarnation?: string;
 }
 
 /** The fields of an effect document the store indexes (`request.sessionId`, `request.turnId`, `request.kind`, `status`). */
@@ -215,10 +220,23 @@ export interface OutboxRow {
   event: LiveEvent;
 }
 
+export interface OutboxStats {
+  /** Unrelayed events. */
+  depth: number;
+  /** ISO `createdAt` of the oldest unrelayed event, or null when the outbox is empty. */
+  oldestCreatedAt: string | null;
+}
+
 /** What one commit produced, delivered to commit listeners after commit. */
 export interface Commit {
   /** Events written by the transaction, in allocation order. */
   readonly events: readonly LiveEvent[];
+  /**
+   * The `streamIncarnation` of each event's session when the event was allocated (under the
+   * session lock), aligned with `events`; null for a session without one. The relay appends
+   * each event to that incarnation's stream.
+   */
+  readonly incarnations: readonly (string | null)[];
   /** True when the transaction called `signalWork()`. */
   readonly workAvailable: boolean;
 }
@@ -358,8 +376,8 @@ export interface SessionStore {
   tx<T>(fn: (t: Tx) => Promise<T>): Promise<T>;
   /**
    * Registers a listener called once per committed transaction that wrote
-   * events or signalled work. Returns an unsubscribe function. The relay and,
-   * until Wave 2, the in-process SSE publisher subscribe here.
+   * events or signalled work. Returns an unsubscribe function. The outbox
+   * relay (`streams/relay.ts`) subscribes here.
    */
   onCommit(listener: CommitListener): () => void;
   /** Reachability and schema check for Tenant status and `/ready`. Never throws. */
@@ -389,6 +407,11 @@ export interface Tx {
   get<T = any>(table: DocTable, id: string): Promise<T | undefined>;
   /** Insert or replace. For `sessions`, ownership fields in `body` are ignored. */
   put(table: DocTable, id: string, body: unknown): Promise<void>;
+  /**
+   * Deletes a document. Deleting a session also deletes its outbox rows, so a
+   * session created again with the same id starts at sequence 0 without
+   * colliding with rows the relay never took (its stream is a new incarnation).
+   */
   delete(table: DocTable, id: string): Promise<void>;
 
   // --- ordering ------------------------------------------------------------
@@ -528,8 +551,19 @@ export interface Tx {
 
   /** Unrelayed events, ordered by session id then sequence. */
   outbox(limit: number, filter?: { sessionId?: string }): Promise<OutboxRow[]>;
-  /** Deletes a session's outbox rows with `seq <= throughSeq`. Returns the number deleted. */
-  deleteOutbox(sessionId: string, throughSeq: number): Promise<number>;
+  /**
+   * Deletes a session's outbox rows with `seq <= throughSeq`. Returns the number deleted.
+   * With `incarnation`, deletes only while the session exists with that `streamIncarnation`
+   * (null: none), in one statement: a relay that appended to an abandoned incarnation's
+   * stream never deletes the rows of a session created again with the same id.
+   */
+  deleteOutbox(
+    sessionId: string,
+    throughSeq: number,
+    incarnation?: string | null,
+  ): Promise<number>;
+  /** How many events are unrelayed, and the `createdAt` of the oldest (Tenant status). */
+  outboxStats(): Promise<OutboxStats>;
 
   // --- executors -----------------------------------------------------------
 

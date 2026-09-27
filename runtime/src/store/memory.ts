@@ -17,6 +17,7 @@ import {
   type LinkDoc,
   type LinkedSession,
   type OutboxRow,
+  type OutboxStats,
   type PrincipalRow,
   type ResetScope,
   type SandboxDoc,
@@ -130,7 +131,11 @@ export class MemorySessionStore implements SessionStore {
       }
       this.state = working;
       if (t.events.length > 0 || t.workAvailable) {
-        const commit = { events: t.events, workAvailable: t.workAvailable };
+        const commit = {
+          events: t.events,
+          incarnations: t.incarnations,
+          workAvailable: t.workAvailable,
+        };
         for (const listener of this.listeners) {
           try {
             listener(commit);
@@ -182,6 +187,7 @@ export class MemorySessionStore implements SessionStore {
 class MemoryTx implements Tx {
   closed = false;
   readonly events: LiveEvent[] = [];
+  readonly incarnations: (string | null)[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
   workAvailable = false;
 
@@ -227,7 +233,10 @@ class MemoryTx implements Tx {
   async delete(table: DocTable, id: string): Promise<void> {
     this.check();
     this.s.docs[table].delete(id);
-    if (table === "sessions") this.s.sessionMeta.delete(id);
+    if (table === "sessions") {
+      this.s.sessionMeta.delete(id);
+      this.s.outbox.delete(id);
+    }
   }
 
   private session<T extends SessionDoc>(
@@ -291,6 +300,8 @@ class MemoryTx implements Tx {
     if (!rows) this.s.outbox.set(sessionId, (rows = new Map()));
     rows.set(seq, JSON.stringify(event));
     this.events.push(event);
+    const doc = JSON.parse(this.s.docs.sessions.get(sessionId)!) as SessionDoc;
+    this.incarnations.push(doc.streamIncarnation ?? null);
     return copy(event);
   }
 
@@ -569,10 +580,22 @@ class MemoryTx implements Tx {
     return rows;
   }
 
-  async deleteOutbox(sessionId: string, throughSeq: number): Promise<number> {
+  async deleteOutbox(
+    sessionId: string,
+    throughSeq: number,
+    incarnation?: string | null,
+  ): Promise<number> {
     this.check();
     const rows = this.s.outbox.get(sessionId);
     if (!rows) return 0;
+    if (incarnation !== undefined) {
+      const doc = this.s.docs.sessions.get(sessionId);
+      if (
+        doc === undefined ||
+        ((JSON.parse(doc) as SessionDoc).streamIncarnation ?? null) !== incarnation
+      )
+        return 0;
+    }
     let n = 0;
     for (const seq of [...rows.keys()])
       if (seq <= throughSeq) {
@@ -581,6 +604,20 @@ class MemoryTx implements Tx {
       }
     if (rows.size === 0) this.s.outbox.delete(sessionId);
     return n;
+  }
+
+  async outboxStats(): Promise<OutboxStats> {
+    this.check();
+    let depth = 0;
+    let oldestCreatedAt: string | null = null;
+    for (const rows of this.s.outbox.values())
+      for (const body of rows.values()) {
+        depth += 1;
+        const createdAt = (JSON.parse(body) as { createdAt: string }).createdAt;
+        if (oldestCreatedAt === null || createdAt < oldestCreatedAt)
+          oldestCreatedAt = createdAt;
+      }
+    return { depth, oldestCreatedAt };
   }
 
   // --- executors -----------------------------------------------------------

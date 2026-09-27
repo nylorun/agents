@@ -22,6 +22,7 @@ import { createTenantModule } from "../tenant/module.js";
 import { createFsTenantStore } from "../tenant/store-fs.js";
 import { createPostgresTenantStore } from "../tenant/store-pg.js";
 import { openTenantRuntime, type TenantOpenHooks } from "../tenant/runtime.js";
+import { createTenantStreams, deleteTenantStreams } from "../tenant/streams.js";
 import type {
   HostConfigFile,
   HostCredentialsFile,
@@ -41,7 +42,7 @@ import {
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
 import { describeEndpoints, parseStackConfig } from "./stack-config.js";
-import { createExecution, createInfra, createStreams } from "../infra/index.js";
+import { createExecution, createInfra } from "../infra/index.js";
 import { RUNTIME_VERSION } from "../version.js";
 
 const entry = fileURLToPath(import.meta.url);
@@ -86,10 +87,16 @@ export async function main(): Promise<void> {
     );
   }
 
-  // The stack's Session Store is Postgres; only a local (launcher) Host may still use SQLite.
+  // The stack runs on Postgres and S2; only a local (launcher) Host may still
+  // use SQLite and in-process streams.
   if (stack.listen && !stack.endpoints.databaseUrl) {
     throw new Error(
       "NYLORUN_DATABASE_URL is required in container mode: the Postgres URL of the Session Store (`nylorun start` sets it)",
+    );
+  }
+  if (stack.listen && !stack.endpoints.s2Endpoint) {
+    throw new Error(
+      "NYLORUN_S2_ENDPOINT is required in container mode: the S2 endpoint of Durable Streams (`nylorun start` sets it)",
     );
   }
 
@@ -127,11 +134,10 @@ export async function main(): Promise<void> {
     resolve: (tenantId) => module.worker(tenantId),
     logger,
   });
-  // Durable Streams: S2 when configured. A Postgres Tenant needs streams (the
-  // store keeps no history), so without S2 it gets in-memory ones; a SQLite
-  // Tenant without them re-hydrates in-memory streams from its own file.
-  const streams =
-    infra.streams ?? (infra.database ? createStreams(stack) : undefined);
+  // Durable Streams: S2 when configured (always in container mode). Without
+  // them (a local Host only) each Tenant keeps in-process streams, whose history
+  // does not survive a restart.
+  const streams = infra.streams;
   const hooks: TenantOpenHooks = {
     execution: hostExecution.tenantExecution,
     ...(streams ? { streams } : {}),
@@ -159,10 +165,14 @@ export async function main(): Promise<void> {
   const module = createTenantModule({
     store,
     logger,
-    // A deleted Tenant's sweep stops re-arming and its streams basin goes.
+    // A new Tenant's basin is created with it (opening it repairs a failure);
+    // a deleted Tenant's sweep stops re-arming and its basin goes.
+    ...(streams
+      ? { onCreated: (tenantId: string) => createTenantStreams(streams, tenantId) }
+      : {}),
     onDeleted: async (tenantId) => {
       await hostExecution.disarm(tenantId);
-      await streams?.deleteTenant(tenantId);
+      if (streams) await deleteTenantStreams(streams, tenantId);
     },
   });
 

@@ -14,9 +14,9 @@ interface StoredRecord {
 }
 
 /**
- * In-memory `DurableStreams` for unit tests and the in-process Runtime before
- * S2 (Wave 2). Not durable. Keeps the seam's sequence, conditional-append and
- * resume semantics.
+ * In-memory `DurableStreams` for unit tests and the SQLite profile until
+ * Wave 4. Not durable: history does not survive a restart. Keeps the seam's
+ * sequence, conditional-append and resume semantics.
  */
 export class MemoryStreams implements DurableStreams {
   /** tenantId → stream → records. */
@@ -103,6 +103,12 @@ export class MemoryStreams implements DurableStreams {
   async deleteStream(tenantId: string, stream: string): Promise<void> {
     this.tenants.get(tenantId)?.delete(stream);
     this.notify(tenantId, stream);
+  }
+
+  async listStreams(tenantId: string, prefix: string): Promise<string[]> {
+    return [...(this.tenants.get(tenantId)?.keys() ?? [])]
+      .filter((stream) => stream.startsWith(prefix))
+      .sort();
   }
 
   async close(): Promise<void> {

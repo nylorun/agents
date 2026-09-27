@@ -1,7 +1,8 @@
 /**
  * Tenant administration and vault routes: `/v1/tenant` (status, reset, config seed, host
  * model and providers, sandbox report) and `/v1/vaults` (vaults and credentials).
- * Reset also deletes the streams of the sessions it removes.
+ * A reset that deletes sessions abandons their streams (a session created again gets a new
+ * incarnation) and collects them afterwards; it never deletes the Tenant's basin.
  *
  * Later waves: Wave 2 / X changes what reset clears once work leaves process memory.
  */
@@ -21,7 +22,11 @@ import { buildTenantStatus, seedTenantConfig } from "./status.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { fail, readBody } from "./http.js";
 import { clearExecutorStreams, clearObservers } from "./live.js";
-import { deleteSessionStreams } from "./streams.js";
+import {
+  requestStreamCollection,
+  sessionStreamsAbandoned,
+  streamsStatus,
+} from "./streams.js";
 import { clearWork, drain } from "./scheduler.js";
 
 export async function dispatchTenant(
@@ -52,15 +57,16 @@ export async function dispatchTenant(
       ...(ctx.stuckInvocations
         ? { stuckInvocations: ctx.stuckInvocations }
         : {}),
+      streamsStatus: () => streamsStatus(ctx),
     });
   if (path[2] === "reset" && path.length === 3 && method === "POST") {
     const body = ResetTenantRequestSchema.parse(await readBody(request));
     await drain(ctx, body.activeWork, 30_000);
-    // Session streams go with their sessions, so a re-created id starts again at sequence 0.
-    const resetSessionIds =
-      body.scope === "sandboxes"
-        ? []
-        : (await ctx.store.tx((t) => t.listSessions())).map((s) => s.id);
+    // The deleted sessions' streams are abandoned: a session created again with the same id,
+    // during or after the reset, gets a new incarnation and starts at sequence 0. The pending
+    // collection is recorded first, so a crash before it runs leaves it to the sweep.
+    const sessionsReset = body.scope !== "sandboxes";
+    if (sessionsReset) await requestStreamCollection(ctx);
     await resetTenant(
       {
         store: ctx.store,
@@ -75,7 +81,7 @@ export async function dispatchTenant(
       },
       body.scope
     );
-    await deleteSessionStreams(ctx, resetSessionIds);
+    if (sessionsReset) sessionStreamsAbandoned(ctx);
     // Reset leaves the Tenant open for new work.
     ctx.closing = false;
     return { ok: true };

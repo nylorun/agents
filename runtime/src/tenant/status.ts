@@ -10,6 +10,7 @@ import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantConfig } from "./types.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type { StuckInvocation } from "../execution/types.js";
+import type { StreamsStatus } from "./streams.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
@@ -26,6 +27,8 @@ export interface TenantStatusContext {
    * when the execution cannot report them.
    */
   stuckInvocations?: () => Promise<StuckInvocation[]>;
+  /** This Tenant's Durable Streams status (`streamsStatus` in `streams.ts`). */
+  streamsStatus?: () => Promise<StreamsStatus>;
 }
 
 /** How long status waits for the execution to list stuck invocations. */
@@ -81,10 +84,11 @@ export async function buildTenantStatus(
     counts: await t.counts(),
     definitions: await t.listDefinitions(),
   }));
-  const [modelView, sandboxReport, execution] = await Promise.all([
+  const [modelView, sandboxReport, execution, streams] = await Promise.all([
     ctx.vault.getHostModel(),
     ctx.sandbox.report(),
     ctx.stuckInvocations ? executionStatus(ctx.stuckInvocations) : undefined,
+    ctx.streamsStatus?.(),
   ]);
 
   const definitionIds = new Set(
@@ -128,6 +132,7 @@ export async function buildTenantStatus(
       retained: counts.sandboxes,
     },
     ...(execution ? { execution } : {}),
+    ...(streams ? { streams } : {}),
   };
 }
 

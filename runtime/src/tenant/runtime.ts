@@ -28,7 +28,6 @@ import {
 } from "../core/provider.js";
 import {
   createSqliteSessionStore,
-  type SqliteSessionStore,
 } from "../store/sqlite.js";
 import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
@@ -38,6 +37,7 @@ import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
 import { QuarantineError } from "./quarantine-error.js";
+import { MemoryStreams } from "../streams/memory.js";
 import type { DurableStreams } from "../streams/types.js";
 import type { TenantConfig, TenantHandle, TenantSummary } from "./types.js";
 import type { TenantContext } from "./context.js";
@@ -49,7 +49,9 @@ import {
 import {
   closeStreams,
   drainOutbox,
+  streamsStatus,
   wireStreams,
+  type StreamsStatus,
   type StreamsWiring,
 } from "./streams.js";
 import {
@@ -85,8 +87,9 @@ export type TenantOpenHooks = {
   /** The Worker id written as session owner. Defaults to this process's `WORKER_ID`. */
   workerId?: string;
   /**
-   * Durable Streams for this Tenant, owned by the caller. Without them the Tenant uses
-   * in-memory streams re-hydrated from its SQLite events (until Wave 3 wires S2).
+   * Durable Streams for this Tenant, owned by the caller (the Host's S2 streams). Without
+   * them the Tenant creates its own in-process `MemoryStreams`: the SQLite profile until
+   * Wave 4, whose history does not survive a restart.
    */
   streams?: DurableStreams;
   /**
@@ -291,12 +294,12 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
-      wired = await wireStreams(
-        ctx,
-        hooks.streams
-          ? { store: opened, streams: hooks.streams, tenantId: config.tenantId }
-          : { store: opened as SqliteSessionStore, tenantId: config.tenantId }
-      );
+      wired = await wireStreams(ctx, {
+        store: opened,
+        streams: hooks.streams ?? new MemoryStreams(),
+        ownsStreams: !hooks.streams,
+        tenantId: config.tenantId,
+      });
       // Outbox rows a lost relay step left behind are appended by the sweep.
       sweepHooks.add(async () => {
         await drainOutbox(ctx);
@@ -346,13 +349,21 @@ export class TenantRuntime implements TenantHandle {
 
   async summary(): Promise<TenantSummary> {
     const { store, live } = this.ctx;
-    const counts = await store.tx((t) => t.counts());
+    const { counts, outbox } = await store.tx(async (t) => ({
+      counts: await t.counts(),
+      outbox: await t.outboxStats(),
+    }));
     return {
       ready: !this.ctx.closing && !this.ctx.closed,
       runningSessions: counts.runningSessions,
       connectedExecutors: connectedExecutorCount(live),
       pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
+      outboxDepth: outbox.depth,
+      relayLagMs:
+        outbox.oldestCreatedAt === null
+          ? 0
+          : Math.max(0, Date.now() - Date.parse(outbox.oldestCreatedAt)),
     };
   }
 
@@ -366,6 +377,14 @@ export class TenantRuntime implements TenantHandle {
    */
   abortLocal(sessionId: string): void {
     this.ctx.abortLocal(sessionId);
+  }
+
+  /**
+   * The Durable Streams seam's status for Tenant status and readiness: S2 reachability, the
+   * basin, outbox depth and relay lag (`streamsStatus` in `tenant/streams.ts`).
+   */
+  streamsStatus(): Promise<StreamsStatus> {
+    return streamsStatus(this.ctx);
   }
 
   /** Adds a callback to the Tenant sweep. Returns a function that removes it. */

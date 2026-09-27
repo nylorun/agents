@@ -925,6 +925,10 @@ export const HostAggregateSchema = z
     connectedExecutors: z.number().int().nonnegative(),
     pendingActions: z.number().int().nonnegative(),
     uncertainEffects: z.number().int().nonnegative(),
+    /** Events committed but not yet relayed to Durable Streams, over the open Tenants. */
+    outboxDepth: z.number().int().nonnegative().optional(),
+    /** The largest relay lag of an open Tenant: its oldest unrelayed event's age. */
+    relayLagMs: z.number().nonnegative().optional(),
   })
   .strict();
 export type HostAggregate = z.infer<typeof HostAggregateSchema>;
@@ -1055,6 +1059,31 @@ export const TenantStatusSchema = z
             .strict(),
         ),
         error: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    /**
+     * This Tenant's Durable Streams: whether the service answers, its basin, the events
+     * committed but not yet relayed, and how far the relay is behind.
+     */
+    streams: z
+      .object({
+        reachable: z.boolean(),
+        basin: z
+          .object({
+            ready: z.boolean(),
+            failures: z.number().int().nonnegative(),
+            lastError: z.string().nullable(),
+          })
+          .strict(),
+        outbox: z
+          .object({
+            depth: z.number().int().nonnegative(),
+            oldestAgeMs: z.number().nonnegative().nullable(),
+          })
+          .strict(),
+        relayLagMs: z.number().nonnegative(),
+        collectionPending: z.boolean(),
       })
       .strict()
       .optional(),

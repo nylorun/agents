@@ -20,8 +20,6 @@ import {
 } from "../../src/store/postgres/tenants.js";
 import { createSqliteSessionStore } from "../../src/store/sqlite.js";
 import type { SessionStore } from "../../src/store/types.js";
-import { MemoryStreams } from "../../src/streams/memory.js";
-import type { DurableStreams } from "../../src/streams/types.js";
 import { stackEndpoints } from "../stack/endpoints.js";
 
 export type TestStore = "sqlite" | "postgres";
@@ -106,18 +104,6 @@ export async function withTestSessionStore<T>(
   } finally {
     await store.close();
   }
-}
-
-const streams = new Map<string, MemoryStreams>();
-
-/**
- * In-memory Durable Streams for a test Tenant, kept per Tenant id for the worker's life so
- * a reopened Tenant (restart tests) finds its history, as it would in S2.
- */
-export function testStreams(tenantId: string): DurableStreams {
-  let found = streams.get(tenantId);
-  if (!found) streams.set(tenantId, (found = new MemoryStreams()));
-  return found;
 }
 
 /** The envelope a test Tenant is created with. */

@@ -44,6 +44,11 @@ export interface CreateTenantModuleOptions {
   /** Bound on one Tenant open; a slower open quarantines it with `open-timeout`. */
   openTimeoutMs?: number;
   /**
+   * Runs after a Tenant is created in the store, before it opens: creates what lives outside
+   * it (its Durable Streams basin). A failure is logged; opening the Tenant repairs it.
+   */
+  onCreated?: (tenantId: string) => Promise<void>;
+  /**
    * Runs after a Tenant is removed from the store: removes what lives outside it (its
    * Durable Streams basin, its armed sweep). A failure is logged; the Tenant stays deleted.
    */
@@ -249,6 +254,12 @@ export function createTenantModule(
         return { envelope: existing, created: false };
       }
 
+      await options.onCreated?.(input.tenantId).catch((error: unknown) =>
+        logger.warn("tenant create step failed; open repairs it", {
+          tenantId: input.tenantId,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
       const opened = await load(input.tenantId).catch(() => undefined);
       if (opened?.kind === "open") {
         return { envelope: opened.handle.envelope, created: true };
@@ -355,6 +366,8 @@ export function createTenantModule(
       let connectedExecutors = 0;
       let pendingActions = 0;
       let uncertainEffects = 0;
+      let outboxDepth: number | undefined;
+      let relayLagMs: number | undefined;
       for (const s of await Promise.all(
         openEntries().map((e) => e.handle.summary()),
       )) {
@@ -362,12 +375,18 @@ export function createTenantModule(
         connectedExecutors += s.connectedExecutors;
         pendingActions += s.pendingActions;
         uncertainEffects += s.uncertainEffects;
+        if (s.outboxDepth !== undefined)
+          outboxDepth = (outboxDepth ?? 0) + s.outboxDepth;
+        if (s.relayLagMs !== undefined)
+          relayLagMs = Math.max(relayLagMs ?? 0, s.relayLagMs);
       }
       return {
         runningSessions,
         connectedExecutors,
         pendingActions,
         uncertainEffects,
+        ...(outboxDepth !== undefined ? { outboxDepth } : {}),
+        ...(relayLagMs !== undefined ? { relayLagMs } : {}),
       };
     },
 

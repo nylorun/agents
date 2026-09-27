@@ -16,7 +16,9 @@ import type { Migration } from "./index.js";
  *   through `doc(body)`, which casts to `jsonb` after replacing those two
  *   escapes with `\ufffd`: the stored body is untouched, and only an indexed
  *   field that itself contained one (never an id, status or timestamp) would
- *   see U+FFFD. Bodies with no `\u` escape at all take the plain cast.
+ *   see U+FFFD. Bodies with no `\u` escape at all take the plain cast. Queries
+ *   never apply `->`/`->>` to a `json` body (Postgres de-escapes the whole text
+ *   and fails on the same escapes); they read generated columns.
  * - `sessions` carries the store-managed `next_event_seq` and ownership
  *   columns (`owner`, `epoch`, `owner_expires_at`), which are never in `body`.
  * - `outbox(session_id, seq, body)` holds committed, unrelayed events.
@@ -58,6 +60,7 @@ export const initial: Migration = {
       body json NOT NULL,
       status text GENERATED ALWAYS AS (${s}.doc(body)->>'status') STORED,
       agent_id text GENERATED ALWAYS AS (${s}.doc(body)->>'agentId') STORED,
+      stream_incarnation text GENERATED ALWAYS AS (${s}.doc(body)->>'streamIncarnation') STORED,
       next_event_seq bigint NOT NULL DEFAULT 0,
       owner text,
       epoch bigint NOT NULL DEFAULT 0,
@@ -118,6 +121,7 @@ export const initial: Migration = {
       session_id text COLLATE "C" NOT NULL,
       seq bigint NOT NULL,
       body json NOT NULL,
+      created_at text COLLATE "C" GENERATED ALWAYS AS (${s}.doc(body)->>'createdAt') STORED,
       PRIMARY KEY (session_id, seq)
     );
 
