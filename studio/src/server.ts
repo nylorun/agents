@@ -22,7 +22,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { AdminError, createAdmin, deriveStudioToken } from "@nylorun/admin";
-import { packagedWebRoot, serveLocalUi } from "./local-ui.js";
+import { packagedWebRoot, serveDashboard } from "./static.js";
 import { proxyRuntime } from "./proxy.js";
 import {
   STUDIO_VERSION,
@@ -437,7 +437,7 @@ export async function startStudioServer(
     request.resume();
     if (!SAFE_METHODS.has(method))
       return fail(response, 405, "Studio only serves static assets here.");
-    await serveLocalUi(response, method, pathname, webRoot, (status, message) =>
+    await serveDashboard(response, method, pathname, webRoot, (status, message) =>
       fail(response, status, message),
     );
   };
