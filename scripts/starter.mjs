@@ -9,8 +9,13 @@ import {
   npm,
   verifyToolchain,
 } from "./lib/repo.mjs";
-import { developmentOptions, develop } from "./lib/development.mjs";
+import {
+  developmentOptions,
+  develop,
+  workspaceCommands,
+} from "./lib/development.mjs";
 
+/** A fresh starter under .tmp/ whose @nylorun packages are the workspace's. */
 export async function renderPreview({ repo = root } = {}) {
   const { starterFiles } = await import(
     pathToFileURL(join(repo, "create-agent/dist/scaffold.js")).href
@@ -27,9 +32,11 @@ export async function renderPreview({ repo = root } = {}) {
     await writeFile(join(project, path), content);
   }
   const manifest = await readJson(join(project, "package.json"));
-  for (const name of ["core", "harness", "agents", "runtime", "cli"])
-    manifest.dependencies[`@nylorun/${name}`] =
-      `file:${join(repo, name).replaceAll("\\", "/")}`;
+  const local = (name) => `file:${join(repo, name).replaceAll("\\", "/")}`;
+  for (const name of ["core", "agents"])
+    manifest.dependencies[`@nylorun/${name}`] = local(name);
+  for (const name of ["admin", "cli"])
+    manifest.devDependencies[`@nylorun/${name}`] = local(name);
   await writeJson(join(project, "package.json"), manifest);
   return project;
 }
@@ -49,23 +56,13 @@ if (
     const controller = new AbortController();
     process.on("SIGINT", () => controller.abort());
     process.on("SIGTERM", () => controller.abort());
-    const { mkdtemp, rm } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-starter-host-"));
-    const home = await mkdtemp(join(tmpdir(), "nylorun-starter-home-"));
+    // The same loop as npm run dev, with the preview as the application.
     const app = await develop(options, {
-      project,
       signal: controller.signal,
       built: true,
-      hostRoot,
-      home,
+      commands: workspaceCommands({ project }),
     });
-    try {
-      process.exitCode = await app.done;
-    } finally {
-      await rm(hostRoot, { recursive: true, force: true }).catch(() => {});
-      await rm(home, { recursive: true, force: true }).catch(() => {});
-    }
+    process.exitCode = await app.done;
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

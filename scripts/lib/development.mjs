@@ -1,50 +1,51 @@
-import { existsSync, readFileSync } from "node:fs";
+/**
+ * `npm run dev`: the contributor loop on the local Docker stack.
+ *
+ * 1. Build the host-side packages the examples application runs on (core,
+ *    harness, agents, admin, runtime, cli).
+ * 2. Build the Runtime and Studio images from this checkout
+ *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
+ *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` the stack on them.
+ * 3. Run `nylorun dev` in examples/: it links the Project's Tenant, prints the
+ *    Studio login URL and runs the examples executor under `tsx watch`.
+ * 4. Watch the packages: an edit rebuilds what depends on it, rebuilds the
+ *    affected images (Compose then recreates only those containers), and
+ *    restarts the examples runner. A failed build keeps everything running.
+ */
+import { existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { watch } from "chokidar";
 import { ProcessGroup } from "./processes.mjs";
 import { npmCli, root } from "./repo.mjs";
-import { installRuntime } from "./runtime-install.mjs";
+import { buildImage, ensureImages } from "./stack.mjs";
 
 export function developmentOptions(args) {
-  const options = { studio: true, open: true, port: 8787, studioPort: 4161 };
+  const options = { studio: true, open: true, watch: true };
   const seen = new Set();
-  for (let i = 0; i < args.length; i++) {
-    const flag = args[i];
+  for (const flag of args) {
     if (seen.has(flag)) throw new Error(`Repeated option: ${flag}`);
     seen.add(flag);
     if (flag === "--no-studio") options.studio = false;
     else if (flag === "--no-open") options.open = false;
-    else if (flag === "--port" || flag === "--studio-port") {
-      const text = args[++i];
-      const value = Number(text);
-      if (
-        !/^\d+$/.test(text ?? "") ||
-        !Number.isInteger(value) ||
-        value < 1 ||
-        value > 65535
-      )
-        throw new Error(`Invalid port for ${flag}`);
-      options[flag === "--port" ? "port" : "studioPort"] = value;
-    } else
-      throw new Error(
-        `Unknown option: ${flag}. Use --no-studio, --no-open, --port, --studio-port.`
-      );
+    else if (flag === "--no-watch") options.watch = false;
+    else
+      throw new Error(`Unknown option: ${flag}. Use --no-studio, --no-open, --no-watch.`);
   }
-  if (options.studio && options.port === options.studioPort)
-    throw new Error("Runtime and Studio need different ports.");
+  if (!options.studio) options.open = false;
   return options;
 }
 
+/** A free loopback port (or `port` when it is free). */
 export async function availablePort(port = 0) {
   const server = createServer();
   await new Promise((resolve, reject) => {
     server.once("error", (error) =>
       reject(
         new Error(
-          `Port ${port} is unavailable (${error.code}). Stop the other service or choose another port.`
-        )
-      )
+          `Port ${port} is unavailable (${error.code}). Stop the other service or choose another port.`,
+        ),
+      ),
     );
     server.listen(port, "127.0.0.1", resolve);
   });
@@ -53,25 +54,132 @@ export async function availablePort(port = 0) {
   return result;
 }
 
-/** A reusable runner for examples and disposable starter previews. */
+/** Workspace packages built on the host, in dependency order, with their dependencies. */
+export const HOST_PACKAGES = {
+  core: [],
+  harness: ["core"],
+  agents: ["core"],
+  admin: ["core"],
+  runtime: ["core", "harness"],
+  cli: ["agents", "admin"],
+};
+
+/** The packages each image is built from (see runtime/Dockerfile, studio/Dockerfile). */
+export const IMAGE_SOURCES = {
+  runtime: ["core", "harness", "runtime"],
+  studio: ["core", "agents", "admin", "studio"],
+};
+
+/** Directories watched per package (studio's web UI lives outside src/). */
+const WATCHED = {
+  core: ["src"],
+  harness: ["src"],
+  agents: ["src"],
+  admin: ["src"],
+  runtime: ["src"],
+  cli: ["src"],
+  studio: ["src", "web"],
+};
+
+/**
+ * What to rebuild after `changed` packages were edited: the host packages
+ * that are or depend on them (in build order) and the images built from them.
+ */
+export function rebuildPlan(changed, { studio = true } = {}) {
+  const affected = new Set(changed);
+  for (const [name, deps] of Object.entries(HOST_PACKAGES))
+    if (deps.some((dep) => affected.has(dep))) affected.add(name);
+  return {
+    packages: Object.keys(HOST_PACKAGES).filter((name) => affected.has(name)),
+    images: Object.entries(IMAGE_SOURCES)
+      .filter(([image, sources]) => (image !== "studio" || studio) && sources.some((s) => changed.includes(s)))
+      .map(([image]) => image),
+  };
+}
+
+/** The package a changed path belongs to, or undefined for anything unwatched. */
+export function packageOf(repo, path) {
+  const [name, directory] = relative(repo, path).split(sep);
+  if (!WATCHED[name]?.includes(directory)) return undefined;
+  if (/[/\\](dist|node_modules)[/\\]/.test(path)) return undefined;
+  return name;
+}
+
+/**
+ * The real commands: npm builds, `docker build`, and the workspace CLI.
+ * `develop` takes these as a parameter so tests can replace them.
+ */
+export function workspaceCommands({ repo = root, project = join(repo, "examples"), env = process.env } = {}) {
+  const cli = join(repo, "cli/dist/cli.js");
+  const images = { runtime: "nylorun-runtime:dev", studio: "nylorun-studio:dev" };
+  const stackEnv = () => ({
+    ...env,
+    NYLORUN_RUNTIME_IMAGE: images.runtime,
+    NYLORUN_STUDIO_IMAGE: images.studio,
+  });
+  return {
+    async buildPackage(group, name) {
+      const child = group.start(`${name}:build`, process.execPath, [npmCli(), "run", "build"], {
+        cwd: join(repo, name),
+      });
+      if ((await child.exit) !== 0) throw new Error(`${name} failed to build.`);
+    },
+    /** Every image not named in the environment is built from this checkout. */
+    async prepareImages(log) {
+      Object.assign(
+        images,
+        await ensureImages({ env, defaults: images, log }),
+      );
+    },
+    async buildImage(name, log) {
+      // An image named in the environment is someone else's build; keep it.
+      if (env[name === "runtime" ? "NYLORUN_RUNTIME_IMAGE" : "NYLORUN_STUDIO_IMAGE"]?.trim()) {
+        log(`[dev] ${name} image is set in the environment; not rebuilding it.`);
+        return;
+      }
+      await buildImage(name, images[name], { log });
+    },
+    async startStack(group, { studio }) {
+      const child = group.start(
+        "stack",
+        process.execPath,
+        [cli, "start", ...(studio ? [] : ["--no-studio"])],
+        { cwd: project, env: stackEnv() },
+      );
+      if ((await child.exit) !== 0) throw new Error("nylorun start failed; see the output above.");
+    },
+    startRunner(group, { studio, open }) {
+      // The CLI's Project lookup stops at the home directory before it falls
+      // back to the nearest package.json (cli/src/project/root.ts), so a
+      // checkout under $HOME needs the Project's .nylorun/ to exist.
+      mkdirSync(join(project, ".nylorun"), { recursive: true, mode: 0o700 });
+      return group.start(
+        "examples",
+        process.execPath,
+        [cli, "dev", ...(studio ? [] : ["--no-studio"]), ...(open ? [] : ["--no-open"])],
+        { cwd: project, env: stackEnv() },
+      );
+    },
+  };
+}
+
+/** Run the contributor loop until `signal` aborts or the runner exits on its own. */
 export async function develop(
   options,
   {
-    project = join(root, "examples"),
     repo = root,
     log = console.log,
     signal,
     built = false,
-    /** Temporary Host root (`NYLORUN_HOME`); never the real `~/.nylorun`. */
-    hostRoot,
-    /** Override HOME so Host/CLI resolution cannot touch `~/.nylorun`. */
-    home,
-    /** Use a private ephemeral Host removed when the Project runner exits. */
-    ephemeral = false,
-  } = {}
+    commands = workspaceCommands({ repo }),
+    debounceMs = 200,
+    /** chokidar options (tests poll, which does not drop early events). */
+    watchOptions = {},
+  } = {},
 ) {
   let stopping = false;
-  let runtime, studio, watcher;
+  let runner;
+  let watcher;
   let timer;
   let work = Promise.resolve();
   const pending = new Set();
@@ -82,254 +190,83 @@ export async function develop(
   const group = new ProcessGroup({
     log,
     onExit(label, code) {
-      if (!stopping && ["runtime", "studio"].includes(label)) {
-        log(`[dev] ${label} exited (${code}); shutting down.`);
-        void close(1);
+      if (!stopping && label === "examples") {
+        log(`[dev] The examples runner exited (${code}); stopping. The stack keeps running.`);
+        void close(code || 1);
       }
     },
   });
-  const command = async (label, args, cwd) => {
-    if (stopping) throw new Error("Development stopped.");
-    const child = group.start(label, process.execPath, [npmCli(), ...args], {
-      cwd,
-    });
-    if ((await child.exit) !== 0)
-      throw new Error(`${label} failed; the running application was retained.`);
-  };
-  async function build(name, initial = false) {
-    const cwd = join(repo, name);
-    if (!initial)
-      await command(
-        `${name}:typecheck`,
-        ["run", name === "agents" ? "check" : "typecheck"],
-        cwd
-      );
-    await command(`${name}:build`, ["run", "build"], cwd);
-  }
-  let launcherEnv;
-  /**
-   * Put the workspace Runtime's launcher first on PATH: a linked install, so
-   * rebuilds apply, and never the developer's own global nylorun-runtime.
-   */
-  async function workspaceLauncherEnv(env) {
-    const runtimePackage = join(repo, "runtime");
-    const manifest = join(runtimePackage, "package.json");
-    // Unit fixtures stand in a Runtime without a launcher; nothing to install.
-    if (
-      !existsSync(manifest) ||
-      !JSON.parse(readFileSync(manifest, "utf8")).bin?.["nylorun-runtime"]
-    )
-      return env;
-    launcherEnv ??= (
-      await installRuntime(join(repo, ".tmp/runtime-prefix"), runtimePackage)
-    ).env;
-    return launcherEnv(env);
-  }
-  async function startRuntime() {
+
+  function startRunner(open) {
     if (stopping) return;
-    const env = await workspaceLauncherEnv({
-      ...process.env,
-      PORT: String(options.port),
-    });
-    if (hostRoot) env.NYLORUN_HOME = hostRoot;
-    // Keep Host files out of the real developer home during scripted runs.
-    if (home) {
-      env.HOME = home;
-      env.USERPROFILE = home;
-    }
-    if (!ephemeral && hostRoot) {
-      // Bind the requested port before `nylorun dev` attaches.
-      const upCode = await group.start(
-        "runtime-up",
-        process.execPath,
-        [
-          join(repo, "cli/dist/cli.js"),
-          "runtime",
-          "up",
-          "--port",
-          String(options.port),
-        ],
-        { cwd: project, env },
-      ).exit;
-      if (upCode !== 0)
-        throw new Error(`nylorun runtime up exited ${upCode}`);
-      const deadline = Date.now() + 30_000;
-      for (;;) {
-        try {
-          const response = await fetch(
-            `http://127.0.0.1:${options.port}/ready`,
-            { signal: AbortSignal.timeout(2000) },
-          );
-          if (response.ok) break;
-        } catch {
-          /* retry */
-        }
-        if (Date.now() >= deadline)
-          throw new Error(
-            `Host did not become ready on port ${options.port} after runtime up.`,
-          );
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    }
-    const args = [join(repo, "cli/dist/cli.js"), "dev"];
-    if (ephemeral) args.push("--ephemeral");
-    runtime = group.start("runtime", process.execPath, args, {
-      cwd: project,
-      env,
-    });
-    if (ephemeral) {
-      const { readFile } = await import("node:fs/promises");
-      const deadline = Date.now() + 60_000;
-      let url;
-      while (Date.now() < deadline) {
-        try {
-          const link = JSON.parse(
-            await readFile(join(project, ".nylorun/link.json"), "utf8"),
-          );
-          url = link.hostUrl;
-          break;
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-      }
-      if (!url) throw new Error("Ephemeral Project link was not written.");
-      await runtime.ready(`${url}/ready`);
-    } else if (hostRoot) {
-      // Wait until the Project runner is up (Host already answered /ready above).
-      await runtime.line((line) => line.includes("Ready"));
-    } else {
-      // Unit fixtures still speak PORT-based readiness.
-      await runtime.ready(`http://127.0.0.1:${options.port}/ready`);
-    }
+    runner = commands.startRunner(group, { studio: options.studio, open });
   }
-  async function startStudio(open) {
-    if (stopping || !options.studio) return;
-    studio = group.start(
-      "studio",
-      process.execPath,
-      [
-        join(root, "scripts/studio-dev.mjs"),
-        repo,
-        String(options.port),
-        String(options.studioPort),
-        String(open),
-        project,
-      ],
-      { cwd: repo }
-    );
-    // Hosted Studio: config JSON is gone; GET / is unauthenticated in both modes
-    // (local SPA or hosted landing). Token-gated hello is checked by smoke (WS-4).
-    await studio.ready(`http://127.0.0.1:${options.studioPort}/`);
-  }
+
   async function rebuild(changed) {
-    const selected = new Set(changed);
-    const dependencies = {
-      core: [],
-      harness: ["core"],
-      agents: ["core"],
-      runtime: ["core", "harness"],
-      studio: ["agents"],
-      cli: ["agents", "admin"],
-      admin: ["core"],
-    };
-    for (const [name, deps] of Object.entries(dependencies))
-      if (
-        (name !== "studio" || options.studio) &&
-        deps.some((dep) => selected.has(dep))
-      )
-        selected.add(name);
-    const names = Object.keys(dependencies).filter((name) =>
-      selected.has(name)
+    const plan = rebuildPlan(changed, options);
+    log(
+      `[dev] ${changed.join(", ")} changed: rebuilding ${[
+        ...plan.packages,
+        ...plan.images.map((image) => `${image} image`),
+      ].join(", ") || "nothing"}`,
     );
     try {
-      for (const name of names) await build(name);
+      for (const name of plan.packages) await commands.buildPackage(group, name);
+      for (const image of plan.images) await commands.buildImage(image, log);
       if (stopping) return;
-      if (
-        names.some((name) =>
-          ["core", "harness", "agents", "runtime", "cli"].includes(name)
-        )
-      ) {
-        log(
-          "[dev] Restarting Runtime; active sessions end after package changes."
-        );
-        await runtime.stop();
-        await startRuntime();
-      }
-      if (names.includes("studio") && options.studio) {
-        await studio.stop();
-        await startStudio(false);
-      }
+      if (plan.images.length) await commands.startStack(group, options);
+      if (stopping || (!plan.packages.length && !plan.images.length)) return;
+      log("[dev] Restarting the examples runner.");
+      await runner?.stop();
+      startRunner(false);
     } catch (error) {
-      if (!stopping) log(`[dev] ${error.message}`);
+      if (!stopping)
+        log(`[dev] ${error.message} The running stack and examples runner were retained.`);
     }
   }
+
   async function close(code = 0) {
     if (stopping) return done;
     stopping = true;
     clearTimeout(timer);
     await watcher?.close();
     await group.close();
-    await work;
+    await work.catch(() => {});
     resolveDone(code);
     return code;
   }
+
   signal?.addEventListener("abort", () => void close(), { once: true });
   try {
     if (signal?.aborted) throw new Error("Development stopped.");
-    await availablePort(options.port);
-    if (options.studio) await availablePort(options.studioPort);
     if (!built)
-      for (const name of [
-        "core",
-        "harness",
-        "agents",
-        "runtime",
-        "cli",
-        ...(options.studio ? ["studio"] : []),
-      ])
-        await build(name, true);
-    await startRuntime();
-    await startStudio(options.open);
-    log(
-      `[dev] Runtime http://127.0.0.1:${options.port}${
-        options.studio ? ` · Studio http://127.0.0.1:${options.studioPort}` : ""
-      }`
-    );
-    log(
-      `[dev] Live conversations use the Runtime vault. The first start prompts, or replace the credential while it is running: npx nylorun configure`
-    );
+      for (const name of Object.keys(HOST_PACKAGES)) {
+        if (stopping) throw new Error("Development stopped.");
+        await commands.buildPackage(group, name);
+      }
     if (stopping) throw new Error("Development stopped.");
-    watcher = watch(
-      [
-        "core",
-        "harness",
-        "agents",
-        "runtime",
-        "cli",
-        ...(options.studio ? ["studio"] : []),
-      ].map((name) => join(repo, name, name === "studio" ? "" : "src")),
-      { ignoreInitial: true }
-    );
+    await commands.prepareImages(log);
+    if (stopping) throw new Error("Development stopped.");
+    await commands.startStack(group, options);
+    startRunner(options.open);
+    if (!options.watch) return { close, done };
+
+    const directories = Object.entries(WATCHED)
+      .filter(([name]) => name !== "studio" || options.studio)
+      .flatMap(([name, dirs]) => dirs.map((dir) => join(repo, name, dir)))
+      .filter((dir) => existsSync(dir));
+    watcher = watch(directories, { ignoreInitial: true, ...watchOptions });
     watcher.on("all", (_event, path) => {
       if (stopping) return;
-      const name = [
-        "core",
-        "harness",
-        "agents",
-        "runtime",
-        "studio",
-        "cli",
-      ].find((name) =>
-        path.startsWith(join(repo, name, name === "studio" ? "" : "src"))
-      );
-      if (!name || /[/\\](dist|node_modules)[/\\]/.test(path)) return;
+      const name = packageOf(repo, path);
+      if (!name) return;
       pending.add(name);
       clearTimeout(timer);
       timer = setTimeout(() => {
         const names = [...pending];
         pending.clear();
         work = work.then(() => rebuild(names));
-      }, 200);
+      }, debounceMs);
     });
     await Promise.race([
       new Promise((resolve, reject) => {
@@ -344,6 +281,11 @@ export async function develop(
       log(`[dev] Watcher failed: ${error.message}`);
       void close(1);
     });
+    log(
+      "[dev] Watching core, harness, agents, admin, runtime, cli" +
+        (options.studio ? " and studio" : "") +
+        ". Ctrl-C stops the examples runner; `npx nylorun stop` (in examples/) stops the stack.",
+    );
     return { close, done };
   } catch (error) {
     await close(1);

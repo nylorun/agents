@@ -11,9 +11,15 @@ test("starter previews resolve local packages and never overwrite an earlier pre
   try {
     const manifest = await readJson(join(first, "package.json"));
     assert.equal(
-      manifest.dependencies["@nylorun/runtime"],
-      `file:${join(root, "runtime").replaceAll("\\", "/")}`,
+      manifest.dependencies["@nylorun/agents"],
+      `file:${join(root, "agents").replaceAll("\\", "/")}`,
     );
+    assert.equal(
+      manifest.devDependencies["@nylorun/cli"],
+      `file:${join(root, "cli").replaceAll("\\", "/")}`,
+    );
+    // The Runtime runs in the stack's container; previews never install it.
+    assert.equal(manifest.dependencies["@nylorun/runtime"], undefined);
     // Studio runs in the Docker stack; previews never depend on it.
     assert.equal(manifest.devDependencies["@nylorun/studio"], undefined);
     await writeFile(
