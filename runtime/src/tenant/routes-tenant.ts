@@ -49,6 +49,9 @@ export async function dispatchTenant(
         ? (await vault.getHostModel()).configured
         : true,
       executorStreams: ctx.live.executorStreams,
+      ...(ctx.stuckInvocations
+        ? { stuckInvocations: ctx.stuckInvocations }
+        : {}),
     });
   if (path[2] === "reset" && path.length === 3 && method === "POST") {
     const body = ResetTenantRequestSchema.parse(await readBody(request));

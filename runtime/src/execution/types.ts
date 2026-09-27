@@ -109,6 +109,28 @@ export interface DurableExecution {
    * `infra/execution.ts`). Absent for in-process implementations.
    */
   probe?(signal: AbortSignal): Promise<void>;
+  /**
+   * Invocations for `tenantId` that need an operator: paused after exhausting
+   * retries, or backing off after failures (Tenant status). Absent for
+   * in-process implementations.
+   */
+  stuckInvocations?(tenantId: string): Promise<StuckInvocation[]>;
+}
+
+/** An invocation that needs an operator (`DurableExecution.stuckInvocations`). */
+export interface StuckInvocation {
+  id: string;
+  /** `paused` or `backing-off`. */
+  status: string;
+  /** Service name without any prefix, e.g. `NylorunSession`. */
+  service: string;
+  handler: string;
+  /** Object key: `<tenantId>:<sessionId>`, `<tenantId>` or `<tenantId>:<timer key>`. */
+  key: string;
+  tenantId?: string;
+  retryCount: number;
+  lastFailure?: string;
+  modifiedAt?: string;
 }
 
 /** The key one advance at a time is serialized on. */

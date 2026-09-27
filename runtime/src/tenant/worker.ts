@@ -12,19 +12,53 @@
  *   the advance returns `done` and the sweep does nothing. Nothing is lost: the Tenant's sweep
  *   re-wakes its orphaned sessions once it is open again.
  * - `TenantExecution` pairs an execution with its registry. The Host creates one per process
- *   and passes it to every Tenant it opens; a Tenant opened without one (tests, ephemeral)
- *   gets its own in-process `MemoryExecution`.
+ *   (`host/execution.ts`) and passes it to every Tenant it opens; a Tenant opened without one
+ *   (tests, ephemeral) gets its own in-process `MemoryExecution`.
+ *
+ * ## Advance deadline
+ *
+ * Restate's abort timeout does not interrupt a running handler (the advance's signal does not
+ * fire), so the registry bounds every advance itself:
+ *
+ * 1. At `advanceDeadlineMs` the advance's signal aborts with an `AdvanceDeadlineError`. The
+ *    in-flight effect is aborted and the segment settles as a normal outcome (the effect and
+ *    the turn become `uncertain`, or the turn fails with the deadline's message).
+ * 2. Once the signal has aborted, for whatever reason (deadline, Worker stop, Restate attempt
+ *    end), the advance has `advanceGraceMs` to return. One that does not (an effect that
+ *    ignores its signal) is abandoned: the handler returns `busy`, so the execution runs the
+ *    session again. The abandoned advance has stopped renewing its lease (`advance.ts`), so
+ *    the next advance takes over when the lease lapses (§11.4), and the epoch fences anything
+ *    the abandoned one still tries to write.
  */
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
 import type {
   AdvanceResult,
   DurableExecution,
+  StuckInvocation,
   WorkerHandlers,
 } from "../execution/types.js";
+import type { Logger } from "./types.js";
 
 /** This process's Worker id: the `owner` it writes on the sessions it advances (§10.6). */
 export const WORKER_ID = `worker-${hostname()}-${process.pid}-${randomBytes(4).toString("hex")}`;
+
+/**
+ * Default advance deadline: 50 minutes, below the one-hour inactivity and abort timeouts the
+ * Restate adapter sets on the session object, so an advance always ends before Restate gives
+ * up on it.
+ */
+export const DEFAULT_ADVANCE_DEADLINE_MS = 50 * 60_000;
+/** Default time an aborted advance has to settle before it is abandoned. */
+export const DEFAULT_ADVANCE_GRACE_MS = 30_000;
+
+/** The abort reason of an advance that ran past its deadline. */
+export class AdvanceDeadlineError extends Error {
+  override readonly name = "AdvanceDeadlineError";
+  constructor(readonly deadlineMs: number) {
+    super(`The advance ran past its ${deadlineMs} ms deadline`);
+  }
+}
 
 /** One open Tenant's handlers. */
 export interface TenantWorker {
@@ -37,13 +71,35 @@ export interface TenantWorker {
 export interface TenantWorkersOptions {
   /** Finds or opens a Tenant that is not registered on this process. */
   resolve?: (tenantId: string) => Promise<TenantWorker | undefined>;
+  /** How long one advance may run before its signal aborts. Default `DEFAULT_ADVANCE_DEADLINE_MS`. */
+  advanceDeadlineMs?: number;
+  /**
+   * How long an advance whose signal aborted has to return before it is abandoned.
+   * Default `DEFAULT_ADVANCE_GRACE_MS`.
+   */
+  advanceGraceMs?: number;
+  /** Receives a warning for each abandoned advance. */
+  logger?: Logger;
 }
+
+const DONE: AdvanceResult = { status: "done" };
 
 /** Registry of open Tenants' workers, dispatched to by `tenantId`. */
 export class TenantWorkers {
   private readonly workers = new Map<string, TenantWorker>();
+  private readonly deadlineMs: number;
+  private readonly graceMs: number;
 
-  constructor(private readonly options: TenantWorkersOptions = {}) {}
+  constructor(private readonly options: TenantWorkersOptions = {}) {
+    this.deadlineMs = positive(
+      "advanceDeadlineMs",
+      options.advanceDeadlineMs ?? DEFAULT_ADVANCE_DEADLINE_MS
+    );
+    this.graceMs = positive(
+      "advanceGraceMs",
+      options.advanceGraceMs ?? DEFAULT_ADVANCE_GRACE_MS
+    );
+  }
 
   /** Registers an open Tenant's worker; the returned function unregisters exactly it. */
   register(tenantId: string, worker: TenantWorker): () => void {
@@ -65,16 +121,79 @@ export class TenantWorkers {
   readonly handlers: WorkerHandlers = {
     advance: async (tenantId, sessionId, signal) => {
       const worker = await this.find(tenantId);
-      return worker ? worker.advance(sessionId, signal) : { status: "done" };
+      return worker ? this.bounded(tenantId, sessionId, worker, signal) : DONE;
     },
     sweep: async (tenantId) => {
       await (await this.find(tenantId))?.sweep();
     },
   };
+
+  /** Runs one advance under the deadline and the grace period (see the module comment). */
+  private async bounded(
+    tenantId: string,
+    sessionId: string,
+    worker: TenantWorker,
+    signal: AbortSignal
+  ): Promise<AdvanceResult> {
+    const controller = new AbortController();
+    const abort = (reason: unknown) => {
+      if (!controller.signal.aborted) controller.abort(reason);
+    };
+    const forward = () => abort(signal.reason);
+    if (signal.aborted) forward();
+    else signal.addEventListener("abort", forward, { once: true });
+    const deadline = setTimeout(
+      () => abort(new AdvanceDeadlineError(this.deadlineMs)),
+      this.deadlineMs
+    );
+    let grace: NodeJS.Timeout | undefined;
+    let armGrace: (() => void) | undefined;
+    const abandoned = new Promise<AdvanceResult>((resolve) => {
+      armGrace = () => {
+        grace = setTimeout(() => {
+          this.options.logger?.warn("advance abandoned after abort", {
+            tenantId,
+            sessionId,
+            graceMs: this.graceMs,
+            reason:
+              controller.signal.reason instanceof Error
+                ? controller.signal.reason.message
+                : String(controller.signal.reason),
+          });
+          resolve({ status: "busy", retryAfterMs: 0 });
+        }, this.graceMs);
+      };
+      if (controller.signal.aborted) armGrace();
+      else controller.signal.addEventListener("abort", armGrace, { once: true });
+    });
+    try {
+      // `race` keeps handling the advance's outcome after it is abandoned.
+      return await Promise.race([worker.advance(sessionId, controller.signal), abandoned]);
+    } finally {
+      clearTimeout(deadline);
+      clearTimeout(grace);
+      signal.removeEventListener("abort", forward);
+      if (armGrace) controller.signal.removeEventListener("abort", armGrace);
+    }
+  }
 }
 
 /** A Durable Session Execution together with the registry its handlers dispatch through. */
 export interface TenantExecution {
   readonly execution: DurableExecution;
   readonly workers: TenantWorkers;
+  /**
+   * The Tenant's invocations that need an operator (paused or backing off), for Tenant
+   * status. Absent when the execution cannot report them (in-process execution).
+   */
+  readonly stuckInvocations?: (tenantId: string) => Promise<StuckInvocation[]>;
+}
+
+/** The longest delay `setTimeout` keeps (about 24.8 days). */
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+function positive(name: string, value: number): number {
+  if (!Number.isFinite(value) || value <= 0 || value > MAX_TIMEOUT_MS)
+    throw new Error(`${name} must be positive and at most ${MAX_TIMEOUT_MS}`);
+  return value;
 }

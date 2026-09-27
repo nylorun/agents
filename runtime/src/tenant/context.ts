@@ -30,7 +30,7 @@ import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantConfig } from "./types.js";
 import type { LiveHub } from "./live.js";
-import type { Wake } from "../execution/types.js";
+import type { StuckInvocation, Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
 import { fail } from "./http.js";
 
@@ -100,6 +100,8 @@ export interface TenantContext {
   wake(sessionId: string, wake: Wake): Promise<void>;
   /** Seam: abort the advance of a session running in this process, if any. */
   abortLocal(sessionId: string): void;
+  /** This Tenant's execution invocations that need an operator, for Tenant status. */
+  readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */
   readonly sweepHooks: ReadonlySet<() => Promise<void>>;
   /** Adds a sweep callback (the outbox drain, Wave 2 / Y). Returns a function that removes it. */

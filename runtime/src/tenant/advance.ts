@@ -48,6 +48,7 @@ import {
 } from "./session.js";
 import { prepareMcp, resolveEffect } from "./effects.js";
 import { command } from "./commands.js";
+import { AdvanceDeadlineError } from "./worker.js";
 
 type SegmentResult =
   | Awaited<ReturnType<typeof runDurable>>
@@ -173,7 +174,11 @@ export async function takeOver(t: Tx, s: Session): Promise<string[]> {
   return marked;
 }
 
-/** Renews the lease every third of its length while the advance runs; aborts it when lost. */
+/**
+ * Renews the lease every third of its length while the advance runs; aborts it when lost.
+ * Stops renewing once the advance is aborted (cancel, deadline, Worker stop): an advance that
+ * does not wind down within the lease is taken over when it lapses (`worker.ts`).
+ */
 function startHeartbeat(
   ctx: TenantContext,
   lease: Lease,
@@ -183,6 +188,10 @@ function startHeartbeat(
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
   const beat = async () => {
+    if (controller.signal.aborted) {
+      stopped = true;
+      return;
+    }
     try {
       const renewed = await ctx.store.tx((t) =>
         t.renewOwnership(
@@ -267,7 +276,10 @@ async function runSegment(
     await settle(ctx, lease, started, result);
   } catch (error) {
     if (isOwnershipLost(error)) throw error;
-    await settleFailure(ctx, lease, started, error);
+    // A segment stopped by its deadline fails with the deadline, not the abort it caused.
+    const deadline =
+      signal.aborted && signal.reason instanceof AdvanceDeadlineError;
+    await settleFailure(ctx, lease, started, deadline ? signal.reason : error);
   }
 }
 

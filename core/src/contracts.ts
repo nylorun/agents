@@ -1033,6 +1033,31 @@ export const TenantStatusSchema = z
         retained: z.number().int().nonnegative(),
       })
       .strict(),
+    /**
+     * Durable Session Execution invocations of this Tenant that need an operator: paused
+     * after exhausting retries, or backing off after failures. Absent when the execution
+     * cannot report them; `error` when it could not be asked.
+     */
+    execution: z
+      .object({
+        stuckInvocations: z.array(
+          z
+            .object({
+              id: z.string(),
+              status: z.string(),
+              service: z.string(),
+              handler: z.string(),
+              key: z.string(),
+              retryCount: z.number().int().nonnegative(),
+              lastFailure: z.string().optional(),
+              modifiedAt: z.string().optional(),
+            })
+            .strict(),
+        ),
+        error: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type TenantStatus = z.infer<typeof TenantStatusSchema>;

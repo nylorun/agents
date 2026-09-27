@@ -29,6 +29,7 @@ import {
   sessionKey,
   type AdvanceResult,
   type DurableExecution,
+  type StuckInvocation,
   type Wake,
   type WakeReason,
   type WorkerHandlers,
@@ -107,20 +108,7 @@ export interface RestateExecutionOptions {
 }
 
 /** A Restate invocation that needs an operator: paused, or retrying after failures. */
-export interface StuckInvocation {
-  id: string;
-  /** `paused` or `backing-off`. */
-  status: string;
-  /** Service name without the prefix, e.g. `NylorunSession`. */
-  service: string;
-  handler: string;
-  /** Object key: `<tenantId>:<sessionId>`, `<tenantId>` or `<tenantId>:<timer key>`. */
-  key: string;
-  tenantId?: string;
-  retryCount: number;
-  lastFailure?: string;
-  modifiedAt?: string;
-}
+export type { StuckInvocation };
 
 interface WakeInput {
   reason?: WakeReason;
@@ -216,6 +204,15 @@ export class RestateExecution implements DurableExecution {
         },
       ),
     );
+  }
+
+  /** This Runtime's paused or backing-off invocations for `tenantId` (Tenant status). */
+  stuckInvocations(tenantId: string): Promise<StuckInvocation[]> {
+    return listStuckInvocations({
+      adminUrl: this.adminUrl,
+      servicePrefix: this.options.servicePrefix ?? "",
+      tenantId,
+    });
   }
 
   async start(handlers: WorkerHandlers): Promise<void> {
