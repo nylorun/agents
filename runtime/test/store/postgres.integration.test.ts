@@ -1,0 +1,215 @@
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { newTenantId } from "@nylorun/core/compatibility";
+import { decodeCursor } from "../../src/store/cursor.js";
+import {
+  createPostgresClient,
+  type PostgresClient,
+} from "../../src/store/postgres/connect.js";
+import { lockSessions } from "../../src/store/postgres/locking.js";
+import {
+  POSTGRES_SCHEMA_VERSION,
+  migrateSchema,
+} from "../../src/store/postgres/migrations/index.js";
+import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
+import type { LiveEvent } from "@nylorun/core/contracts";
+import type { SessionStore } from "../../src/store/types.js";
+import { storeContract } from "../contracts/store.contract.js";
+import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+let client: PostgresClient | undefined;
+const pools: PostgresClient[] = [];
+function pool(): PostgresClient {
+  return (client ??= newPool());
+}
+function newPool(max = 10): PostgresClient {
+  const sql = createPostgresClient(stackEndpoints().postgres.url, { max });
+  pools.push(sql);
+  return sql;
+}
+
+afterAll(async () => {
+  await Promise.all(pools.map((sql) => sql.end({ timeout: 5 })));
+});
+
+/** A fresh, migrated Tenant schema and its store; dropped by `drop`. */
+async function freshSchema(): Promise<{ tenantId: string; schema: string }> {
+  const tenantId = newTenantId();
+  const schema = tenantSchemaName(tenantId);
+  await migrateSchema(pool(), schema);
+  return { tenantId, schema };
+}
+
+async function drop(schema: string): Promise<void> {
+  const sql = pool();
+  await sql`DROP SCHEMA IF EXISTS ${sql(schema)} CASCADE`;
+}
+
+const session = (id: string) => ({
+  id,
+  agentId: "agent-a",
+  status: "idle",
+  activeTurnId: null,
+});
+
+describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
+  storeContract("postgres", async (options) => {
+    const schema = tenantSchemaName(options.tenantId);
+    await migrateSchema(pool(), schema);
+    return {
+      store: createPostgresSessionStore({ ...options, sql: pool(), schema }),
+      dispose: () => drop(schema),
+    };
+  });
+
+  describe("beyond the contract", () => {
+    const cleanup: (() => Promise<void>)[] = [];
+    afterEach(async () => {
+      for (const step of cleanup.splice(0).reverse()) await step();
+    });
+
+    async function open(sql = pool()): Promise<{
+      store: SessionStore;
+      schema: string;
+    }> {
+      const { tenantId, schema } = await freshSchema();
+      const store = createPostgresSessionStore({ sql, tenantId, schema });
+      cleanup.push(() => drop(schema));
+      cleanup.push(() => store.close());
+      return { store, schema };
+    }
+
+    it("has no sequence gaps with 20 concurrent writers on two pools", async () => {
+      const { store: first, schema } = await open();
+      const second = createPostgresSessionStore({
+        sql: newPool(5),
+        tenantId: first.tenantId,
+        schema,
+      });
+      cleanup.push(() => second.close());
+      await first.tx((t) => t.put("sessions", "s1", session("s1")));
+      const results = await Promise.allSettled(
+        Array.from({ length: 20 }, (_, i) =>
+          (i % 2 === 0 ? first : second).tx(async (t) => {
+            const a = await t.event("s1", null, "w", { i });
+            await sleep(i % 4);
+            const b = await t.event("s1", null, "w", { i, second: true });
+            if (i % 7 === 3) throw new Error(`fail ${i}`);
+            return [a, b] as LiveEvent[];
+          }),
+        ),
+      );
+      const committed = results.flatMap((r) =>
+        r.status === "fulfilled" ? [r.value] : [],
+      );
+      expect(committed).toHaveLength(17);
+      const seqs = committed
+        .flat()
+        .map((e) => decodeCursor("s1", e.cursor))
+        .sort((a, b) => a - b);
+      expect(seqs).toEqual(Array.from({ length: 34 }, (_, i) => i));
+      for (const [a, b] of committed)
+        expect(decodeCursor("s1", b!.cursor)).toBe(decodeCursor("s1", a!.cursor) + 1);
+      const outbox = await first.tx((t) => t.outbox(100, { sessionId: "s1" }));
+      expect(outbox.map((r) => r.seq)).toEqual(seqs);
+    });
+
+    it("locks several sessions in id order so opposite orders do not deadlock", async () => {
+      const { store } = await open();
+      await store.tx(async (t) => {
+        for (const id of ["a", "b", "c"]) await t.put("sessions", id, session(id));
+      });
+      const runs = await Promise.all(
+        [["a", "b", "c"], ["c", "b", "a"], ["b", "c", "a", "b"]].map((ids) =>
+          store.tx(async (t) => {
+            const locked = await lockSessions(t, ids);
+            await sleep(20);
+            for (const id of locked.keys()) await t.event(id, null, "locked", { ids });
+            return [...locked.keys()];
+          }),
+        ),
+      );
+      expect(runs).toEqual([
+        ["a", "b", "c"],
+        ["a", "b", "c"],
+        ["a", "b", "c"],
+      ]);
+      const missing = await store.tx((t) => lockSessions(t, ["zz", "a"]));
+      expect([...missing.entries()].map(([id, s]) => [id, s?.id])).toEqual([
+        ["a", "a"],
+        ["zz", undefined],
+      ]);
+      expect(await store.tx((t) => t.outbox(100))).toHaveLength(9);
+    });
+
+    it("deadlocks when two transactions lock sessions in opposite orders", async () => {
+      // Why `lockSessions` exists: Postgres aborts one of the two with 40P01.
+      const { store } = await open();
+      await store.tx(async (t) => {
+        await t.put("sessions", "a", session("a"));
+        await t.put("sessions", "b", session("b"));
+      });
+      let arrived = 0;
+      let release!: () => void;
+      const barrier = new Promise<void>((resolve) => (release = resolve));
+      const lockBoth = (first: string, second: string) =>
+        store.tx(async (t) => {
+          await t.lockSession(first);
+          if (++arrived === 2) release();
+          await barrier;
+          await t.lockSession(second);
+        });
+      const results = await Promise.allSettled([lockBoth("a", "b"), lockBoth("b", "a")]);
+      const rejected = results.filter((r) => r.status === "rejected");
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+        code: "40P01",
+      });
+    });
+
+    it("keeps Tenant schemas apart", async () => {
+      const { store: one } = await open();
+      const { store: two } = await open();
+      await one.tx((t) => t.put("sessions", "s1", session("s1")));
+      expect(await two.tx((t) => t.get("sessions", "s1"))).toBeUndefined();
+      expect(await two.tx((t) => t.counts())).toMatchObject({ sessions: 0 });
+    });
+
+    it("reports health against the schema version", async () => {
+      const { store, schema } = await open();
+      expect(await store.health()).toEqual({
+        ok: true,
+        schemaVersion: POSTGRES_SCHEMA_VERSION,
+        expectedSchemaVersion: POSTGRES_SCHEMA_VERSION,
+      });
+      const sql = pool();
+      await sql`INSERT INTO ${sql(`${schema}.schema_version`)} (version, name) VALUES (99, 'future')`;
+      expect(await store.health()).toMatchObject({ ok: false, schemaVersion: 99 });
+      await drop(schema);
+      expect(await store.health()).toMatchObject({ ok: false, schemaVersion: 0 });
+    });
+
+    it("keeps store-managed columns out of the body", async () => {
+      const { store, schema } = await open();
+      await store.tx((t) =>
+        t.put("sessions", "s1", { ...session("s1"), owner: "x", epoch: 3 }),
+      );
+      await store.tx((t) => t.event("s1", null, "x", {}));
+      const sql = pool();
+      const [row] = await sql`
+        SELECT body, status, agent_id, next_event_seq, epoch
+        FROM ${sql(`${schema}.sessions`)} WHERE id = 's1'`;
+      expect(row!.body).toEqual(session("s1"));
+      expect(row).toMatchObject({ status: "idle", agent_id: "agent-a", next_event_seq: "1", epoch: "0" });
+    });
+
+    it("rejects U+0000 in a document, which jsonb cannot store", async () => {
+      const { store } = await open();
+      await expect(
+        store.tx((t) => t.put("commands", "c1", { text: "a\u0000b" })),
+      ).rejects.toMatchObject({ code: "22P05" });
+    });
+  });
+});
