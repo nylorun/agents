@@ -23,7 +23,7 @@ _Avoid_: "SDK API" or "application API" as the surface name.
 
 **Admin API**: The `/v1/admin/tenants` and `/v1/admin/status` routes, called
 with an admin key. Shared by OSS and Cloud. Client package: `@nylorun/admin`.
-`POST /v1/admin/host/shutdown` is launcher-private on OSS and is not part of
+`POST /v1/admin/host/shutdown` is Host-private on OSS and is not part of
 this surface.
 _Avoid_: treating Host shutdown as a shared Admin API method.
 
@@ -31,18 +31,14 @@ _Avoid_: treating Host shutdown as a shared Admin API method.
 imports to call one surface. Each depends only on `@nylorun/core`.
 _Avoid_: depending on `runtime` or `harness` from application code.
 
-**Launcher**: The `nylorun-runtime` executable: the bin of the
-`@nylorun/runtime` npm package. It starts, stops and restarts the local Host on
-the Node it runs on, from its own package. Clients find it on PATH and run it
-as a process; it is not imported and not a surface.
-_Avoid_: "CLI host module", "Runtime build", or importing launcher source from
-other packages.
+**Local stack**: The Runtime image with Postgres, Restate and S2, run by
+`nylorun start` on a developer machine. `@nylorun/runtime` is a library with no
+bin; the Runtime runs as the `ghcr.io/nylorun/runtime` image.
+_Avoid_: "launcher", "native Host", or installing `@nylorun/runtime` globally.
 
 **Prerequisites**: What a developer installs before using the Runtime: Node 24
-or newer, and `@nylorun/runtime` (`npm install --global @nylorun/runtime`, or a
-project devDependency), on macOS or Linux; Windows developers use WSL2. No
-client downloads either; a missing prerequisite is an error naming the install
-command.
+or newer and Docker, on macOS or Linux; Windows developers use WSL2. A missing
+prerequisite is an error naming what to install.
 _Avoid_: "bootstrap" for installing the Runtime.
 
 **Local Host settings**: `host.json` and `host-credentials.json` in the Host
@@ -53,16 +49,18 @@ discovers Tenants under its Host root (`NYLORUN_HOME` or `~/.nylorun`), validate
 `Nylorun-Protocol` and `Nylorun-Tenant`, serves admin routes, and forwards Tenant
 routes to the matching Tenant Runtime. `/health` reports `service: "nylorun-runtime"`,
 `hostId` and protocol range; `/ready` is true only after discovery has finished.
-The Host writes Tenant data under `tenants/`; the launcher owns `host.json`,
-`host-state.json`, `host-credentials.json` and log rotation.
+Tenant data is a Postgres schema per Tenant; the Host keeps each Tenant's key,
+plugin data and logs under `tenants/`. `nylorun start` writes `host.json` and
+`host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
 **Tenant**: One isolated unit of sessions, principals, vault, sandboxes, plugin
-data and logs under `<host root>/tenants/<tenantId>/`. Selected only by the
+data and logs: the Postgres schema `tenant_<id>` and the Tenant directory
+`<host root>/tenants/<tenantId>/`. Selected only by the
 `Nylorun-Tenant` header (never by a default, query string or body field). Ids
 match `tn_` plus 26 Crockford characters. Quarantine leaves other Tenants
 running.
-_Avoid_: "scope", "database", or "SQLite path" as the name for this unit.
+_Avoid_: "scope" or "database" as the name for this unit.
 
 **Tenant Runtime**: The in-process handler for one open Tenant. Created from a
 `TenantConfig` (paths, model, sandbox, child env, logger). It authenticates its
@@ -80,7 +78,7 @@ is installed by npm, not under the Host root.
 it on write. A fresh clone or second worktree does not attach until it creates
 or chooses a link.
 _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
-flags and env vars that selected a SQLite path.
+flags and env vars that selected a database path.
 
 **Application principal**: Bearer credential hashed in the Tenant `principals`
 table. Authorizes definition and session routes for that Tenant only.
@@ -107,10 +105,10 @@ _Avoid_: treating package-version equality as the compatibility check.
 | --- | --- |
 | project scope / global scope | Host root + Tenant + Project link |
 | scopeId (as Host identity) | `hostId` |
-| `--global`, `--db`, `NYLORUN_SQLITE_PATH` | Host root / Tenant paths (CLI) |
+| `--global`, `--db`, a database path variable | Host root + Tenant (CLI) |
 | `/v1/host/model*` (Tenant routes) | `/v1/tenant/model*` |
 | `startRuntime` / `createRuntime` | `startEphemeralRuntime` (tests) / Host entry |
 | `NYLORUN_EXECUTORS_JSON` | `PUT /v1/executors` with application credential |
 | `nylorun serve` | `node dist/src/main.js` / `connectAgents` entry |
-| importing `@nylorun/runtime` from a client | run the launcher / call Admin or Tenant API |
+| importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
 | storing executor tokens in the Project | derived executor credentials |
