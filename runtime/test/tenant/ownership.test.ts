@@ -1,16 +1,15 @@
 /**
- * Ownership and the Durable Execution seam on a real Tenant runtime over SQLite (architecture
+ * Ownership and the Durable Execution seam on a real Tenant runtime (SQLite or Postgres; architecture
  * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, duplicate and lost wakes,
  * and claim expiry through the Tenant sweep.
  */
-import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, tool } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import type { DurableExecution, Wake } from "../../src/execution/types.js";
-import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import { openTestSessionStore } from "../support/store.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { TenantWorkers, type TenantExecution } from "../../src/tenant/worker.js";
 import { startTestTenant } from "../support/tenant.js";
@@ -159,10 +158,6 @@ async function until<T>(
 const count = (list: string[], type: string) =>
   list.filter((item) => item === type).length;
 
-function databaseOf(runtime: Started) {
-  return join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-}
-
 it("runs one of two racing advances; the other is busy, and no event is duplicated", async () => {
   const model = gatedModel();
   const host = hostExecution(); // never started: only the test advances
@@ -243,10 +238,7 @@ it("takes over from a dead owner: invoking effects become uncertain and the stal
   await model.started; // the model effect is `invoking` under worker-a
 
   // Another Worker took the session over and then died too: its lease already expired.
-  const other = createSqliteSessionStore({
-    path: databaseOf(runtime),
-    tenantId: runtime.tenantId,
-  });
+  const other = await openTestSessionStore(runtime);
   try {
     const taken = await other.tx((t) =>
       t.takeOwnership("s1", {
@@ -278,10 +270,7 @@ it("takes over from a dead owner: invoking effects become uncertain and the stal
   expect((await view(runtime)).status).toBe("uncertain");
   expect(model.calls).toBe(1);
 
-  const check = createSqliteSessionStore({
-    path: databaseOf(runtime),
-    tenantId: runtime.tenantId,
-  });
+  const check = await openTestSessionStore(runtime);
   try {
     const effects = await check.tx((t) =>
       t.effectsForSession("s1", { statuses: ["uncertain", "completed"] })

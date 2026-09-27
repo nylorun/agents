@@ -1,6 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { createSqliteSessionStore } from "../src/store/sqlite.js";
-import { join } from "node:path";
+import { openTestSessionStore } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
 import { hashToken } from "../src/core/executors.js";
 
@@ -199,10 +198,7 @@ it("keeps registrations across a restart and hashes tokens at rest", async () =>
   await first.close();
   live.length = 0;
 
-  const database = createSqliteSessionStore({
-    path: join(root, "tenants", tenantId, "tenant.sqlite"),
-    tenantId,
-  });
+  const database = await openTestSessionStore({ root, tenantId });
   const rows = await database.tx((t) => t.listExecutors());
   expect(rows).toHaveLength(1);
   expect(rows[0]!.tokenHash).not.toBe("persisted-token-value");
@@ -242,10 +238,7 @@ it("records replacedBy when a different application principal re-registers", asy
   // Existing DB has only the first principal; otherKey will 404. Seed second principal.
   await restarted.close();
 
-  const db = createSqliteSessionStore({
-    path: join(root, "tenants", tenantId, "tenant.sqlite"),
-    tenantId,
-  });
+  const db = await openTestSessionStore({ root, tenantId });
   const { bootstrapPrincipal } = await import("../src/tenant/principals.js");
   await db.tx((t) =>
     bootstrapPrincipal(t, {
