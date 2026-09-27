@@ -23,6 +23,11 @@ idempotency key locally; only the key's hash is sent. On network error or
 `5xx` it retries up to three times with identical values. Persist the returned
 `applicationKey` — the Host never sees it in cleartext again.
 
+`createTenant` also registers the Tenant's Studio principal (`studio`) by
+sending the hash of `deriveStudioToken(adminKey, tenantId)`. Studio derives the
+same key from the admin key to call that Tenant's API, so whoever holds the
+admin key can reach every Tenant created this way.
+
 Local Host resolution reads `host.json` and `host-credentials.json` under
 `NYLORUN_HOME` / `~/.nylorun` (or `options.home`). On POSIX the credentials
 file must be owned by the user and not group- or world-readable. First use

@@ -1,7 +1,11 @@
 export { hashManifest } from "./utils/hash.js";
 
 export const PROTOCOL_VERSION = 2;
-export const PROTOCOL_FEATURES = ["runtime-tenants", "admin-status"] as const;
+export const PROTOCOL_FEATURES = [
+  "runtime-tenants",
+  "admin-status",
+  "studio-principal",
+] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 export interface ProtocolRange {
   min: number;

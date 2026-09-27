@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { createAdmin, AdminError } from "../src/index.js";
+import { createAdmin, AdminError, deriveStudioToken } from "../src/index.js";
 import {
   ADMIN_KEY,
   healthBody,
@@ -118,7 +118,7 @@ describe("B4 Admin API methods", () => {
 });
 
 describe("B5 createTenant", () => {
-  it("POSTs only the credential hash and retries identical values on 5xx", async () => {
+  it("POSTs only credential hashes and retries identical values on 5xx", async () => {
     let posts = 0;
     const bodies: unknown[] = [];
     const server = await startStubServer((request, response, body) => {
@@ -138,6 +138,7 @@ describe("B5 createTenant", () => {
           "idempotencyKey",
           "name",
           "principalId",
+          "studioCredentialHash",
           "tenantId",
         ]);
         if (posts < 3) {
@@ -173,6 +174,13 @@ describe("B5 createTenant", () => {
         expectedHash,
       );
       expect(JSON.stringify(bodies)).not.toContain(result.applicationKey);
+      const sent = bodies[0] as { tenantId: string; studioCredentialHash: string };
+      const studioToken = deriveStudioToken(ADMIN_KEY, sent.tenantId);
+      expect(sent.studioCredentialHash).toBe(
+        createHash("sha256").update(studioToken, "utf8").digest("hex"),
+      );
+      expect(JSON.stringify(bodies)).not.toContain(studioToken);
+      expect(JSON.stringify(bodies)).not.toContain(ADMIN_KEY);
     } finally {
       await server.close();
     }

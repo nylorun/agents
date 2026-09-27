@@ -171,6 +171,9 @@ export function createHost(options: CreateHostOptions): HostServer {
             principalId: body.principalId,
             credentialHash: body.credentialHash,
             idempotencyKey: body.idempotencyKey,
+            ...(body.studioCredentialHash
+              ? { studioCredentialHash: body.studioCredentialHash }
+              : {}),
           });
           return sendJson(
             response,

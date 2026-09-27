@@ -167,6 +167,16 @@ gone.
   [Microsandbox cleanup](#microsandbox-cleanup-old-nylorun-scopeid--prefixes),
   or `msb rm --force` on names starting with `nylorun-`, then uninstall `msb`.
 
+### Studio principal
+
+`POST /v1/admin/tenants` accepts an optional `studioCredentialHash` (protocol
+feature `studio-principal`). When present, the Tenant also stores application
+principal `studio` with that hash. `@nylorun/admin`'s `createTenant` always
+sends it: the SHA-256 of `deriveStudioToken(adminKey, tenantId)`, an
+HMAC-SHA256 keyed by the admin key. Studio derives the same key to call the
+Tenant API; the admin key itself is never a Tenant bearer. Tenants created
+before this release have no Studio principal; recreate them during the beta.
+
 ### Existing Host roots
 
 - A Host started by the Tenants-era CLI is reused while it runs.
@@ -177,8 +187,9 @@ gone.
 
 Upgrade `@nylorun/core`, `@nylorun/agents`, `@nylorun/admin`, `@nylorun/cli`,
 `@nylorun/studio` and the installed `@nylorun/runtime` together (breaking beta
-set). Protocol feature `admin-status` is additive on
-protocol `2`.
+set). Protocol features `admin-status` and `studio-principal` are additive on
+protocol `2`; clients require both, so an older Host is reported as
+`incompatible_host`.
 
 # Scoped hooks and manifest schema 4
 

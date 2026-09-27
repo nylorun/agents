@@ -95,7 +95,8 @@ export function createMemoryTenantStore(
       return (
         record.bootstrap.principalId === bootstrap.principalId &&
         record.bootstrap.credentialHash === bootstrap.credentialHash &&
-        record.bootstrap.idempotencyKey === bootstrap.idempotencyKey
+        record.bootstrap.idempotencyKey === bootstrap.idempotencyKey &&
+        record.bootstrap.studioCredentialHash === bootstrap.studioCredentialHash
       );
     },
 

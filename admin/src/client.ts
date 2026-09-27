@@ -22,6 +22,7 @@ import {
   newTenantId,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
+import { deriveStudioToken } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export type AdminSource = "options" | "environment" | "local-host";
@@ -401,12 +402,14 @@ export class AdminClient {
     name: string;
   }): Promise<{ tenant: TenantEnvelope; applicationKey: string }> {
     const applicationKey = mintApplicationKey();
+    const tenantId = newTenantId();
     const body = {
-      tenantId: newTenantId(),
+      tenantId,
       name: options.name,
       principalId: newPrincipalId(),
       credentialHash: hashCredential(applicationKey),
       idempotencyKey: randomUUID(),
+      studioCredentialHash: hashCredential(deriveStudioToken(this.key, tenantId)),
     };
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {

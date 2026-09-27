@@ -110,6 +110,8 @@ export interface BootstrapPrincipal {
   principalId: string;
   credentialHash: string;
   idempotencyKey: string;
+  /** When set, also registers application principal `studio` with this hash. */
+  studioCredentialHash?: string;
 }
 
 /** The deep module (§8). HTTP, CLI and tests use only this. */

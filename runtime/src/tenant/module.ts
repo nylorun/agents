@@ -212,6 +212,9 @@ export function createTenantModule(
         principalId: input.principalId,
         credentialHash: input.credentialHash,
         idempotencyKey: input.idempotencyKey,
+        ...(input.studioCredentialHash
+          ? { studioCredentialHash: input.studioCredentialHash }
+          : {}),
       };
       const envelope = envelopeNow({
         id: input.tenantId,
