@@ -125,7 +125,8 @@ describe.skipIf(!STACK_ENABLED)("graceful Worker stop on Restate", () => {
     finally_.push(() => rm(runtimeA.root, { recursive: true, force: true }));
     await openSession(runtimeA);
     await sendMessage(runtimeA);
-    await until(async () => stopping, (s) => s !== undefined, "worker A stopping", 20_000);
+    // Probe the call count, not `stopping`: an async probe returning the promise would adopt it.
+    await until(async () => calls, (n) => n > 0, "worker A's model call", 20_000);
     await stopping;
 
     // Nothing settled: the answer is recorded, the session is running and unowned.
