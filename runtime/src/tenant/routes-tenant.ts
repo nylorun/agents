@@ -1,0 +1,153 @@
+/**
+ * Tenant administration and vault routes: `/v1/tenant` (status, reset, config seed, host
+ * model and providers, sandbox report) and `/v1/vaults` (vaults and credentials).
+ *
+ * Later waves: Wave 1 / A (A-vault) converts the vault calls to the async `Tx` vault
+ * methods and moves the status/reset SQL behind the store; Wave 2 / X and Y change what
+ * reset clears once work and live state leave process memory.
+ */
+import type { IncomingMessage } from "node:http";
+import {
+  CreateCredentialRequestSchema,
+  CreateVaultRequestSchema,
+  PutHostModelRequestSchema,
+  ResetTenantRequestSchema,
+  RotateCredentialRequestSchema,
+  SeedTenantConfigRequestSchema,
+  SelectHostModelRequestSchema,
+} from "@nylorun/core/contracts";
+import { hostModelCatalog } from "../model/catalog.js";
+import { resetTenant } from "./reset.js";
+import { buildTenantStatus, seedTenantConfig } from "./status.js";
+import type { AuthScope, TenantContext } from "./context.js";
+import { fail, readBody } from "./http.js";
+import { clearExecutorStreams, clearObservers } from "./live.js";
+import { clearWork, drain } from "./scheduler.js";
+
+export async function dispatchTenant(
+  ctx: TenantContext,
+  scope: AuthScope,
+  method: string | undefined,
+  path: string[],
+  request: IncomingMessage
+): Promise<unknown> {
+  const { vault } = ctx;
+  if (scope.kind !== "application") {
+    vault.reject(path.join("/"));
+    fail(403, "Application credential required");
+  }
+  if (path.length === 2 && method === "GET")
+    return buildTenantStatus({
+      envelope: ctx.envelope,
+      config: ctx.config,
+      store: ctx.store,
+      registry: ctx.registry,
+      vault,
+      sandbox: ctx.sandbox,
+      closing: ctx.closing || ctx.closed,
+      modelConfigured: ctx.useVaultModel
+        ? vault.getHostModel().configured
+        : true,
+      executorStreams: ctx.live.executorStreams,
+    });
+  if (path[2] === "reset" && path.length === 3 && method === "POST") {
+    const body = ResetTenantRequestSchema.parse(await readBody(request));
+    await drain(ctx, body.activeWork, 30_000);
+    await resetTenant(
+      {
+        store: ctx.store,
+        registry: ctx.registry,
+        sandbox: ctx.sandbox,
+        paths: ctx.config.paths,
+        clearSessionState: () => {
+          clearWork(ctx);
+          clearObservers(ctx.live);
+        },
+        clearExecutorStreams: () => clearExecutorStreams(ctx.live),
+      },
+      body.scope
+    );
+    // Reset leaves the Tenant open for new work.
+    ctx.closing = false;
+    return { ok: true };
+  }
+  if (
+    path[2] === "config" &&
+    path[3] === "seed" &&
+    path.length === 4 &&
+    method === "PUT"
+  ) {
+    const body = SeedTenantConfigRequestSchema.parse(await readBody(request));
+    return seedTenantConfig({ store: ctx.store, vault }, body);
+  }
+  if (path[2] === "models" && path.length === 3 && method === "GET")
+    return hostModelCatalog();
+  if (path[2] === "sandbox" && path.length === 3 && method === "GET")
+    return ctx.sandbox.report();
+  if (path[2] === "providers" && path.length === 3 && method === "GET")
+    return vault.listHostProviders();
+  if (path[2] === "model" && path.length === 3 && method === "GET")
+    return vault.getHostModel();
+  if (path[2] === "model" && path.length === 3 && method === "PUT")
+    return vault.putHostModel(
+      PutHostModelRequestSchema.parse(await readBody(request))
+    );
+  if (
+    path[2] === "model" &&
+    path[3] === "selection" &&
+    path.length === 4 &&
+    method === "PUT"
+  )
+    return vault.selectHostModel(
+      SelectHostModelRequestSchema.parse(await readBody(request))
+    );
+  fail(404, "Route not found");
+}
+
+export async function dispatchVault(
+  ctx: TenantContext,
+  scope: AuthScope,
+  method: string | undefined,
+  path: string[],
+  url: URL,
+  request: IncomingMessage
+): Promise<unknown> {
+  const { vault } = ctx;
+  if (scope.kind !== "application") {
+    vault.reject(path.join("/"));
+    fail(403, "Application credential required");
+  }
+  if (path.length === 2 && method === "POST") {
+    const body = CreateVaultRequestSchema.parse(await readBody(request));
+    return vault.createVault(body);
+  }
+  if (path.length === 2 && method === "GET") {
+    const ownerUserId =
+      url.searchParams.get("ownerUserId") ??
+      fail(400, "ownerUserId is required");
+    return { vaults: vault.listVaults(ownerUserId) };
+  }
+  const vaultId = path[2];
+  if (!vaultId) fail(404, "Vault not found");
+  if (path.length === 3 && method === "GET") return vault.getVault(vaultId);
+  if (path.length === 3 && method === "DELETE")
+    return vault.deleteVault(vaultId);
+  if (path[3] !== "credentials") fail(404, "Route not found");
+  if (path.length === 4 && method === "POST") {
+    const body = CreateCredentialRequestSchema.parse(await readBody(request));
+    return vault.createCredential(vaultId, body);
+  }
+  if (path.length === 4 && method === "GET")
+    return { credentials: vault.listCredentials(vaultId) };
+  const credentialId = path[4];
+  if (!credentialId) fail(404, "Credential not found");
+  if (path.length === 5 && method === "GET")
+    return vault.getCredential(vaultId, credentialId);
+  if (path.length === 5 && method === "POST") {
+    const body = RotateCredentialRequestSchema.parse(await readBody(request));
+    return vault.rotateCredential(vaultId, credentialId, body);
+  }
+  if (path.length === 5 && method === "DELETE")
+    return vault.deleteCredential(vaultId, credentialId);
+  fail(404, "Route not found");
+}
