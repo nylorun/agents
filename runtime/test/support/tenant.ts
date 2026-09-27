@@ -11,7 +11,6 @@ import {
   TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
-import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { hashToken, mintBearerToken } from "../../src/core/executors.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { bootstrapPrincipal } from "../../src/tenant/principals.js";
@@ -23,7 +22,18 @@ import {
 } from "../../src/tenant/runtime.js";
 import { createKekFile } from "../../src/vault/kek.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
-import { Store } from "../../src/core/store.js";
+import { MemorySessionStore } from "../../src/store/memory.js";
+import { MemoryStreams } from "../../src/streams/memory.js";
+import type { DurableStreams } from "../../src/streams/types.js";
+import {
+  TEST_STORE,
+  dropTestTenant,
+  memoryTenantData,
+  memoryTenantExists,
+  testCatalog,
+  testEnvelope,
+  withTestSessionStore,
+} from "./store.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
   executors?: readonly {
@@ -41,10 +51,48 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   principalId?: string;
   /** When true, close() does not delete the Host root. */
   retainRoot?: boolean;
+  /** Host-level execution and Worker id (ownership tests). */
+  execution?: TenantOpenHooks["execution"];
+  workerId?: string;
+  /**
+   * Durable Streams shared with other instances (or restarts); the caller closes them.
+   * Default: `MemoryStreams` for this Tenant, kept for a restart on the same Host root while
+   * the root is retained, and closed by the `close()` that removes the root.
+   */
+  streams?: DurableStreams;
 };
 
 /**
- * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5).
+ * Default streams of Tenants whose Host root outlives `close()` (`retainRoot`, `hostRoot`), by
+ * `<hostRoot>\0<tenantId>`: a restart on the same root finds its history again, as it would
+ * in S2, which outlives the Runtime.
+ */
+const retainedStreams = new Map<string, MemoryStreams>();
+
+/**
+ * Rewrites fields of a stored session of a closed Tenant (restart tests). `root` is the
+ * Host root; the store is the one `NYLORUN_TEST_STORE` selects.
+ */
+export async function patchStoredSession(
+  root: string,
+  tenantId: string,
+  sessionId: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  await withTestSessionStore({ root, tenantId }, (store) =>
+    store.tx(async (t) => {
+      const stored = await t.get("sessions", sessionId);
+      if (!stored) throw new Error(`Session ${sessionId} not found`);
+      await t.put("sessions", sessionId, { ...stored, ...patch });
+    })
+  );
+}
+
+/**
+ * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5). The
+ * Tenant's Session Store is the one `NYLORUN_TEST_STORE` selects (`./store.ts`): in memory
+ * (the default), or a fresh Postgres schema. `close()` drops the Tenant's data unless the
+ * root is retained.
  */
 export async function startTestTenant(
   options: StartTestTenantOptions = {}
@@ -77,27 +125,40 @@ export async function startTestTenant(
   const principalId =
     options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
   const credentialHash = hashToken(applicationKey);
-  const now = new Date().toISOString();
+  const logger =
+    options.logger ?? createTenantLogger({ tenantId, logPath: paths.log });
 
-  if (!existsSync(paths.envelope)) {
-    const envelope: TenantEnvelope = {
-      id: tenantId,
-      name: "test",
-      createdAt: now,
-      updatedAt: now,
-      schemaVersion: 1,
-    };
-    writeFileSync(paths.envelope, JSON.stringify(envelope, null, 2) + "\n");
-  }
-
-  if (!existsSync(paths.database)) {
-    const store = new Store(paths.database, tenantId);
-    bootstrapPrincipal(store.db, {
-      principalId,
-      credentialHash,
-      idempotencyKey: `boot-${tenantId}`,
-    });
-    store.db.close();
+  const bootstrap = {
+    principalId,
+    credentialHash,
+    idempotencyKey: `boot-${tenantId}`,
+  };
+  let opened: Pick<TenantOpenHooks, "store" | "envelope">;
+  if (TEST_STORE === "postgres") {
+    const catalog = testCatalog();
+    if (!(await catalog.tenantExists(tenantId)))
+      await catalog.createTenant({
+        envelope: testEnvelope(tenantId),
+        principals: bootstrap,
+      });
+    const result = await catalog.openTenant(tenantId);
+    if (result.status !== "ok")
+      throw new Error(`Test Tenant ${tenantId} is ${result.status}`);
+    opened = { store: result.store, envelope: result.envelope };
+  } else {
+    const fresh = !memoryTenantExists(tenantId);
+    const store = new MemorySessionStore(
+      {
+        tenantId,
+        onError: (error) =>
+          logger.error("post-commit step failed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      },
+      memoryTenantData(tenantId)
+    );
+    if (fresh) await store.tx((t) => bootstrapPrincipal(t, bootstrap));
+    opened = { store, envelope: testEnvelope(tenantId) };
   }
 
   const mode = options.mode ?? "test";
@@ -108,9 +169,6 @@ export async function startTestTenant(
     mode === "shared"
   )
     throw new Error("fixture/scripted models require ephemeral or test mode");
-
-  const logger =
-    options.logger ?? createTenantLogger({ tenantId, logPath: paths.log });
 
   const childEnv = options.childEnv ?? {
     // Tests may read ambient PATH; Runtime code must not.
@@ -127,6 +185,11 @@ export async function startTestTenant(
     model,
     childEnv,
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
+    ...(options.ownerLeaseMs === undefined
+      ? {}
+      : { ownerLeaseMs: options.ownerLeaseMs }),
+    // A short sweep so lapsed claims and lost wakes are picked up promptly in tests.
+    sweepIntervalMs: options.sweepIntervalMs ?? 50,
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
     ...(options.vaultFetch === undefined
@@ -135,8 +198,14 @@ export async function startTestTenant(
     logger,
   };
 
+  const streamsKey = `${hostRoot}\u0000${tenantId}`;
+  const defaultStreams = retainedStreams.get(streamsKey) ?? new MemoryStreams();
   const hooks: TenantOpenHooks = {
+    ...opened,
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
+    ...(options.execution ? { execution: options.execution } : {}),
+    ...(options.workerId ? { workerId: options.workerId } : {}),
+    streams: options.streams ?? defaultStreams,
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {
@@ -178,7 +247,7 @@ export async function startTestTenant(
       );
       return;
     }
-    void handle.handle(req, res);
+    void handle.handle(req, res, new URL(req.url ?? "/", "http://127.0.0.1"));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -223,10 +292,20 @@ export async function startTestTenant(
     handle,
     async close() {
       await handle.close();
+      if (!options.streams) {
+        if (retainRoot) retainedStreams.set(streamsKey, defaultStreams);
+        else {
+          retainedStreams.delete(streamsKey);
+          await defaultStreams.close();
+        }
+      }
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
-      if (!retainRoot) await rm(hostRoot, { recursive: true, force: true });
+      if (!retainRoot) {
+        await rm(hostRoot, { recursive: true, force: true });
+        await dropTestTenant(tenantId);
+      }
     },
   };
 }

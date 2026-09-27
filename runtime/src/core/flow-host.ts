@@ -1,7 +1,56 @@
+/**
+ * Flow host: the Session Store side of workflow sessions (architecture §10–12).
+ *
+ * Every function that touches state takes the caller's transaction `t: Tx` and
+ * is async. Nothing here publishes, notifies or schedules directly (seam rule
+ * 1): events go through `t.event(...)`, which the store publishes after
+ * commit, and wakes go through `t.afterCommit(() => schedule(id, wake))`. Functions
+ * that rewrite a session-scoped document lock that session first with
+ * `t.lockSession` (a no-op when the caller already holds it).
+ *
+ * Exported signatures:
+ *
+ * - `deriveSessionId(workflowSessionId, path, ...parts): string`
+ * - `deriveAgentEffectSessionId(workflowSessionId, path, request): string`
+ * - `isWorkflowManifest(manifest): manifest is WorkflowManifest`
+ * - `isFlowToolEffect(request): boolean`, `isFlowEffect(request): boolean`
+ * - `pathDepth(path): number`
+ * - `countActiveFlowWork(t, workflowSessionId, turnId): Promise<number>`
+ * - `commandKey(sessionId, idempotencyKey): string`
+ * - `linkedMessageKey(request): string`
+ * - `linkedTurnOf(t, agentSessionId, request): Promise<string | undefined>`
+ * - `linkedTurnEnd(t, effect, agent): Promise<LinkedTurnEnd | undefined>`
+ * - `wakeLinkedWorkflow({ t, agentSessionId, turnId, output?, failed?, cancelled?, error?, schedule }): Promise<void>`
+ * - `pendingAgentEffects(t): Promise<FlowEffect[]>`
+ * - `reconcilePendingAgentEffect({ t, effectId, schedule }): Promise<boolean>`
+ * - `claimedFnVerifyActions(t): Promise<Action[]>`
+ * - `reofferFnVerifyClaim(t, actionId): Promise<boolean>`
+ * - `planCancelCascade({ t, workflowSessionId, turnId }): Promise<CascadeCancelPlan>`
+ * - `cancelSiblingWork({ t, workflowSessionId, turnId, siblingPaths?, cancelEffectIds? }): Promise<CancelSiblingResult>`
+ * - `fenceWorkflowActions({ t, workflowSessionId, turnId }): Promise<{ cancelled; uncertain }>`
+ * - `aggregateWaits({ t, workflowSessionId }): Promise<FlowWait[]>`
+ * - `findInteractionOwner({ t, workflowSessionId, interactionId }): Promise<{ sessionId; path } | undefined>`
+ * - `foreignInteractionConflict({ t, workflowSessionId, interactionId }): Promise<{ status: 409; message; ownerSessionId } | undefined>`
+ * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits, schedule }): Promise<boolean>`
+ *
+ * `schedule: (sessionId, wake) => void | Promise<void>` runs after commit, never inside `t`;
+ * `wake` carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key.
+ *
+ * An `agent` effect settles only from the linked turn it started. A linked agent session is
+ * reused by every iteration of a Loop (its id derives from the workflow and the path), so its
+ * status and `lastOutput` may belong to an earlier iteration's turn until this effect's message
+ * commits. The effect is bound to its turn through the message's idempotency key
+ * (`linkedMessageKey`): the `commands` document of that key names the turn it opened.
+ *
+ * The Tenant sweep (`tenant/sweep.ts`) calls the reconcile and re-offer functions, one
+ * transaction per effect or Action.
+ */
 import { createHash } from "node:crypto";
-import type { Action, ActionOutcome, LiveEvent } from "@nylorun/core/contracts";
+import type { Action, ActionOutcome } from "@nylorun/core/contracts";
 import type { JsonValue, WorkflowManifest } from "@nylorun/core/define";
-import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
+import type { HostEffect } from "@nylorun/harness/run";
+import type { Wake } from "../execution/types.js";
+import type { EffectDoc, Tx } from "../store/types.js";
 import { mayDispatchMore, type FlowLimits } from "./limits.js";
 
 /** Deterministic agent session id: derive(workflowSessionId, path, …parts). */
@@ -84,18 +133,6 @@ export type FlowLink = {
   readonly turnId: string;
 };
 
-export type FlowHostStore = {
-  get<T = any>(table: string, id: string): T | undefined;
-  put(table: string, id: string, body: unknown): void;
-  all<T = any>(table: string): T[];
-  event(
-    sessionId: string,
-    turnId: string | null,
-    type: string,
-    payload: unknown
-  ): LiveEvent;
-};
-
 export type FlowHostSession = {
   id: string;
   agentId: string;
@@ -111,8 +148,16 @@ export type FlowHostSession = {
   creation?: unknown;
   waits?: unknown;
   lastOutput?: JsonValue;
+  /** The turn `status`, `lastOutput` and `error` describe, once it ended. */
+  lastTurnId?: string;
   error?: string;
 };
+
+/** How a linked agent turn ended. */
+export type LinkedTurnEnd = { readonly turnId: string } & (
+  | { readonly status: "completed"; readonly output: JsonValue }
+  | { readonly status: "failed" | "cancelled"; readonly error?: string }
+);
 
 export type FlowWait = {
   readonly sessionId: string;
@@ -137,92 +182,44 @@ export type CascadeCancelPlan = {
   readonly claimedActionIds: string[];
 };
 
-/**
- * Resolve flow effects: agent (via session contract), tool nodes, fn, verify.
- * Runtime never writes agent session state — only issues commands.
- */
-export function resolveFlowEffect(input: {
-  readonly request: HostEffect;
-  readonly store: FlowHostStore;
-  readonly session: FlowHostSession;
-  readonly limits?: FlowLimits;
-  readonly putLinkedSession: (args: {
-    id: string;
-    agentId: string;
-    ownerUserId: string;
-    vaultIds?: readonly string[];
-    credentialSelections?: readonly unknown[];
-  }) => FlowHostSession;
-  readonly sendMessage: (args: {
-    sessionId: string;
-    content?: string;
-    data?: JsonValue;
-    idempotencyKey: string;
-    requestId: string;
-  }) => { turnId: string | null };
-  readonly readSession: (id: string) => FlowHostSession | undefined;
-  readonly publish: (event: LiveEvent) => void;
-  readonly notify: () => void;
-  readonly schedule: (sessionId: string) => void;
-}): EffectResolution {
-  const { request, store, session } = input;
-  if (!isFlowEffect(request))
-    throw new Error(`Not a flow effect: ${request.kind}`);
+/** Wakes a session after commit (`DurableExecution.wake` through the Tenant context). */
+type Schedule = (sessionId: string, wake: Wake) => void | Promise<void>;
 
-  const existing = store.get("effects", request.effectId);
-  if (existing) {
-    if (existing.status === "completed")
-      return { status: "completed", outcome: existing.outcome };
-    if (existing.status === "queued") {
-      if (
-        input.limits &&
-        !mayDispatchMore(
-          countActiveFlowWork(store, session.id, request.turnId),
-          input.limits
-        )
-      )
-        return { status: "pending" };
-      return dispatchQueuedEffect(input, existing);
-    }
-    if (request.kind === "agent")
-      return settleAgentEffect(input, existing) ?? { status: "pending" };
-    return {
-      status:
-        existing.status === "uncertain" || existing.status === "invoking"
-          ? "uncertain"
-          : "pending",
-    };
-  }
+/** Effect documents as the flow host writes them. */
+export type FlowEffect = EffectDoc & {
+  agentSessionId?: string;
+  outcome?: ActionOutcome;
+  error?: string;
+};
 
-  if (
-    input.limits &&
-    !mayDispatchMore(
-      countActiveFlowWork(store, session.id, request.turnId),
-      input.limits
-    )
-  ) {
-    store.put("effects", request.effectId, {
-      request,
-      status: "queued",
-    });
-    return { status: "pending" };
-  }
+const OPEN_ACTION: Action["status"][] = ["pending", "claimed"];
 
-  if (request.kind === "agent") return startAgentEffect(input);
-  if (isFlowToolEffect(request)) return startToolNode(input);
-  return startFnOrVerify(input);
+function scheduleAfterCommit(
+  t: Tx,
+  schedule: Schedule,
+  id: string,
+  wake: Wake
+): void {
+  t.afterCommit(() => schedule(id, wake));
 }
 
 /** Active agent turns + pending/claimed actions for one workflow turn. */
-export function countActiveFlowWork(
-  store: FlowHostStore,
+export async function countActiveFlowWork(
+  t: Tx,
   workflowSessionId: string,
   turnId: string
-): number {
+): Promise<number> {
+  const effects = await t.effectsForTurn<FlowEffect>(workflowSessionId, turnId);
+  const openActions = new Set(
+    (
+      await t.actionsForSession(workflowSessionId, {
+        turnId,
+        statuses: OPEN_ACTION,
+      })
+    ).map((action) => action.actionId)
+  );
   let n = 0;
-  for (const effect of store.all("effects")) {
-    if (effect.request?.sessionId !== workflowSessionId) continue;
-    if (effect.request?.turnId !== turnId) continue;
+  for (const effect of effects) {
     if (effect.status === "queued") continue;
     if (effect.status === "completed" || effect.status === "cancelled")
       continue;
@@ -231,335 +228,101 @@ export function countActiveFlowWork(
       continue;
     }
     if (
-      effect.request?.kind === "fn" ||
-      effect.request?.kind === "verify" ||
-      isFlowToolEffect(effect.request)
-    ) {
-      const action = store.get<Action>("actions", effect.request.effectId);
-      if (
-        action &&
-        (action.status === "pending" || action.status === "claimed")
-      )
-        n += 1;
-    }
+      (effect.request?.kind === "fn" ||
+        effect.request?.kind === "verify" ||
+        isFlowToolEffect(effect.request)) &&
+      openActions.has(effect.request.effectId)
+    )
+      n += 1;
   }
   return n;
 }
 
-function dispatchQueuedEffect(
-  input: Parameters<typeof resolveFlowEffect>[0],
-  existing: { request: HostEffect; status: string }
-): EffectResolution {
-  const { request, store } = input;
-  store.put("effects", request.effectId, {
-    ...existing,
-    status: "pending",
-  });
-  if (request.kind === "agent") return startAgentEffect(input);
-  if (isFlowToolEffect(request)) return startToolNode(input);
-  return startFnOrVerify(input);
+/** The `commands` document key of a session command's idempotency key (`tenant/commands.ts`). */
+export function commandKey(sessionId: string, idempotencyKey: string): string {
+  return JSON.stringify([sessionId, idempotencyKey]);
 }
 
-function startFnOrVerify(input: {
-  readonly request: HostEffect;
-  readonly store: FlowHostStore;
-  readonly session: FlowHostSession;
-  readonly publish: (event: LiveEvent) => void;
-  readonly notify: () => void;
-}): EffectResolution {
-  const { request, store, session } = input;
-  store.put("effects", request.effectId, {
-    request,
-    status: "pending",
-  });
-  const kind = request.kind as "fn" | "verify";
-  const action = {
-    actionId: request.effectId,
-    sessionId: request.sessionId,
-    turnId: request.turnId,
-    agentId: request.agentId,
-    manifestHash: request.manifestHash,
-    implementationVersion: session.implementationVersion,
-    input: request.input,
-    context: request.context,
-    status: "pending" as const,
-    generation: 0,
-    claimId: null,
-    leaseExpiresAt: null,
-    kind,
-    path: request.path!,
-    key: request.key!,
-  } satisfies Action;
-  store.put("actions", action.actionId, action);
-  const event = store.event(
-    session.id,
-    session.activeTurnId,
-    "action.pending",
-    {
-      actionId: action.actionId,
-      kind: action.kind,
-      path: action.path,
-      key: action.key,
-      input: action.input,
-    }
-  );
-  input.publish(event);
-  input.notify();
-  return { status: "pending" };
+/** The idempotency key of the message a flow `agent` effect sends its linked session. */
+export function linkedMessageKey(request: HostEffect): string {
+  const path =
+    (request.input as { path?: string } | null | undefined)?.path ??
+    request.path;
+  return `${request.turnId}:${path}:${request.iterations ?? "-"}`;
 }
 
-function startToolNode(input: {
-  readonly request: HostEffect;
-  readonly store: FlowHostStore;
-  readonly session: FlowHostSession;
-  readonly publish: (event: LiveEvent) => void;
-  readonly notify: () => void;
-}): EffectResolution {
-  const { request, store, session } = input;
-  store.put("effects", request.effectId, {
-    request,
-    status: "pending",
-  });
-  const action = {
-    actionId: request.effectId,
-    sessionId: request.sessionId,
-    turnId: request.turnId,
-    agentId: request.agentId,
-    manifestHash: request.manifestHash,
-    implementationVersion: session.implementationVersion,
-    input: request.input,
-    context: request.context,
-    status: "pending" as const,
-    generation: 0,
-    claimId: null,
-    leaseExpiresAt: null,
-    kind: "tool" as const,
-    path: request.path!,
-    key: request.key!,
-  } satisfies Action;
-  store.put("actions", action.actionId, action);
-  emitNodeStarted(input, {
-    path: request.path!,
-    kind: "tool",
-    key: request.key!,
-    iterations: request.iterations,
-  });
-  const event = store.event(
-    session.id,
-    session.activeTurnId,
-    "action.pending",
-    {
-      actionId: action.actionId,
-      kind: action.kind,
-      path: action.path,
-      key: action.key,
-      input: action.input,
-    }
+/**
+ * The linked turn an `agent` effect started: the turn its message opened, or undefined until
+ * that message commits.
+ */
+export async function linkedTurnOf(
+  t: Tx,
+  agentSessionId: string,
+  request: HostEffect
+): Promise<string | undefined> {
+  const accepted = await t.get<{ response?: { turnId?: string | null } }>(
+    "commands",
+    commandKey(agentSessionId, linkedMessageKey(request))
   );
-  input.publish(event);
-  input.notify();
-  return { status: "pending" };
+  return accepted?.response?.turnId ?? undefined;
 }
 
-function startAgentEffect(input: {
-  readonly request: HostEffect;
-  readonly store: FlowHostStore;
-  readonly session: FlowHostSession;
-  readonly putLinkedSession: (args: {
-    id: string;
-    agentId: string;
-    ownerUserId: string;
-    vaultIds?: readonly string[];
-    credentialSelections?: readonly unknown[];
-  }) => FlowHostSession;
-  readonly sendMessage: (args: {
-    sessionId: string;
-    content?: string;
-    data?: JsonValue;
-    idempotencyKey: string;
-    requestId: string;
-  }) => { turnId: string | null };
-  readonly readSession: (id: string) => FlowHostSession | undefined;
-  readonly publish: (event: LiveEvent) => void;
-  readonly notify: () => void;
-  readonly schedule: (sessionId: string) => void;
-}): EffectResolution {
-  const { request, store, session } = input;
-  const body = request.input as {
-    agentId: string;
-    input: JsonValue;
-    path: string;
-  };
-  const path = body.path ?? request.path!;
-  const agentSessionId = deriveAgentEffectSessionId(session.id, path, request);
-  const iterations = request.iterations ?? "-";
-  const n = Number(request.context.n ?? iterations.split(".")[0] ?? 1);
-
-  store.put("effects", request.effectId, {
-    request,
-    status: "pending",
-    agentSessionId,
-  });
-  store.put("links", agentSessionId, {
-    workflowSessionId: session.id,
-    path,
-    effectId: request.effectId,
-    turnId: request.turnId,
-  } satisfies FlowLink);
-
-  const existingAgent = input.readSession(agentSessionId);
-  if (!existingAgent) {
-    input.putLinkedSession({
-      id: agentSessionId,
-      agentId: body.agentId,
-      ownerUserId: session.ownerUserId,
-      vaultIds: session.vaultIds,
-      credentialSelections: session.credentialSelections,
-    });
-  }
-
-  const idempotencyKey = `${request.turnId}:${path}:${iterations}`;
-  const messageInput = body.input;
-  const accepted = input.sendMessage({
-    sessionId: agentSessionId,
-    ...(typeof messageInput === "string"
-      ? { content: messageInput }
-      : { data: messageInput }),
-    idempotencyKey,
-    requestId: `flow-${request.effectId}`,
-  });
-
-  const iterationEvent = store.event(
-    session.id,
-    session.activeTurnId,
-    "loop.iteration",
-    {
-      path: String(request.context.loopPath ?? path.split("/")[0]),
-      n,
-      sessionId: agentSessionId,
-      turnId: accepted.turnId ?? undefined,
-    }
-  );
-  input.publish(iterationEvent);
-
-  const nodeAgent = store.event(
-    session.id,
-    session.activeTurnId,
-    "node.agent",
-    {
-      path,
-      iterations,
-      sessionId: agentSessionId,
-      turnId: accepted.turnId,
-    }
-  );
-  input.publish(nodeAgent);
-
-  return (
-    settleAgentEffect(input, store.get("effects", request.effectId)!) ?? {
-      status: "pending",
-    }
-  );
-}
-
-function settleAgentEffect(
-  input: {
-    readonly request: HostEffect;
-    readonly store: FlowHostStore;
-    readonly session: FlowHostSession;
-    readonly readSession: (id: string) => FlowHostSession | undefined;
-    readonly publish: (event: LiveEvent) => void;
-  },
-  effect: {
-    status: string;
-    outcome?: ActionOutcome;
-    agentSessionId?: string;
-  }
-): EffectResolution | undefined {
-  if (effect.status === "completed" && effect.outcome)
-    return { status: "completed", outcome: effect.outcome };
-
-  const agentSessionId =
-    effect.agentSessionId ??
-    deriveAgentEffectSessionId(
-      input.session.id,
-      (input.request.input as { path?: string }).path ?? input.request.path!,
-      input.request
-    );
-  const agent = input.readSession(agentSessionId);
-  if (!agent) return undefined;
-
-  if (agent.status === "completed" && agent.activeTurnId === null) {
-    const output = agent.lastOutput ?? null;
-    const outcome: ActionOutcome = { value: output };
-    input.store.put("effects", input.request.effectId, {
-      request: input.request,
-      status: "completed",
-      outcome,
-      agentSessionId,
-    });
-    return { status: "completed", outcome };
-  }
-
-  if (agent.status === "failed") {
-    const outcome: ActionOutcome = {
-      value: {
-        kind: "failed",
-        code: "agent.failed",
-        message: agent.error ?? "Agent turn failed",
-      },
+/**
+ * How the linked turn an `agent` effect started ended, or undefined while it has not: before
+ * its message commits, the linked session's status and `lastOutput` describe an earlier turn.
+ * `agent` is the linked session, read in the caller's transaction.
+ */
+export async function linkedTurnEnd(
+  t: Tx,
+  effect: Pick<FlowEffect, "request" | "agentSessionId">,
+  agent: FlowHostSession | undefined
+): Promise<LinkedTurnEnd | undefined> {
+  const id = effect.agentSessionId;
+  if (!agent || typeof id !== "string" || agent.activeTurnId !== null)
+    return undefined;
+  const turnId = await linkedTurnOf(t, id, effect.request);
+  // Sessions settled before `lastTurnId` was recorded: the turn ended if none is active.
+  if (!turnId || (agent.lastTurnId ?? turnId) !== turnId) return undefined;
+  if (agent.status === "completed")
+    return { turnId, status: "completed", output: agent.lastOutput ?? null };
+  if (agent.status === "failed" || agent.status === "cancelled")
+    return {
+      turnId,
+      status: agent.status,
+      ...(agent.error !== undefined ? { error: agent.error } : {}),
     };
-    input.store.put("effects", input.request.effectId, {
-      request: input.request,
-      status: "completed",
-      outcome,
-      agentSessionId,
-    });
-    return { status: "completed", outcome };
-  }
-
-  if (agent.status === "cancelled") {
-    const outcome: ActionOutcome = {
-      value: {
-        kind: "failed",
-        code: "agent.cancelled",
-        message: agent.error ?? "Agent turn was cancelled",
-      },
-    };
-    input.store.put("effects", input.request.effectId, {
-      request: input.request,
-      status: "completed",
-      outcome,
-      agentSessionId,
-    });
-    return { status: "completed", outcome };
-  }
-
   return undefined;
 }
 
-/** After an agent turn settles, wake the owning workflow if linked. */
-export function wakeLinkedWorkflow(input: {
+/**
+ * After a linked agent turn ends, settle the `agent` effect that started it and wake the
+ * workflow. `turnId` is the linked session's turn that ended; an effect bound to another turn
+ * (a later iteration whose message has not committed yet) is left alone.
+ */
+export async function wakeLinkedWorkflow(input: {
+  readonly t: Tx;
   readonly agentSessionId: string;
-  readonly store: FlowHostStore;
+  readonly turnId: string | null;
   readonly output?: JsonValue;
   readonly failed?: boolean;
   readonly cancelled?: boolean;
   readonly error?: string;
-  readonly schedule: (sessionId: string) => void;
-  readonly publish: (event: LiveEvent) => void;
-}): void {
-  const link = input.store.get<FlowLink>("links", input.agentSessionId);
+  readonly schedule: Schedule;
+}): Promise<void> {
+  const { t } = input;
+  const link = await t.get<FlowLink>("links", input.agentSessionId);
   if (!link) return;
-  const effect = input.store.get("effects", link.effectId);
-  if (!effect || effect.status === "completed") return;
-
-  const workflow = input.store.get<FlowHostSession>(
-    "sessions",
-    link.workflowSessionId
-  );
+  const workflow = await t.lockSession<FlowHostSession>(link.workflowSessionId);
   if (!workflow) return;
+  const effect = await t.get<FlowEffect>("effects", link.effectId);
+  if (!effect || effect.status === "completed") return;
   if (workflow.activeTurnId !== link.turnId) return;
+  if (
+    !input.turnId ||
+    (await linkedTurnOf(t, input.agentSessionId, effect.request)) !==
+      input.turnId
+  )
+    return;
 
   const outcome: ActionOutcome = input.cancelled
     ? {
@@ -579,299 +342,103 @@ export function wakeLinkedWorkflow(input: {
       }
     : { value: input.output ?? null };
 
-  input.store.put("effects", link.effectId, {
+  await t.put("effects", link.effectId, {
     ...effect,
     status: "completed",
     outcome,
   });
 
   workflow.status = "runnable";
-  input.store.put("sessions", workflow.id, workflow);
-  input.schedule(workflow.id);
+  await t.put("sessions", workflow.id, workflow);
+  scheduleAfterCommit(t, input.schedule, workflow.id, {
+    reason: "linked",
+    dedupeKey: `linked:${link.turnId}:${link.effectId}`,
+  });
 }
 
-/** On Runtime start: settle pending agent effects whose linked turns already finished. */
-export function reconcilePendingAgentEffects(input: {
-  readonly store: FlowHostStore;
-  readonly schedule: (sessionId: string) => void;
-  readonly publish: (event: LiveEvent) => void;
-}): void {
-  for (const effect of input.store.all("effects")) {
-    if (effect.request?.kind !== "agent" || effect.status !== "pending")
-      continue;
-    const id =
-      typeof effect.agentSessionId === "string"
-        ? effect.agentSessionId
-        : undefined;
-    if (!id) continue;
-    const agent = input.store.get<FlowHostSession>("sessions", id);
-    const workflow = input.store.get<FlowHostSession>(
-      "sessions",
-      effect.request.sessionId
-    );
-    if (workflow && workflow.status === "waiting") {
-      workflow.status = "runnable";
-      input.store.put("sessions", workflow.id, workflow);
-      input.schedule(workflow.id);
-    }
-    if (!agent) continue;
-    if (agent.status === "completed") {
-      wakeLinkedWorkflow({
-        agentSessionId: id,
-        store: input.store,
-        output: agent.lastOutput ?? null,
-        schedule: input.schedule,
-        publish: input.publish,
-      });
-    } else if (agent.status === "failed") {
-      wakeLinkedWorkflow({
-        agentSessionId: id,
-        store: input.store,
-        failed: true,
-        error: agent.error,
-        schedule: input.schedule,
-        publish: input.publish,
-      });
-    } else if (agent.status === "cancelled") {
-      wakeLinkedWorkflow({
-        agentSessionId: id,
-        store: input.store,
-        cancelled: true,
-        error: agent.error,
-        schedule: input.schedule,
-        publish: input.publish,
-      });
-    } else if (agent.status === "running" || agent.status === "runnable") {
-      input.schedule(id);
-    } else if (agent.status === "paused") {
-      // Linked pause surfaces on the workflow waits list; keep waiting.
-      if (workflow && workflow.status !== "paused") {
-        const waits = aggregateWaits({
-          store: input.store,
-          workflowSessionId: workflow.id,
-        });
-        if (waits.length > 0) {
-          workflow.status = "paused";
-          workflow.waits = waits;
-          input.store.put("sessions", workflow.id, workflow);
-        }
-      }
-    }
-  }
-}
-
-/** Re-offer orphaned fn/verify claims after a process restart (SD-P7 / WF-C9). */
-export function reofferOrphanedFnVerifyClaims(store: FlowHostStore): number {
-  let n = 0;
-  for (const action of store.all<Action>("actions")) {
-    if (
-      action.status === "claimed" &&
-      (action.kind === "fn" || action.kind === "verify")
-    ) {
-      action.status = "pending";
-      (action as { claimId: null }).claimId = null;
-      (action as { leaseExpiresAt: null }).leaseExpiresAt = null;
-      store.put("actions", action.actionId, action);
-      const s = store.get<FlowHostSession>("sessions", action.sessionId);
-      if (s && (s.status === "waiting" || s.status === "running")) {
-        s.status = "runnable";
-        store.put("sessions", s.id, s);
-      }
-      n += 1;
-    }
-  }
-  return n;
+/** Pending workflow `agent` effects with a linked session, for the Tenant sweep. */
+export async function pendingAgentEffects(t: Tx): Promise<FlowEffect[]> {
+  return (
+    await t.effectsWithStatus<FlowEffect>(["pending"], { kinds: ["agent"] })
+  ).filter((effect) => typeof effect.agentSessionId === "string");
 }
 
 /**
- * On lease expiry: fn/verify → pending again; tool nodes → uncertain (WF-R35, WF-R38).
- * Returns whether any fn/verify was redelivered.
+ * Tenant sweep: settle one pending `agent` effect whose linked turn already finished (the
+ * linked settle normally does this in its own transaction). Runs in its own transaction and
+ * locks the linked agent (child) session before the workflow (parent), per the lock order in
+ * `store/types.ts`. Only the linked turn the effect started settles it (`linkedTurnEnd`): the
+ * linked session may still show an earlier iteration's settled turn while this effect's message
+ * is not committed. A linked session still `running` or `runnable` is left to the sweep's
+ * orphan re-wake; a paused one surfaces on the workflow when the workflow settles. Returns
+ * true when it changed something.
  */
-export function applyFlowLeaseExpiry(input: {
-  readonly store: FlowHostStore;
-  readonly action: Action;
-  readonly now?: number;
-}): "reoffer" | "uncertain" | "skip" {
-  if (input.action.status !== "claimed" || !input.action.leaseExpiresAt)
-    return "skip";
-  const now = input.now ?? Date.now();
-  if (Date.parse(input.action.leaseExpiresAt) > now) return "skip";
-
-  if (input.action.kind === "fn" || input.action.kind === "verify") {
-    input.action.status = "pending";
-    (input.action as { claimId: null }).claimId = null;
-    (input.action as { leaseExpiresAt: null }).leaseExpiresAt = null;
-    input.store.put("actions", input.action.actionId, input.action);
-    return "reoffer";
-  }
-
-  if (
-    input.action.kind === "tool" &&
-    "path" in input.action &&
-    !("capabilityId" in input.action)
-  ) {
-    input.action.status = "uncertain";
-    input.store.put("actions", input.action.actionId, input.action);
-    const effect = input.store.get("effects", input.action.actionId);
-    if (effect) {
-      effect.status = "uncertain";
-      input.store.put("effects", input.action.actionId, effect);
-    }
-    return "uncertain";
-  }
-
-  return "skip";
-}
-
-/** Emit loop.verified / loop.decided after fn/verify actions complete. */
-export function emitLoopActionEvents(input: {
-  readonly store: FlowHostStore;
-  readonly session: FlowHostSession;
-  readonly action: Action;
-  readonly value: unknown;
-  readonly publish: (event: LiveEvent) => void;
-}): void {
-  const { action, store, session } = input;
-  if (action.kind !== "fn" && action.kind !== "verify") return;
-  const n = Number(action.context?.n ?? 1);
-  const path = String(action.context?.loopPath ?? action.path ?? "");
-  if (action.kind === "verify") {
-    const verdict = input.value as {
-      pass?: boolean;
-      feedback?: string;
-      data?: JsonValue;
-      kind?: string;
-    };
-    if (verdict?.kind === "failed") return;
-    const event = store.event(
-      session.id,
-      session.activeTurnId,
-      "loop.verified",
-      {
-        path,
-        n,
-        pass: Boolean(verdict?.pass),
-        ...(verdict?.feedback !== undefined
-          ? { feedback: verdict.feedback }
-          : {}),
-        ...(verdict?.data !== undefined ? { data: verdict.data } : {}),
-      }
-    );
-    input.publish(event);
-    return;
-  }
-  if (action.context?.role !== "decide") return;
-  const decision = input.value as {
-    input?: unknown;
-    output?: unknown;
-    agent?: unknown;
-  };
-  const event = store.event(session.id, session.activeTurnId, "loop.decided", {
-    path,
-    n,
-    next: "output" in decision && !("input" in decision) ? "output" : "input",
-    patched: Boolean(decision.agent),
+export async function reconcilePendingAgentEffect(input: {
+  readonly t: Tx;
+  readonly effectId: string;
+  readonly schedule: Schedule;
+}): Promise<boolean> {
+  const { t } = input;
+  const found = await t.get<FlowEffect>("effects", input.effectId);
+  const id = found?.agentSessionId;
+  if (!found || found.request?.kind !== "agent" || typeof id !== "string")
+    return false;
+  const agent = await t.lockSession<FlowHostSession>(id);
+  const workflow = await t.lockSession<FlowHostSession>(
+    found.request.sessionId
+  );
+  // Read again under both locks.
+  const effect = await t.get<FlowEffect>("effects", input.effectId);
+  if (!effect || effect.status !== "pending" || !agent || !workflow)
+    return false;
+  const end = await linkedTurnEnd(t, effect, agent);
+  if (!end) return false;
+  await wakeLinkedWorkflow({
+    t,
+    agentSessionId: id,
+    turnId: end.turnId,
+    ...(end.status === "completed"
+      ? { output: end.output }
+      : end.status === "failed"
+      ? { failed: true, error: end.error }
+      : { cancelled: true, error: end.error }),
+    schedule: input.schedule,
   });
-  input.publish(event);
+  return true;
 }
 
-export function emitNodeStarted(
-  input: {
-    readonly store: FlowHostStore;
-    readonly session: FlowHostSession;
-    readonly publish: (event: LiveEvent) => void;
-  },
-  payload: {
-    path: string;
-    kind: string;
-    key: string;
-    iterations?: string;
-  }
-): LiveEvent {
-  const event = input.store.event(
-    input.session.id,
-    input.session.activeTurnId,
-    "node.started",
-    payload
-  );
-  input.publish(event);
-  return event;
+/** Claimed `fn`/`verify` Actions, for the re-offer after a Tenant opens. */
+export async function claimedFnVerifyActions(t: Tx): Promise<Action[]> {
+  return t.actionsWithStatus(["claimed"], { kinds: ["fn", "verify"] });
 }
 
-export function emitNodeCompleted(
-  input: {
-    readonly store: FlowHostStore;
-    readonly session: FlowHostSession;
-    readonly publish: (event: LiveEvent) => void;
-  },
-  payload: { path: string; iterations?: string }
-): LiveEvent {
-  const event = input.store.event(
-    input.session.id,
-    input.session.activeTurnId,
-    "node.completed",
-    payload
-  );
-  input.publish(event);
-  return event;
-}
-
-export function emitNodeFailed(
-  input: {
-    readonly store: FlowHostStore;
-    readonly session: FlowHostSession;
-    readonly publish: (event: LiveEvent) => void;
-  },
-  payload: {
-    path: string;
-    iterations?: string;
-    error: { code: string; message: string; path?: string };
-  }
-): LiveEvent {
-  const event = input.store.event(
-    input.session.id,
-    input.session.activeTurnId,
-    "node.failed",
-    payload
-  );
-  input.publish(event);
-  return event;
-}
-
-export function emitSwitchSelected(
-  input: {
-    readonly store: FlowHostStore;
-    readonly session: FlowHostSession;
-    readonly publish: (event: LiveEvent) => void;
-  },
-  payload: { path: string; case: string }
-): LiveEvent {
-  const event = input.store.event(
-    input.session.id,
-    input.session.activeTurnId,
-    "switch.selected",
-    payload
-  );
-  input.publish(event);
-  return event;
-}
-
-export function emitMapItems(
-  input: {
-    readonly store: FlowHostStore;
-    readonly session: FlowHostSession;
-    readonly publish: (event: LiveEvent) => void;
-  },
-  payload: { path: string; count: number }
-): LiveEvent {
-  const event = input.store.event(
-    input.session.id,
-    input.session.activeTurnId,
-    "map.items",
-    payload
-  );
-  input.publish(event);
-  return event;
+/**
+ * Re-offer one claimed `fn`/`verify` Action (SD-P7 / WF-C9): they are pure or repeat-safe, so
+ * a claim left by an executor of an earlier process is offered again at once rather than
+ * after its lease. The next claim bumps the generation, which fences a late result. Locks
+ * only the Action's session. Returns true when it re-offered.
+ */
+export async function reofferFnVerifyClaim(
+  t: Tx,
+  actionId: string
+): Promise<boolean> {
+  const found = await t.get<Action>("actions", actionId);
+  if (!found) return false;
+  await t.lockSession(found.sessionId);
+  // Read again under the session lock.
+  const action = await t.get<Action>("actions", actionId);
+  if (
+    !action ||
+    action.status !== "claimed" ||
+    (action.kind !== "fn" && action.kind !== "verify")
+  )
+    return false;
+  action.status = "pending";
+  (action as { claimId: null }).claimId = null;
+  (action as { leaseExpiresAt: null }).leaseExpiresAt = null;
+  await t.put("actions", action.actionId, action);
+  t.signalWork();
+  return true;
 }
 
 /** Path depth for deepest-first cancel ordering. */
@@ -884,25 +451,24 @@ export function pathDepth(path: string): number {
  * Plan a cancel cascade for a workflow session: linked agents deepest first,
  * then pending → cancelled and claimed → uncertain actions (SD-P11 / WF-R53).
  */
-export function planCancelCascade(input: {
-  readonly store: FlowHostStore;
+export async function planCancelCascade(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
   readonly turnId: string | null;
-}): CascadeCancelPlan {
-  // links table is keyed by agentSessionId — discover via sessions + get(links, id).
-  const agentEntries: { sessionId: string; path: string }[] = [];
-  for (const sess of input.store.all<FlowHostSession>("sessions")) {
-    const link = input.store.get<FlowLink>("links", sess.id);
-    if (!link || link.workflowSessionId !== input.workflowSessionId) continue;
-    agentEntries.push({ sessionId: sess.id, path: link.path });
-  }
+}): Promise<CascadeCancelPlan> {
+  const { t } = input;
+  const agentEntries = (await t.linkedSessions(input.workflowSessionId)).map(
+    (linked) => ({ sessionId: linked.agentSessionId, path: linked.link.path })
+  );
   agentEntries.sort((a, b) => pathDepth(b.path) - pathDepth(a.path));
 
   const pendingActionIds: string[] = [];
   const claimedActionIds: string[] = [];
-  for (const action of input.store.all<Action>("actions")) {
-    if (action.sessionId !== input.workflowSessionId) continue;
-    if (input.turnId !== null && action.turnId !== input.turnId) continue;
+  const actions = await t.actionsForSession(input.workflowSessionId, {
+    ...(input.turnId !== null ? { turnId: input.turnId } : {}),
+    statuses: OPEN_ACTION,
+  });
+  for (const action of actions) {
     if (action.status === "pending") pendingActionIds.push(action.actionId);
     else if (action.status === "claimed")
       claimedActionIds.push(action.actionId);
@@ -922,22 +488,24 @@ export function planCancelCascade(input: {
  * When `cancelEffectIds` is provided, those effects are marked cancelled and their
  * paths are included in the sibling path set.
  */
-export function cancelSiblingWork(input: {
-  readonly store: FlowHostStore;
+export async function cancelSiblingWork(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
   readonly turnId: string;
   /** Paths of siblings still running (not the failed branch). */
   readonly siblingPaths?: readonly string[];
   /** Effect ids the flow engine marked for fail-fast cancel. */
   readonly cancelEffectIds?: readonly string[];
-}): CancelSiblingResult {
+}): Promise<CancelSiblingResult> {
+  const { t } = input;
+  await t.lockSession(input.workflowSessionId);
   const cancelledActions: string[] = [];
   const uncertainActions: string[] = [];
   const agentSessionIds: string[] = [];
 
   const siblingPaths = new Set<string>(input.siblingPaths ?? []);
   for (const effectId of input.cancelEffectIds ?? []) {
-    const effect = input.store.get("effects", effectId);
+    const effect = await t.get<FlowEffect>("effects", effectId);
     if (!effect) continue;
     const path =
       typeof effect.request?.path === "string"
@@ -950,7 +518,7 @@ export function cancelSiblingWork(input: {
       effect.status === "uncertain"
     ) {
       effect.status = "cancelled";
-      input.store.put("effects", effectId, effect);
+      await t.put("effects", effectId, effect);
     }
   }
 
@@ -961,40 +529,33 @@ export function cancelSiblingWork(input: {
     );
   };
 
-  for (const sess of input.store.all<FlowHostSession>("sessions")) {
-    const link = input.store.get<FlowLink>("links", sess.id);
-    if (!link || link.workflowSessionId !== input.workflowSessionId) continue;
+  for (const { agentSessionId, link, session } of await t.linkedSessions(
+    input.workflowSessionId
+  )) {
     if (!matchesSibling(link.path)) continue;
     if (
-      sess.activeTurnId &&
-      ["running", "runnable", "paused", "waiting"].includes(sess.status)
+      session.activeTurnId &&
+      ["running", "runnable", "paused", "waiting"].includes(session.status)
     )
-      agentSessionIds.push(sess.id);
+      agentSessionIds.push(agentSessionId);
   }
 
-  for (const action of input.store.all<Action>("actions")) {
-    if (action.sessionId !== input.workflowSessionId) continue;
-    if (action.turnId !== input.turnId) continue;
+  const actions = await t.actionsForSession(input.workflowSessionId, {
+    turnId: input.turnId,
+    statuses: OPEN_ACTION,
+  });
+  for (const action of actions) {
     if (!matchesSibling((action as { path?: string }).path)) continue;
-    if (action.status === "pending") {
-      action.status = "cancelled";
-      input.store.put("actions", action.actionId, action);
-      const effect = input.store.get("effects", action.actionId);
-      if (effect) {
-        effect.status = "cancelled";
-        input.store.put("effects", action.actionId, effect);
-      }
-      cancelledActions.push(action.actionId);
-    } else if (action.status === "claimed") {
-      action.status = "uncertain";
-      input.store.put("actions", action.actionId, action);
-      const effect = input.store.get("effects", action.actionId);
-      if (effect) {
-        effect.status = "uncertain";
-        input.store.put("effects", action.actionId, effect);
-      }
-      uncertainActions.push(action.actionId);
+    const next = action.status === "claimed" ? "uncertain" : "cancelled";
+    action.status = next;
+    await t.put("actions", action.actionId, action);
+    const effect = await t.get<FlowEffect>("effects", action.actionId);
+    if (effect) {
+      effect.status = next;
+      await t.put("effects", action.actionId, effect);
     }
+    if (next === "cancelled") cancelledActions.push(action.actionId);
+    else uncertainActions.push(action.actionId);
   }
 
   return { cancelledActions, uncertainActions, agentSessionIds };
@@ -1003,95 +564,103 @@ export function cancelSiblingWork(input: {
 /**
  * Apply cancel fencing to workflow-session actions (pending→cancelled, claimed→uncertain).
  */
-export function fenceWorkflowActions(input: {
-  readonly store: FlowHostStore;
+export async function fenceWorkflowActions(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
   readonly turnId: string | null;
-}): { cancelled: string[]; uncertain: string[] } {
+}): Promise<{ cancelled: string[]; uncertain: string[] }> {
+  const { t } = input;
+  await t.lockSession(input.workflowSessionId);
+  const turn = input.turnId !== null ? { turnId: input.turnId } : {};
   const cancelled: string[] = [];
   const uncertain: string[] = [];
-  for (const action of input.store.all<Action>("actions")) {
-    if (action.sessionId !== input.workflowSessionId) continue;
-    if (input.turnId !== null && action.turnId !== input.turnId) continue;
-    if (!["pending", "claimed"].includes(action.status)) continue;
+  const actions = await t.actionsForSession(input.workflowSessionId, {
+    ...turn,
+    statuses: OPEN_ACTION,
+  });
+  for (const action of actions) {
     const next = action.status === "claimed" ? "uncertain" : "cancelled";
-    action.status = next as Action["status"];
-    input.store.put("actions", action.actionId, action);
-    const effect = input.store.get("effects", action.actionId);
+    action.status = next;
+    await t.put("actions", action.actionId, action);
+    const effect = await t.get<FlowEffect>("effects", action.actionId);
     if (effect) {
       effect.status = next;
-      input.store.put("effects", action.actionId, effect);
+      await t.put("effects", action.actionId, effect);
     }
     if (next === "cancelled") cancelled.push(action.actionId);
     else uncertain.push(action.actionId);
   }
   // Drop queued effects that never started.
-  for (const effect of input.store.all("effects")) {
-    if (effect.request?.sessionId !== input.workflowSessionId) continue;
-    if (input.turnId !== null && effect.request?.turnId !== input.turnId)
-      continue;
-    if (effect.status === "queued") {
-      effect.status = "cancelled";
-      input.store.put("effects", effect.request.effectId, effect);
-      cancelled.push(effect.request.effectId);
-    }
+  const queued = await t.effectsForSession<FlowEffect>(
+    input.workflowSessionId,
+    { ...turn, statuses: ["queued"] }
+  );
+  for (const effect of queued) {
+    effect.status = "cancelled";
+    await t.put("effects", effect.request.effectId, effect);
+    cancelled.push(effect.request.effectId);
   }
   return { cancelled, uncertain };
+}
+
+function waitsFromSession(
+  sessionId: string,
+  path: string,
+  raw: unknown
+): FlowWait[] {
+  if (!Array.isArray(raw)) return [];
+  const waits: FlowWait[] = [];
+  for (const call of raw as any[]) {
+    const interaction = call.interaction ?? call;
+    const interactionId = String(interaction?.id ?? call.interactionId ?? "");
+    if (!interactionId) continue;
+    waits.push({
+      sessionId,
+      path,
+      interactionId,
+      kind: String(interaction?.kind ?? call.kind ?? "approval"),
+      ...(call.invocationId !== undefined
+        ? { invocationId: String(call.invocationId) }
+        : {}),
+      ...(call.wait !== undefined ? { wait: call.wait } : {}),
+      ...(call.status !== undefined ? { status: String(call.status) } : {}),
+    });
+  }
+  return waits;
 }
 
 /**
  * Aggregate human waits across the workflow session and linked agent sessions (WF-R51).
  */
-export function aggregateWaits(input: {
-  readonly store: FlowHostStore;
+export async function aggregateWaits(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
-}): FlowWait[] {
-  const waits: FlowWait[] = [];
-  const workflow = input.store.get<FlowHostSession>(
+}): Promise<FlowWait[]> {
+  const { t } = input;
+  const workflow = await t.get<FlowHostSession>(
     "sessions",
     input.workflowSessionId
   );
-  if (!workflow) return waits;
+  if (!workflow) return [];
 
-  const pushFromSession = (
-    session: FlowHostSession,
-    path: string,
-    raw: unknown
-  ) => {
-    if (!Array.isArray(raw)) return;
-    for (const call of raw as any[]) {
-      const interaction = call.interaction ?? call;
-      const interactionId = String(interaction?.id ?? call.interactionId ?? "");
-      if (!interactionId) continue;
-      waits.push({
-        sessionId: session.id,
-        path,
-        interactionId,
-        kind: String(interaction?.kind ?? call.kind ?? "approval"),
-        ...(call.invocationId !== undefined
-          ? { invocationId: String(call.invocationId) }
-          : {}),
-        ...(call.wait !== undefined ? { wait: call.wait } : {}),
-        ...(call.status !== undefined ? { status: String(call.status) } : {}),
-      });
-    }
-  };
-
+  const waits: FlowWait[] = [];
   // Workflow-owned interactions (tool-node / verify approvals) live on the workflow session.
   if (Array.isArray(workflow.waits))
-    pushFromSession(workflow, "", workflow.waits);
+    waits.push(...waitsFromSession(workflow.id, "", workflow.waits));
   else if (
     workflow.waits &&
     typeof workflow.waits === "object" &&
     Array.isArray((workflow.waits as any).interactions)
   )
-    pushFromSession(workflow, "", (workflow.waits as any).interactions);
+    waits.push(
+      ...waitsFromSession(workflow.id, "", (workflow.waits as any).interactions)
+    );
 
-  for (const sess of input.store.all<FlowHostSession>("sessions")) {
-    const link = input.store.get<FlowLink>("links", sess.id);
-    if (!link || link.workflowSessionId !== input.workflowSessionId) continue;
-    if (sess.status !== "paused") continue;
-    pushFromSession(sess, link.path, sess.waits);
+  for (const { agentSessionId, link, session } of await t.linkedSessions<
+    FlowHostSession
+  >(input.workflowSessionId)) {
+    if (session.status !== "paused") continue;
+    waits.push(...waitsFromSession(agentSessionId, link.path, session.waits));
   }
 
   return waits;
@@ -1100,25 +669,25 @@ export function aggregateWaits(input: {
 /**
  * Look up which session owns an interaction id. Used for 409 foreign approvals (WF-R52).
  */
-export function findInteractionOwner(input: {
-  readonly store: FlowHostStore;
+export async function findInteractionOwner(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
   readonly interactionId: string;
-}): { sessionId: string; path: string } | undefined {
-  const waits = aggregateWaits(input);
+}): Promise<{ sessionId: string; path: string } | undefined> {
+  const waits = await aggregateWaits(input);
   const hit = waits.find((w) => w.interactionId === input.interactionId);
   if (hit) return { sessionId: hit.sessionId, path: hit.path };
 
-  // Also scan linked paused sessions' plan-shaped waits that aggregateWaits may have missed.
-  for (const sess of input.store.all<FlowHostSession>("sessions")) {
-    const link = input.store.get<FlowLink>("links", sess.id);
-    if (!link || link.workflowSessionId !== input.workflowSessionId) continue;
-    const raw = sess.waits;
+  // Also scan linked sessions' waits that aggregateWaits skipped (not paused).
+  for (const { agentSessionId, link, session } of await input.t.linkedSessions<
+    FlowHostSession
+  >(input.workflowSessionId)) {
+    const raw = session.waits;
     if (!Array.isArray(raw)) continue;
     for (const call of raw as any[]) {
       const id = String(call.interaction?.id ?? call.interactionId ?? "");
       if (id === input.interactionId)
-        return { sessionId: sess.id, path: link.path };
+        return { sessionId: agentSessionId, path: link.path };
     }
   }
   return undefined;
@@ -1128,12 +697,14 @@ export function findInteractionOwner(input: {
  * If approve/respond targets an interaction owned by a linked agent session,
  * return a 409 message naming that session (WF-R52 / LOOP-A4).
  */
-export function foreignInteractionConflict(input: {
-  readonly store: FlowHostStore;
+export async function foreignInteractionConflict(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
   readonly interactionId: string;
-}): { status: 409; message: string; ownerSessionId: string } | undefined {
-  const owner = findInteractionOwner(input);
+}): Promise<
+  { status: 409; message: string; ownerSessionId: string } | undefined
+> {
+  const owner = await findInteractionOwner(input);
   if (!owner) return undefined;
   if (owner.sessionId === input.workflowSessionId) return undefined;
   return {
@@ -1145,39 +716,39 @@ export function foreignInteractionConflict(input: {
 
 /**
  * When concurrency slots free, re-enter the workflow so queued effects can start
- * (status stays `queued` until `resolveFlowEffect` dispatches them).
+ * (status stays `queued` until the effect resolver dispatches them). Returns
+ * true when a wake was scheduled.
  */
-export function wakeForQueuedEffects(input: {
-  readonly store: FlowHostStore;
+export async function wakeForQueuedEffects(input: {
+  readonly t: Tx;
   readonly workflowSessionId: string;
   readonly turnId: string;
   readonly limits: FlowLimits;
-  readonly schedule: (sessionId: string) => void;
-}): boolean {
+  readonly schedule: Schedule;
+}): Promise<boolean> {
+  const { t } = input;
   if (
     !mayDispatchMore(
-      countActiveFlowWork(input.store, input.workflowSessionId, input.turnId),
+      await countActiveFlowWork(t, input.workflowSessionId, input.turnId),
       input.limits
     )
   )
     return false;
-  const hasQueued = input.store
-    .all("effects")
-    .some(
-      (e) =>
-        e.status === "queued" &&
-        e.request?.sessionId === input.workflowSessionId &&
-        e.request?.turnId === input.turnId
-    );
-  if (!hasQueued) return false;
-  const workflow = input.store.get<FlowHostSession>(
-    "sessions",
+  const queued = await t.effectsForTurn(
+    input.workflowSessionId,
+    input.turnId,
+    ["queued"]
+  );
+  if (queued.length === 0) return false;
+  const workflow = await t.lockSession<FlowHostSession>(
     input.workflowSessionId
   );
   if (workflow && workflow.status === "waiting") {
     workflow.status = "runnable";
-    input.store.put("sessions", workflow.id, workflow);
+    await t.put("sessions", workflow.id, workflow);
   }
-  input.schedule(input.workflowSessionId);
+  scheduleAfterCommit(t, input.schedule, input.workflowSessionId, {
+    reason: "flow",
+  });
   return true;
 }

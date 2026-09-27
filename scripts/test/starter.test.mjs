@@ -11,26 +11,24 @@ test("starter previews resolve local packages and never overwrite an earlier pre
   try {
     const manifest = await readJson(join(first, "package.json"));
     assert.equal(
-      manifest.dependencies["@nylorun/runtime"],
-      `file:${join(root, "runtime").replaceAll("\\", "/")}`,
+      manifest.dependencies["@nylorun/agents"],
+      `file:${join(root, "agents").replaceAll("\\", "/")}`,
     );
     assert.equal(
-      manifest.devDependencies["@nylorun/studio"],
-      `file:${join(root, "studio").replaceAll("\\", "/")}`,
+      manifest.devDependencies["@nylorun/cli"],
+      `file:${join(root, "cli").replaceAll("\\", "/")}`,
     );
+    // The Runtime runs in the stack's container; previews never install it.
+    assert.equal(manifest.dependencies["@nylorun/runtime"], undefined);
+    // Studio runs in the Docker stack; previews never depend on it.
+    assert.equal(manifest.devDependencies["@nylorun/studio"], undefined);
     await writeFile(
       join(first, "agents/assistant/agent.ts"),
       "authored preview",
     );
     await writeFile(join(first, ".env"), "MODEL_PROVIDER_API_KEY=local-only\n");
-    second = await renderPreview({ studio: false });
+    second = await renderPreview();
     assert.notEqual(first, second);
-    assert.equal(
-      (await readJson(join(second, "package.json"))).devDependencies[
-        "@nylorun/studio"
-      ],
-      undefined,
-    );
     assert.equal(
       await readFile(join(first, "agents/assistant/agent.ts"), "utf8"),
       "authored preview",

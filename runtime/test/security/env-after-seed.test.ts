@@ -65,7 +65,7 @@ it("G3: ambient/env changes after seed do not overwrite Tenant config", async ()
         headers: a.headers(),
         body: JSON.stringify({
           requestId: randomUUID(),
-          sandbox: { backend: "microsandbox" },
+          sandbox: { backend: "auto" },
           model: {
             provider: "anthropic",
             model: "claude",

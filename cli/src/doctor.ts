@@ -8,13 +8,19 @@ import {
   type AgentManifest,
 } from "@nylorun/agents";
 import { CliError } from "./errors.js";
-import { launcher, resolveHome, runtimeInstallCommand } from "./runtime/launcher.js";
+import {
+  checkDocker,
+  defaultStackDeps,
+  readStackStatus,
+  type Check,
+  type StackDeps,
+  type StackStatus,
+} from "./stack/index.js";
 
-/** Oldest Node the Runtime runs on (it needs node:sqlite). */
+/** Oldest Node the CLI and the developer's application run on. */
 const MIN_NODE_MAJOR = 24;
 
 const LABEL: Record<string, string> = {
-  microsandbox: "microsandbox VM",
   virtual: "virtual shell",
 };
 
@@ -61,57 +67,93 @@ async function fetchSandboxReport(options?: {
   );
 }
 
+export interface StackDoctorReport {
+  node: { version: string; ok: boolean };
+  docker: Check;
+  compose?: Check;
+  stack?: Pick<StackStatus, "project" | "home" | "state" | "runtime" | "studio">;
+}
+
 /**
- * `nylorun doctor runtime`: check the two prerequisites (Node 24+ and an
- * installed `@nylorun/runtime`) and print the fix for each one that fails.
- * Exits 1 when a prerequisite is missing; installs nothing.
+ * `nylorun doctor`: check the prerequisites of the local stack (Node 24+,
+ * Docker, Compose v2) and, when they pass, the stack's health. Prints the fix
+ * for each problem and returns 1 when a prerequisite is missing or a running
+ * stack is unhealthy; installs and starts nothing.
  */
-export async function doctorRuntime(options: { json: boolean }): Promise<void> {
+export async function doctorStack(options: {
+  json: boolean;
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Stack dependencies (tests). */
+  deps?: StackDeps;
+  log?: (line: string) => void;
+}): Promise<number> {
+  const log = options.log ?? ((line: string) => console.log(line));
+  const deps = options.deps ?? defaultStackDeps(options.env ?? process.env);
   const nodeOk = Number(process.versions.node.split(".")[0]) >= MIN_NODE_MAJOR;
-  let runtime:
-    | { ok: true; version: string; bin: string; node: string }
-    | { ok: false; problem: string };
-  try {
-    const handle = await launcher(resolveHome());
-    runtime = { ok: true, ...handle.runtime };
-  } catch (error) {
-    runtime = {
-      ok: false,
-      problem: error instanceof Error ? error.message : String(error),
+  const checks = await checkDocker(deps.docker);
+  const report: StackDoctorReport = {
+    node: { version: process.versions.node, ok: nodeOk },
+    ...checks,
+  };
+  if (checks.docker.ok && checks.compose?.ok) {
+    const status = await readStackStatus(deps);
+    report.stack = {
+      project: status.project,
+      home: status.home,
+      state: status.state,
+      runtime: status.runtime,
+      studio: status.studio,
     };
   }
+  const stackBroken =
+    report.stack?.state === "running" && !report.stack.runtime.healthy;
+  const failed =
+    !nodeOk || !checks.docker.ok || checks.compose?.ok === false || stackBroken;
   if (options.json) {
-    console.log(
-      JSON.stringify(
-        {
-          node: { version: process.versions.node, ok: nodeOk },
-          runtime,
-          install: runtimeInstallCommand(),
-        },
-        null,
-        2,
-      ),
-    );
-  } else {
-    const rows: [string, string][] = [
-      [
-        "node",
-        nodeOk
-          ? `✓ ${process.versions.node}`
-          : `✗ ${process.versions.node}: install Node ${MIN_NODE_MAJOR} or newer`,
-      ],
-      [
-        "runtime",
-        runtime.ok
-          ? `✓ ${runtime.version} · ${runtime.bin}`
-          : `✗ ${runtime.problem.split("\n")[0]}\n    ${runtimeInstallCommand()}`,
-      ],
-    ];
-    const width = Math.max(...rows.map(([key]) => key.length)) + 2;
-    for (const [key, value] of rows)
-      console.log(`  ${key.padEnd(width)}${value}`);
+    log(JSON.stringify(report, null, 2));
+    return failed ? 1 : 0;
   }
-  if (!nodeOk || !runtime.ok) process.exitCode = 1;
+  const line = (check: Check | undefined) =>
+    check === undefined
+      ? "- not checked"
+      : check.ok
+        ? `✓ ${check.version}`
+        : `✗ ${check.problem}`;
+  const rows: [string, string][] = [
+    [
+      "node",
+      nodeOk
+        ? `✓ ${process.versions.node}`
+        : `✗ ${process.versions.node}: install Node ${MIN_NODE_MAJOR} or newer`,
+    ],
+    ["docker", line(checks.docker)],
+    ["compose", line(checks.compose)],
+  ];
+  const stack = report.stack;
+  if (stack) {
+    rows.push([
+      "stack",
+      stack.state === "absent"
+        ? `- not created under ${stack.home}: run nylorun start (or nylorun dev)`
+        : stack.state === "stopped"
+          ? `- stopped (project ${stack.project}): run nylorun start`
+          : stack.runtime.healthy
+            ? `✓ running (project ${stack.project})`
+            : `✗ running, but the Runtime does not answer: see nylorun status and nylorun logs runtime`,
+    ]);
+    if (stack.state === "running") {
+      rows.push([
+        "runtime",
+        stack.runtime.healthy
+          ? `✓ ${stack.runtime.url ?? "?"} · ${stack.runtime.version ?? "?"}`
+          : `✗ ${stack.runtime.url ?? "?"} not answering`,
+      ]);
+      rows.push(["studio", `${stack.studio.url ?? "?"} · ${stack.studio.state}`]);
+    }
+  }
+  const width = Math.max(...rows.map(([key]) => key.length)) + 2;
+  for (const [key, value] of rows) log(`  ${key.padEnd(width)}${value}`);
+  return failed ? 1 : 0;
 }
 
 /** `nylorun doctor sandbox`: Tenant sandbox report via the Tenant API (F2-4). */
@@ -156,8 +198,7 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
     console.log(`  ${key.padEnd(width)}${value}`);
   if (report.backend === "virtual")
     console.log(
-      "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.\n" +
-        "  For hardware isolation use macOS on Apple Silicon or Linux with KVM.",
+      "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.",
     );
 }
 
@@ -190,11 +231,6 @@ export async function sandboxBanner(
   const doctor = "run `npx nylorun doctor sandbox` for options";
   if (!report.backend)
     return `sandbox: unavailable (${report.reason}) · ${doctor}`;
-  const image = capability.sandbox?.image ?? report.defaultImage;
   const network = capability.sandbox?.network?.preset ?? "dev";
-  const fellBack =
-    report.preference === "auto" && report.backend !== report.probes[0]?.name;
-  return fellBack
-    ? `sandbox: ${LABEL[report.backend] ?? report.backend} (${report.reason}) · ${doctor}`
-    : `sandbox: ${LABEL[report.backend] ?? report.backend}${report.backend === "microsandbox" && image ? ` · image ${image}` : ""} · network: ${network}`;
+  return `sandbox: ${LABEL[report.backend] ?? report.backend} · network: ${network}`;
 }

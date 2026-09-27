@@ -1,7 +1,7 @@
 {
   "name": "@nylorun/runtime",
   "version": "0.10.0-beta",
-  "description": "SQLite agent execution host and model providers.",
+  "description": "Nylorun Runtime: the agent execution Host on Postgres, Restate and S2, and model providers.",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -11,9 +11,6 @@
   },
   "engines": {
     "node": ">=24.0.0"
-  },
-  "bin": {
-    "nylorun-runtime": "dist/launcher/main.js"
   },
   "exports": {
     ".": {
@@ -46,10 +43,13 @@
     "provenance": true
   },
   "scripts": {
-    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/launcher/main.js', 0o755)\"",
+    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json",
     "check": "npm run build && npm test && node scripts/check-package.mjs",
     "typecheck": "node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:stack:up": "node test/stack/up.mjs up",
+    "test:stack:down": "node test/stack/up.mjs down",
     "prepack": "npm run build",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
     "start": "node dist/host/main.js"
@@ -60,10 +60,10 @@
     "@hono/node-server": "^2.1.1",
     "@nylorun/harness": "0.19.0-beta",
     "@nylorun/core": "0.5.0-beta",
-    "just-bash": "3.4.2"
-  },
-  "optionalDependencies": {
-    "microsandbox": "0.7.2"
+    "@restatedev/restate-sdk": "1.16.9",
+    "@s2-dev/streamstore": "0.27.0",
+    "just-bash": "3.4.2",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",

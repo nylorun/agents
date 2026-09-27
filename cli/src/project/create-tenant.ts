@@ -25,7 +25,8 @@ export interface CreateTenantResult {
   envelope: { id: string; name: string };
 }
 
-async function defaultTenantName(projectRoot: string): Promise<string> {
+/** The Project's `package.json` name, else its directory name. */
+export async function defaultTenantName(projectRoot: string): Promise<string> {
   try {
     const pkg = JSON.parse(
       await readFile(join(projectRoot, "package.json"), "utf8"),
@@ -89,7 +90,7 @@ export async function createProjectTenant(
   };
 }
 
-/** Resolve Admin from the local Host root (after launcher `up`). */
+/** Resolve Admin from the local Host root (host.json and the admin key). */
 export function localAdmin(home?: string): Admin {
   return createAdmin(home ? { home } : undefined);
 }

@@ -30,8 +30,13 @@ export interface PiModelOptions {
   readonly root?: string;
   readonly onPreview?: (preview: ModelPreview) => void;
   readonly media?: Pick<RuntimeMedia, "dataUrl">;
-  readonly readHostModel?: () => HostModelSecret | undefined;
-  readonly writeHostCredential?: (credential: Credential) => void;
+  readonly readHostModel?: () =>
+    | HostModelSecret
+    | undefined
+    | Promise<HostModelSecret | undefined>;
+  readonly writeHostCredential?: (
+    credential: Credential,
+  ) => void | Promise<void>;
 }
 const emptyUsage = (): Usage => ({
   input: 0,
@@ -47,7 +52,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
   return async (call, context) => {
     context.signal.throwIfAborted();
     const root = options.root ?? "";
-    const stored = options.readHostModel?.();
+    const stored = await options.readHostModel?.();
     if (!stored)
       throw new Error(
         "Model provider is not configured. Start nylorun dev in a terminal, or set it in Studio.",
@@ -355,7 +360,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
 
 function hostCredentialStore(
   stored: HostModelSecret,
-  write: ((credential: Credential) => void) | undefined,
+  write: ((credential: Credential) => void | Promise<void>) | undefined,
 ): CredentialStore {
   let current: Credential = stored.credential as Credential;
   return {
@@ -370,7 +375,7 @@ function hostCredentialStore(
       if (providerId !== stored.provider) return fn(undefined);
       const next = await fn(current);
       if (next === undefined) return current;
-      write?.(next);
+      await write?.(next);
       current = next;
       return next;
     },

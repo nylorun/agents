@@ -2,14 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import {
   Agent,
   SANDBOX_INSTRUCTIONS,
   createSandboxTools,
 } from "@nylorun/core/define";
-import { startTestTenant } from "./support/tenant.js";
+import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { TenantConfig } from "../src/tenant/types.js";
@@ -178,7 +177,7 @@ it("returns an unavailable backend as a failed tool result the model can read", 
   const runtime = await boot({
     modelProvider: script([{ name: "bash", args: { command: "ls" } }], results),
     sandbox: {
-      backend: "microsandbox",
+      backend: "virtual",
       backends: [fakeBackend({ available: false })],
     },
   });
@@ -212,13 +211,7 @@ it("treats a backend failure during a write tool as uncertain and never re-runs 
   } finally {
     await runtime.close();
   }
-  const dbPath = join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-  const db = new DatabaseSync(dbPath);
-  const row = db.prepare("SELECT body FROM sessions WHERE id=?").get("s1") as { body: string };
-  const stored = JSON.parse(row.body);
-  stored.status = "runnable";
-  db.prepare("UPDATE sessions SET body=? WHERE id=?").run(JSON.stringify(stored), "s1");
-  db.close();
+  await patchStoredSession(runtime.root, runtime.tenantId, "s1", { status: "runnable" });
   const again = await boot({
     hostRoot: runtime.root,
     tenantId: runtime.tenantId,
@@ -296,74 +289,3 @@ function fakeBackend(options: { available: boolean; execThrows?: boolean }): San
   };
   return backend;
 }
-
-// Boots a real microVM, so it runs only when asked: NYLORUN_TEST_MICROSANDBOX=1.
-it.skipIf(process.env.NYLORUN_TEST_MICROSANDBOX !== "1")(
-  "runs a turn on a microsandbox VM, stops it when idle and reattaches with files intact",
-  async () => {
-    const results: unknown[] = [];
-    const runtime = await boot({
-      retainRoot: true,
-      modelProvider: script(
-        [
-          { name: "write", args: { path: "sales.csv", content: "region,sales\nnorth,3\nsouth,4\n" } },
-          {
-            name: "bash",
-            args: { command: "python3 -c \"import csv; print(sum(int(r['sales']) for r in csv.DictReader(open('sales.csv'))))\"" },
-          },
-        ],
-        results
-      ),
-      sandbox: { backend: "microsandbox" },
-    });
-    try {
-      await register(runtime, agent({ idle: "1s", network: { preset: "none" } }).manifest);
-      await openSession(runtime, "s1");
-      await say(runtime, "s1", "sum");
-      const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
-      expect(session.status).toBe("completed");
-      expect(JSON.stringify(results.at(-1))).toContain('\\"stdout\\":\\"7\\\\n\\"');
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      const history = await items(runtime, "s1");
-      expect(history.filter((item) => item.type === "sandbox.state").map((item) => item.payload.state)).toEqual([
-        "creating",
-        "running",
-        "stopped",
-      ]);
-      expect(history.find((item) => item.type === "sandbox.state")?.payload).toMatchObject({
-        backend: "microsandbox",
-        isolation: "vm",
-        image: "python:3.13-slim",
-      });
-    } finally {
-      await runtime.close();
-    }
-    const again = await boot({
-      hostRoot: runtime.root,
-      tenantId: runtime.tenantId,
-      modelProvider: script([{ name: "read", args: { path: "sales.csv" } }], results),
-      sandbox: { backend: "microsandbox" },
-    });
-    try {
-      await say(again, "s1", "read");
-      expect((await until(again, "s1", ["completed", "failed", "uncertain"])).status).toBe("completed");
-      expect(JSON.stringify(results.at(-1))).toContain("south,4");
-    } finally {
-      await again.close();
-      const { microsandboxBackend } = await import("../src/adapters/sandbox/microsandbox.js");
-      const backend = microsandboxBackend();
-      for (const key of await backend.list(`nylorun-${runtime.tenantId}-`)) {
-        if (!key.includes("conformance")) {
-          const db = new DatabaseSync(
-            join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite"),
-          );
-          const owned = db.prepare("SELECT 1 FROM sandboxes WHERE id=?").get(key);
-          db.close();
-          if (owned) await backend.remove(key);
-        }
-      }
-      await rm(runtime.root, { recursive: true, force: true });
-    }
-  },
-  300_000
-);

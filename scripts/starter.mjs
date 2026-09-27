@@ -9,9 +9,14 @@ import {
   npm,
   verifyToolchain,
 } from "./lib/repo.mjs";
-import { developmentOptions, develop } from "./lib/development.mjs";
+import {
+  developmentOptions,
+  develop,
+  workspaceCommands,
+} from "./lib/development.mjs";
 
-export async function renderPreview({ repo = root, studio = true } = {}) {
+/** A fresh starter under .tmp/ whose @nylorun packages are the workspace's. */
+export async function renderPreview({ repo = root } = {}) {
   const { starterFiles } = await import(
     pathToFileURL(join(repo, "create-agent/dist/scaffold.js")).href
   );
@@ -21,18 +26,17 @@ export async function renderPreview({ repo = root, studio = true } = {}) {
     join(repo, "create-agent/compatibility.json"),
   );
   for (const [path, content] of Object.entries(
-    await starterFiles(compatibility, studio),
+    await starterFiles(compatibility),
   )) {
     await mkdir(dirname(join(project, path)), { recursive: true });
     await writeFile(join(project, path), content);
   }
   const manifest = await readJson(join(project, "package.json"));
-  for (const name of ["core", "harness", "agents", "runtime", "cli"])
-    manifest.dependencies[`@nylorun/${name}`] =
-      `file:${join(repo, name).replaceAll("\\", "/")}`;
-  if (studio)
-    manifest.devDependencies["@nylorun/studio"] =
-      `file:${join(repo, "studio").replaceAll("\\", "/")}`;
+  const local = (name) => `file:${join(repo, name).replaceAll("\\", "/")}`;
+  for (const name of ["core", "agents"])
+    manifest.dependencies[`@nylorun/${name}`] = local(name);
+  for (const name of ["admin", "cli"])
+    manifest.devDependencies[`@nylorun/${name}`] = local(name);
   await writeJson(join(project, "package.json"), manifest);
   return project;
 }
@@ -44,7 +48,7 @@ if (
     const options = developmentOptions(process.argv.slice(2));
     await verifyToolchain();
     await node("scripts/validate.mjs", ["build"]);
-    const project = await renderPreview({ studio: options.studio });
+    const project = await renderPreview();
     console.log(
       `Starter preview: ${project}\nTemplate changes require a new preview; this directory will be retained.`,
     );
@@ -52,23 +56,13 @@ if (
     const controller = new AbortController();
     process.on("SIGINT", () => controller.abort());
     process.on("SIGTERM", () => controller.abort());
-    const { mkdtemp, rm } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-starter-host-"));
-    const home = await mkdtemp(join(tmpdir(), "nylorun-starter-home-"));
+    // The same loop as npm run dev, with the preview as the application.
     const app = await develop(options, {
-      project,
       signal: controller.signal,
       built: true,
-      hostRoot,
-      home,
+      commands: workspaceCommands({ project }),
     });
-    try {
-      process.exitCode = await app.done;
-    } finally {
-      await rm(hostRoot, { recursive: true, force: true }).catch(() => {});
-      await rm(home, { recursive: true, force: true }).catch(() => {});
-    }
+    process.exitCode = await app.done;
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

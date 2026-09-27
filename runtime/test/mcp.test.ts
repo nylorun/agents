@@ -3,14 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { chmodSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, hashManifest } from "@nylorun/core/define";
-import { startTestTenant } from "./support/tenant.js";
+import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { ModelProvider } from "../src/core/provider.js";
@@ -465,13 +464,7 @@ it("does not send a failed MCP call again after it is uncertain", async () => {
     expect(session.status).toBe("uncertain");
     expect(remote.requests.filter((item) => item.method === "tools/call")).toHaveLength(1);
     await runtime.close();
-    const dbPath = join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite");
-    const db = new DatabaseSync(dbPath);
-    const row = db.prepare(`SELECT body FROM sessions WHERE id=?`).get("s1") as { body: string };
-    const stored = JSON.parse(row.body);
-    stored.status = "runnable";
-    db.prepare(`UPDATE sessions SET body=? WHERE id=?`).run(JSON.stringify(stored), "s1");
-    db.close();
+    await patchStoredSession(runtime.root, runtime.tenantId, "s1", { status: "runnable" });
     const again = await startTestTenant({
       applicationKey: APP,
       hostRoot: runtime.root,

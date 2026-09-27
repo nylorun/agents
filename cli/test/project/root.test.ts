@@ -47,3 +47,13 @@ it("never treats the home directory as a Project", async () => {
   expect(findProjectRoot(home)).toBeUndefined();
   expect(() => requireProjectRoot(home)).toThrow("No Project found");
 });
+
+it("finds a new Project below the home directory without .nylorun", async () => {
+  const home = await temporary("nylorun-home-");
+  const project = join(home, "code/my-agent");
+  await mkdir(join(project, "src"), { recursive: true });
+  await writeFile(join(project, "package.json"), "{}");
+  vi.stubEnv("HOME", home);
+  vi.stubEnv("USERPROFILE", home);
+  expect(findProjectRoot(join(project, "src"))).toBe(project);
+});

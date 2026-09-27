@@ -40,7 +40,6 @@ it("G7: live Tenant directories stay under hostRoot/tenants/<id>", async () => {
   expect(a.paths.root.startsWith(join(host.hostRoot, "tenants", a.id))).toBe(
     true,
   );
-  expect(a.paths.database.includes(join("tenants", a.id))).toBe(true);
   expect(a.paths.home.includes(join("tenants", a.id, "home"))).toBe(true);
   expect(a.paths.kek.includes(join("tenants", a.id))).toBe(true);
 });

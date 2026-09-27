@@ -868,9 +868,18 @@ export const CreateTenantRequestSchema = z
   .object({
     tenantId: z.string().min(1),
     name: z.string().min(1),
-    principalId: z.string().min(1),
+    /** `studio` is reserved for the derived Studio principal. */
+    principalId: z
+      .string()
+      .min(1)
+      .refine((id) => id !== "studio", "principalId `studio` is reserved"),
     credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
     idempotencyKey: IdempotencyKeySchema,
+    /** SHA-256 of the derived Studio key; registers principal `studio` (feature `studio-principal`). */
+    studioCredentialHash: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   })
   .strict();
 export type CreateTenantRequest = z.infer<typeof CreateTenantRequestSchema>;
@@ -888,7 +897,6 @@ export type AdminTenant = z.infer<typeof AdminTenantSchema>;
 export const QuarantineSchema = z
   .object({
     code: z.enum([
-      "locked",
       "kek-missing",
       "corrupt",
       "schema-too-new",
@@ -899,8 +907,6 @@ export const QuarantineSchema = z
     ]),
     message: z.string(),
     repair: z.string(),
-    lockPath: z.string().optional(),
-    lockPid: z.number().int().optional(),
   })
   .strict();
 export type QuarantineInfo = z.infer<typeof QuarantineSchema>;
@@ -916,6 +922,10 @@ export const HostAggregateSchema = z
     connectedExecutors: z.number().int().nonnegative(),
     pendingActions: z.number().int().nonnegative(),
     uncertainEffects: z.number().int().nonnegative(),
+    /** Events committed but not yet relayed to Durable Streams, over the open Tenants. */
+    outboxDepth: z.number().int().nonnegative().optional(),
+    /** The largest relay lag of an open Tenant: its oldest unrelayed event's age. */
+    relayLagMs: z.number().nonnegative().optional(),
   })
   .strict();
 export type HostAggregate = z.infer<typeof HostAggregateSchema>;
@@ -993,7 +1003,7 @@ export const TenantStatusSchema = z
     path: z.string().min(1),
     checks: z
       .object({
-        sqlite: z.boolean(),
+        store: z.boolean(),
         scheduler: z.boolean(),
         model: z.boolean(),
         executors: z.boolean(),
@@ -1024,6 +1034,56 @@ export const TenantStatusSchema = z
         retained: z.number().int().nonnegative(),
       })
       .strict(),
+    /**
+     * Durable Session Execution invocations of this Tenant that need an operator: paused
+     * after exhausting retries, or backing off after failures. Absent when the execution
+     * cannot report them; `error` when it could not be asked.
+     */
+    execution: z
+      .object({
+        stuckInvocations: z.array(
+          z
+            .object({
+              id: z.string(),
+              status: z.string(),
+              service: z.string(),
+              handler: z.string(),
+              key: z.string(),
+              retryCount: z.number().int().nonnegative(),
+              lastFailure: z.string().optional(),
+              modifiedAt: z.string().optional(),
+            })
+            .strict(),
+        ),
+        error: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    /**
+     * This Tenant's Durable Streams: whether the service answers, its basin, the events
+     * committed but not yet relayed, and how far the relay is behind.
+     */
+    streams: z
+      .object({
+        reachable: z.boolean(),
+        basin: z
+          .object({
+            ready: z.boolean(),
+            failures: z.number().int().nonnegative(),
+            lastError: z.string().nullable(),
+          })
+          .strict(),
+        outbox: z
+          .object({
+            depth: z.number().int().nonnegative(),
+            oldestAgeMs: z.number().nonnegative().nullable(),
+          })
+          .strict(),
+        relayLagMs: z.number().nonnegative(),
+        collectionPending: z.boolean(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type TenantStatus = z.infer<typeof TenantStatusSchema>;
@@ -1038,11 +1098,17 @@ export const SeedTenantConfigRequestSchema = z
     requestId: RequestIdSchema,
     sandbox: z
       .object({
-        backend: z.enum(["auto", "microsandbox", "virtual"]),
+        backend: z.enum(["auto", "virtual"]),
       })
       .strict()
       .optional(),
     model: seedModelSchema.optional(),
+    /**
+     * The Tenant's model calls use the Runtime's deterministic fixture model instead of its
+     * host model, e.g. for a temporary development Tenant (`nylorun dev --ephemeral`). Stored
+     * as Tenant setting `model.fixture`. Host feature `tenant-fixture-model`.
+     */
+    fixtureModel: z.literal(true).optional(),
   })
   .strict();
 export type SeedTenantConfigRequest = z.infer<

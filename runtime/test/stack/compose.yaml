@@ -1,0 +1,50 @@
+# Test stack for `npm run test:integration -w @nylorun/runtime`.
+#
+#   npm run test:stack:up -w @nylorun/runtime
+#   NYLORUN_TEST_STACK=1 npm run test:integration -w @nylorun/runtime
+#   npm run test:stack:down -w @nylorun/runtime
+#
+# Throwaway state: no volumes, and s2-lite keeps streams in memory. Every
+# service publishes on loopback only. Ports can be overridden with the
+# NYLORUN_TEST_*_PORT variables, which the integration tests read too.
+name: nylorun-test
+
+services:
+  postgres: # Session Store
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: nylorun
+      POSTGRES_PASSWORD: nylorun
+      POSTGRES_DB: nylorun
+    ports:
+      - "127.0.0.1:${NYLORUN_TEST_POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nylorun -d nylorun"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  restate: # Durable Session Execution
+    image: docker.restate.dev/restatedev/restate:1.7.12
+    command: ["--node-name=restate-test"]
+    ports:
+      - "127.0.0.1:${NYLORUN_TEST_RESTATE_INGRESS_PORT:-58080}:8080" # ingress
+      - "127.0.0.1:${NYLORUN_TEST_RESTATE_ADMIN_PORT:-59070}:9070" # admin and UI
+    # Restate calls Worker endpoints that tests serve on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9070/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  # The s2 image has no shell or HTTP client, so `up.mjs` polls /health from
+  # the host instead of a Compose health check.
+  s2: # Durable Streams (in-memory s2-lite)
+    image: ghcr.io/s2-streamstore/s2:0.43.0
+    command: ["lite"]
+    ports:
+      - "127.0.0.1:${NYLORUN_TEST_S2_PORT:-58090}:80"

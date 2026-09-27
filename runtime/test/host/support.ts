@@ -131,7 +131,7 @@ export function createFakeModule(options?: {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ ok: true, tenantId }));
     },
-    summary(): TenantSummary {
+    async summary(): Promise<TenantSummary> {
       return {
         ready: true,
         runningSessions: 0,
@@ -158,7 +158,7 @@ export function createFakeModule(options?: {
     get started() {
       return started;
     },
-    resolve(id: string): TenantResolution {
+    async resolve(id: string): Promise<TenantResolution> {
       const t = tenants.get(id);
       if (!t) return { kind: "not-found" };
       if (t.state === "quarantined") {
@@ -175,6 +175,10 @@ export function createFakeModule(options?: {
         kind: "open",
         handle: t.handle ?? defaultHandle(id),
       };
+    },
+    async worker(id: string) {
+      const t = tenants.get(id);
+      return t?.state === "open" ? t.handle?.worker : undefined;
     },
     async create(
       input: { tenantId: string; name: string } & BootstrapPrincipal,
@@ -223,13 +227,13 @@ export function createFakeModule(options?: {
       }
       tenants.delete(id);
     },
-    summarize(): HostAggregate {
+    async summarize(): Promise<HostAggregate> {
       let runningSessions = 0;
       let connectedExecutors = 0;
       let pendingActions = 0;
       let uncertainEffects = 0;
       for (const t of tenants.values()) {
-        const s = t.summary ?? t.handle?.summary();
+        const s = t.summary ?? (await t.handle?.summary());
         if (!s) continue;
         runningSessions += s.runningSessions;
         connectedExecutors += s.connectedExecutors;

@@ -1,33 +1,59 @@
 #!/usr/bin/env node
-import "./runtime/baseline.js";
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import "./baseline.js";
 import {
   ConfigurationCancelled,
   configureProvider,
   fetchModelCatalog,
 } from "./model/configure.js";
 import { putHostModel } from "./model/host-model.js";
-import { develop, developmentPreflight, startStudio } from "./dev.js";
+import { develop, developmentPreflight, LOCAL_UI_REMOVED } from "./dev.js";
 import { CliError } from "./errors.js";
-import { runtimeCommand, runtimeUsage } from "./runtime/commands.js";
 import { findProjectRoot, requireProjectRoot } from "./project/root.js";
 import { printLinkedEnvExports } from "./project/attach.js";
 import { readLink as readProjectLink } from "./project/link.js";
 import { readCredentials as readProjectCredentials } from "./project/credentials.js";
 import { tenantCommand } from "./tenant/commands.js";
-import { resolveHome } from "./runtime/launcher.js";
+import { baselineEnv } from "./baseline.js";
+import {
+  isStackCommand,
+  stackCommand,
+  stackUsage,
+  studioCommand,
+  tenantStudioPath,
+} from "./stack/index.js";
 
-const usage = `nylorun <runtime|up|down|logs|dev|studio|configure|doctor|tenant>
+const usage = `nylorun <start|stop|status|logs|studio|reset|dev|configure|doctor|tenant>
 
-${runtimeUsage}
+Local stack (Docker Compose):
+${stackUsage}
 
-  dev [entry] [--ephemeral] [--local-ui] [--no-studio] [--no-open]
-  studio [--local-ui] [--port <n>] [--no-open]
-  configure
-  doctor runtime [--json]  check the prerequisites: Node 24+ and an installed Runtime
-  doctor sandbox [--json]  show which sandbox backend this Tenant's Host offers
+Development:
+  dev [entry] [--no-studio] [--no-open]   run the Project against the stack and open Studio on its Tenant
+  configure                               set the Tenant's model provider
+  doctor [--json]                         check Node, Docker and Compose v2, and the stack's health
+  doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers
   tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete`;
+
+/** Launcher commands removed when the local Runtime moved into the Docker stack. */
+const REMOVED_RUNTIME_COMMANDS: Record<string, string> = {
+  up: "nylorun start",
+  down: "nylorun stop",
+  restart: "nylorun stop, then nylorun start",
+  run: "nylorun start",
+  status: "nylorun status",
+  logs: "nylorun logs",
+};
+
+function removedRuntimeCommand(command: string, args: readonly string[]): CliError {
+  const name = command === "runtime" ? args[0] : command;
+  const replacement =
+    (name && REMOVED_RUNTIME_COMMANDS[name]) ?? "nylorun start|stop|status|logs";
+  const old = command === "runtime" ? `nylorun runtime${name ? ` ${name}` : ""}` : `nylorun ${command}`;
+  return new CliError(
+    `${old} was removed: the local Runtime now runs in a Docker Compose stack. Use ${replacement}.`,
+    2,
+  );
+}
 
 interface Flags {
   rest: string[];
@@ -55,6 +81,7 @@ function parseFlags(
         `${arg} was removed. Use the Runtime Host root (NYLORUN_HOME) and a Project link instead.`,
       );
     }
+    if (arg === "--local-ui") throw usageError(LOCAL_UI_REMOVED);
     if (booleanNames.has(arg)) {
       if (booleans.has(arg)) throw usageError(`${arg} may only be supplied once.`);
       booleans.add(arg);
@@ -74,15 +101,6 @@ function parseFlags(
 }
 
 const usageError = (message: string) => new CliError(message, 2);
-
-function parsePort(value: string | undefined): number {
-  if (value === undefined || !/^\d+$/u.test(value))
-    throw usageError(`Invalid --port: ${value ?? "(missing)"}`);
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw usageError(`Invalid --port: ${value}`);
-  return port;
-}
 
 async function resolveLinkedAuth(projectRoot: string): Promise<{
   url: string;
@@ -112,65 +130,82 @@ async function resolveLinkedAuth(projectRoot: string): Promise<{
   );
 }
 
+/** The linked Project's Tenant page in Studio, when run inside a linked Project. */
+async function linkedTenantPath(): Promise<string | undefined> {
+  const root = findProjectRoot();
+  if (!root) return undefined;
+  const link = await readProjectLink(root).catch(() => undefined);
+  return link ? tenantStudioPath(link.tenantId) : undefined;
+}
+
 async function main() {
-  const [rawCommand, ...rawArgs] = process.argv.slice(2);
-  if (!rawCommand || rawCommand === "--help" || rawCommand === "-h")
+  const [command, ...args] = process.argv.slice(2);
+  if (!command || command === "--help" || command === "-h")
     return void console.log(usage);
   if (process.platform === "win32")
     throw new CliError(
-      "Nylorun does not run on native Windows. Use WSL2: install Node 24 and the Nylorun Runtime inside your WSL distribution and run nylorun there (https://learn.microsoft.com/windows/wsl/install).",
+      "Nylorun does not run on native Windows. Use WSL2: install Node 24 and Docker (Docker Desktop's WSL integration) inside your WSL distribution and run nylorun there (https://learn.microsoft.com/windows/wsl/install).",
       1,
     );
-  const aliases: Record<string, string> = {
-    up: "up",
-    down: "down",
-    logs: "logs",
-  };
-  const command = rawCommand in aliases ? "runtime" : rawCommand;
-  const args =
-    rawCommand in aliases ? [aliases[rawCommand]!, ...rawArgs] : rawArgs;
+
+  if (command === "runtime" || command === "up" || command === "down")
+    throw removedRuntimeCommand(command, args);
 
   if (command === "tenant") return await tenantCommand(args);
 
-  if (command === "runtime") {
-    // F2-7: envHook prints the linked Project's three variables.
-    return await runtimeCommand(args, {
-      envHook: async () => {
-        const root = findProjectRoot() ?? process.cwd();
-        await printLinkedEnvExports(root);
-      },
-    });
+  // The Docker Compose stack.
+  if (command === "status" && args.includes("--env")) {
+    if (args.some((arg) => arg !== "--env"))
+      throw usageError("Usage: nylorun status --env");
+    await printLinkedEnvExports(findProjectRoot() ?? process.cwd());
+    return;
+  }
+  if (command === "studio") {
+    if (args.includes("--local-ui")) throw usageError(LOCAL_UI_REMOVED);
+    const next = await linkedTenantPath();
+    process.exitCode = await studioCommand(args, baselineEnv(), next ? { next } : {});
+    return;
+  }
+  if (isStackCommand(command)) {
+    process.exitCode = await stackCommand(command, args, baselineEnv());
+    return;
+  }
+  // `nylorun stack <command>`: the Wave 1 spelling, kept as a hidden alias.
+  if (command === "stack") {
+    const [name, ...rest] = args;
+    if (!isStackCommand(name)) throw usageError(usage);
+    process.exitCode = await stackCommand(name!, rest, baselineEnv());
+    return;
   }
 
   if (command === "doctor") {
-    const [topic, ...options] = args;
+    const [first, ...others] = args;
+    const topic = first === undefined || first.startsWith("-") ? "stack" : first;
+    const options = topic === "stack" && first !== "stack" ? args : others;
+    // `doctor runtime` checked the removed launcher; it now means the stack.
     if (
-      (topic !== "sandbox" && topic !== "runtime") ||
+      !["stack", "runtime", "sandbox"].includes(topic) ||
       options.some((option) => option !== "--json")
     )
-      throw usageError("Usage: nylorun doctor runtime|sandbox [--json]");
-    const { doctorRuntime, doctorSandbox } = await import("./doctor.js");
+      throw usageError("Usage: nylorun doctor [--json] | nylorun doctor sandbox [--json]");
+    const { doctorStack, doctorSandbox } = await import("./doctor.js");
     const json = options.includes("--json");
-    if (topic === "runtime") await doctorRuntime({ json });
-    else await doctorSandbox({ json });
+    if (topic === "sandbox") await doctorSandbox({ json });
+    else process.exitCode = await doctorStack({ json, env: baselineEnv() });
     return;
   }
 
   if (command === "dev") {
     const flags = parseFlags(args, {
-      booleans: ["--ephemeral", "--local-ui", "--no-studio", "--no-open"],
+      booleans: ["--ephemeral", "--no-studio", "--no-open"],
     });
     if (flags.rest.length > 1) throw usageError(usage);
-    if (flags.booleans.has("--local-ui") && flags.booleans.has("--no-studio"))
-      throw usageError("--local-ui cannot be combined with --no-studio.");
     requireProjectRoot();
-    developmentPreflight([
-      ...flags.rest,
-      ...[...flags.booleans],
-    ]);
+    developmentPreflight([...flags.rest, ...flags.booleans]);
     process.exitCode = await develop({
       ...(flags.rest[0] ? { entry: flags.rest[0] } : {}),
       flags: [...flags.booleans],
+      env: baselineEnv(),
     });
     return;
   }
@@ -179,46 +214,6 @@ async function main() {
     throw usageError(
       "nylorun serve was removed. Use nylorun dev [entry] in development, or node dist/src/main.js with NYLORUN_RUNTIME_URL, NYLORUN_TENANT and NYLORUN_SERVER_KEY.",
     );
-  }
-
-  if (command === "studio") {
-    const flags = parseFlags(args, {
-      booleans: ["--local-ui", "--no-open"],
-      values: ["--port"],
-    });
-    if (flags.rest.length) throw usageError(usage);
-    const projectRoot = findProjectRoot() ?? process.cwd();
-    // Surface missing Studio early with the same Install message as preflight.
-    try {
-      createRequire(join(projectRoot, "package.json")).resolve("@nylorun/studio");
-    } catch {
-      throw new Error("Install @nylorun/studio to use the Studio dashboard.");
-    }
-    const auth = await resolveLinkedAuth(projectRoot);
-    const localUi = flags.booleans.has("--local-ui");
-    // I2: startStudio default is hosted; `--local-ui` forces local + cacheDir.
-    const dashboard = await startStudio({
-      runtimeUrl: auth.url,
-      serverKey: auth.key,
-      tenant: { id: auth.tenantId, name: auth.tenantName },
-      open: !flags.booleans.has("--no-open"),
-      localUi,
-      cacheDir: resolveHome(),
-      projectRoot,
-      ...(flags.values.has("--port")
-        ? { port: parsePort(flags.values.get("--port")) }
-        : {}),
-    });
-    console.log(`Studio        ${dashboard.launchUrl}`);
-    if (!localUi && dashboard.launchUrl.startsWith("https://local.nylorun.studio")) {
-      console.log(`Safari or offline: nylorun studio --local-ui`);
-    }
-    await new Promise<void>((resolve, reject) => {
-      const close = () => void dashboard.close().then(resolve, reject);
-      process.once("SIGINT", close);
-      process.once("SIGTERM", close);
-    });
-    return;
   }
 
   if (command === "configure") {
@@ -234,7 +229,7 @@ async function main() {
     const health = await fetch(`${auth.url}/health`).catch(() => undefined);
     if (!health?.ok)
       throw new CliError(
-        `No Runtime Host is listening at ${auth.url}. Start one with "nylorun runtime up".`,
+        `No Runtime is listening at ${auth.url}. Start the stack with "nylorun start".`,
         6,
       );
     const catalog = await fetchModelCatalog({

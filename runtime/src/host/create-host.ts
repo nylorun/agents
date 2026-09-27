@@ -5,7 +5,6 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { unlinkSync, existsSync } from "node:fs";
 import {
   checkCompatibility,
   HOST_PROTOCOL,
@@ -17,13 +16,17 @@ import {
   AdminStatusSchema,
   CreateTenantRequestSchema,
 } from "@nylorun/core/contracts";
-import { hostPaths } from "../tenant/paths.js";
 import {
   TenantBusyError,
   TenantConflictError,
 } from "../tenant/quarantine.js";
-import type { Logger, TenantModule } from "../tenant/types.js";
+import {
+  TenantNotFoundError,
+  type Logger,
+  type TenantModule,
+} from "../tenant/types.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
+import type { ContainerListen } from "./stack-config.js";
 import {
   EXIT_NON_LOOPBACK,
   EXIT_PORT_IN_USE,
@@ -52,11 +55,42 @@ export interface CreateHostOptions {
   coreVersion: string;
   /** Process id reported by `/health` and admin host status. Defaults to `process.pid`. */
   pid?: number;
+  /**
+   * Container mode: bind this address and port instead of host.json's, and
+   * accept only `allowedHosts` in the `Host` check (replacing the
+   * loopback-only rule). host.json then describes the client-facing address.
+   */
+  listen?: ContainerListen;
+  /**
+   * The client-facing URL `/v1/admin/status` reports as `host.url`
+   * (`NYLORUN_PUBLIC_URL`). Defaults to the bound address, which in container
+   * mode is `http://0.0.0.0:4000`.
+   */
+  publicUrl?: string;
+  /**
+   * Infrastructure readiness (`infra/readiness.ts`). `/ready` adds its checks
+   * and answers 503 while it reports not ok. Default: listener and discovery
+   * only.
+   */
+  readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
+  /**
+   * Shutdown steps around closing the Tenants. `close()` runs them whatever asked for it
+   * (SIGTERM in `host/main.ts`, `POST /v1/admin/host/shutdown`): the listener stops, then
+   * `beforeTenants` (stop the Worker so no advance starts on a closing Tenant), the Tenants
+   * close, then `afterTenants` (end the infrastructure clients). A failing step is logged
+   * and shutdown goes on.
+   */
+  shutdown?: {
+    beforeTenants?(): Promise<void>;
+    afterTenants?(): Promise<void>;
+  };
 }
 
 export interface HostServer {
   listen(): Promise<void>;
   close(): Promise<void>;
+  /** Settles once `close()` has finished, whatever called it. */
+  readonly closed: Promise<void>;
   readonly url: string;
 }
 
@@ -107,16 +141,18 @@ export function createHost(options: CreateHostOptions): HostServer {
     coreVersion,
   } = options;
   const pid = options.pid ?? process.pid;
-  const paths = hostPaths(hostRoot);
+  const containerListen = options.listen;
+  const bindHost = containerListen?.host ?? config.host;
+  const bindPort = containerListen?.port ?? config.port;
   let server: Server | undefined;
   let url = "";
-  let listenPort = config.port;
+  let listenPort = bindPort;
   let closing = false;
   let closePromise: Promise<void> | undefined;
 
   const adminStatusBody = async () => {
     const tenants = await module.list();
-    const aggregate = module.summarize();
+    const aggregate = await module.summarize();
     return AdminStatusSchema.parse({
       service: "nylorun-runtime",
       version: RUNTIME_VERSION,
@@ -129,7 +165,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       aggregate,
       host: {
         hostId: config.hostId,
-        url,
+        url: options.publicUrl ?? url,
         pid,
       },
     });
@@ -171,6 +207,9 @@ export function createHost(options: CreateHostOptions): HostServer {
             principalId: body.principalId,
             credentialHash: body.credentialHash,
             idempotencyKey: body.idempotencyKey,
+            ...(body.studioCredentialHash
+              ? { studioCredentialHash: body.studioCredentialHash }
+              : {}),
           });
           return sendJson(
             response,
@@ -226,6 +265,8 @@ export function createHost(options: CreateHostOptions): HostServer {
             response.end();
             return;
           } catch (error) {
+            if (error instanceof TenantNotFoundError)
+              return sendOpaqueNotFound(response);
             const code = (error as { code?: string }).code;
             if (
               error instanceof TenantBusyError ||
@@ -284,6 +325,9 @@ export function createHost(options: CreateHostOptions): HostServer {
           port: listenPort,
           host: config.host,
           allowNonLoopback: config.allowNonLoopback,
+          ...(containerListen
+            ? { allowedHosts: containerListen.allowedHosts }
+            : {}),
         })
       ) {
         sendRejected(
@@ -342,14 +386,15 @@ export function createHost(options: CreateHostOptions): HostServer {
       if (pathname === "/ready") {
         const listener = Boolean(server?.listening);
         const discovery = module.started;
-        const ready = listener && discovery && !closing;
+        const infra = await options.readiness?.();
+        const ready = listener && discovery && !closing && (infra?.ok ?? true);
         sendJson(
           response,
           ready ? 200 : 503,
           {
             status: ready ? "ready" : "not_ready",
             service: "nylorun-runtime",
-            checks: { listener, discovery },
+            checks: { listener, discovery, ...infra?.checks },
           },
         );
         statusCode = ready ? 200 : 503;
@@ -405,7 +450,7 @@ export function createHost(options: CreateHostOptions): HostServer {
         return;
       }
 
-      const resolution = module.resolve(tenantId);
+      const resolution = await module.resolve(tenantId);
       if (resolution.kind !== "open") {
         if (resolution.kind === "quarantined") {
           logger.warn("tenant_quarantined", {
@@ -472,7 +517,13 @@ export function createHost(options: CreateHostOptions): HostServer {
 
   async function listen(): Promise<void> {
     if (server) throw new Error("Already listening");
-    if (!config.allowNonLoopback && !isLoopbackHost(config.host)) {
+    // Container mode binds a non-loopback address behind an explicit Host
+    // allowlist; otherwise only loopback unless host.json allows more.
+    if (
+      !containerListen &&
+      !config.allowNonLoopback &&
+      !isLoopbackHost(config.host)
+    ) {
       throw new HostListenError(
         `Refusing to bind non-loopback host ${config.host} without allowNonLoopback`,
         EXIT_NON_LOOPBACK,
@@ -486,7 +537,7 @@ export function createHost(options: CreateHostOptions): HostServer {
         if (error.code === "EADDRINUSE") {
           reject(
             new HostListenError(
-              `Port ${config.port} on ${config.host} is already in use`,
+              `Port ${bindPort} on ${bindHost} is already in use`,
               EXIT_PORT_IN_USE,
               error,
             ),
@@ -495,12 +546,12 @@ export function createHost(options: CreateHostOptions): HostServer {
         }
         reject(error);
       });
-      server!.listen(config.port, config.host, resolve);
+      server!.listen(bindPort, bindHost, resolve);
     });
     const address = server.address();
     listenPort =
-      typeof address === "object" && address ? address.port : config.port;
-    url = `http://${config.host}:${listenPort}`;
+      typeof address === "object" && address ? address.port : bindPort;
+    url = `http://${bindHost}:${listenPort}`;
     await module.start();
     logger.info("host_listening", {
       hostId: config.hostId,
@@ -508,6 +559,22 @@ export function createHost(options: CreateHostOptions): HostServer {
       pid,
     });
   }
+
+  const step = async (name: string, run: (() => Promise<void>) | undefined) => {
+    try {
+      await run?.();
+    } catch (error) {
+      logger.error("host_shutdown_step_failed", {
+        step: name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  let settleClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    settleClosed = resolve;
+  });
 
   async function close(): Promise<void> {
     if (closePromise) return closePromise;
@@ -521,21 +588,17 @@ export function createHost(options: CreateHostOptions): HostServer {
         });
         server = undefined;
       }
-      await module.close();
-      if (existsSync(paths.state)) {
-        try {
-          unlinkSync(paths.state);
-        } catch {
-          /* best-effort */
-        }
-      }
-    })();
+      await step("beforeTenants", options.shutdown?.beforeTenants);
+      await step("tenants", () => module.close());
+      await step("afterTenants", options.shutdown?.afterTenants);
+    })().finally(settleClosed);
     return closePromise;
   }
 
   return {
     listen,
     close,
+    closed,
     get url() {
       return url;
     },

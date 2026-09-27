@@ -1,9 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { TenantRuntime } from "../src/tenant/runtime.js";
-import { DatabaseSync } from "node:sqlite";
+import { openTestSessionStore, withTestSessionStore } from "./support/store.js";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
@@ -54,7 +51,6 @@ async function boot(options: BootOpts = {}) {
     applicationKey: runtime.applicationKey,
     tenantId: runtime.tenantId,
     root: runtime.root,
-    dbPath: join(runtime.root, "tenants", runtime.tenantId, "tenant.sqlite"),
     authorize: handle.authorize.bind(handle),
   };
 }
@@ -154,7 +150,7 @@ it("stores bearer credentials without returning or persisting the plaintext", as
 
 it("keeps ciphertext unreadable without the key-encryption key", async () => {
   const runtime = await boot({ retainRoot: true });
-  const { root, tenantId, dbPath } = runtime;
+  const { root, tenantId } = runtime;
   let vaultId = "";
   let credentialId = "";
   try {
@@ -189,19 +185,28 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   } finally {
     await runtime.close();
   }
-  for (const name of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    if (existsSync(name))
-      expect(readFileSync(name).includes(Buffer.from(ADA_TOKEN))).toBe(false);
-  }
+  // No stored column holds the plaintext.
+  const rows = await withTestSessionStore({ root, tenantId }, (store) =>
+    store.tx((t) => t.credentialsForVault(vaultId)),
+  );
+  expect(rows).toHaveLength(1);
+  for (const value of Object.values(rows[0]!))
+    expect(
+      Buffer.from(
+        value instanceof Uint8Array ? value : String(value),
+      ).includes(Buffer.from(ADA_TOKEN)),
+    ).toBe(false);
   await expect(
     boot({ hostRoot: root, tenantId, vaultKek: null }),
   ).rejects.toThrow(/key-encryption key|kek-missing/i);
-  const db = new DatabaseSync(dbPath);
-  db.prepare(`UPDATE vault_credentials SET binding_json=? WHERE id=?`).run(
-    JSON.stringify({ url: "https://mcp.example.com/other" }),
-    credentialId,
-  );
-  db.close();
+  const db = await openTestSessionStore({ root, tenantId });
+  await db.tx(async (t) => {
+    const row = await t.getCredential(credentialId);
+    await t.updateCredential(row!.vaultId, credentialId, {
+      bindingJson: JSON.stringify({ url: "https://mcp.example.com/other" }),
+    });
+  });
+  await db.close();
   const again = await boot({ hostRoot: root, tenantId });
   try {
 const agent = Agent({ id: "bot", name: "Bot" }).build();
@@ -666,38 +671,18 @@ it("keeps the host model credential out of user vaults and responses", async () 
     expect(attached.status).toBe(400);
   } finally {
     await runtime.close();
-    const db = new DatabaseSync(runtime.dbPath);
+    const db = await openTestSessionStore(runtime);
     const stored = JSON.stringify(
-      db.prepare("SELECT binding_json, ciphertext FROM vault_credentials").all(),
+      (await db.tx((t) => t.credentialsForVault("host"))).map((row) => ({
+        binding_json: row.bindingJson,
+        ciphertext: row.ciphertext,
+      })),
     );
-    db.close();
+    await db.close();
+    expect(stored).toContain("binding_json");
     expect(stored).not.toContain(secret);
     await rm(runtime.root, { recursive: true, force: true });
   }
-});
-
-it("adds vault scope to a database created before host credentials", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "vault-scope-"));
-  const path = join(directory, "old.sqlite");
-  const created = new DatabaseSync(path);
-  created.exec(
-    `CREATE TABLE vaults(
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      owner_user_id TEXT NOT NULL,
-      metadata_json TEXT,
-      created_at TEXT NOT NULL
-    )`,
-  );
-  created.close();
-  const { Store } = await import("../src/core/store.js");
-  const store = new Store(path, "tn_00000000000000000000000000");
-  const columns = store.db.prepare("PRAGMA table_info(vaults)").all() as {
-    name: string;
-  }[];
-  expect(columns.map((column) => column.name)).toContain("scope");
-  store.db.close();
-  await rm(directory, { recursive: true, force: true });
 });
 
 async function createBearer(

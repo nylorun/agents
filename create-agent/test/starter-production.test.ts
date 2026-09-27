@@ -18,7 +18,6 @@ const compatibility: Compatibility = {
   harness: "0.18.0-beta",
   agents: "0.5.0-beta",
   admin: "0.1.0-beta",
-  studio: "0.8.0-beta",
   runtime: "0.9.0-beta",
 };
 
@@ -30,7 +29,7 @@ afterEach(async () => {
 });
 
 it("starter source imports only @nylorun/agents among Nylorun packages", async () => {
-  const files = await starterFiles(compatibility, true);
+  const files = await starterFiles(compatibility);
   const sources = Object.entries(files).filter(([path]) => path.endsWith(".ts"));
   expect(sources.map(([path]) => path).sort()).toEqual([
     "agents/assistant/agent.ts",
@@ -73,7 +72,7 @@ it("production install tree lists only @nylorun/agents and @nylorun/core from Ny
 
   const project = join(temporary, "app");
   await mkdir(project);
-  const files = await starterFiles(compatibility, true);
+  const files = await starterFiles(compatibility);
   for (const [path, content] of Object.entries(files)) {
     await mkdir(dirname(join(project, path)), { recursive: true });
     await writeFile(join(project, path), content);
@@ -128,4 +127,4 @@ it("production install tree lists only @nylorun/agents and @nylorun/core from Ny
   expect(await readFile(join(project, "src/main.ts"), "utf8")).not.toMatch(
     /@nylorun\/(?!agents(?:["'/]|$))/
   );
-});
+}, 120_000); // packs and installs two tarballs; ~30 s on a busy machine

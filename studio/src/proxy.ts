@@ -4,7 +4,6 @@ import {
   PROTOCOL_VERSION,
   TENANT_HEADER,
 } from "@nylorun/agents";
-import { studioCorsHeaders } from "./access.js";
 
 const LOCAL_OWNER = "local-developer";
 
@@ -33,30 +32,33 @@ function isVaultWrite(method: string, path: string): boolean {
 export type StudioProxyOptions = {
   origin: string;
   runtimeUrl: string;
+  /** Bearer sent to the Runtime for this request's Tenant. Never reaches the browser. */
   serverKey: string;
   tenantId: string;
-  /** When omitted, only `origin` is treated as allowed (legacy callers). */
+  /** Request path prefix stripped before forwarding. Default `/_studio/runtime`. */
+  prefix?: string;
+  /** Origins allowed to change state. Default: only `origin`. */
   allowedOrigins?: ReadonlySet<string>;
-  corsOrigin?: string;
 };
 
-/** Local tooling proxy: credentials stay in this process, not the browser. */
+/**
+ * Trusted Runtime proxy: forwards one allowlisted Tenant API request with the
+ * given Tenant and bearer. Credentials stay in this process, not the browser.
+ */
 export async function proxyRuntime(
   request: IncomingMessage,
   response: ServerResponse,
   options: StudioProxyOptions,
 ): Promise<void> {
   const incoming = new URL(request.url!, options.origin);
-  const path = incoming.pathname.slice("/_studio/runtime".length);
+  const path = incoming.pathname.slice(
+    (options.prefix ?? "/_studio/runtime").length,
+  );
   const method = request.method ?? "GET";
   const allowed =
     options.allowedOrigins ?? new Set<string>([options.origin]);
-  const cors = studioCorsHeaders(options.corsOrigin);
   const fail = (status: number, message: string) => {
-    response.writeHead(status, {
-      "content-type": "application/json",
-      ...cors,
-    });
+    response.writeHead(status, { "content-type": "application/json" });
     response.end(JSON.stringify({ message }));
   };
   const health = method === "GET" && path === "/health";
@@ -142,7 +144,6 @@ export async function proxyRuntime(
         upstream.headers.get("content-type") ?? "application/json",
       "cache-control": "no-store",
       "x-accel-buffering": "no",
-      ...cors,
     });
     response.flushHeaders();
     if (upstream.body)
@@ -161,7 +162,7 @@ export async function proxyRuntime(
       }
     response.end();
   } catch {
-    if (!response.headersSent) fail(502, "Local Runtime is unavailable");
+    if (!response.headersSent) fail(502, "Runtime is unavailable");
     else response.end();
   }
 }

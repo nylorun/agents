@@ -51,12 +51,16 @@ try {
       assert.equal(typeof connectAgents, 'function');
     `
         : `
+      // The Host entry needs Postgres (and the rest of the stack), so here it
+      // only has to load in isolation and refuse to start without a database.
       import assert from 'node:assert/strict';
       import { fork } from 'node:child_process';
       import { randomBytes } from 'node:crypto';
       import { mkdir, writeFile } from 'node:fs/promises';
       import { createRequire } from 'node:module';
       import { join } from 'node:path';
+      import { openTenantRuntime } from '@nylorun/runtime';
+      assert.equal(typeof openTenantRuntime, 'function');
       const hostRoot = join(process.cwd(), 'host-root');
       await mkdir(join(hostRoot, 'home'), { recursive: true });
       await mkdir(join(hostRoot, 'tmp'), { recursive: true });
@@ -78,26 +82,21 @@ try {
           USERPROFILE: join(hostRoot, 'home'),
           TMPDIR: join(hostRoot, 'tmp'),
           NYLORUN_HOME: hostRoot,
-          NYLORUN_DEV_MODEL: 'fixture',
         },
-        stdio:['ignore','ignore','inherit','ipc']
+        stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       });
-      try {
-        const ready = await new Promise((resolve,reject) => {
-          const timer=setTimeout(()=>reject(new Error('Isolated runtime readiness timeout')),20000);
-          child.once('message',message=>{clearTimeout(timer);resolve(message)});
-          child.once('error',error=>{clearTimeout(timer);reject(error)});
-          child.once('exit',code=>{clearTimeout(timer);reject(new Error('Runtime exited '+code))});
-        });
-        assert.equal(ready.type,'ready');
-        assert.equal((await fetch(ready.url+'/ready')).status,200);
-      } finally {
-        if (child.exitCode === null && child.signalCode === null) {
-          const closed=new Promise(resolve=>child.once('exit',resolve));
-          child.kill('SIGTERM');
-          await closed;
-        }
-      }
+      let stderr = '';
+      child.stderr.on('data', (chunk) => (stderr += chunk));
+      const code = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(new Error('Isolated runtime did not exit'));
+        }, 20000);
+        child.once('error', (error) => { clearTimeout(timer); reject(error); });
+        child.once('exit', (exitCode) => { clearTimeout(timer); resolve(exitCode); });
+      });
+      assert.equal(code, 1, stderr);
+      assert.match(stderr, /NYLORUN_DATABASE_URL is required/);
     `;
     await writeFile(join(cwd, "check.mjs"), source);
     await run(process.execPath, ["check.mjs"], {

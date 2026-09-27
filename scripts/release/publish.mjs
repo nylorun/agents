@@ -56,7 +56,11 @@ try {
       lines.find((line) => line.endsWith("^{}")) ?? lines[0]
     ).split(/\s+/)[0];
     if (target === process.env.RELEASE_SHA) continue;
-    const published = await registry.lookup(name, version);
+    // Image-only packages are not on npm. The workflow's images job already
+    // required their image to exist, and never replaces an existing tag.
+    const published = artifacts[name].image
+      ? true
+      : await registry.lookup(name, version);
     if (!published)
       throw new Error(`Tag ${tag} points to a different commit.`);
     priorVersionTags.add(name);
@@ -72,10 +76,15 @@ try {
         console.log(message);
       },
     );
-    await publicCreatorSmoke(
-      plan.packages["create-agent"],
-      plan.compatibility.runtime,
-    );
+    // The images job pushed the CLI's pinned images (release:check verified
+    // the pins against the plan); the public creator must run on them.
+    const { runtime, studio } = (
+      await readJson(join(root, "cli/package.json"))
+    ).nylorun;
+    await publicCreatorSmoke(plan.packages["create-agent"], {
+      runtime,
+      studio,
+    });
     const temporary = await mkdtemp(join(tmpdir(), "nylorun-release-notes-"));
     try {
       for (const [name, version] of Object.entries(plan.packages)) {

@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createFsTenantStore } from "../../src/tenant/store-fs.js";
+import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
+import type { TenantStore } from "../../src/tenant/types.js";
 import { TenantConflictError } from "../../src/tenant/quarantine.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import {
   bootstrapMaterial,
   configForRoot,
@@ -26,21 +27,15 @@ afterEach(async () => {
 async function setup() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-create-"));
   roots.push(hostRoot);
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
-  const store = createFsTenantStore({ hostRoot, openRuntime, configFor });
-  const module = createTenantModule({
-    hostRoot,
-    store,
-    openRuntime,
-    configFor,
-    logger: silentLogger(),
-  });
+  const store = createMemoryTenantStore({ hostRoot, openRuntime, configFor });
+  const module = createTenantModule({ store, logger: silentLogger() });
   return { hostRoot, module, store };
 }
 
-it("create writes directory, envelope, database and bootstrap as one operation", async () => {
-  const { hostRoot, module } = await setup();
+it("create writes the Tenant, its bootstrap principal and its directory", async () => {
+  const { hostRoot, module, store } = await setup();
   const id = newTenantId();
   const boot = bootstrapMaterial();
   const result = await module.create({
@@ -51,8 +46,7 @@ it("create writes directory, envelope, database and bootstrap as one operation",
   expect(result.created).toBe(true);
   const paths = tenantPaths(hostRoot, id);
   expect(existsSync(paths.root)).toBe(true);
-  expect(existsSync(paths.envelope)).toBe(true);
-  expect(existsSync(paths.database)).toBe(true);
+  expect(await store.bootstrapMatches(id, boot)).toBe(true);
   expect(await module.status(id)).toMatchObject({
     id,
     state: "open",
@@ -91,23 +85,18 @@ it("create with different material after collision is 409", async () => {
 it("partial create is removed before the error propagates", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-partial-"));
   roots.push(hostRoot);
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
-  const store = createFsTenantStore({
-    hostRoot,
-    openRuntime,
-    configFor,
-    writeBootstrap() {
+  const memory = createMemoryTenantStore({ hostRoot, openRuntime, configFor });
+  // A create that fails after making the Tenant directory.
+  const store: TenantStore = {
+    ...memory,
+    async create(envelope) {
+      mkdirSync(tenantPaths(hostRoot, envelope.id).root, { recursive: true });
       throw new Error("bootstrap failed");
     },
-  });
-  const module = createTenantModule({
-    hostRoot,
-    store,
-    openRuntime,
-    configFor,
-    logger: silentLogger(),
-  });
+  };
+  const module = createTenantModule({ store, logger: silentLogger() });
   const id = newTenantId();
   await expect(
     module.create({

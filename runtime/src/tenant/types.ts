@@ -6,20 +6,23 @@ import type {
   TenantEnvelope,
 } from "@nylorun/core/contracts";
 import type { FlowLimits } from "../core/limits.js";
+import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
+import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
 
+/**
+ * The Tenant directory on the Host root. The Tenant's data lives in its store (a Postgres
+ * schema); this holds what stays on the Host: the vault key, plugin data, logs, and the
+ * private home, tmp and sandbox directories.
+ */
 export interface TenantPaths {
   // all absolute; derived by tenantPaths()
   root: string;
-  envelope: string;
-  database: string;
-  lock: string;
   kek: string;
   home: string;
   tmp: string;
-  migration: string;
   sandboxes: string;
   pluginData: string;
   logs: string;
@@ -38,12 +41,20 @@ export interface TenantConfig {
   mode: TenantMode;
   paths: TenantPaths;
   sandbox: {
-    backend: "auto" | "microsandbox" | "virtual";
+    backend: "auto" | "virtual";
     backends?: readonly SandboxBackend[];
   };
   model: TenantModelConfig;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
+  /** Action claim lease. Default 30 s. */
   leaseMs?: number;
+  /** Ownership lease of an advance (§10.6); renewed every third while it runs. Default 30 s. */
+  ownerLeaseMs?: number;
+  /**
+   * Delay between Tenant sweep passes when the Tenant runs its own in-process execution.
+   * Default `min(leaseMs, 5 s)`. A Host-level execution sets its own.
+   */
+  sweepIntervalMs?: number;
   /** Operator flow limits (`RuntimeOptions.flow` / `workflows.md` §13). */
   flow?: Partial<FlowLimits>;
   /**
@@ -68,18 +79,24 @@ export interface TenantSummary {
   connectedExecutors: number;
   pendingActions: number;
   uncertainEffects: number;
+  /** Events committed but not yet relayed to Durable Streams. */
+  outboxDepth?: number;
+  /** The oldest unrelayed event's age; 0 when none waits. */
+  relayLagMs?: number;
 }
 
 /** An open Tenant Runtime. Created only by the Tenant module. */
 export interface TenantHandle {
   readonly envelope: TenantEnvelope;
+  /** The handlers Durable Session Execution calls for this Tenant (`worker.ts`). */
+  readonly worker?: TenantWorker;
   /** Headers already validated by the Host. Authenticates, authorizes, dispatches. */
   handle(
     request: IncomingMessage,
     response: ServerResponse,
     url: URL,
   ): Promise<void>;
-  summary(): TenantSummary;
+  summary(): Promise<TenantSummary>;
   /** Stop scheduling; wait for or cancel active turns. */
   drain(activeWork: "drain" | "cancel", timeoutMs?: number): Promise<void>;
   close(): Promise<void>; // ends every stream this Tenant holds
@@ -92,7 +109,6 @@ export type TenantResolution =
 
 export interface Quarantine {
   code:
-    | "locked"
     | "kek-missing"
     | "corrupt"
     | "schema-too-new"
@@ -102,38 +118,67 @@ export interface Quarantine {
     | "open-failed";
   message: string; // redacted, no secrets
   repair: string; // CLI command or instruction
-  lockPath?: string;
-  lockPid?: number;
 }
 
 export interface BootstrapPrincipal {
   principalId: string;
   credentialHash: string;
   idempotencyKey: string;
+  /** When set, also registers application principal `studio` with this hash. */
+  studioCredentialHash?: string;
 }
 
-/** The deep module (§8). HTTP, CLI and tests use only this. */
+/**
+ * The deep module (§8). HTTP, CLI and tests use only this.
+ *
+ * Tenants open on demand (architecture §8.2): the first `resolve`, `status`, `worker` or
+ * `delete` naming a Tenant opens it (bounded by the open timeout) and caches the handle or
+ * the quarantine; `start` only marks discovery done, so a Host with many Tenants opens none
+ * at startup.
+ */
 export interface TenantModule {
-  start(): Promise<void>; // discover + open all (pool 4, 30 s)
+  /** Marks discovery done (`/ready`). Opens nothing. */
+  start(): Promise<void>;
   readonly started: boolean;
-  resolve(id: string): TenantResolution;
+  /** Opens the Tenant on first use; a missing Tenant is `not-found`. */
+  resolve(id: string): Promise<TenantResolution>;
+  /**
+   * The Tenant's Worker handlers, opening it on demand, for `TenantWorkers.resolve`.
+   * Undefined when the Tenant does not exist, is quarantined or is being deleted, or the
+   * module is closed.
+   */
+  worker(id: string): Promise<TenantWorker | undefined>;
   create(
     input: { tenantId: string; name: string } & BootstrapPrincipal,
   ): Promise<{ envelope: TenantEnvelope; created: boolean }>;
+  /**
+   * Every Tenant the store holds, without opening any. A Tenant not opened yet is listed
+   * `open` when its envelope reads; opening it may still quarantine it.
+   */
   list(): Promise<readonly AdminTenant[]>;
   status(id: string): Promise<AdminTenantStatus | undefined>;
   delete(
     id: string,
     activeWork: "refuse" | "drain" | "cancel",
   ): Promise<void>;
-  summarize(): HostAggregate;
+  summarize(): Promise<HostAggregate>;
   close(): Promise<void>;
 }
 
-/** Storage adapter behind the module (§8): OSS directory+SQLite, and in-memory for tests. */
+/**
+ * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`), and
+ * in-memory for tests (`store-memory.ts`).
+ */
 export interface TenantStore {
-  enumerate(): Promise<readonly string[]>; // directory names that look like ids
-  readEnvelope(id: string): Promise<TenantEnvelope>; // throws typed errors
+  /** Ids of every Tenant the store holds. */
+  enumerate(): Promise<readonly string[]>;
+  /** Throws a quarantine error when unreadable, `TenantNotFoundError` when gone. */
+  readEnvelope(id: string): Promise<TenantEnvelope>;
+  /**
+   * Creates the Tenant, or returns `exists` when it already exists (whatever its bootstrap
+   * material; the module compares it with `bootstrapMatches`). The stored envelope's
+   * `schemaVersion` is the store's own; read it back with `readEnvelope`.
+   */
   create(
     envelope: TenantEnvelope,
     bootstrap: BootstrapPrincipal,
@@ -142,12 +187,55 @@ export interface TenantStore {
     id: string,
     bootstrap: BootstrapPrincipal,
   ): Promise<boolean>;
-  open(id: string): Promise<TenantHandle>; // runs migration, may throw Quarantine
+  /**
+   * Opens the Tenant Runtime; runs migration. Throws `TenantNotFoundError` when the Tenant
+   * does not exist, `TenantUnavailableError` when something outside the Tenant failed, and
+   * any other error (a quarantine error, ideally) when the Tenant itself cannot be opened.
+   */
+  open(id: string): Promise<TenantHandle>;
+  /** Removes the Tenant: its data and its Tenant directory. */
   trash(id: string, now: Date): Promise<void>;
+  /** Removes what a failed `create` left, never an existing Tenant. */
   removePartial(id: string): Promise<void>;
 }
 
-/** Injected into the store so WS-B can test without WS-A. */
+/**
+ * Thrown by a store when a Tenant cannot be reached for a reason outside it (the database
+ * or Durable Session Execution is unavailable). The module does not quarantine it: the next
+ * use tries again. The Host answers 503.
+ */
+export class TenantUnavailableError extends Error {
+  readonly status = 503;
+  constructor(
+    readonly tenantId: string,
+    options?: { cause?: unknown },
+  ) {
+    super("Tenant is temporarily unavailable", options);
+    this.name = "TenantUnavailableError";
+  }
+}
+
+/** Thrown by `TenantStore.open` for a Tenant that does not exist. */
+export class TenantNotFoundError extends Error {
+  constructor(readonly tenantId: string) {
+    super(`Tenant ${tenantId} not found`);
+    this.name = "TenantNotFoundError";
+  }
+}
+
+/** What a Tenant store hands the Tenant Runtime it opens. */
+export interface OpenedTenant {
+  /**
+   * The Tenant's opened Session Store. The Tenant Runtime owns it from here on and closes it
+   * on close or on a failed open.
+   */
+  store: SessionStore;
+  /** The Tenant envelope as its store reports it. */
+  envelope: TenantEnvelope;
+}
+
+/** Opens the Tenant Runtime on a store the Tenant store opened (injected, so tests can fake it). */
 export type OpenTenantRuntime = (
   config: TenantConfig,
+  opened: OpenedTenant,
 ) => Promise<TenantHandle>;

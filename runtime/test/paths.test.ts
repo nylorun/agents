@@ -22,9 +22,7 @@ it("derives host paths under the host root", async () => {
   const root = await tempRoot();
   const paths = hostPaths(root);
   expect(paths.config).toBe(join(root, "host.json"));
-  expect(paths.state).toBe(join(root, "host-state.json"));
   expect(paths.credentials).toBe(join(root, "host-credentials.json"));
-  expect(paths.log).toBe(join(root, "runtime.log"));
   expect(paths.tenants).toBe(join(root, "tenants"));
   expect(paths.trash).toBe(join(root, "trash"));
 });
@@ -34,9 +32,6 @@ it("derives tenant paths and rejects invalid ids", async () => {
   const id = newTenantId();
   const paths = tenantPaths(root, id);
   expect(paths.root).toBe(join(root, "tenants", id));
-  expect(paths.envelope).toBe(join(paths.root, "tenant.json"));
-  expect(paths.database).toBe(join(paths.root, "tenant.sqlite"));
-  expect(paths.lock).toBe(join(paths.root, ".runtime-lock"));
   expect(paths.kek).toBe(join(paths.root, "vault-kek"));
   expect(paths.log).toBe(join(paths.root, "logs", "tenant.log"));
   expect(() => tenantPaths(root, "not-a-tenant")).toThrow(/Invalid tenant id/);

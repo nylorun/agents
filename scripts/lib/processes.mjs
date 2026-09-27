@@ -115,8 +115,8 @@ export class ProcessGroup {
           try {
             process.kill(-child.pid, "SIGKILL");
           } catch {}
-          // Never wait forever for close — a detached Host can outlive the
-          // launcher pipe and leave CI smokes wedged until a wall-clock abort.
+          // Never wait forever for close — a detached grandchild can hold the
+          // output pipe open and leave CI smokes wedged until a wall-clock abort.
           await Promise.race([
             exit,
             new Promise((resolve) => setTimeout(resolve, 5000)),

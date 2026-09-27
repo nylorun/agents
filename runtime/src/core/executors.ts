@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { ExecutorScope } from "@nylorun/core/contracts";
+import type { SessionStore } from "../store/types.js";
 
 const equals = (a: string, b: string) => {
   const aa = Buffer.from(a),
@@ -10,7 +11,7 @@ const equals = (a: string, b: string) => {
 /**
  * Executor bearer tokens are 256-bit CSPRNG values minted by the CLI and the wire schema
  * requires at least 16 characters, so an unsalted digest is adequate to keep them out of
- * SQLite at rest. This is not a password KDF and must not be used for one.
+ * the Session Store at rest. This is not a password KDF and must not be used for one.
  */
 export const hashToken = (token: string): string =>
   createHash("sha256").update(token, "utf8").digest("hex");
@@ -104,4 +105,28 @@ export class ExecutorRegistry {
     this.byAgent.set(record.agentId, record);
     this.byHash.set(record.tokenHash, record);
   }
+}
+
+/** A registry seeded from the executors the store persisted (at Tenant open). */
+export async function loadExecutorRegistry(
+  store: SessionStore,
+): Promise<ExecutorRegistry> {
+  const registry = new ExecutorRegistry();
+  const rows = await store.tx((t) => t.listExecutors());
+  registry.seed(
+    rows.map((row) => ({
+      agentId: row.agentId,
+      implementationVersion: row.implementationVersion,
+      ...(row.manifestHash === undefined
+        ? {}
+        : { manifestHash: row.manifestHash }),
+      tokenHash: row.tokenHash,
+      persisted: true,
+      updatedAt: row.updatedAt,
+      ...(row.principalId === undefined
+        ? {}
+        : { principalId: row.principalId }),
+    })),
+  );
+  return registry;
 }

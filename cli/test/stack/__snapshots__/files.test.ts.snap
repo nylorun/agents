@@ -1,0 +1,143 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`.env > renders every setting, including the Restate identity public key 1`] = `
+"# Written by \`nylorun start\`. Mode 0600: holds the Postgres password.
+# Ports and the password are kept across starts; images, UID/GID and the
+# Host root are refreshed on every start.
+
+# Published on 127.0.0.1; clients use http://localhost:<port>.
+NYLORUN_PORT=8787
+NYLORUN_STUDIO_PORT=4161
+NYLORUN_RESTATE_PORT=9070
+
+NYLORUN_POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef
+
+# Restate signs requests to the Runtime's Worker endpoint with the private
+# key in restate-identity.pem; the Runtime accepts only this public key.
+NYLORUN_RESTATE_IDENTITY_KEY=publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv
+
+# The Runtime and Studio containers run as this user, so files they write
+# into the Host root belong to you.
+NYLORUN_UID=501
+NYLORUN_GID=20
+NYLORUN_HOST_ROOT=/Users/dev/.nylorun
+
+NYLORUN_RUNTIME_IMAGE=ghcr.io/nylorun/runtime:0.10.0-beta
+NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
+"
+`;
+
+exports[`compose.yaml > matches the committed file 1`] = `
+"# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
+name: nylorun
+
+services:
+  postgres: # Session Store
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: nylorun
+      POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}
+      POSTGRES_DB: nylorun
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nylorun -d nylorun"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  restate: # Durable Session Execution
+    image: docker.restate.dev/restatedev/restate:1.7.12
+    command: ["--node-name=restate-1"] # stable name, so data is found on restart
+    environment:
+      RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
+    volumes:
+      - restate:/restate-data
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
+    ports:
+      - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9070/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  s2: # Durable Streams; not published, only the Runtime reaches it
+    image: ghcr.io/s2-streamstore/s2:0.43.0
+    command: ["lite", "--local-root", "/home/nonroot/data"] # local disk; listens on port 80
+    # The image runs as uid 65532. Docker fills a new volume with the image's
+    # /home/nonroot, owned by that user; a volume at a path the image lacks
+    # (e.g. /data) is root-owned and s2-lite cannot write it.
+    volumes:
+      - s2:/home/nonroot
+    # The s2 image has no shell or HTTP client, so it has no health check;
+    # the Runtime's /ready covers it.
+    restart: unless-stopped
+
+  runtime:
+    image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
+    command: ["--role", "all"]
+    user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
+    depends_on:
+      postgres: { condition: service_healthy }
+      restate: { condition: service_healthy }
+      s2: { condition: service_started }
+    environment:
+      NYLORUN_HOME: /nylorun
+      NYLORUN_LISTEN_HOST: 0.0.0.0
+      NYLORUN_LISTEN_PORT: "4000"
+      # Host headers the Runtime accepts: the stack network name, and the
+      # published port as clients on this machine address it.
+      NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
+      NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
+      NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
+      NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
+      NYLORUN_WORKER_URL: http://runtime:9080 # registered with Restate; not published
+      NYLORUN_RESTATE_IDENTITY_KEY: \${NYLORUN_RESTATE_IDENTITY_KEY:?run nylorun start}
+      NYLORUN_S2_ENDPOINT: http://s2:80
+      NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
+      NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
+    volumes:
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
+      - workspaces:/workspaces
+    ports:
+      - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, Admin API, SSE
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped
+
+  studio: # dashboard + trusted proxy
+    image: \${NYLORUN_STUDIO_IMAGE:?run nylorun start}
+    user: "\${NYLORUN_UID}:\${NYLORUN_GID}" # reads the 0600 admin key file
+    depends_on:
+      runtime: { condition: service_healthy }
+    environment:
+      NYLORUN_RUNTIME_URL: http://runtime:4000
+      NYLORUN_ADMIN_KEY_FILE: /run/nylorun/host-credentials.json
+      PORT: "3000"
+      # Studio's Host check accepts localhost/127.0.0.1 on the published port.
+      NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
+    volumes:
+      - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
+    ports:
+      - "127.0.0.1:\${NYLORUN_STUDIO_PORT:?run nylorun start}:3000" # opened as http://localhost:<port>
+    healthcheck: # /healthz needs no session; Host studio:3000 is accepted
+      test: ["CMD", "node", "-e", "require('http').get({port:3000,path:'/healthz',headers:{host:'studio:3000'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  postgres: {}
+  restate: {}
+  s2: {}
+  workspaces: {}
+"
+`;

@@ -48,7 +48,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
   const parsed = TenantStatusSchema.parse(body);
   expect(parsed.tenant.id).toBe(runtime.tenantId);
   expect(parsed.path).toContain(runtime.tenantId);
-  expect(parsed.checks.sqlite).toBe(true);
+  expect(parsed.checks.store).toBe(true);
   expect(parsed.checks.schema).toBe(true);
   expect(parsed.model.configured).toBe(false);
   const serialized = JSON.stringify(body);
@@ -58,13 +58,15 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
 it("summary() returns counts only with no string fields (A15)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
-  const summary = runtime.handle.summary();
+  const summary = await runtime.handle.summary();
   expect(summary).toEqual({
     ready: true,
     runningSessions: 0,
     connectedExecutors: 0,
     pendingActions: 0,
     uncertainEffects: 0,
+    outboxDepth: 0,
+    relayLagMs: 0,
   });
   for (const [key, value] of Object.entries(summary)) {
     expect(typeof value, key).not.toBe("string");
@@ -75,7 +77,7 @@ it("drain(cancel) stops scheduling and clears running work (A16)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   await runtime.handle.drain("cancel", 1_000);
-  const summary = runtime.handle.summary();
+  const summary = await runtime.handle.summary();
   expect(summary.ready).toBe(false);
   expect(summary.runningSessions).toBe(0);
 });
@@ -176,7 +178,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
     headers: runtime.headers(),
     body: JSON.stringify({
       requestId: randomUUID(),
-      sandbox: { backend: "microsandbox" },
+      sandbox: { backend: "auto" },
       model: {
         provider: "anthropic",
         model: "claude",

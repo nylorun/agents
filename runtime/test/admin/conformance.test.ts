@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { Agent } from "@nylorun/agents";
+import { createAdmin, deriveStudioToken } from "@nylorun/admin";
 import {
   ERROR_CODES,
   PROTOCOL_HEADER,
@@ -20,7 +21,8 @@ import {
   TenantEnvelopeSchema,
 } from "@nylorun/core/contracts";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
-import { tenantPaths } from "../../src/tenant/paths.js";
+import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
 
 const closers: { close(): Promise<void> }[] = [];
 const roots: string[] = [];
@@ -72,13 +74,18 @@ async function getJson(
 async function startHost() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
+  // On Postgres the Host sees every Tenant in its database: give it its own.
+  const database =
+    TEST_STORE === "postgres" ? await isolatedTestDatabase() : undefined;
   const runtime = await startEphemeralRuntime({
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
+    ...(database ? { database: database.sql } : {}),
   });
   closers.push(runtime);
-  return runtime;
+  if (database) closers.push({ close: database.drop });
+  return { ...runtime, database: database?.sql };
 }
 
 function createBody(overrides?: {
@@ -105,7 +112,7 @@ function createBody(overrides?: {
 
 it("A7: Admin API conformance — create, lost response, conflict, list, get, quarantine, delete modes, status", async () => {
   const runtime = await startHost();
-  const { url, adminKey, hostRoot } = runtime;
+  const { url, adminKey, database } = runtime;
   const headers = adminHeaders(adminKey);
 
   const first = createBody({ name: "primary" });
@@ -166,18 +173,21 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
     state: "open",
   });
 
-  const badId = newTenantId();
-  const paths = tenantPaths(hostRoot, badId);
-  await mkdir(paths.root, { recursive: true });
-  await writeFile(paths.envelope, "{not-json");
-  const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
-    headers,
-  });
-  expect(quarantined.status).toBe(200);
-  const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
-  expect(qStatus.state).toBe("quarantined");
-  expect(qStatus.quarantine?.code).toBe("envelope-invalid");
-  expect(qStatus.quarantine?.repair).toMatch(/nylorun tenant status/);
+  // A schema without its envelope row. The in-memory store cannot hold a broken Tenant;
+  // the module's quarantine is covered by the Tenant module conformance suite.
+  if (TEST_STORE === "postgres") {
+    const badId = newTenantId();
+    const sql = database!;
+    await sql`CREATE SCHEMA ${sql(tenantSchemaName(badId))}`;
+    const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
+      headers,
+    });
+    expect(quarantined.status).toBe(200);
+    const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
+    expect(qStatus.state).toBe("quarantined");
+    expect(qStatus.quarantine?.code).toBe("envelope-invalid");
+    expect(qStatus.quarantine?.repair).toMatch(/nylorun tenant status/);
+  }
 
   const status = await getJson(`${url}/v1/admin/status`, { headers });
   const host = await getJson(`${url}/v1/admin/host`, { headers });
@@ -276,4 +286,56 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
     { method: "DELETE", headers },
   );
   expect(cancelled.status).toBe(204);
+});
+
+it("registers principal studio from studioCredentialHash; the derived Studio key reaches Tenant routes", async () => {
+  const runtime = await startHost();
+  const { url, adminKey } = runtime;
+  const admin = createAdmin({ url, key: adminKey });
+
+  const { tenant, applicationKey } = await admin.createTenant({ name: "studio" });
+  const studioKey = deriveStudioToken(adminKey, tenant.id);
+  const agents = (key: string) =>
+    getJson(`${url}/v1/agents`, { headers: tenantApiHeaders(tenant.id, key) });
+  expect((await agents(studioKey)).status).toBe(200);
+  expect((await agents(applicationKey)).status).toBe(200);
+  // The admin key itself is never a Tenant bearer.
+  expect((await agents(adminKey)).status).toBe(404);
+
+  // Idempotent create compares the Studio hash too.
+  const headers = {
+    ...adminHeaders(adminKey),
+    "content-type": "application/json",
+  };
+  const body = createBody({ name: "studio-retry" });
+  const request = {
+    ...body.request,
+    studioCredentialHash: hashCredential(
+      deriveStudioToken(adminKey, body.request.tenantId),
+    ),
+  };
+  const post = (payload: unknown) =>
+    getJson(`${url}/v1/admin/tenants`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  expect((await post(request)).status).toBe(201);
+  expect((await post(request)).status).toBe(200);
+  expect(
+    (await post({ ...request, studioCredentialHash: "ef".repeat(32) })).status,
+  ).toBe(409);
+  const { studioCredentialHash: _omitted, ...withoutStudio } = request;
+  expect((await post(withoutStudio)).status).toBe(409);
+
+  // A Tenant created without the hash has no Studio principal.
+  const plain = createBody({ name: "no-studio" });
+  expect((await post(plain.request)).status).toBe(201);
+  const denied = await getJson(`${url}/v1/agents`, {
+    headers: tenantApiHeaders(
+      plain.request.tenantId,
+      deriveStudioToken(adminKey, plain.request.tenantId),
+    ),
+  });
+  expect(denied.status).toBe(404);
 });

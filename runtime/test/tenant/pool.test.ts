@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createFsTenantStore } from "../../src/tenant/store-fs.js";
+import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
 import { mapPool, TimeoutError, withTimeout } from "../../src/tenant/pool.js";
 import {
   bootstrapMaterial,
@@ -58,14 +58,12 @@ it("start opens with concurrency 4 and quarantines open timeouts", async () => {
   const slowId = newTenantId();
   const openRuntime = createFakeOpenRuntime({
     hostRoot,
-    claimLock: true,
     openDelayMs: 200,
     failFor: () => undefined,
   });
   // Override delay only for slowId via beforeOpen sleep.
   const delayed = createFakeOpenRuntime({
     hostRoot,
-    claimLock: true,
     beforeOpen: async (config) => {
       if (config.tenantId === slowId) {
         await new Promise((r) => setTimeout(r, 200));
@@ -73,7 +71,7 @@ it("start opens with concurrency 4 and quarantines open timeouts", async () => {
     },
   });
   const configFor = configForRoot(hostRoot);
-  const store = createFsTenantStore({
+  const store = createMemoryTenantStore({
     hostRoot,
     openRuntime: delayed,
     configFor,
@@ -111,8 +109,8 @@ it("start opens with concurrency 4 and quarantines open timeouts", async () => {
   });
   await module.start();
   expect(module.started).toBe(true);
-  expect(module.resolve(okId).kind).toBe("open");
-  const slow = module.resolve(slowId);
+  expect((await module.resolve(okId)).kind).toBe("open");
+  const slow = await module.resolve(slowId);
   expect(slow.kind).toBe("quarantined");
   if (slow.kind === "quarantined") {
     expect(slow.quarantine.code).toBe("open-timeout");

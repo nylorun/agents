@@ -3,63 +3,98 @@ import type {
   SeedTenantConfigResponse,
   TenantStatus,
 } from "@nylorun/core/contracts";
-import type { Store } from "../core/store.js";
+import type { SessionStore } from "../store/types.js";
 import type { ExecutorRegistry } from "../core/executors.js";
 import type { VaultService } from "../vault/service.js";
 import type { SandboxManager } from "../sandbox/manager.js";
-import {
-  readTenantSetting,
-  schemaVersionOf,
-  TENANT_SCHEMA_VERSION,
-  writeTenantSetting,
-} from "./schema.js";
 import type { TenantConfig } from "./types.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
+import type { StuckInvocation } from "../execution/types.js";
+import type { StreamsStatus } from "./streams.js";
+import { FIXTURE_MODEL_SETTING, seedFixtureModel } from "./model-setting.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
   config: TenantConfig;
-  store: Store;
+  store: SessionStore;
   registry: ExecutorRegistry;
   vault: VaultService;
   sandbox: SandboxManager;
   closing: boolean;
   modelConfigured: boolean;
   executorStreams: Map<string, Set<unknown>>;
+  /**
+   * This Tenant's execution invocations that need an operator (`TenantExecution`). Absent
+   * when the execution cannot report them.
+   */
+  stuckInvocations?: () => Promise<StuckInvocation[]>;
+  /** This Tenant's Durable Streams status (`streamsStatus` in `streams.ts`). */
+  streamsStatus?: () => Promise<StreamsStatus>;
+}
+
+/** How long status waits for the execution to list stuck invocations. */
+const STUCK_TIMEOUT_MS = 5000;
+
+/** `TenantStatus.execution`: paused and backing-off invocations, or why they are unknown. */
+async function executionStatus(
+  stuckInvocations: () => Promise<StuckInvocation[]>,
+): Promise<NonNullable<TenantStatus["execution"]>> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const stuck = await Promise.race([
+      stuckInvocations(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Timed out listing stuck invocations")),
+          STUCK_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    return {
+      stuckInvocations: stuck.map((invocation) => ({
+        id: invocation.id,
+        status: invocation.status,
+        service: invocation.service,
+        handler: invocation.handler,
+        key: invocation.key,
+        retryCount: invocation.retryCount,
+        ...(invocation.lastFailure !== undefined
+          ? { lastFailure: invocation.lastFailure }
+          : {}),
+        ...(invocation.modifiedAt !== undefined
+          ? { modifiedAt: invocation.modifiedAt }
+          : {}),
+      })),
+    };
+  } catch (error) {
+    return {
+      stuckInvocations: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Build `TenantStatusSchema` with secrets redacted (A14). */
 export async function buildTenantStatus(
   ctx: TenantStatusContext,
 ): Promise<TenantStatus> {
-  const sessions = ctx.store.all<{ id: string; status: string }>("sessions");
-  const runningSessions = sessions.filter(
-    (s) => s.status === "running" || s.status === "runnable",
-  ).length;
-  const pendingActions = ctx.store
-    .all<{ status: string }>("actions")
-    .filter((a) => a.status === "pending" || a.status === "claimed").length;
-  const uncertainEffects = ctx.store
-    .all<{ status: string }>("effects")
-    .filter((e) => e.status === "uncertain").length;
-
-  let sqlite = false;
-  try {
-    ctx.store.db.prepare("SELECT 1").get();
-    sqlite = true;
-  } catch {
-    sqlite = false;
-  }
-
-  const schemaOk = schemaVersionOf(ctx.store.db) === TENANT_SCHEMA_VERSION;
-  const modelView = ctx.vault.getHostModel();
-  const sandboxReport = await ctx.sandbox.report();
-  const retained = ctx.store.all("sandboxes").length;
+  const health = await ctx.store.health();
+  const { counts, definitions } = await ctx.store.tx(async (t) => ({
+    counts: await t.counts(),
+    definitions: await t.listDefinitions(),
+  }));
+  const [modelView, sandboxReport, execution, streams] = await Promise.all([
+    ctx.vault.getHostModel(),
+    ctx.sandbox.report(),
+    ctx.stuckInvocations ? executionStatus(ctx.stuckInvocations) : undefined,
+    ctx.streamsStatus?.(),
+  ]);
 
   const definitionIds = new Set(
-    ctx.store
-      .all<{ manifest?: { id?: string } }>("definitions")
-      .map((d) => d.manifest?.id)
+    definitions
+      .map((d) => (d.manifest as { id?: unknown } | undefined)?.id)
       .filter((id): id is string => typeof id === "string"),
   );
   const executorIds = new Set(ctx.registry.list().map((e) => e.agentId));
@@ -79,24 +114,26 @@ export async function buildTenantStatus(
     tenant: ctx.envelope,
     path: ctx.config.paths.root,
     checks: {
-      sqlite,
+      store: health.schemaVersion > 0,
       scheduler: !ctx.closing,
       model: ctx.modelConfigured || modelView.configured,
       executors: true,
-      schema: schemaOk,
+      schema: health.ok,
     },
     model: modelView,
     agents,
     counts: {
-      sessions: sessions.length,
-      runningSessions,
-      pendingActions,
-      uncertainEffects,
+      sessions: counts.sessions,
+      runningSessions: counts.runningSessions,
+      pendingActions: counts.pendingActions,
+      uncertainEffects: counts.uncertainEffects,
     },
     sandbox: {
       backend: sandboxReport.backend,
-      retained,
+      retained: counts.sandboxes,
     },
+    ...(execution ? { execution } : {}),
+    ...(streams ? { streams } : {}),
   };
 }
 
@@ -104,32 +141,37 @@ export async function buildTenantStatus(
  * Insert-if-absent Tenant configuration seed (A18).
  * Response lists field names only; never secret values.
  */
-export function seedTenantConfig(
+export async function seedTenantConfig(
   ctx: {
-    store: Store;
+    store: SessionStore;
     vault: VaultService;
   },
   body: SeedTenantConfigRequest,
-): SeedTenantConfigResponse {
+): Promise<SeedTenantConfigResponse> {
   const applied: string[] = [];
   const kept: string[] = [];
 
-  if (body.sandbox?.backend) {
-    const existing = readTenantSetting(ctx.store.db, "sandbox.backend");
-    if (existing === undefined) {
-      writeTenantSetting(ctx.store.db, "sandbox.backend", body.sandbox.backend);
-      applied.push("sandbox.backend");
-    } else {
-      kept.push("sandbox.backend");
-    }
+  const backend = body.sandbox?.backend;
+  if (backend) {
+    const inserted = await ctx.store.tx(async (t) => {
+      if ((await t.getSetting("sandbox.backend")) !== undefined) return false;
+      await t.putSetting("sandbox.backend", backend);
+      return true;
+    });
+    (inserted ? applied : kept).push("sandbox.backend");
+  }
+
+  if (body.fixtureModel) {
+    const inserted = await ctx.store.tx((t) => seedFixtureModel(t));
+    (inserted ? applied : kept).push(FIXTURE_MODEL_SETTING);
   }
 
   if (body.model) {
-    const current = ctx.vault.getHostModel();
+    const current = await ctx.vault.getHostModel();
     if (current.configured) {
       kept.push("model");
     } else {
-      ctx.vault.putHostModel({
+      await ctx.vault.putHostModel({
         requestId: body.requestId,
         idempotencyKey: `seed-model:${body.requestId}`,
         ...body.model,

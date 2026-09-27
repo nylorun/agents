@@ -8,11 +8,13 @@ const allowed = {
   agents: ["core"],
   admin: ["core"],
   runtime: ["core", "harness"],
-  studio: ["agents"],
+  studio: ["agents", "admin"],
   cli: ["agents", "admin"],
 };
-// Sandbox substrate SDKs stay behind the backend adapter contract.
-const substrates = { runtime: ["microsandbox", "just-bash"] };
+// Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
+const substrates = {
+  runtime: ["just-bash", "@restatedev/restate-sdk", "@s2-dev/streamstore"],
+};
 const files = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]
@@ -60,17 +62,17 @@ export function checkBoundaries(name) {
       for (const substrate of substrates[name] ?? []) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["']${substrate}(?:/[^"']*)?["']`);
         if (pattern.test(source) && !/[\\/]adapters[\\/]/.test(path.slice(join(root, name).length)))
-          throw new Error(`${path} imports ${substrate}; only adapters/ may import sandbox substrates`);
+          throw new Error(`${path} imports ${substrate}; only adapters/ may import substrate SDKs`);
       }
       if (name === "core" && /(?:from\s*|import\s*\()["']node:/.test(source))
         throw new Error(`Core must remain portable: ${path}`);
     }
-  // The CLI owns `nylorun`; the Runtime exposes only its launcher.
-  if (
-    name === "runtime" &&
-    Object.keys(pkg.bin ?? {}).some((bin) => bin !== "nylorun-runtime")
-  )
-    throw new Error("The CLI owns the nylorun binary; Runtime exposes only nylorun-runtime");
+  // The CLI owns `nylorun`; the Runtime is a library and an image, with no bin.
+  if (name === "runtime" && pkg.bin !== undefined)
+    throw new Error("Runtime must have no bin: the CLI owns nylorun, and the Runtime runs as the ghcr.io/nylorun/runtime image");
+  // Studio ships only as the ghcr.io/nylorun/studio image, never to npm.
+  if (name === "studio" && (pkg.private !== true || pkg.bin !== undefined))
+    throw new Error("Studio must be private with no bin: it ships only as the ghcr.io/nylorun/studio image");
   console.log(`${name}: package, source and declaration dependencies passed.`);
 }
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url)

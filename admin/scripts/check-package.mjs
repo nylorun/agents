@@ -12,7 +12,7 @@ try {
   );
   checkBoundaries("admin");
   const sdk = await import("@nylorun/admin");
-  for (const name of ["createAdmin", "AdminError"])
+  for (const name of ["createAdmin", "AdminError", "deriveStudioToken"])
     if (sdk[name] === undefined)
       throw new Error(`Missing admin export ${name}`);
   const forbidden = loaded.filter((url) =>

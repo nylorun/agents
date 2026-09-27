@@ -1,16 +1,17 @@
-export { startStudio } from "./host.js";
-export type {
-  StudioConfig,
-  StudioHost,
-  StudioOptions,
-  StudioTenant,
-} from "./host.js";
-export type { StudioMode, StudioHello, Pairing } from "./contract.js";
+/**
+ * The Studio server that `ghcr.io/nylorun/studio` runs (`server-main.ts` is the
+ * container entry). This package is private: it ships only as that image.
+ */
 export {
-  STUDIO_PROTOCOL,
-  HOSTED_ORIGIN,
-  PROXY_HOST,
-  pairingFragment,
-  parsePairingFragment,
-  proxyOrigin,
-} from "./contract.js";
+  parseRuntimeUrl,
+  readAdminKeyFile,
+  startStudioServer,
+} from "./server.js";
+export type {
+  StudioServer,
+  StudioServerHello,
+  StudioServerOptions,
+  StudioTenantSummary,
+} from "./server.js";
+export { proxyRuntime } from "./proxy.js";
+export type { StudioProxyOptions } from "./proxy.js";

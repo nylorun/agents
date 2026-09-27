@@ -14,7 +14,7 @@ function files(dir) {
   );
 }
 
-test("SD-I5: studio package deps stay agents-only among @nylorun/*", () => {
+test("SD-I5: studio package deps stay admin and agents among @nylorun/*", () => {
   const pkg = JSON.parse(readFileSync(join(studioRoot, "package.json"), "utf8"));
   for (const field of [
     "dependencies",
@@ -25,7 +25,6 @@ test("SD-I5: studio package deps stay agents-only among @nylorun/*", () => {
     for (const name of [
       "@nylorun/harness",
       "@nylorun/runtime",
-      "@nylorun/admin",
       "@nylorun/cli",
       "@nylorun/core",
     ])
@@ -35,10 +34,10 @@ test("SD-I5: studio package deps stay agents-only among @nylorun/*", () => {
         `Studio must not depend on ${name}`,
       );
   }
-  const nylorun = Object.keys(pkg.dependencies ?? {}).filter((name) =>
-    name.startsWith("@nylorun/"),
-  );
-  assert.deepEqual(nylorun, ["@nylorun/agents"]);
+  const nylorun = Object.keys(pkg.dependencies ?? {})
+    .filter((name) => name.startsWith("@nylorun/"))
+    .sort();
+  assert.deepEqual(nylorun, ["@nylorun/admin", "@nylorun/agents"]);
 });
 
 test("SD-I5: browser sources exclude engine, host and executor", () => {
@@ -47,6 +46,7 @@ test("SD-I5: browser sources exclude engine, host and executor", () => {
     /@nylorun\/harness/,
     /@nylorun\/runtime/,
     /@nylorun\/core/,
+    /@nylorun\/admin/,
     /@nylorun\/agents\/executor/,
     /agents\/(?:dist|src)\/(?:executor|execute-action)/,
     /from\s+["'][^"']*harness\/src\/flow/,

@@ -133,6 +133,25 @@ it("C4/C5: admin create, list, status, delete and host status", async () => {
   ]);
 });
 
+it("C4: admin create rejects the reserved principal id studio", async () => {
+  const module = createFakeModule();
+  const { url } = await startTestHost({ module });
+  const created = await getJson(`${url}/v1/admin/tenants`, {
+    method: "POST",
+    headers: { ...adminHeaders(), "content-type": "application/json" },
+    body: JSON.stringify({
+      tenantId: newTenantId(),
+      name: "demo",
+      principalId: "studio",
+      credentialHash: "a".repeat(64),
+      idempotencyKey: "idem-1",
+      studioCredentialHash: "b".repeat(64),
+    }),
+  });
+  expect(created.status).toBe(400);
+  expect(module.createCalls).toHaveLength(0);
+});
+
 it("C5: GET /v1/admin/host uses only list() and summarize()", async () => {
   const module = createFakeModule({
     tenants: [

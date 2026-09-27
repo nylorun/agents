@@ -1,8 +1,19 @@
 export { hashManifest } from "./utils/hash.js";
 
 export const PROTOCOL_VERSION = 2;
-export const PROTOCOL_FEATURES = ["runtime-tenants", "admin-status"] as const;
+export const PROTOCOL_FEATURES = [
+  "runtime-tenants",
+  "admin-status",
+  "studio-principal",
+] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
+/**
+ * Host features no client requires: a client that uses one checks the Host's `/health`
+ * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
+ * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
+ */
+export const OPTIONAL_HOST_FEATURES = ["tenant-fixture-model"] as const;
+export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
   min: number;
   max: number;
@@ -11,10 +22,9 @@ export interface ProtocolRange {
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 2,
   max: 2,
-  features: PROTOCOL_FEATURES,
+  features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
-export const LAUNCHER_PROTOCOL = 1;
 
 export const TENANT_HEADER = "Nylorun-Tenant";
 export const PROTOCOL_HEADER = "Nylorun-Protocol";
@@ -29,16 +39,6 @@ export const ERROR_CODES = [
   "active_work",
   "connection_missing",
   "incompatible_host",
-  "platform_unsupported",
-  "launcher_failed",
-  "lock_timeout",
-  "foreign_port",
-  "host_unresponsive",
-  "host_start_failed",
-  "host_schema_newer",
-  "host_format_newer",
-  "downgrade_refused",
-  "upgrade_failed",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

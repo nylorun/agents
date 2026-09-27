@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
@@ -10,10 +9,6 @@ import type {
   TenantHandle,
   TenantSummary,
 } from "../../src/tenant/types.js";
-import {
-  claimTenantLock,
-  releaseTenantLock,
-} from "../../src/tenant/store-fs.js";
 
 export function silentLogger(): Logger {
   return {
@@ -26,7 +21,6 @@ export function silentLogger(): Logger {
 export interface FakeHandleOptions {
   envelope: TenantEnvelope;
   summary?: TenantSummary;
-  lockPath?: string;
   onDrain?: (activeWork: "drain" | "cancel") => void | Promise<void>;
   onClose?: () => void | Promise<void>;
 }
@@ -51,7 +45,7 @@ export function createFakeHandle(
       _response: ServerResponse,
       _url: URL,
     ) {},
-    summary() {
+    async summary() {
       return { ...summary };
     },
     async drain(activeWork) {
@@ -64,45 +58,25 @@ export function createFakeHandle(
     },
     async close() {
       await options.onClose?.();
-      if (options.lockPath) releaseTenantLock(options.lockPath);
     },
   };
 }
 
 export interface FakeRuntimeOptions {
   hostRoot: string;
-  /** Claim .runtime-lock when opening (FS adapter tests). */
-  claimLock?: boolean;
   beforeOpen?: (config: TenantConfig) => void | Promise<void>;
   openDelayMs?: number;
   failFor?: ReadonlySet<string> | ((id: string) => Error | undefined);
 }
 
-function readEnvelopeIfPresent(
-  paths: { envelope: string },
-  fallbackId: string,
-): TenantEnvelope {
-  if (existsSync(paths.envelope)) {
-    try {
-      return JSON.parse(readFileSync(paths.envelope, "utf8")) as TenantEnvelope;
-    } catch {
-      /* fall through */
-    }
-  }
-  const iso = new Date().toISOString();
-  return {
-    id: fallbackId,
-    name: fallbackId,
-    createdAt: iso,
-    updatedAt: iso,
-    schemaVersion: 1,
-  };
-}
-
+/**
+ * A fake `OpenTenantRuntime`: a handle with the store's envelope that does nothing. It closes
+ * the store it was handed, as the real Tenant Runtime does.
+ */
 export function createFakeOpenRuntime(
   options: FakeRuntimeOptions,
 ): OpenTenantRuntime {
-  return async (config) => {
+  return async (config, opened) => {
     await options.beforeOpen?.(config);
     if (options.openDelayMs && options.openDelayMs > 0) {
       await new Promise((r) => setTimeout(r, options.openDelayMs));
@@ -115,14 +89,9 @@ export function createFakeOpenRuntime(
           : undefined;
     if (fail) throw fail;
 
-    const paths = config.paths;
-    if (options.claimLock) {
-      claimTenantLock(paths.lock);
-    }
-    const envelope = readEnvelopeIfPresent(paths, config.tenantId);
     return createFakeHandle({
-      envelope,
-      lockPath: options.claimLock ? paths.lock : undefined,
+      envelope: opened.envelope,
+      onClose: () => opened.store.close(),
     });
   };
 }

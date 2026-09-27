@@ -30,6 +30,10 @@
     "test:tooling": "node --test scripts/test/*.test.mjs",
     "test:dev": "node scripts/smoke-development.mjs",
     "test:setup": "node scripts/smoke-setup.mjs",
+    "test:starter": "node create-agent/scripts/smoke-starter.mjs",
+    "test:acceptance": "node scripts/acceptance/tenants.mjs",
+    "test:stack": "node scripts/smoke-stack.mjs",
+    "test:failure": "node scripts/smoke-failure.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
     "changeset": "changeset",
@@ -44,7 +48,6 @@
     "@changesets/read": "^1.0.1",
     "@manypkg/get-packages": "^3.1.0",
     "chokidar": "^5.0.0",
-    "playwright-core": "^1.63.0",
     "semver": "^7.7.4"
   }
 }

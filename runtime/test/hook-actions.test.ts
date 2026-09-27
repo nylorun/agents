@@ -1,12 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
-import { Store } from "../src/core/store.js";
 
 const server = {
   authorization: `Bearer ${APP}`,
@@ -139,64 +135,5 @@ it("sends one hook action per point and re-delivers it when a lease expires", as
     expect(types).not.toContain("action.uncertain");
   } finally {
     await runtime.close();
-  }
-});
-
-it("ends turns and hook actions left by a schema 3 manifest on startup", async () => {
-  const runtime = await startTestTenant({
-    applicationKey: APP,
-    retainRoot: true,
-    executors: [
-      { token: "executor-token-value", agentId: "hooked", implementationVersion: "dev" },
-    ],
-    modelProvider: async () => ({ output: [{ type: "text", text: "done" }] }),
-  });
-  const { root, tenantId } = runtime;
-  const sqlitePath = join(root, "tenants", tenantId, "tenant.sqlite");
-  try {
-    await openTurn(runtime.url);
-    await pendingActions(runtime.url);
-  } finally {
-    await runtime.close();
-  }
-  const store = new Store(sqlitePath, tenantId);
-  store.tx(() => {
-    const session = store.get("sessions", "s1");
-    session.manifest = { ...session.manifest, manifestSchemaVersion: 3 };
-    store.put("sessions", "s1", session);
-    store.put("actions", "legacy", {
-      actionId: "legacy",
-      sessionId: "s1",
-      kind: "beforeModelCall",
-      status: "pending",
-    });
-  });
-  store.db.close();
-
-  const restarted = await startTestTenant({
-    applicationKey: APP,
-    hostRoot: root,
-    tenantId,
-    executors: [
-      { token: "executor-token-value", agentId: "hooked", implementationVersion: "dev" },
-    ],
-    modelProvider: async () => ({ output: [{ type: "text", text: "done" }] }),
-  });
-  try {
-    const listed = await fetch(`${restarted.url}/v1/actions`, {
-      headers: { authorization: executor.authorization },
-    });
-    const { actions } = (await listed.json()) as { actions: { actionId: string }[] };
-    expect(actions.map((item) => item.actionId)).not.toContain("legacy");
-  } finally {
-    await restarted.close();
-  }
-  const after = new Store(sqlitePath, tenantId);
-  try {
-    expect(after.get("actions", "legacy")).toMatchObject({ status: "cancelled" });
-    expect(after.get("sessions", "s1")).toMatchObject({ status: "failed", activeTurnId: null });
-  } finally {
-    after.db.close();
-    await rm(root, { recursive: true, force: true });
   }
 });

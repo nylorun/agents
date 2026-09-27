@@ -1,25 +1,39 @@
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+/**
+ * `startEphemeralRuntime`: a private, in-process Host on port 0 with one Tenant, for tests and
+ * embeds that need the Runtime's HTTP API without the Docker stack. Nothing in it is durable:
+ * its Tenants live in memory (the memory Session Store and memory Durable Streams) and are gone
+ * after `close()`, or in the Postgres database a test passes. Scheduling is the in-process
+ * execution each Tenant starts for itself.
+ *
+ * It is not what `nylorun dev --ephemeral` runs: that command creates a temporary Tenant on the
+ * running stack, with the Tenant-level fixture model (`model-setting.ts`), and deletes it on
+ * exit.
+ */
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
-import { DatabaseSync } from "node:sqlite";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { hashToken, mintBearerToken } from "../core/executors.js";
 import { createHost } from "../host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";
+import { MemorySessionStore } from "../store/memory.js";
+import type { SessionStore } from "../store/types.js";
 import { createTenantModule } from "./module.js";
-import { createFsTenantStore } from "./store-fs.js";
-import { bootstrapPrincipal } from "./principals.js";
+import { createMemoryTenantStore } from "./store-memory.js";
+import { createPostgresTenantStore } from "./store-pg.js";
+import type { PostgresClient } from "../store/postgres/connect.js";
+import { MemoryStreams } from "../streams/memory.js";
 import { createTenantLogger } from "./logger.js";
 import { hostPaths, tenantPaths } from "./paths.js";
+import { bootstrapPrincipal } from "./principals.js";
 import { openTenantRuntime } from "./runtime.js";
-import { migrateTenantDatabase, readTenantConfig } from "./schema.js";
-import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
+import type {
+  Logger,
+  TenantConfig,
+  TenantModelConfig,
+  TenantStore,
+} from "./types.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -36,20 +50,30 @@ function newHostId(): string {
 }
 
 export interface StartEphemeralRuntimeOptions {
-  /** Absolute Host root. Caller creates any temporary directory. */
+  /**
+   * Absolute Host root for `host.json`, the admin key and each Tenant's files (vault key,
+   * home, sandboxes). Caller creates any temporary directory. Session data never lands here.
+   */
   hostRoot: string;
   tenantId?: string;
   name?: string;
   applicationKey?: string;
   adminKey?: string;
   principalId?: string;
+  /** SHA-256 of a derived Studio key; registers principal `studio`. */
+  studioCredentialHash?: string;
   /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
   baseline?: Readonly<Record<string, string>>;
   model?: TenantModelConfig;
-  sandboxBackend?: "auto" | "microsandbox" | "virtual";
+  sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
   logger?: Logger;
+  /**
+   * A Postgres pool: Tenants become schemas in it (`store-pg.ts`) instead of living in memory.
+   * The caller ends the pool; the schemas stay.
+   */
+  database?: PostgresClient;
 }
 
 export interface EphemeralRuntime {
@@ -63,11 +87,77 @@ export interface EphemeralRuntime {
 }
 
 /**
- * Private Host on port 0 with one Tenant (D9 / A19).
- * Exported from `@nylorun/runtime/core`.
+ * A Tenant store whose Tenants live in memory: one memory Session Store per Tenant, created
+ * with its bootstrap principals, kept across closes and re-opens, dropped on delete.
+ */
+function memoryTenants(options: {
+  configFor: (tenantId: string) => TenantConfig;
+  streams: MemoryStreams;
+  logger: Logger;
+}): { store: TenantStore; close(): Promise<void> } {
+  const stores = new Map<string, MemorySessionStore>();
+  const inner = createMemoryTenantStore({
+    configFor: options.configFor,
+    logger: options.logger,
+    openRuntime: async (config) => {
+      const store = stores.get(config.tenantId);
+      if (!store) throw new Error(`Tenant ${config.tenantId} has no Session Store`);
+      return openTenantRuntime(config, {
+        createKekIfMissing: true,
+        streams: options.streams,
+        store: kept(store),
+        envelope: await inner.readEnvelope(config.tenantId),
+      });
+    },
+  });
+  const store: TenantStore = {
+    ...inner,
+    async create(envelope, bootstrap) {
+      const created = await inner.create(envelope, bootstrap);
+      if (created === "created") {
+        const sessions = new MemorySessionStore({ tenantId: envelope.id });
+        await sessions.tx((t) => bootstrapPrincipal(t, bootstrap));
+        stores.set(envelope.id, sessions);
+      }
+      return created;
+    },
+    async trash(id, now) {
+      await inner.trash(id, now);
+      await stores.get(id)?.close();
+      stores.delete(id);
+    },
+    async removePartial(id) {
+      await inner.removePartial(id);
+      await stores.get(id)?.close();
+      stores.delete(id);
+    },
+  };
+  return {
+    store,
+    async close() {
+      for (const sessions of stores.values()) await sessions.close();
+      stores.clear();
+    },
+  };
+}
+
+/** The Tenant closes its store on close; a memory store must outlive that for a re-open. */
+function kept(store: SessionStore): SessionStore {
+  return {
+    tenantId: store.tenantId,
+    tx: (fn) => store.tx(fn),
+    onCommit: (listener) => store.onCommit(listener),
+    health: () => store.health(),
+    close: async () => {},
+  };
+}
+
+/**
+ * Private Host on port 0 with one Tenant (D9 / A19). Not durable (see the module comment).
+ * Exported from `@nylorun/runtime` and `@nylorun/runtime/core`.
  */
 export async function startEphemeralRuntime(
-  options: StartEphemeralRuntimeOptions,
+  options: StartEphemeralRuntimeOptions
 ): Promise<EphemeralRuntime> {
   const hostRoot = options.hostRoot;
   const paths = hostPaths(hostRoot);
@@ -90,7 +180,7 @@ export async function startEphemeralRuntime(
   writeFileSync(
     paths.credentials,
     `${JSON.stringify(credentials, null, 2)}\n`,
-    { mode: 0o600 },
+    { mode: 0o600 }
   );
 
   const logger: Logger =
@@ -107,20 +197,8 @@ export async function startEphemeralRuntime(
 
   const configFor = (tenantId: string): TenantConfig => {
     const tenant = tenantPaths(hostRoot, tenantId);
-    let sandboxBackend = options.sandboxBackend ?? ("virtual" as const);
-    if (existsSync(tenant.database)) {
-      try {
-        const db = new DatabaseSync(tenant.database, { readOnly: true });
-        try {
-          const seeded = readTenantConfig(db).sandboxBackend;
-          if (seeded) sandboxBackend = seeded;
-        } finally {
-          db.close();
-        }
-      } catch {
-        /* unreadable — keep default */
-      }
-    }
+    // A seeded `sandbox.backend` setting overrides this when the Tenant opens.
+    const sandboxBackend = options.sandboxBackend ?? ("virtual" as const);
     return {
       tenantId,
       mode: "ephemeral",
@@ -139,26 +217,29 @@ export async function startEphemeralRuntime(
     };
   };
 
-  const openRuntime = (config: TenantConfig) =>
-    openTenantRuntime(config, { createKekIfMissing: true });
-
-  const store = createFsTenantStore({
-    hostRoot,
-    openRuntime,
-    configFor,
-    logger,
-    writeBootstrap: (db, bootstrap) => {
-      migrateTenantDatabase(db);
-      bootstrapPrincipal(db, bootstrap);
-    },
-  });
+  const streams = new MemoryStreams();
+  const memory = options.database
+    ? undefined
+    : memoryTenants({ configFor, streams, logger });
+  const store = options.database
+    ? createPostgresTenantStore({
+        hostRoot,
+        sql: options.database,
+        configFor,
+        logger,
+        openRuntime: (config, opened) =>
+          openTenantRuntime(config, {
+            createKekIfMissing: true,
+            streams,
+            ...opened,
+          }),
+      })
+    : memory!.store;
 
   const module = createTenantModule({
-    hostRoot,
     store,
-    openRuntime,
-    configFor,
     logger,
+    onDeleted: (tenantId: string) => streams.deleteTenant(tenantId),
   });
 
   await module.start();
@@ -175,6 +256,9 @@ export async function startEphemeralRuntime(
     principalId,
     credentialHash,
     idempotencyKey: `ephemeral-${tenantId}`,
+    ...(options.studioCredentialHash
+      ? { studioCredentialHash: options.studioCredentialHash }
+      : {}),
   });
 
   // KEK for first vault write; openTenantRuntime also creates when hooks allow.
@@ -203,6 +287,8 @@ export async function startEphemeralRuntime(
       closed = true;
       await host.close();
       await module.close();
+      await memory?.close();
+      await streams.close();
       if (!options.retainRoot) rmSync(hostRoot, { recursive: true, force: true });
     },
   };

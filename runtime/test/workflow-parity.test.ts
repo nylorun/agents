@@ -425,7 +425,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           agentId: "parity",
           ownerUserId: "user-1",
         });
-        void sessionC.input("needs approval", { idempotencyKey: "msg-c" });
+        await sessionC.input("needs approval", { idempotencyKey: "msg-c" });
         const { waits: waitsC } = await waitForWaits(sessionC);
         const waitC = waitsC[0]!;
         const interactionId = interactionIdOf(waitC);
@@ -446,7 +446,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           agentId: "parity",
           ownerUserId: "user-1",
         });
-        void sessionD.input("cancel me", { idempotencyKey: "msg-d" });
+        await sessionD.input("cancel me", { idempotencyKey: "msg-d" });
         await gates.waitUntilHeld();
         await sessionD.cancel({ idempotencyKey: "cancel-d" });
         gates.holdRun = false;
@@ -463,7 +463,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           agentId: "parity",
           ownerUserId: "user-1",
         });
-        void sessionE.input("survive restart", { idempotencyKey: "msg-e" });
+        await sessionE.input("survive restart", { idempotencyKey: "msg-e" });
         const { waits: waitsE } = await waitForWaits(sessionE);
         const waitE = waitsE[0]!;
         const interactionE = interactionIdOf(waitE);
@@ -515,7 +515,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           ownerUserId: "user-1",
         });
         const pinF = (await sessionF.inspect()).manifestHash as string;
-        void sessionF.input("pin me", { idempotencyKey: "msg-f" });
+        await sessionF.input("pin me", { idempotencyKey: "msg-f" });
         const { waits: waitsF } = await waitForWaits(sessionF);
         const waitF = waitsF[0]!;
         const interactionF = interactionIdOf(waitF);
