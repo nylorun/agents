@@ -10,7 +10,7 @@ import {
   verifyReleaseCommit,
   releaseNotes,
 } from "../release/model.mjs";
-import { root, readJson, writeJson, run } from "../lib/repo.mjs";
+import { packageName, root, readJson, writeJson, run } from "../lib/repo.mjs";
 
 test("a Runtime beta release advances creator and preserves unrelated compatibility pins", async () => {
   const directory = await mkdtemp(join(tmpdir(), "nylorun-release-test-"));
@@ -18,7 +18,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     await writeJson(join(directory, "package.json"), {
       name: "fixture",
       private: true,
-      workspaces: ["core", "harness", "agents", "admin", "runtime", "studio", "cli", "create-agent"],
+      workspaces: ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"],
     });
     // @manypkg/get-packages@3 NpmTool only treats a directory as an npm
     // workspace root when package-lock.json is present.
@@ -29,7 +29,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       packages: {
         "": {
           name: "fixture",
-          workspaces: ["core", "harness", "agents", "admin", "runtime", "studio", "cli", "create-agent"],
+          workspaces: ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"],
         },
       },
     });
@@ -46,11 +46,12 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       admin: "0.1.0-beta.1",
       runtime: "0.1.0-beta.1",
       studio: "0.3.0-beta.1",
+      nylorun: "0.1.0-beta.1",
       "create-agent": "0.1.0-beta.1",
     })) {
       await mkdir(join(directory, name));
       await writeJson(join(directory, name, "package.json"), {
-        name: `@nylorun/${name}`,
+        name: packageName(name),
         version,
       });
     }
@@ -99,7 +100,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     const plan = await prepareVersions(directory, "beta");
     assert.deepEqual(plan.packages, {
       runtime: "0.1.1-beta",
-      cli: "0.1.1-beta",
+      nylorun: "0.1.1-beta",
       "create-agent": "0.1.1-beta",
     });
     assert.match(
@@ -108,15 +109,15 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
     );
     assert.deepEqual(plan.compatibility, {
       core: "0.1.0-beta.1",
-      cli: "0.1.1-beta",
+      cli: "0.1.0-beta.1",
       harness: "0.10.0-beta.1",
       agents: "0.1.0-beta.1",
       admin: "0.1.0-beta.1",
       runtime: "0.1.1-beta",
     });
-    // The CLI's image pins: the released Runtime and the kept Studio.
+    // nylorun's image pins: the released Runtime and the kept Studio.
     assert.deepEqual(
-      JSON.parse(await readFile(join(directory, "cli/package.json"), "utf8"))
+      JSON.parse(await readFile(join(directory, "nylorun/package.json"), "utf8"))
         .nylorun,
       { runtime: "0.1.1-beta", studio: "0.3.0-beta.1" },
     );

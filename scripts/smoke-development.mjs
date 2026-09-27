@@ -73,8 +73,11 @@ try {
     ended.catch(() => {});
     const until = (check, options) => Promise.race([eventually(check, options), ended]);
     try {
-      const banner = () => lines.some((l) => l.includes("Ctrl-C stops this Project only"));
-      await until(banner, { timeout: 300_000, message: "the examples runner banner" });
+      // `nylo tenant create` linked examples/ before the runner started.
+      await until(() => existsSync(join(link, "link.json")), {
+        timeout: 300_000,
+        message: "the examples Project link",
+      });
       const status = JSON.parse((await stack.nylorun(["status", "--json"], { echo: false })).stdout);
       assert.equal(status.runtime.healthy, true);
       const runtime = status.services.find((s) => s.service === "runtime");
@@ -93,11 +96,11 @@ try {
           executors.some((e) => e.agentId === id && e.connected),
         );
       };
-      await until(connected, { message: "the examples executors to connect" });
+      await until(connected, { timeout: 300_000, message: "the examples executors to connect" });
 
-      // The runner's login (after `nylorun start`'s own) lands on the Tenant.
+      // `nylorun studio`'s login (after `nylorun start`'s own) lands on the linked Tenant.
       const loginUrl = lines.map((l) => /^Studio\s+(http\S+)/.exec(l)?.[1]).findLast(Boolean);
-      assert.ok(loginUrl, "the runner prints a Studio login URL");
+      assert.ok(loginUrl, "nylorun studio prints a Studio login URL");
       const studio = await studioSession(loginUrl);
       assert.equal(studio.location, `/tenants/${tenantId}`);
       const listed = await (await studio.get("/_studio/tenants")).json();
@@ -107,11 +110,7 @@ try {
       const restarts = () => lines.filter((l) => l.includes("Restarting the examples runner")).length;
       await writeFile(edited, `${original}\n// dev smoke ${Date.now()}\n`);
       await until(() => restarts() === 1, { timeout: 180_000, message: "a runner restart" });
-      await until(
-        () => lines.filter((l) => l.includes("Ctrl-C stops this Project only")).length === 2,
-        { timeout: 120_000, message: "the restarted runner" },
-      );
-      await until(connected, { message: "the executors to reconnect" });
+      await until(connected, { timeout: 120_000, message: "the executors to reconnect" });
     } finally {
       await writeFile(edited, original);
       controller.abort();

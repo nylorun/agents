@@ -10,7 +10,7 @@
  * cases and is reset at the end. H5 needs no stack.
  *
  * H1  two Tenants on one Runtime: agents, sessions, events, vaults isolated
- * H2  two Projects run `nylorun dev` at once; stopping one keeps the stack and the other
+ * H2  two Projects, each linked with `nylo tenant create`, develop at once; stopping one keeps the stack and the other
  * H3  a stack restart restores sessions in both Tenants; a Tenant whose schema
  *     is newer than the Runtime is quarantined, the others keep working
  * H4  executor rotation disconnects only the affected Tenant's stream
@@ -28,7 +28,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProcessGroup } from "../lib/processes.mjs";
-import { npm, root } from "../lib/repo.mjs";
+import { npm, packageName, root } from "../lib/repo.mjs";
 import {
   ensureImages,
   eventually,
@@ -86,7 +86,7 @@ async function installProject(cwd, packed, deps, { name = "nylorun-acceptance", 
       private: true,
       type: "module",
       dependencies: {
-        ...Object.fromEntries(deps.map((dep) => [`@nylorun/${dep}`, `file:${packed[dep]}`])),
+        ...Object.fromEntries(deps.map((dep) => [packageName(dep), `file:${packed[dep]}`])),
         ...extra,
       },
     }),
@@ -398,8 +398,8 @@ async function h9(url, admin, temporary) {
 // ── H8: the stack outlives the installing Project's node_modules ──
 async function h8(url, stack, packed, temporary) {
   const project = join(temporary, "project-h8");
-  await installProject(project, packed, ["core", "agents", "admin", "cli"]);
-  const projectCli = join(project, "node_modules/@nylorun/cli/dist/cli.js");
+  await installProject(project, packed, ["core", "nylorun"]);
+  const projectCli = join(project, "node_modules/nylorun/dist/cli.js");
   const { stdout } = await stack.nylorun(["status", "--json"], { echo: false, entry: projectCli });
   assert.equal(JSON.parse(stdout).runtime.healthy, true);
   await rm(join(project, "node_modules"), { recursive: true, force: true });
@@ -431,7 +431,7 @@ async function h7(url, stack) {
   pass("H7", "concurrent starts leave the running stack as it was; a refused start leaves it running");
 }
 
-// ── H2: two Projects run `nylorun dev` at once ──
+// ── H2: two Projects, each linked with `nylo tenant create`, run `npm run dev` at once ──
 async function h2(url, stack, packed, temporary) {
   const makeProject = async (name) => {
     const project = join(temporary, `project-${name}`);
@@ -445,10 +445,12 @@ async function h2(url, stack, packed, temporary) {
       join(project, "src/main.ts"),
       `import { connectAgents } from "@nylorun/agents";\nimport { agents } from "../agents/index.ts";\nawait connectAgents({ agents }).ready;\n`,
     );
-    await installProject(project, packed, ["core", "agents", "admin", "cli"], {
+    // The Project depends on the SDK only, as the starter does.
+    await installProject(project, packed, ["core", "agents"], {
       name,
       extra: { tsx: "^4.20.0" },
     });
+    await stack.nylo(["tenant", "create"], { cwd: project, echo: false });
     return project;
   };
   const projects = await Promise.all(["alpha-dev", "beta-dev"].map(makeProject));
@@ -458,11 +460,10 @@ async function h2(url, stack, packed, temporary) {
       group.start(
         `dev-${index}`,
         process.execPath,
-        [join(project, "node_modules/@nylorun/cli/dist/cli.js"), "dev", "--no-studio"],
+        [join(project, "node_modules/tsx/dist/cli.mjs"), "watch", "src/main.ts"],
         { cwd: project, env: stack.env },
       ),
     );
-    await Promise.all(devs.map((dev) => dev.line((l) => l.includes("Ctrl-C stops this Project only"), 180_000)));
     const tenants = await Promise.all(
       projects.map(async (project) => {
         const link = JSON.parse(await readFile(join(project, ".nylorun/link.json"), "utf8"));
@@ -488,7 +489,7 @@ async function h2(url, stack, packed, temporary) {
   } finally {
     await group.close();
   }
-  pass("H2", "two Projects run nylorun dev on one stack; stopping one leaves the stack and the other");
+  pass("H2", "two linked Projects develop on one stack; stopping one leaves the stack and the other");
 }
 
 // ── H3: restart restores sessions; a too-new Tenant schema quarantines that Tenant ──
@@ -541,19 +542,20 @@ assertNotRealHome(temporary);
 try {
   const artifacts = join(temporary, "artifacts");
   await mkdir(artifacts);
-  const packed = await packPackages(artifacts, ["core", "harness", "agents", "admin", "runtime", "cli"]);
+  const packed = await packPackages(artifacts, ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli"]);
 
   if (selected("H5")) await h5(temporary, packed);
 
   if (SCENARIOS.some((id) => id !== "H5" && selected(id))) {
-    // The CLI and @nylorun/admin as a developer installs them.
+    // nylorun, the CLI and @nylorun/admin as a developer's npx installs them.
     const tools = join(temporary, "tools");
-    await installProject(tools, packed, ["core", "agents", "admin", "cli"]);
+    await installProject(tools, packed, ["core", "agents", "admin", "nylorun", "cli"]);
     const images = await ensureImages();
     await withStack(
       {
         name: "nylorun-acceptance",
-        cli: join(tools, "node_modules/@nylorun/cli/dist/cli.js"),
+        cli: join(tools, "node_modules/nylorun/dist/cli.js"),
+        nylo: join(tools, "node_modules/@nylorun/cli/dist/cli.js"),
         images,
         startArgs: ["--no-studio"],
       },

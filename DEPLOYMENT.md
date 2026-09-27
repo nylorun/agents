@@ -1,26 +1,27 @@
 # Runtime deployment
 
 This release supports one machine: the **local Docker stack** that
-`nylorun start` runs (the Runtime, Studio, Postgres, Restate and s2-lite, as
+`nylorun up` runs (the Runtime, Studio, Postgres, Restate and s2-lite, as
 Docker Compose project `nylorun`), with **Tenants** served by that Runtime and
 customer executors running on the same machine. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ```sh
-npx nylorun start
+npx nylorun up
 npm run build
-eval "$(npx nylorun status --env)"
+eval "$(npx @nylorun/cli env)"
 npm start
 ```
 
-`nylorun start` starts the stack, or leaves it running when it already is, and
+`nylorun up` starts the stack, or leaves it running when it already is, and
 prints the Runtime URL and a Studio login URL. `npm start` runs
 `node dist/src/main.js`, which connects the application's executor to the
 Runtime with three variables: `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` and
-`NYLORUN_SERVER_KEY`. `nylorun status --env` prints them for the Project that
-`nylorun dev` linked; a supervisor can set them directly instead. The
-application does not start the stack, Studio or a file watcher; start the
-stack first (`nylorun start`), under the same supervisor if you use one.
+`NYLORUN_SERVER_KEY`, or through the Project link. `nylo env`
+(`npx @nylorun/cli env`) prints them for the Project that `nylo tenant create`
+linked; a supervisor can set them directly instead. The application does not
+start the stack, Studio or a file watcher; start the stack first
+(`nylorun up`), under the same supervisor if you use one.
 
 Keep the **Host root** (`NYLORUN_HOME` or `~/.nylorun`) private and persistent
 across ordinary restarts: `host.json`, the admin key in
@@ -28,8 +29,8 @@ across ordinary restarts: `host.json`, the admin key in
 Tenant directory. Tenant data lives in the stack's Docker volumes: Postgres (each
 Tenant's schema), s2-lite (session history), Restate and the workspaces. Keep each
 Project's `.nylorun/link.json` and `credentials.json` private as well; model
-credentials live in the Tenant's vault. `nylorun stop` stops the containers and
-keeps the volumes; `nylorun reset` deletes the volumes and every Tenant.
+credentials live in the Tenant's vault. `nylorun down` (or `stop`) stops the
+containers and keeps the volumes; `nylorun reset` deletes the volumes and every Tenant.
 
 Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
@@ -45,7 +46,7 @@ Each release publishes the Runtime and Studio as multi-arch images
 | `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` |
 | `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
 
-`nylorun start` runs the versions its CLI release pins (`cli/package.json`
+`nylorun up` runs the versions its release pins (`nylorun/package.json`
 `nylorun.runtime` and `nylorun.studio`) beside the official Postgres, Restate
 and s2-lite images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
 the pinned images, for example with a local build. Tags are never moved, and

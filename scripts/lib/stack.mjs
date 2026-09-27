@@ -28,7 +28,9 @@ const IMAGE_ENV = { runtime: "NYLORUN_RUNTIME_IMAGE", studio: "NYLORUN_STUDIO_IM
 const DOCKERFILES = { runtime: "runtime/Dockerfile", studio: "studio/Dockerfile" };
 
 /** The workspace CLI (`npm run build` first). */
-export const WORKSPACE_CLI = join(root, "cli", "dist", "cli.js");
+/** The workspace `nylorun` (the stack); `@nylorun/cli` is the Runtime client, `nylo`. */
+export const WORKSPACE_CLI = join(root, "nylorun", "dist", "cli.js");
+export const WORKSPACE_NYLO = join(root, "cli", "dist", "cli.js");
 
 /** The image id for `tag`, or undefined when Docker has no such image. */
 export async function imageId(tag) {
@@ -113,13 +115,15 @@ export function stackProjectName(prefix) {
 
 /**
  * One stack under a temporary Host root. `cli` is the `nylorun` entry to
- * drive it with (the workspace CLI by default, or a packed install).
+ * drive it with and `nylo` the Runtime client's (the workspace builds by
+ * default, or packed installs).
  * `baseEnv` replaces `process.env` as the environment the stack's commands
  * start from (the release smoke passes one without publishing credentials).
  */
 export async function createStack({
   name = "nylorun-stack",
   cli = WORKSPACE_CLI,
+  nylo = WORKSPACE_NYLO,
   images,
   baseEnv = process.env,
   env: extraEnv = {},
@@ -158,6 +162,14 @@ export async function createStack({
       const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
       if (check && result.code !== 0)
         throw new Error(`nylorun ${args.join(" ")} exited with ${result.code}`);
+      return result;
+    },
+    /** Run `nylo <args>` (the Runtime client) against this stack's Host root. */
+    async nylo(args, { check = true, echo = true, cwd = root, timeout, entry = nylo } = {}) {
+      log(`$ nylo ${args.join(" ")}`);
+      const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
+      if (check && result.code !== 0)
+        throw new Error(`nylo ${args.join(" ")} exited with ${result.code}:\n${result.stderr ?? ""}`);
       return result;
     },
     /** `nylorun start`; returns the Runtime URL and Studio login URL it prints. */
@@ -232,7 +244,7 @@ export async function createStack({
 
 /**
  * Run `fn(stack)` on a fresh stack and always reset it afterwards. With
- * `start: false` the callback starts it (e.g. through `nylorun dev`). Logs
+ * `start: false` the callback starts it (e.g. through `nylorun up`). Logs
  * are printed when the callback fails; Ctrl-C still resets.
  */
 export async function withStack(options, fn) {

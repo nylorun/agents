@@ -186,7 +186,7 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
     const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
     expect(qStatus.state).toBe("quarantined");
     expect(qStatus.quarantine?.code).toBe("envelope-invalid");
-    expect(qStatus.quarantine?.repair).toMatch(/nylorun tenant status/);
+    expect(qStatus.quarantine?.repair).toMatch(/nylo tenant status/);
   }
 
   const status = await getJson(`${url}/v1/admin/status`, { headers });

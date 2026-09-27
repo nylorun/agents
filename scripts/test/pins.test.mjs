@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  assertCliRuntimePin,
-  assertCliStudioPin,
+  assertRuntimeImagePin,
+  assertStudioImagePin,
   assertRuntimePins,
   assertStudioImageOnly,
-  syncCliPins,
+  syncImagePins,
 } from "../release/pins.mjs";
 import { imageRelease, registryHas } from "../release/images.mjs";
 import { readJson, writeJson } from "../lib/repo.mjs";
@@ -20,7 +20,7 @@ async function fixtureRepo({
   studioPrivate = false,
 }) {
   const root = await mkdtemp(join(tmpdir(), "nylorun-pins-"));
-  for (const name of ["runtime", "studio", "cli"])
+  for (const name of ["runtime", "studio", "nylorun"])
     await mkdir(join(root, name), { recursive: true });
   await writeJson(join(root, "runtime/package.json"), {
     name: "@nylorun/runtime",
@@ -31,9 +31,9 @@ async function fixtureRepo({
     version: studioVersion,
     ...(studioPrivate ? { private: true } : {}),
   });
-  const cli = { name: "@nylorun/cli", version: "0.2.1-beta" };
-  if (pins) cli.nylorun = pins;
-  await writeJson(join(root, "cli/package.json"), cli);
+  const manifest = { name: "nylorun", version: "0.1.0-beta" };
+  if (pins) manifest.nylorun = pins;
+  await writeJson(join(root, "nylorun/package.json"), manifest);
   return root;
 }
 
@@ -46,18 +46,18 @@ async function withRepo(options, body) {
   }
 }
 
-test("assertCliRuntimePin fails when nylorun.runtime differs from runtime version", () =>
+test("assertRuntimeImagePin fails when nylorun.runtime differs from runtime version", () =>
   withRepo({ pins: { runtime: "0.8.0-beta", studio: "0.4.0-beta" } }, (root) =>
     assert.rejects(
-      () => assertCliRuntimePin(root),
+      () => assertRuntimeImagePin(root),
       /nylorun\.runtime \(0\.8\.0-beta\) must equal runtime version \(0\.9\.0-beta\)/,
     ),
   ));
 
-test("assertCliStudioPin fails when nylorun.studio is missing or differs", async () => {
+test("assertStudioImagePin fails when nylorun.studio is missing or differs", async () => {
   await withRepo({ pins: { runtime: "0.9.0-beta" } }, (root) =>
     assert.rejects(
-      () => assertCliStudioPin(root),
+      () => assertStudioImagePin(root),
       /nylorun\.studio \(missing\) must equal studio version \(0\.4\.0-beta\)/,
     ),
   );
@@ -93,17 +93,17 @@ test("assertRuntimePins checks the pins against the plan's published or kept ver
     );
   }));
 
-test("syncCliPins writes nylorun.runtime and nylorun.studio and keeps other fields", () =>
+test("syncImagePins writes nylorun.runtime and nylorun.studio and keeps other fields", () =>
   withRepo({ pins: { runtime: "0.8.0-beta", other: "x" } }, async (root) => {
-    await syncCliPins(root, { runtime: "0.9.1-beta", studio: "0.4.1-beta" });
-    const cli = await readJson(join(root, "cli/package.json"));
+    await syncImagePins(root, { runtime: "0.9.1-beta", studio: "0.4.1-beta" });
+    const cli = await readJson(join(root, "nylorun/package.json"));
     assert.deepEqual(cli.nylorun, {
       runtime: "0.9.1-beta",
       other: "x",
       studio: "0.4.1-beta",
     });
     await assert.rejects(
-      () => syncCliPins(root, { runtime: "0.9.1-beta" }),
+      () => syncImagePins(root, { runtime: "0.9.1-beta" }),
       /requires runtime and studio/,
     );
   }));

@@ -6,54 +6,28 @@ import {
   fetchModelCatalog,
 } from "./model/configure.js";
 import { putHostModel } from "./model/host-model.js";
-import { develop, developmentPreflight, LOCAL_UI_REMOVED } from "./dev.js";
 import { CliError } from "./errors.js";
-import { findProjectRoot, requireProjectRoot } from "./project/root.js";
-import { printLinkedEnvExports } from "./project/attach.js";
+import { findProjectRoot } from "./project/root.js";
+import { printLinkedEnvExports } from "./project/env.js";
 import { readLink as readProjectLink } from "./project/link.js";
 import { readCredentials as readProjectCredentials } from "./project/credentials.js";
 import { tenantCommand } from "./tenant/commands.js";
-import { baselineEnv } from "./baseline.js";
-import {
-  isStackCommand,
-  stackCommand,
-  stackUsage,
-  studioCommand,
-  tenantStudioPath,
-} from "./stack/index.js";
 
-const usage = `nylorun <start|stop|status|logs|studio|reset|dev|configure|doctor|tenant>
+const usage = `nylo <tenant|configure|env|doctor>
 
-Local stack (Docker Compose):
-${stackUsage}
-
-Development:
-  dev [entry] [--no-studio] [--no-open]   run the Project against the stack and open Studio on its Tenant
-  configure                               set the Tenant's model provider
-  doctor [--json]                         check Node, Docker and Compose v2, and the stack's health
+Runtime client (the local stack's Runtime, or any Runtime by URL and key):
+  tenant create [name]                    create a Tenant; in a Project, link it and seed it from .env
+  tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete
+  configure                               set the linked Tenant's model provider
+  env                                     print the linked Project's NYLORUN_* variables as exports
   doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers
-  tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete`;
 
-/** Launcher commands removed when the local Runtime moved into the Docker stack. */
-const REMOVED_RUNTIME_COMMANDS: Record<string, string> = {
-  up: "nylorun start",
-  down: "nylorun stop",
-  restart: "nylorun stop, then nylorun start",
-  run: "nylorun start",
-  status: "nylorun status",
-  logs: "nylorun logs",
-};
+The local stack is managed by the nylorun package: npx nylorun up|down|status|logs|studio`;
 
-function removedRuntimeCommand(command: string, args: readonly string[]): CliError {
-  const name = command === "runtime" ? args[0] : command;
-  const replacement =
-    (name && REMOVED_RUNTIME_COMMANDS[name]) ?? "nylorun start|stop|status|logs";
-  const old = command === "runtime" ? `nylorun runtime${name ? ` ${name}` : ""}` : `nylorun ${command}`;
-  return new CliError(
-    `${old} was removed: the local Runtime now runs in a Docker Compose stack. Use ${replacement}.`,
-    2,
-  );
-}
+/** Local stack commands, which moved to the nylorun package. */
+const STACK_COMMANDS = new Set([
+  "up", "down", "start", "stop", "status", "logs", "studio", "reset", "stack", "runtime", "restart", "run",
+]);
 
 interface Flags {
   rest: string[];
@@ -81,7 +55,6 @@ function parseFlags(
         `${arg} was removed. Use the Runtime Host root (NYLORUN_HOME) and a Project link instead.`,
       );
     }
-    if (arg === "--local-ui") throw usageError(LOCAL_UI_REMOVED);
     if (booleanNames.has(arg)) {
       if (booleans.has(arg)) throw usageError(`${arg} may only be supplied once.`);
       booleans.add(arg);
@@ -125,17 +98,9 @@ async function resolveLinkedAuth(projectRoot: string): Promise<{
     return { url, key, tenantId, tenantName: tenantId };
   }
   throw new CliError(
-    `No Project link in ${projectRoot}. Run nylorun dev, or set NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY and NYLORUN_TENANT.`,
+    `No Project link in ${projectRoot}. Run nylo tenant create, or set NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY and NYLORUN_TENANT.`,
     1,
   );
-}
-
-/** The linked Project's Tenant page in Studio, when run inside a linked Project. */
-async function linkedTenantPath(): Promise<string | undefined> {
-  const root = findProjectRoot();
-  if (!root) return undefined;
-  const link = await readProjectLink(root).catch(() => undefined);
-  return link ? tenantStudioPath(link.tenantId) : undefined;
 }
 
 async function main() {
@@ -148,73 +113,31 @@ async function main() {
       1,
     );
 
-  if (command === "runtime" || command === "up" || command === "down")
-    throw removedRuntimeCommand(command, args);
-
   if (command === "tenant") return await tenantCommand(args);
 
-  // The Docker Compose stack.
-  if (command === "status" && args.includes("--env")) {
-    if (args.some((arg) => arg !== "--env"))
-      throw usageError("Usage: nylorun status --env");
+  if (command === "env") {
+    if (args.length) throw usageError("Usage: nylo env");
     await printLinkedEnvExports(findProjectRoot() ?? process.cwd());
-    return;
-  }
-  if (command === "studio") {
-    if (args.includes("--local-ui")) throw usageError(LOCAL_UI_REMOVED);
-    const next = await linkedTenantPath();
-    process.exitCode = await studioCommand(args, baselineEnv(), next ? { next } : {});
-    return;
-  }
-  if (isStackCommand(command)) {
-    process.exitCode = await stackCommand(command, args, baselineEnv());
-    return;
-  }
-  // `nylorun stack <command>`: the Wave 1 spelling, kept as a hidden alias.
-  if (command === "stack") {
-    const [name, ...rest] = args;
-    if (!isStackCommand(name)) throw usageError(usage);
-    process.exitCode = await stackCommand(name!, rest, baselineEnv());
     return;
   }
 
   if (command === "doctor") {
-    const [first, ...others] = args;
-    const topic = first === undefined || first.startsWith("-") ? "stack" : first;
-    const options = topic === "stack" && first !== "stack" ? args : others;
-    // `doctor runtime` checked the removed launcher; it now means the stack.
-    if (
-      !["stack", "runtime", "sandbox"].includes(topic) ||
-      options.some((option) => option !== "--json")
-    )
-      throw usageError("Usage: nylorun doctor [--json] | nylorun doctor sandbox [--json]");
-    const { doctorStack, doctorSandbox } = await import("./doctor.js");
-    const json = options.includes("--json");
-    if (topic === "sandbox") await doctorSandbox({ json });
-    else process.exitCode = await doctorStack({ json, env: baselineEnv() });
+    const [topic, ...options] = args;
+    if (topic !== "sandbox" || options.some((option) => option !== "--json"))
+      throw usageError(
+        "Usage: nylo doctor sandbox [--json]. Check the local stack with npx nylorun doctor.",
+      );
+    const { doctorSandbox } = await import("./doctor.js");
+    await doctorSandbox({ json: options.includes("--json") });
     return;
   }
 
-  if (command === "dev") {
-    const flags = parseFlags(args, {
-      booleans: ["--ephemeral", "--no-studio", "--no-open"],
-    });
-    if (flags.rest.length > 1) throw usageError(usage);
-    requireProjectRoot();
-    developmentPreflight([...flags.rest, ...flags.booleans]);
-    process.exitCode = await develop({
-      ...(flags.rest[0] ? { entry: flags.rest[0] } : {}),
-      flags: [...flags.booleans],
-      env: baselineEnv(),
-    });
-    return;
-  }
-
-  if (command === "serve") {
+  if (command === "dev")
     throw usageError(
-      "nylorun serve was removed. Use nylorun dev [entry] in development, or node dist/src/main.js with NYLORUN_RUNTIME_URL, NYLORUN_TENANT and NYLORUN_SERVER_KEY.",
+      "nylorun dev was removed: run nylo tenant create once in your project, then your project's npm run dev.",
     );
-  }
+  if (STACK_COMMANDS.has(command))
+    throw usageError(`The local stack moved to the nylorun package: npx nylorun ${command}`);
 
   if (command === "configure") {
     const flags = parseFlags(args);
@@ -229,7 +152,7 @@ async function main() {
     const health = await fetch(`${auth.url}/health`).catch(() => undefined);
     if (!health?.ok)
       throw new CliError(
-        `No Runtime is listening at ${auth.url}. Start the stack with "nylorun start".`,
+        `No Runtime is listening at ${auth.url}. Start the local stack with "npx nylorun up".`,
         6,
       );
     const catalog = await fetchModelCatalog({

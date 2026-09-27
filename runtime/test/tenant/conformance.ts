@@ -155,7 +155,7 @@ describe("tenant module conformance", () => {
     expect(row?.name).toBeNull();
     const status = await module.status(bad);
     expect(status?.quarantine?.code).toBe("envelope-invalid");
-    expect(status?.quarantine?.repair).toMatch(/nylorun tenant status/);
+    expect(status?.quarantine?.repair).toMatch(/nylo tenant status/);
   });
 
   it("delete refuses live work and trashes after drain", async () => {
@@ -277,7 +277,7 @@ describe("tenant module conformance", () => {
     expect(bad.kind).toBe("quarantined");
     if (bad.kind === "quarantined") {
       expect(bad.quarantine.code).toBe("open-failed");
-      expect(bad.quarantine.repair).toMatch(/nylorun tenant status/);
+      expect(bad.quarantine.repair).toMatch(/nylo tenant status/);
     }
   });
 

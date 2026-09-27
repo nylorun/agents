@@ -30,7 +30,7 @@ it("G6: unknown and quarantined Host responses are byte-identical", async () => 
         quarantine: {
           code: "kek-missing",
           message: "vault key missing",
-          repair: "nylorun tenant status",
+          repair: "nylo tenant status",
         },
       },
     ],

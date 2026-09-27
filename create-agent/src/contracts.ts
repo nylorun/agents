@@ -9,7 +9,6 @@ export type Compatibility = Readonly<{
 
 export type CreateOptions = Readonly<{
   directory: string;
-  open: boolean;
   yes: boolean;
   /** Deprecation notes for accepted-and-ignored flags, printed first. */
   notes?: readonly string[];

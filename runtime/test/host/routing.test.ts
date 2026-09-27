@@ -72,7 +72,7 @@ it("C3: unknown and quarantined tenants return opaque 404", async () => {
         quarantine: {
           code: "kek-missing",
           message: "vault key missing",
-          repair: "nylorun tenant status",
+          repair: "nylo tenant status",
         },
       },
     ],

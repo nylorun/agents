@@ -38,7 +38,7 @@ test("public installation subprocesses cannot inherit publication credentials", 
   assert.equal(child.NYLORUN_STUDIO_IMAGE, undefined);
 });
 
-test("the publication smoke creates a project and runs nylorun dev --no-open without a terminal", async () => {
+test("the publication smoke creates a project without a terminal and starts nothing", async () => {
   const args = publicCreatorArguments("0.2.0-beta");
   assert.ok(args.includes("--package=@nylorun/create-agent@0.2.0-beta"));
   const options = parse(args.slice(args.indexOf("--") + 2));
@@ -64,10 +64,9 @@ test("the publication smoke creates a project and runs nylorun dev --no-open wit
       checkDocker: async () => ({ ok: true }),
     },
   );
-  assert.deepEqual(commands, [
-    ["install", "--yes"],
-    ["run", "dev", "--", "--no-open"],
-  ]);
+  assert.ok(!args.includes("--no-open"));
+  // The creator only installs; the smoke runs nylorun up, nylo tenant create and npm run dev.
+  assert.deepEqual(commands, [["install", "--yes"]]);
 });
 
 test("the smoke reads the dev banner and the stack's services", () => {

@@ -2,8 +2,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { checkBoundaries } from "../../scripts/check-boundaries.mjs";
 checkBoundaries("cli");
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-if (pkg.bin?.nylorun !== "dist/cli.js")
-  throw new Error("Missing nylorun binary");
+if (pkg.bin?.nylo !== "dist/cli.js")
+  throw new Error("Missing nylo binary");
+// nylorun (the stack package) owns the `nylorun` command and the image pins.
+if (pkg.bin?.nylorun !== undefined || pkg.nylorun !== undefined)
+  throw new Error("The CLI must not declare the nylorun binary or image pins");
 const deps = Object.keys(pkg.dependencies ?? {}).sort();
 const expected = [
   "@earendil-works/pi-ai",
@@ -18,7 +21,6 @@ if (JSON.stringify(deps) !== JSON.stringify(expected)) {
 for (const path of [
   "dist/cli.js",
   "dist/model/configure.js",
-  "dist/dev.js",
   "README.md",
   "LICENSE",
   "CHANGELOG.md",

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile, rm, mkdir } from "node:fs/promises";
-import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { CliError } from "../errors.js";
 import { resolveHome } from "../home.js";
 import {
@@ -20,8 +20,8 @@ export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"]
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  start [--no-studio]               start the stack; print the Runtime URL and a Studio login URL
-  stop                              stop the stack's containers; keep volumes
+export const stackUsage = `  up|start [--no-studio]            set up the stack on first run, then start it; print the Runtime URL and a Studio login URL
+  down|stop                         stop the stack's containers; keep volumes
   status [--json] [--env]           services, endpoints and Runtime health (--env: the linked Project's variables)
   logs [service] [-f] [--tail <n>]  stack logs (${STACK_SERVICES.join(", ")})
   studio [--no-open]                open a fresh Studio login (on the linked Project's Tenant); start the stack if it is stopped
@@ -301,6 +301,10 @@ async function tryStudioLogin(
   return undefined;
 }
 
+/** Printed by `start` while the Host has no Tenant: nylorun never creates one. */
+export const TENANT_HINT =
+  "No Tenant yet. Create one in Studio, or run `npx @nylorun/cli tenant create` in your project.";
+
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(args, { booleans: ["--no-studio"] }, "nylorun start [--no-studio]");
   if (flags.rest.length) throw usageError("Usage: nylorun start [--no-studio]");
@@ -311,6 +315,8 @@ async function start(ctx: Context, args: readonly string[]): Promise<number> {
     const login = await tryStudioLogin(ctx, started.studioPort, started.adminKey);
     if (login) ctx.deps.out(`Studio    ${login}`);
   }
+  if ((await adminTenantCount(ctx.deps, started.runtimeUrl, started.adminKey)) === 0)
+    ctx.deps.err(TENANT_HINT);
   return 0;
 }
 
@@ -550,8 +556,8 @@ async function runningStack(
 }
 
 /**
- * Start the stack unless it is already running (`nylorun dev`, `nylorun
- * studio`): the `start` code path without its own output. Compose progress
+ * Start the stack unless it is already running (`nylorun studio`): the
+ * `start` code path without its own output. Compose progress
  * still streams, since the first run pulls images.
  */
 export async function ensureStack(
@@ -634,6 +640,9 @@ export async function runStudioCommand(
 const COMMANDS: Record<string, (ctx: Context, args: readonly string[]) => Promise<number>> = {
   start,
   stop,
+  // Docker Compose spellings.
+  up: start,
+  down: stop,
   status,
   logs,
   reset,
@@ -644,7 +653,7 @@ export function isStackCommand(name: string | undefined): boolean {
   return name !== undefined && Object.hasOwn(COMMANDS, name);
 }
 
-/** Run one stack command (`start`, `stop`, `status`, `logs`, `reset`, `studio`). */
+/** Run one stack command (`up`/`start`, `down`/`stop`, `status`, `logs`, `reset`, `studio`). */
 export async function runStackCommand(
   name: string,
   args: readonly string[],

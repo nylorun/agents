@@ -129,7 +129,7 @@ export async function ensureHostModel(options: {
     return;
   }
   throw new Error(
-    "Model provider is not configured. Run nylorun dev in a terminal to set it up, or open Studio.",
+    "Model provider is not configured. Run nylo configure in a terminal to set it up, or open Studio.",
   );
 }
 

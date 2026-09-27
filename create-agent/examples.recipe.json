@@ -9,12 +9,13 @@
     "@nylorun/core": "file:../core"
   },
   "devDependencies": {
+    "nylorun": "file:../nylorun",
     "@nylorun/cli": "file:../cli",
     "@nylorun/admin": "file:../admin",
     "vitest": "^4.1.11"
   },
   "scripts": {
-    "configure": "nylorun configure",
+    "configure": "nylo configure",
     "test": "vitest run",
     "codex:preflight": "node scripts/codex-preflight.mjs"
   },

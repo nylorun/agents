@@ -8,6 +8,7 @@ import {
   runStackCommand,
   runStudioCommand,
   stackProject,
+  TENANT_HINT,
   tenantStudioPath,
   withNext,
 } from "../../src/stack/commands.js";
@@ -41,10 +42,11 @@ const compose = (home: string, project = "nylorun") => [
 ];
 
 describe("command names", () => {
-  it("knows the six stack commands", () => {
-    for (const name of ["start", "stop", "status", "logs", "reset", "studio"])
+  it("knows the six stack commands and the Compose spellings up and down", () => {
+    for (const name of ["start", "stop", "status", "logs", "reset", "studio", "up", "down"])
       expect(isStackCommand(name)).toBe(true);
-    expect(isStackCommand("up")).toBe(false);
+    expect(isStackCommand("dev")).toBe(false);
+    expect(isStackCommand("tenant")).toBe(false);
     expect(isStackCommand(undefined)).toBe(false);
   });
 
@@ -76,6 +78,42 @@ describe("start", () => {
     expect(login?.url).toBe("http://localhost:4161/_studio/login-tokens");
     expect(login?.init?.method).toBe("POST");
     expect((login?.init?.headers as Record<string, string>).authorization).toMatch(/^Bearer [0-9a-f]{64}$/);
+  });
+
+  it("up is start: it writes the stack on the first run and reuses it after", async () => {
+    const home = await temporaryHome();
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    expect(await runStackCommand("up", [], deps)).toBe(0);
+    const compose = readFileSync(stackPaths(home).compose, "utf8");
+    const env = readFileSync(stackPaths(home).env, "utf8");
+    expect(deps.errors.some((line) => line.startsWith("Wrote "))).toBe(true);
+    deps.errors.length = 0;
+    expect(await runStackCommand("up", ["--no-studio"], deps)).toBe(0);
+    expect(deps.errors.some((line) => line.startsWith("Wrote "))).toBe(false);
+    expect(readFileSync(stackPaths(home).compose, "utf8")).toBe(compose);
+    expect(readFileSync(stackPaths(home).env, "utf8")).toBe(env);
+  });
+
+  it("points to Tenant creation while the Host has no Tenant, and creates none", async () => {
+    const home = await temporaryHome();
+    const fetch = fakeFetch((url) => {
+      if (url.endsWith("/health"))
+        return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
+      if (url.endsWith("/v1/admin/status")) return json({ tenants: [] });
+      if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
+      return undefined;
+    });
+    const deps = testDeps(home, { docker: fakeDocker(), fetch });
+    expect(await runStackCommand("up", [], deps)).toBe(0);
+    expect(deps.errors).toContain(TENANT_HINT);
+    expect(
+      fetch.requests.filter((request) => request.init?.method === "POST").map((request) => request.url),
+    ).toEqual(["http://localhost:4161/_studio/login-tokens"]);
+
+    const withTenants = testDeps(home, { docker: fakeDocker(), fetch: await healthyFetch(home) });
+    await runStackCommand("up", [], withTenants);
+    expect(withTenants.errors).not.toContain(TENANT_HINT);
   });
 
   it("uses a login URL Studio returns, and the project override", async () => {
@@ -214,6 +252,12 @@ describe("stop, logs, status", () => {
   it("stop runs compose stop", async () => {
     const { home, docker, deps } = await started();
     expect(await runStackCommand("stop", [], deps)).toBe(0);
+    expect(docker.streamed).toEqual([[...compose(home), "stop"]]);
+  });
+
+  it("down is stop: the containers stop and the volumes stay", async () => {
+    const { home, docker, deps } = await started();
+    expect(await runStackCommand("down", [], deps)).toBe(0);
     expect(docker.streamed).toEqual([[...compose(home), "stop"]]);
   });
 

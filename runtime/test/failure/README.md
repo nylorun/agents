@@ -14,7 +14,7 @@ npm run test:stack:down -w @nylorun/runtime
 ```
 
 The files skip unless both variables are set. CI runs them in the `integration`
-job. §17.3 also runs against a real `nylorun start` stack, where the `runtime`
+job. §17.3 also runs against a real `nylorun up` stack, where the `runtime`
 container is killed with `docker compose kill` (`npm run test:failure`,
 `scripts/smoke-failure.mjs`, in the `stack` job).
 

@@ -19,8 +19,10 @@ await connectAgents({ agents }).ready;
 Application mode saves definitions, registers **derived** executor credentials
 (HMAC of the application key + Tenant + agent id), and connects. Restarts and
 replicas re-register the same hashes; tokens are never stored in the Project.
-The same entry runs under `nylorun dev` and as `node dist/src/main.js`
-(`npm start`). See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
+The same entry runs under the project's `npm run dev` (`tsx watch`) and as
+`node dist/src/main.js` (`npm start`). It finds the Runtime through the three
+`NYLORUN_*` variables or the Project link that `npx @nylorun/cli tenant create`
+writes; with neither, it fails with `connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
 for upgrading from `nylorun serve`.
 
 ## Connection resolution
@@ -84,7 +86,7 @@ await connection.close();
 ```
 
 ```sh
-eval "$(npx nylorun status --env)"
+eval "$(npx @nylorun/cli env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
 ```
 

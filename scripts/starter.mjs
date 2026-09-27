@@ -15,7 +15,11 @@ import {
   workspaceCommands,
 } from "./lib/development.mjs";
 
-/** A fresh starter under .tmp/ whose @nylorun packages are the workspace's. */
+/**
+ * A fresh starter under .tmp/ whose @nylorun packages are the workspace's. Like
+ * a developer's project it depends on the SDK only; the loop drives it with the
+ * workspace nylorun and nylo (scripts/lib/development.mjs).
+ */
 export async function renderPreview({ repo = root } = {}) {
   const { starterFiles } = await import(
     pathToFileURL(join(repo, "create-agent/dist/scaffold.js")).href
@@ -35,8 +39,6 @@ export async function renderPreview({ repo = root } = {}) {
   const local = (name) => `file:${join(repo, name).replaceAll("\\", "/")}`;
   for (const name of ["core", "agents"])
     manifest.dependencies[`@nylorun/${name}`] = local(name);
-  for (const name of ["admin", "cli"])
-    manifest.devDependencies[`@nylorun/${name}`] = local(name);
   await writeJson(join(project, "package.json"), manifest);
   return project;
 }

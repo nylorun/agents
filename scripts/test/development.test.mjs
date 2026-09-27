@@ -26,11 +26,12 @@ test("options: --no-studio implies --no-open; unknown and repeated flags fail", 
 test("an edit rebuilds its dependents and the images built from it", () => {
   assert.deepEqual(rebuildPlan(["harness"]), { packages: ["harness", "runtime"], images: ["runtime"] });
   assert.deepEqual(rebuildPlan(["core"]), {
-    packages: ["core", "harness", "agents", "admin", "runtime", "cli"],
+    packages: ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli"],
     images: ["runtime", "studio"],
   });
   assert.deepEqual(rebuildPlan(["agents"]), { packages: ["agents", "cli"], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["cli"]), { packages: ["cli"], images: [] });
+  assert.deepEqual(rebuildPlan(["nylorun"]), { packages: ["nylorun"], images: [] });
   assert.deepEqual(rebuildPlan(["studio"]), { packages: [], images: ["studio"] });
   assert.deepEqual(rebuildPlan(["studio"], { studio: false }), { packages: [], images: [] });
 });
@@ -68,16 +69,22 @@ test(
       async startStack() {
         calls.push("start");
       },
-      startRunner(group, { open }) {
+      async linkProject() {
+        calls.push("link");
+      },
+      async openStudio(_group, { open }) {
+        calls.push(`studio open=${open}`);
+      },
+      startRunner(group) {
         runners += 1;
-        calls.push(`runner open=${open}`);
+        calls.push("runner");
         return group.start("examples", process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
       },
     };
     const controller = new AbortController();
     let app;
     try {
-      for (const name of ["core", "harness", "agents", "admin", "runtime", "cli", "studio"])
+      for (const name of ["core", "harness", "agents", "admin", "runtime", "nylorun", "cli", "studio"])
         await mkdir(join(repo, name, "src"), { recursive: true });
       app = await develop(
         { studio: true, open: true, watch: true },
@@ -96,10 +103,13 @@ test(
         "build agents",
         "build admin",
         "build runtime",
+        "build nylorun",
         "build cli",
         "images",
         "start",
-        "runner open=true",
+        "link",
+        "studio open=true",
+        "runner",
       ]);
       const until = async (check) => {
         for (let i = 0; i < 200; i++) {
@@ -117,7 +127,7 @@ test(
         "build runtime",
         "image runtime",
         "start",
-        "runner open=false",
+        "runner",
       ]);
 
       calls.length = 0;
@@ -131,7 +141,7 @@ test(
       failing = false;
       await writeFile(join(repo, "cli/src/cli.ts"), "export const fixed = 1;");
       await until(() => runners === 3);
-      assert.deepEqual(calls, ["build cli", "runner open=false"]);
+      assert.deepEqual(calls, ["build cli", "runner"]);
 
       controller.abort();
       assert.equal(await app.done, 0);
@@ -154,6 +164,7 @@ test("a runner that exits on its own ends development with its code", { timeout:
         commands: {
           prepareImages: async () => {},
           startStack: async () => {},
+          linkProject: async () => {},
           startRunner: (group) => group.start("examples", process.execPath, ["-e", "process.exit(3)"]),
         },
       },

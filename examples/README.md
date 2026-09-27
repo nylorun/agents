@@ -13,7 +13,7 @@ npm run setup
 npm run dev
 ```
 
-Root development rebuilds local packages and the Runtime and Studio images, runs them in the local Docker stack (Runtime on port 8787, Studio on port 4161 by default), and runs these examples on their own Tenant. The first start stores the model provider in that Tenant's vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the stack is running.
+Root development rebuilds local packages and the Runtime and Studio images, runs them in the local Docker stack (Runtime on port 8787, Studio on port 4161 by default), and runs these examples on their own Tenant, created once with `nylo tenant create`, which seeds the model provider from `.env` into that Tenant's vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the stack is running.
 
 `MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. An existing `.env/` directory must be migrated by hand (back it up, create a `.env` file with those variables, and move OAuth credentials to `.nylorun/auth.json`); local state is never moved automatically.
 
@@ -27,7 +27,7 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 Agent({ id: "analyst", instructions: "..." }).use(sandbox())
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. The `nylorun dev` banner prints the backend, and `npx nylorun doctor sandbox` reports its status. Try in Studio:
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. `npx nylo doctor sandbox` reports its backend and status. Try in Studio:
 
 - `Create sales.csv with three regions and numbers, then use Python to total them.`
 - `Download https://example.com with curl.` The request is blocked: the default `dev` network preset allows only package registries and code hosts.

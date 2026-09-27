@@ -14,6 +14,6 @@ it("every quarantine code carries a CLI repair string", async () => {
   for (const code of codes) {
     const repair = repairFor(code, { tenantId: "tn_test" });
     expect(repair.length).toBeGreaterThan(0);
-    expect(repair).toMatch(/nylorun|restore/);
+    expect(repair).toMatch(/nylo tenant status|restore/);
   }
 });

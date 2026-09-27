@@ -1,7 +1,11 @@
 import type { CreateOptions } from "./contracts.js";
 
 export const usage =
-  "Usage: npm create @nylorun/agent@beta <directory> [--no-open] [--yes]";
+  "Usage: npm create @nylorun/agent@beta <directory> [--yes]";
+
+/** Printed when `--no-open` is passed; the flag is accepted and ignored. */
+export const NO_OPEN_IGNORED =
+  "--no-open is ignored: the creator no longer starts development, so it opens no browser.";
 
 /** Printed when `--no-studio` is passed; the flag is accepted and ignored. */
 export const NO_STUDIO_DEPRECATED =
@@ -18,10 +22,10 @@ export function parse(argv: readonly string[]): CreateOptions {
     throw new Error(usage);
   return Object.freeze({
     directory,
-    open: !flags.includes("--no-open"),
     yes: flags.includes("--yes"),
-    notes: Object.freeze(
-      flags.includes("--no-studio") ? [NO_STUDIO_DEPRECATED] : []
-    ),
+    notes: Object.freeze([
+      ...(flags.includes("--no-studio") ? [NO_STUDIO_DEPRECATED] : []),
+      ...(flags.includes("--no-open") ? [NO_OPEN_IGNORED] : []),
+    ]),
   });
 }

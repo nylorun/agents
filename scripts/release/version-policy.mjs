@@ -2,16 +2,17 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import semver from "semver";
-import { packages, root } from "../lib/repo.mjs";
+import { packageName, packages, root } from "../lib/repo.mjs";
 
 const impact = { none: 0, patch: 1, minor: 2, major: 3 };
 
 /**
  * The packages the creator pins in create-agent/compatibility.json: what a
- * generated project installs (core, agents, cli, admin) and the versions
- * those depend on (harness, runtime). Studio is not one: it ships only as
- * `ghcr.io/nylorun/studio`, pinned by the CLI (`cli/package.json`
- * `nylorun.studio`), so a Studio release reaches projects through the CLI.
+ * generated project or the examples install (core, agents, cli, admin) and
+ * the versions those depend on (harness, runtime). Neither nylorun nor Studio
+ * is one: developers run nylorun with npx, and Studio ships only as
+ * `ghcr.io/nylorun/studio`, pinned by nylorun (`nylorun/package.json`
+ * `nylorun.studio`), so a Studio release reaches developers through nylorun.
  */
 export const CREATOR_PINS = Object.freeze([
   "core",
@@ -21,7 +22,7 @@ export const CREATOR_PINS = Object.freeze([
   "runtime",
   "cli",
 ]);
-const fullName = (name) => `@nylorun/${name}`;
+const fullName = packageName;
 const core = (version) => {
   const parsed = semver.parse(version);
   if (!parsed) throw new Error(`Invalid current version: ${version}`);
@@ -211,13 +212,13 @@ export function planVersions(
   }
   // Release consumers whenever a pinned production dependency changes.
   for (const [dependency, consumers] of [
-    ["core", ["harness", "agents", "admin", "runtime"]],
+    ["core", ["harness", "agents", "admin", "runtime", "nylorun"]],
     ["harness", ["runtime"]],
     ["agents", ["studio", "cli"]],
     ["admin", ["cli"]],
-    ["runtime", ["cli"]],
-    // The CLI pins the Studio image (nylorun.studio).
-    ["studio", ["cli"]],
+    // nylorun pins the Runtime and Studio images (nylorun.runtime, nylorun.studio).
+    ["runtime", ["nylorun"]],
+    ["studio", ["nylorun"]],
   ]) {
     if (versions[dependency] && versions[dependency] !== before[dependency])
       for (const name of consumers) {

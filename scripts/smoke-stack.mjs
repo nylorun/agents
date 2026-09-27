@@ -7,9 +7,10 @@
 // unless NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI).
 // Needs the CLI and @nylorun/admin built. Starts the stack, checks
 // `nylorun status --json` and the Runtime's /ready (Postgres, Restate, S2),
-// creates a Tenant through @nylorun/admin, mints a Studio login, checks that
-// every file in the Host root belongs to this user (the bind mount's UID/GID),
-// and always ends with `nylorun reset --yes`.
+// creates a Tenant through @nylorun/admin, mints a Studio login, runs
+// `nylorun down` and `nylorun up` (the stack's files and the Tenant are kept),
+// checks that every file in the Host root belongs to this user (the bind
+// mount's UID/GID), and always ends with `nylorun reset --yes`.
 import assert from "node:assert/strict";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -69,6 +70,24 @@ try {
     const studio = await studioSession(await stack.studioLogin());
     const listed = await (await studio.get("/_studio/tenants")).json();
     assert.ok(listed.tenants.some((t) => t.id === tenant.id), "Studio lists the Tenant");
+
+    // `down` and `up` are the Compose spellings of `stop` and `start`: a second
+    // `up` reuses the stack it set up, and the stopped volumes keep the Tenant.
+    const stackFiles = async () => [
+      await readFile(join(home, "stack", "compose.yaml"), "utf8"),
+      await readFile(join(home, "stack", ".env"), "utf8"),
+    ];
+    const before = await stackFiles();
+    await stack.nylorun(["down"]);
+    // `status` exits 3 while the Runtime does not answer, and still reports the state.
+    const stopped = await stack.nylorun(["status", "--json"], { check: false });
+    assert.equal(stopped.code, 3);
+    assert.equal(JSON.parse(stopped.stdout).state, "stopped");
+    const up = await stack.nylorun(["up"]);
+    assert.match(up.stdout, /^Runtime\s+http:\/\/localhost:\d+$/m);
+    assert.deepEqual(await stackFiles(), before, "up reuses the stack's files");
+    assert.equal(JSON.parse((await stack.nylorun(["status", "--json"])).stdout).runtime.healthy, true);
+    assert.ok((await admin.listTenants()).some((t) => t.id === tenant.id), "the Tenant survives down and up");
 
     // The Runtime and Studio run as this user, so nothing in the bind-mounted
     // Host root may belong to anyone else (Linux maps UIDs through unchanged).

@@ -6,7 +6,7 @@ import readChangesets from "@changesets/read";
 import { readConfig } from "@changesets/config";
 import { getPackages } from "@manypkg/get-packages";
 import { root, packages, readJson, writeJson, run } from "../lib/repo.mjs";
-import { syncCliPins } from "./pins.mjs";
+import { syncImagePins } from "./pins.mjs";
 import { CREATOR_PINS, planVersions } from "./version-policy.mjs";
 
 export async function prepareVersions(repo, channel) {
@@ -108,10 +108,10 @@ export async function prepareVersions(repo, channel) {
       "Clear legacy prerelease state before a latest dist-tag promotion.",
     );
   }
-  // D7: the CLI's image pins (nylorun.runtime, nylorun.studio) equal the
+  // D7: nylorun's image pins (nylorun.runtime, nylorun.studio) equal the
   // tested Runtime and Studio: the version this plan publishes, or keeps.
   const pin = (name) => calculated.plan.packages[name] ?? before[name];
-  await syncCliPins(repo, { runtime: pin("runtime"), studio: pin("studio") });
+  await syncImagePins(repo, { runtime: pin("runtime"), studio: pin("studio") });
   await validatePlan(calculated.plan, repo);
   for (const [name, version] of Object.entries(calculated.plan.packages))
     await releaseNotes(repo, name, version);

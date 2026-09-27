@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { root, readJson, run } from "../lib/repo.mjs";
+import { packageName, root, readJson, run } from "../lib/repo.mjs";
 import { publicCreatorSmoke } from "./smoke.mjs";
 import {
   validatePlan,
@@ -38,7 +38,7 @@ try {
   // an already-published version onto another npm channel (e.g. beta → latest).
   const priorVersionTags = new Set();
   for (const [name, version] of Object.entries(plan.packages)) {
-    const tag = `@nylorun/${name}@${version}`;
+    const tag = `${packageName(name)}@${version}`;
     const existing = await run(
       "git",
       [
@@ -76,19 +76,26 @@ try {
         console.log(message);
       },
     );
-    // The images job pushed the CLI's pinned images (release:check verified
+    // The images job pushed nylorun's pinned images (release:check verified
     // the pins against the plan); the public creator must run on them.
     const { runtime, studio } = (
-      await readJson(join(root, "cli/package.json"))
+      await readJson(join(root, "nylorun/package.json"))
     ).nylorun;
-    await publicCreatorSmoke(plan.packages["create-agent"], {
-      runtime,
-      studio,
-    });
+    // The versions a developer's npx runs: this release's, or the kept ones.
+    const shipped = async (name) =>
+      plan.packages[name] ?? (await readJson(join(root, name, "package.json"))).version;
+    await publicCreatorSmoke(
+      {
+        creator: plan.packages["create-agent"],
+        nylorun: await shipped("nylorun"),
+        cli: await shipped("cli"),
+      },
+      { runtime, studio },
+    );
     const temporary = await mkdtemp(join(tmpdir(), "nylorun-release-notes-"));
     try {
       for (const [name, version] of Object.entries(plan.packages)) {
-        const tag = `@nylorun/${name}@${version}`;
+        const tag = `${packageName(name)}@${version}`;
         const notes = join(temporary, `${name}.md`);
         await writeFile(
           notes,

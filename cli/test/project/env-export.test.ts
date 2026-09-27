@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/agents";
-import { printLinkedEnvExports } from "../../src/project/attach.js";
+import { printLinkedEnvExports } from "../../src/project/env.js";
 import { writeLink } from "../../src/project/link.js";
 import { writeCredentials } from "../../src/project/credentials.js";
 

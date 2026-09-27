@@ -75,8 +75,9 @@ authentication. Unknown, quarantined or rejected Tenant credentials → opaque
 Tests and ephemeral embeds use `startEphemeralRuntime()` from
 `@nylorun/runtime/core`: private Host on port 0, temporary Host root, one Tenant,
 returns `{ url, tenantId, applicationKey, adminKey, close() }`. It is not durable:
-its Tenants live in memory and are gone after `close()`. `nylorun dev
---ephemeral` does not use it; it creates a temporary Tenant on the Docker stack.
+its Tenants live in memory and are gone after `close()`. The smoke checks'
+temporary Tenants (`scripts/lib/temporary-tenant.mjs`) do not use it; they are
+created on the Docker stack.
 
 Register executors with `PUT /v1/executors` using the application principal
 (application-mode `connectAgents` does this with derived tokens). Model gateway
@@ -102,21 +103,22 @@ Tenant owns each sandbox; backend names are prefixed `nylorun-<tenant-id>-`.
 
 ## Local Project workflow
 
-Install `@nylorun/cli` as a devDependency. `nylorun start` runs the local
-stack (Docker); `nylorun dev` creates or uses a Project link and runs
-`src/main.ts` under `tsx watch`; `nylorun studio` opens Studio.
+A project depends on `@nylorun/agents` only. `npx nylorun up` runs the local
+stack (Docker); `npx @nylorun/cli tenant create` (`nylo`) creates the
+project's Tenant and writes its Project link; the project's `npm run dev` runs
+`src/main.ts` under `tsx watch`; `npx nylorun studio` opens Studio.
 
 ## Troubleshooting
 
 | Symptom | What to do |
 | --- | --- |
 | `kek-missing` | Restore `vault-kek` in the Tenant directory |
-| `corrupt` / `migration-failed` / `envelope-invalid` / `open-failed` / `open-timeout` | Follow `nylorun tenant status` repair string |
+| `corrupt` / `migration-failed` / `envelope-invalid` / `open-failed` / `open-timeout` | Follow the `nylo tenant status` repair string |
 | `schema-too-new` | Run a Runtime at least as new as the one that migrated the schema |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | Call from a server process, not a browser; in a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS` |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
-| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun start` |
+| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun up` |
 | Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.

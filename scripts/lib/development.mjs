@@ -2,12 +2,13 @@
  * `npm run dev`: the contributor loop on the local Docker stack.
  *
  * 1. Build the host-side packages the examples application runs on (core,
- *    harness, agents, admin, runtime, cli).
+ *    harness, agents, admin, runtime, nylorun, cli).
  * 2. Build the Runtime and Studio images from this checkout
  *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
  *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` the stack on them.
- * 3. Run `nylorun dev` in examples/: it links the Project's Tenant, prints the
- *    Studio login URL and runs the examples executor under `tsx watch`.
+ * 3. Link examples/ to a Tenant once (`nylo tenant create`), print a Studio
+ *    login on it (`nylorun studio`), and run the examples executor with its own
+ *    `npm run dev` (`tsx watch`), as a developer's project runs.
  * 4. Watch the packages: an edit rebuilds what depends on it, rebuilds the
  *    affected images (Compose then recreates only those containers), and
  *    restarts the examples runner. A failed build keeps everything running.
@@ -42,6 +43,7 @@ export const HOST_PACKAGES = {
   agents: ["core"],
   admin: ["core"],
   runtime: ["core", "harness"],
+  nylorun: ["core"],
   cli: ["agents", "admin"],
 };
 
@@ -58,6 +60,7 @@ const WATCHED = {
   agents: ["src"],
   admin: ["src"],
   runtime: ["src"],
+  nylorun: ["src"],
   cli: ["src"],
   studio: ["src", "web"],
 };
@@ -87,11 +90,13 @@ export function packageOf(repo, path) {
 }
 
 /**
- * The real commands: npm builds, `docker build`, and the workspace CLI.
- * `develop` takes these as a parameter so tests can replace them.
+ * The real commands: npm builds, `docker build`, the workspace nylorun (the
+ * stack) and nylo (the Runtime client). `develop` takes these as a parameter
+ * so tests can replace them.
  */
 export function workspaceCommands({ repo = root, project = join(repo, "examples"), env = process.env } = {}) {
-  const cli = join(repo, "cli/dist/cli.js");
+  const nylorun = join(repo, "nylorun/dist/cli.js");
+  const nylo = join(repo, "cli/dist/cli.js");
   const images = { runtime: "nylorun-runtime:dev", studio: "nylorun-studio:dev" };
   const stackEnv = () => ({
     ...env,
@@ -124,22 +129,39 @@ export function workspaceCommands({ repo = root, project = join(repo, "examples"
       const child = group.start(
         "stack",
         process.execPath,
-        [cli, "start", ...(studio ? [] : ["--no-studio"])],
+        [nylorun, "start", ...(studio ? [] : ["--no-studio"])],
         { cwd: project, env: stackEnv() },
       );
       if ((await child.exit) !== 0) throw new Error("nylorun start failed; see the output above.");
     },
-    startRunner(group, { studio, open }) {
-      // The CLI's Project lookup stops at the home directory before it falls
-      // back to the nearest package.json (cli/src/project/root.ts), so a
-      // checkout under $HOME needs the Project's .nylorun/ to exist.
+    /** Create and link the examples' Tenant unless examples/ is linked already. */
+    async linkProject(group) {
+      if (existsSync(join(project, ".nylorun", "link.json"))) return;
+      // The Project lookup stops at the home directory before it falls back
+      // to the nearest package.json (cli/src/project/root.ts), so a checkout
+      // under $HOME needs the Project's .nylorun/ to exist.
       mkdirSync(join(project, ".nylorun"), { recursive: true, mode: 0o700 });
-      return group.start(
-        "examples",
+      const child = group.start("link", process.execPath, [nylo, "tenant", "create"], {
+        cwd: project,
+        env: stackEnv(),
+      });
+      if ((await child.exit) !== 0) throw new Error("nylo tenant create failed; see the output above.");
+    },
+    /** A Studio login on the examples' Tenant (`nylorun studio` reads the link). */
+    async openStudio(group, { open }) {
+      const child = group.start(
+        "studio",
         process.execPath,
-        [cli, "dev", ...(studio ? [] : ["--no-studio"]), ...(open ? [] : ["--no-open"])],
+        [nylorun, "studio", ...(open ? [] : ["--no-open"])],
         { cwd: project, env: stackEnv() },
       );
+      await child.exit;
+    },
+    startRunner(group) {
+      return group.start("examples", process.execPath, [npmCli(), "run", "dev"], {
+        cwd: project,
+        env: stackEnv(),
+      });
     },
   };
 }
@@ -178,9 +200,9 @@ export async function develop(
     },
   });
 
-  function startRunner(open) {
+  function startRunner() {
     if (stopping) return;
-    runner = commands.startRunner(group, { studio: options.studio, open });
+    runner = commands.startRunner(group);
   }
 
   async function rebuild(changed) {
@@ -199,7 +221,7 @@ export async function develop(
       if (stopping || (!plan.packages.length && !plan.images.length)) return;
       log("[dev] Restarting the examples runner.");
       await runner?.stop();
-      startRunner(false);
+      startRunner();
     } catch (error) {
       if (!stopping)
         log(`[dev] ${error.message} The running stack and examples runner were retained.`);
@@ -229,7 +251,10 @@ export async function develop(
     await commands.prepareImages(log);
     if (stopping) throw new Error("Development stopped.");
     await commands.startStack(group, options);
-    startRunner(options.open);
+    if (stopping) throw new Error("Development stopped.");
+    await commands.linkProject(group);
+    if (options.studio && !stopping) await commands.openStudio(group, { open: options.open });
+    startRunner();
     if (!options.watch) return { close, done };
 
     const directories = Object.entries(WATCHED)
@@ -263,7 +288,7 @@ export async function develop(
       void close(1);
     });
     log(
-      "[dev] Watching core, harness, agents, admin, runtime, cli" +
+      "[dev] Watching core, harness, agents, admin, runtime, nylorun, cli" +
         (options.studio ? " and studio" : "") +
         ". Ctrl-C stops the examples runner; `npx nylorun stop` (in examples/) stops the stack.",
     );

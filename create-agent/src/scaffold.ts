@@ -31,7 +31,6 @@ export async function starterFiles(
           await readFile(absolute, "utf8")
         )
           .replaceAll("{{CORE_VERSION}}", compatibility.core)
-          .replaceAll("{{CLI_VERSION}}", compatibility.cli)
           .replaceAll("{{HARNESS_VERSION}}", compatibility.harness)
           .replaceAll("{{AGENTS_VERSION}}", compatibility.agents)
           .replaceAll("{{ADMIN_VERSION}}", compatibility.admin)

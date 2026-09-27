@@ -258,8 +258,8 @@ function TenantPicker() {
       ) : state.tenants.length === 0 ? (
         <p className="text-muted-foreground">
           This Host has no Tenants yet. Run{" "}
-          <code className={code}>nylorun dev</code> in a project to create
-          one.
+          <code className={code}>npx @nylorun/cli tenant create</code> in a
+          project to create one.
         </p>
       ) : (
         <ul className="divide-y rounded-lg border">

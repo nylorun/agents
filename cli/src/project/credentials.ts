@@ -36,7 +36,7 @@ export async function readCredentials(
       value.principalId.length === 0
     ) {
       throw new CliError(
-        `Invalid Project credentials at ${path}. Remove .nylorun/credentials.json and run nylorun dev.`,
+        `Invalid Project credentials at ${path}. Remove .nylorun/credentials.json and run nylo tenant create.`,
         1,
       );
     }

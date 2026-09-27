@@ -6,7 +6,8 @@
 | --------------- | ------------------------------------------------------- |
 | `core/`         | Shared definitions and contracts                        |
 | `harness/`      | Agent execution engine                                  |
-| `cli/`          | Local `nylorun` orchestration                           |
+| `nylorun/`      | `nylorun`: sets up and runs the local Docker stack      |
+| `cli/`          | `nylo`: the Runtime client (Tenants, Project link)      |
 | `runtime/`      | Runtime Host, execution and persistence (runtime image) |
 | `studio/`       | Studio server and dashboard (the `studio` stack image)  |
 | `create-agent/` | Starter, renderer, compatibility pins, and stack tests  |
@@ -29,7 +30,7 @@ npm run setup
 npm run dev
 ```
 
-Setup installs both lockfiles and builds packages. The seven packages compile with the TypeScript 7 native compiler; `typescript` is aliased to the TypeScript 6 bridge for scripts that use the compiler API. It does not configure models,
+Setup installs both lockfiles and builds packages. The eight packages compile with the TypeScript 7 native compiler; `typescript` is aliased to the TypeScript 6 bridge for scripts that use the compiler API. It does not configure models,
 regenerate examples, or change local credentials/data. Package consumer Node
 support remains separate from the pinned contributor toolchain.
 
@@ -41,12 +42,12 @@ support remains separate from the pinned contributor toolchain.
 2. It runs `nylorun start` on those images. The stack lives in `NYLORUN_HOME`
    (default `~/.nylorun`) as Compose project `nylorun`, and outlives
    `npm run dev`.
-3. It runs `nylorun dev` in `examples/`. That creates or reuses the examples
-   Tenant through the Project link in the git-ignored `examples/.nylorun/`,
-   starts the examples executor under `tsx watch`, and prints a single-use
-   Studio login URL for that Tenant (and opens it unless `--no-open`).
-4. It watches `core`, `harness`, `agents`, `admin`, `runtime`, `cli` and
-   `studio`. An edit rebuilds that package and the packages that depend on it,
+3. It links `examples/` to its Tenant once (`nylo tenant create`, the Project
+   link in the git-ignored `examples/.nylorun/`), prints a single-use Studio
+   login URL for that Tenant (`nylorun studio`, opened unless `--no-open`), and
+   starts the examples executor with their own `npm run dev` (`tsx watch`).
+4. It watches `core`, `harness`, `agents`, `admin`, `runtime`, `nylorun`, `cli`
+   and `studio`. An edit rebuilds that package and the packages that depend on it,
    rebuilds the images built from them (Compose then recreates only those
    containers), and restarts the examples runner. A compile error keeps the
    stack and the runner as they were; fixing it resumes rebuilds.
@@ -73,14 +74,14 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `npm run dev:starter`                       | The same loop on a fresh starter preview under `.tmp/`                     |
 | `npx nylorun studio` (in `examples/`)       | A fresh Studio login on the examples Tenant                                |
 | `npx nylorun status` / `npx nylorun logs`   | Stack services, endpoints and health; aggregated logs (`-f`, `<service>`)  |
-| `eval "$(npx nylorun status --env)"`        | Export URL, key and Tenant for the linked Project                          |
-| `npx nylorun stop` / `npx nylorun reset`    | Stop the stack (volumes kept) / delete its volumes and Tenants             |
-| `npm run build`                             | Build all seven packages                                                   |
+| `eval "$(npx nylo env)"` (in `examples/`)   | Export URL, key and Tenant for the linked Project                          |
+| `npx nylorun down` / `npx nylorun reset`    | Stop the stack (volumes kept) / delete its volumes and Tenants             |
+| `npm run build`                             | Build all eight packages                                                   |
 | `npm test`                                  | Run package, tooling, and examples tests after setup                       |
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
-| `npm run test:stack`                        | Smoke `nylorun start` on a temporary stack                                 |
-| `npm run test:starter`                      | Smoke the packed starter with `nylorun dev` and `--ephemeral` on a temporary stack |
+| `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary stack                             |
+| `npm run test:starter`                      | Smoke the packed starter (`nylorun up`, `nylo tenant create`, `npm run dev`, a temporary fixture-model Tenant) on a temporary stack |
 | `npm run test:dev`                          | Smoke `npm run dev` on a temporary stack and a clean copy of `examples/`   |
 | `npm run test:acceptance [-- --only H1,H2]` | Tenant acceptance (H1–H9) on a temporary stack                             |
 
@@ -99,7 +100,7 @@ package). CI uses `-- --built` on root checks after setup to avoid rebuilding.
 
 The Runtime and Studio ship as the images `ghcr.io/nylorun/runtime` and
 `ghcr.io/nylorun/studio`, built from the repository root. To run your changes
-under `nylorun start` without `npm run dev`, build them and point the CLI at the
+under `nylorun up` without `npm run dev`, build them and point `nylorun` at the
 local tags:
 
 ```sh
@@ -145,9 +146,9 @@ See [RELEASING.md](./RELEASING.md) for administrators and
 | Docker missing or not running   | Start Docker Desktop, OrbStack or Colima; `npx nylorun doctor` reports what is missing                                                                                          |
 | Missing/stale package build     | Stop development and run `npm run setup`                                                                                                                                        |
 | Occupied port                   | The first `nylorun start` picks free loopback ports and keeps them in `<Host root>/stack/.env`; edit that file, or free the port, if another service takes one later          |
-| Protocol `426`                  | Upgrade `@nylorun/cli` and run `nylorun start` (the CLI pins the Runtime image), or pin `@nylorun/cli` / `@nylorun/agents` within the Runtime's protocol range                  |
-| Quarantined Tenant              | `nylorun tenant status` shows `code` and `repair` (`kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`)           |
-| Model setup error               | Run `npx nylorun start`, then `npm run configure`, or replace the vault credential from Studio                                                                                  |
+| Protocol `426`                  | Upgrade `nylorun` and run `nylorun up` (nylorun pins the Runtime image), or pin `@nylorun/agents` within the Runtime's protocol range                                          |
+| Quarantined Tenant              | `nylo tenant status` shows `code` and `repair` (`kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`)              |
+| Model setup error               | Run `npx nylorun up`, then `npm run configure` (`nylo configure`), or replace the vault credential from Studio                                                                 |
 | Need Runtime / Studio logs      | `npx nylorun logs -f` (or `npx nylorun logs runtime`)                                                                                                                           |
 | Generated-file conflict         | Move the intended change into the template/recipe, then sync                                                                                                                    |
 | Interrupted release preparation | Inspect the diff; do not blindly rerun or discard it                                                                                                                            |

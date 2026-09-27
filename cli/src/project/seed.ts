@@ -46,7 +46,7 @@ function tenantHeaders(
  */
 export async function seedTenantFromProject(
   options: SeedOptions,
-): Promise<{ applied: string[]; kept: string[] }> {
+): Promise<{ applied: string[]; kept: string[]; model?: string }> {
   const env = options.env ?? loadProjectEnvironment(options.projectRoot);
   const fetchImpl = options.fetchImpl ?? fetch;
   const sandboxRaw = env.NYLORUN_SANDBOX?.trim();
@@ -92,6 +92,7 @@ export async function seedTenantFromProject(
   }
 
   // A fixture-model Tenant never calls a real model: its credential stays out of it.
+  let model: string | undefined;
   if (!options.fixtureModel && env.NYLORUN_DEV_MODEL?.trim() !== "fixture") {
     const seeded = modelFromEnv(env, options.projectRoot);
     if (seeded) {
@@ -101,10 +102,11 @@ export async function seedTenantFromProject(
         seeded,
         options.tenantId,
       );
+      model = `${seeded.provider}/${seeded.model}`;
     }
   }
 
-  return { applied, kept };
+  return { applied, kept, ...(model ? { model } : {}) };
 }
 
 function modelFromEnv(

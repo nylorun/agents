@@ -55,7 +55,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
     const stored = await options.readHostModel?.();
     if (!stored)
       throw new Error(
-        "Model provider is not configured. Start nylorun dev in a terminal, or set it in Studio.",
+        "Model provider is not configured. Set it in Studio, or run nylo configure (npx @nylorun/cli configure).",
       );
     const requested = call.model?.id;
     const selection = {
@@ -71,7 +71,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       { environment: false },
     );
     const selected = registry.getModel(selection.provider, selection.model);
-    if (!selected) throw new Error("Unknown model. Run nylorun configure.");
+    if (!selected) throw new Error("Unknown model. Run nylo configure (npx @nylorun/cli configure).");
     const signatureFor = (part: PromptContentPart): string | undefined => {
       const metadata =
         "providerMetadata" in part ? part.providerMetadata?.pi : undefined;
@@ -381,7 +381,7 @@ function hostCredentialStore(
     },
     async delete() {
       throw new Error(
-        "Replace the model provider through nylorun dev or Studio.",
+        "Replace the model provider in Studio, or with nylo configure.",
       );
     },
   };

@@ -1,6 +1,6 @@
 import semver from "semver";
 import { setTimeout as sleep } from "node:timers/promises";
-import { npm } from "../lib/repo.mjs";
+import { npm, packageName } from "../lib/repo.mjs";
 
 const REGISTRY = "https://registry.npmjs.org/";
 
@@ -11,7 +11,7 @@ const REGISTRY = "https://registry.npmjs.org/";
  */
 async function document(name) {
   const url = new URL(
-    `${encodeURIComponent(`@nylorun/${name}`)}?write=true`,
+    `${encodeURIComponent(packageName(name))}?write=true`,
     REGISTRY,
   );
   for (let attempt = 1; ; attempt++) {
@@ -80,7 +80,7 @@ export const registry = {
       if (attempt === 0 || attempt === 4) {
         try {
           await npm(
-            ["dist-tag", "add", `@nylorun/${name}@${version}`, channel],
+            ["dist-tag", "add", `${packageName(name)}@${version}`, channel],
             { capture: true },
           );
           continue;
@@ -92,7 +92,7 @@ export const registry = {
       await pause(2000);
     }
     throw new Error(
-      `Published ${name}@${version}, but its ${channel} tag differs. An npm administrator must run: npm dist-tag add @nylorun/${name}@${version} ${channel}`,
+      `Published ${name}@${version}, but its ${channel} tag differs. An npm administrator must run: npm dist-tag add ${packageName(name)}@${version} ${channel}`,
     );
   },
 };
