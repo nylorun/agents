@@ -39,6 +39,29 @@ it("holds wakes until start and reports exhausted retries", async () => {
   await execution.stop();
 });
 
+it("forgets dedupe keys after the retention window", async () => {
+  const execution = new MemoryExecution({ dedupeRetentionMs: 30 });
+  let calls = 0;
+  await execution.start({
+    advance: async () => {
+      calls += 1;
+      return { status: "done" };
+    },
+    sweep: async () => {},
+  });
+  const wake = { reason: "message" as const, dedupeKey: "k" };
+  await execution.wake("tn_x", "s1", wake);
+  await execution.idle();
+  await execution.wake("tn_x", "s1", wake);
+  await execution.idle();
+  expect(calls).toBe(1);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  await execution.wake("tn_x", "s1", wake);
+  await execution.idle();
+  expect(calls).toBe(2);
+  await execution.stop();
+});
+
 it("rejects an unknown wake reason", async () => {
   const execution = new MemoryExecution();
   await expect(
