@@ -11,9 +11,11 @@ permissions:
 concurrency:
   group: npm-publication
   cancel-in-progress: false
-# Order: validate → images (ghcr.io/nylorun/runtime and studio) → publish (npm).
-# The CLI names its image pins (cli/package.json nylorun.runtime and
-# nylorun.studio), so both images exist before the CLI reaches npm.
+# Order: validate → approve → images (ghcr.io/nylorun/runtime and studio) →
+# publish (npm). `approve` is the only reviewed step, so nothing becomes public
+# before an administrator approves the validated candidate. The CLI names its
+# image pins (cli/package.json nylorun.runtime and nylorun.studio), so both
+# images exist before the CLI reaches npm.
 jobs:
   validate:
     if: github.ref == 'refs/heads/main'
@@ -74,12 +76,22 @@ jobs:
   # Multi-arch images, tagged with the package version only. An existing tag
   # is never replaced: its leg skips the build, so reruns are idempotent. A
   # version this release keeps must already have its image.
-  images:
+  # The single approval. Environment `release` has the required reviewers;
+  # `images` and `publish` wait for this job and need no approval of their own.
+  approve:
     needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release
+    permissions: {}
+    steps:
+      - name: Record approval
+        run: echo "Release ${{ inputs.commit }} approved for publication."
+  images:
+    needs: [validate, approve]
     runs-on: ubuntu-latest
     # arm64 builds under QEMU emulation.
     timeout-minutes: 60
-    environment: images
     permissions:
       contents: read
       packages: write
@@ -154,10 +166,12 @@ jobs:
           grep -qx linux/amd64 <<<"$platforms"
           grep -qx linux/arm64 <<<"$platforms"
   publish:
-    needs: [validate, images]
+    needs: [validate, approve, images]
     runs-on: ubuntu-latest
     # Two registry waits (engines, then creator), each bounded at 10 min.
     timeout-minutes: 40
+    # Bound to npm trusted publishing and holds NPM_BOOTSTRAP_TOKEN; it has no
+    # reviewers, because `approve` already gated this run.
     environment: npm
     permissions:
       contents: write

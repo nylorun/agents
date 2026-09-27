@@ -17,9 +17,13 @@ A release publishes two kinds of artifact:
 - Confirm npm organization access for every public `@nylorun` package.
 - Configure each package's npm trusted publisher for this repository,
   workflow `publish.yml`, and GitHub environment `npm`, allowing publication.
-- Protect the `npm` and `images` environments with administrator reviewers and
-  restrict their deployment branch to `main`. Protect `main` with required
-  CI/review checks.
+- Create the `release` environment with administrator reviewers. It is the
+  only approval: the workflow's `approve` job waits on it, and nothing is
+  pushed or published before it passes.
+- Keep the `npm` environment (npm trusted publishing is bound to it, and it
+  holds `NPM_BOOTSTRAP_TOKEN` when needed) without required reviewers.
+- Restrict the deployment branch of both `release` and `npm` to `main`, and
+  protect `main` with required CI/review checks.
 - Ensure GitHub Actions can create package tags and GitHub releases.
 - Container images: the `images` job pushes to `ghcr.io/nylorun` with the
   workflow's `GITHUB_TOKEN` (`packages: write`). The first push creates each
@@ -116,8 +120,9 @@ package has no tarball there.
    release plan. Prefer that prepare commit. A later main tip is allowed only
    when `.release/plan.json` is unchanged since prepare (for example a
    smoke/script fix finishing an interrupted publish).
-4. Review the validated candidate artifacts and approve the `images`
-   environment, then the `npm` environment.
+4. Review the validated candidate artifacts and approve the `release`
+   environment once. Images and npm publication then run without further
+   approval.
 5. Check the workflow summary, the images on `ghcr.io/nylorun`, npm
    versions/dist-tags, and package GitHub releases.
 
@@ -125,14 +130,16 @@ The jobs run in this order:
 
 1. **validate** verifies that the selected commit belongs to `main` and passed
    `ci`, runs `release:check` on the checkout, and saves the verified tarballs.
-2. **images** builds `runtime/Dockerfile` and `studio/Dockerfile` for
+2. **approve** waits for an administrator to approve the `release` environment.
+   Nothing is public before this step.
+3. **images** builds `runtime/Dockerfile` and `studio/Dockerfile` for
    `linux/amd64` and `linux/arm64` (QEMU and buildx, with a GitHub Actions
    layer cache) and pushes `ghcr.io/nylorun/runtime:<version>` and
    `ghcr.io/nylorun/studio:<version>`, labeled with the source repository,
    version and commit. `scripts/release/images.mjs` decides each push: an
    existing tag is never replaced, so that image is skipped; a version the
    release keeps rather than publishes must already have its image.
-3. **publish** runs only after both images exist, because the CLI it publishes
+4. **publish** runs only after both images exist, because the CLI it publishes
    pins them. It publishes the same tarballs: the engines first, then the
    creator. It verifies registry availability and installation through the
    public creator command without making model calls.
