@@ -122,7 +122,9 @@ export class TenantRuntime implements TenantHandle {
     readonly envelope: TenantEnvelope,
     /** This Tenant's Worker handlers, as registered with the execution. */
     readonly worker: TenantWorker,
-    private readonly detach: () => Promise<void>
+    private readonly detach: () => Promise<void>,
+    /** How long close waits for running advances: the execution's advance grace period. */
+    private readonly closeGraceMs: number
   ) {}
 
   static async open(
@@ -307,7 +309,7 @@ export class TenantRuntime implements TenantHandle {
       };
       if (local) await local.start(workers.handlers);
       await execution.armSweep(config.tenantId);
-      return new TenantRuntime(ctx, envelope, worker, detach);
+      return new TenantRuntime(ctx, envelope, worker, detach, workers.graceMs);
     } catch (error) {
       await detach?.().catch(() => undefined);
       await wired?.close().catch(() => undefined);
@@ -379,11 +381,14 @@ export class TenantRuntime implements TenantHandle {
   async close(): Promise<void> {
     const ctx = this.ctx;
     ctx.closing = true;
-    abortAll(ctx);
+    // A shutdown abort: the advances leave their sessions to the next advance, unsettled.
+    abortAll(ctx, "shutdown");
+    const idleBy = Date.now() + this.closeGraceMs;
     await this.detach();
     await ctx.mcp.close();
     endAllStreams(ctx.live);
-    await waitForIdle(ctx);
+    // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
+    await waitForIdle(ctx, Math.max(0, idleBy - Date.now()));
     await ctx.sandbox.close();
     ctx.closed = true;
     await closeStreams(ctx);

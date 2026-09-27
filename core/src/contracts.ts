@@ -1103,6 +1103,12 @@ export const SeedTenantConfigRequestSchema = z
       .strict()
       .optional(),
     model: seedModelSchema.optional(),
+    /**
+     * The Tenant's model calls use the Runtime's deterministic fixture model instead of its
+     * host model, e.g. for a temporary development Tenant (`nylorun dev --ephemeral`). Stored
+     * as Tenant setting `model.fixture`. Host feature `tenant-fixture-model`.
+     */
+    fixtureModel: z.literal(true).optional(),
   })
   .strict();
 export type SeedTenantConfigRequest = z.infer<

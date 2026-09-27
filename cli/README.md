@@ -27,7 +27,7 @@ nylorun status --env               # export lines for the linked Project
 nylorun logs [service] [-f] [--tail <n>]   # postgres, restate, s2, runtime, studio
 nylorun studio [--no-open]         # fresh Studio login (on the linked Project's Tenant); starts the stack if needed
 nylorun reset [--yes]              # delete the stack's volumes and every Tenant
-nylorun dev [entry] [--no-studio] [--no-open]
+nylorun dev [entry] [--ephemeral] [--no-studio] [--no-open]
 nylorun configure                  # replace the model credential on the linked Tenant
 nylorun tenant current|list|use|status|reset|delete
 nylorun doctor [--json]            # prerequisites and stack health
@@ -70,7 +70,13 @@ token expires after two minutes; `nylorun studio` mints a fresh one.
    `NYLORUN_SERVER_KEY`.
 
 Ctrl-C stops the application; the stack keeps running (`nylorun stop`).
-`--ephemeral` is not available on the Docker stack yet; it exits 2.
+
+`--ephemeral` runs the same watcher on a temporary Tenant instead of the
+Project's: it is created through `@nylorun/admin` (no link or credentials are
+written), seeded from `.env` with the Tenant-level fixture model
+(`fixtureModel: true`; no model credential is needed or sent), opened in
+Studio, and deleted with its active work cancelled when the watcher ends,
+Ctrl-C included. It needs a Runtime with the `tenant-fixture-model` feature.
 
 ## Host root, Tenants and Project link
 

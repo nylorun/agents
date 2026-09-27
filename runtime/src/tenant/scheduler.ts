@@ -4,10 +4,15 @@
  * Scheduling itself lives behind `DurableExecution` (`ctx.wake`), the Tenant's handlers in
  * `worker.ts`, `advance.ts` and `sweep.ts`. What stays here is only what one process must
  * know about the advances it runs: their `AbortController`s, keyed by session id.
+ *
+ * Every abort carries an `AdvanceAbort` saying why (`worker.ts`): a cancel or a reset aborts
+ * with `cancel`, closing the Tenant with `shutdown`, which leaves the session for the next
+ * advance instead of settling it.
  */
 import { randomUUID } from "node:crypto";
 import type { Session, TenantContext } from "./context.js";
 import { command } from "./commands.js";
+import { AdvanceAbort, type AdvanceAbortKind } from "./worker.js";
 
 export interface WorkState {
   /** Advances running on this process, by session id. */
@@ -18,14 +23,34 @@ export function createWorkState(): WorkState {
   return { running: new Map() };
 }
 
-/** Abort the advance of `id` if it runs on this process. */
-export function abortLocal(ctx: TenantContext, id: string): void {
-  ctx.work.running.get(id)?.abort();
+const MESSAGES: Record<AdvanceAbortKind, string> = {
+  cancel: "Turn cancelled",
+  shutdown: "The Tenant is closing",
+  deadline: "The advance ran past its deadline",
+  "ownership.lost": "Ownership lost",
+};
+
+function abortWith(controller: AbortController, kind: AdvanceAbortKind): void {
+  if (!controller.signal.aborted)
+    controller.abort(new AdvanceAbort(kind, MESSAGES[kind]));
 }
 
-/** Reset: abort every advance running on this process. */
+/**
+ * Abort the advance of `id` if it runs on this process. Cancel calls it after committing
+ * `cancelled`, and so does the control stream for cancels made elsewhere.
+ */
+export function abortLocal(
+  ctx: TenantContext,
+  id: string,
+  kind: AdvanceAbortKind = "cancel"
+): void {
+  const controller = ctx.work.running.get(id);
+  if (controller) abortWith(controller, kind);
+}
+
+/** Reset: abort every advance running on this process; their sessions are being cleared. */
 export function clearWork(ctx: TenantContext): void {
-  abortAll(ctx);
+  abortAll(ctx, "cancel");
 }
 
 /** Stop new advances; cancel active turns if asked; wait for running advances until the timeout. */
@@ -61,13 +86,32 @@ export async function drain(
     await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-/** Close: abort every advance running on this process. */
-export function abortAll(ctx: TenantContext): void {
-  for (const c of ctx.work.running.values()) c.abort();
+/** Abort every advance running on this process; closing the Tenant is a `shutdown`. */
+export function abortAll(
+  ctx: TenantContext,
+  kind: AdvanceAbortKind = "shutdown"
+): void {
+  for (const c of ctx.work.running.values()) abortWith(c, kind);
 }
 
-/** Close: wait until no advance runs on this process. */
-export async function waitForIdle(ctx: TenantContext): Promise<void> {
-  while (ctx.work.running.size)
+/**
+ * Close: wait until no advance runs on this process, for at most `timeoutMs`. Advances still
+ * running then (an effect that ignores its abort signal) are abandoned and logged: they have
+ * stopped renewing their lease, so it lapses and the next advance takes the session over
+ * (§11.4); the epoch fences anything they still try to write. Returns their session ids.
+ */
+export async function waitForIdle(
+  ctx: TenantContext,
+  timeoutMs: number
+): Promise<string[]> {
+  const deadline = Date.now() + timeoutMs;
+  while (ctx.work.running.size > 0 && Date.now() < deadline)
     await new Promise((resolve) => setTimeout(resolve, 10));
+  const abandoned = [...ctx.work.running.keys()];
+  if (abandoned.length > 0)
+    ctx.config.logger.warn("tenant closed with advances still running", {
+      sessionIds: abandoned,
+      waitedMs: timeoutMs,
+    });
+  return abandoned;
 }

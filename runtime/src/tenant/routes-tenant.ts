@@ -28,6 +28,7 @@ import {
   streamsStatus,
 } from "./streams.js";
 import { clearWork, drain } from "./scheduler.js";
+import { usesFixtureModel } from "./model-setting.js";
 
 export async function dispatchTenant(
   ctx: TenantContext,
@@ -50,9 +51,10 @@ export async function dispatchTenant(
       vault,
       sandbox: ctx.sandbox,
       closing: ctx.closing || ctx.closed,
-      modelConfigured: ctx.useVaultModel
-        ? (await vault.getHostModel()).configured
-        : true,
+      modelConfigured:
+        !ctx.useVaultModel ||
+        (await ctx.store.tx((t) => usesFixtureModel(t))) ||
+        (await vault.getHostModel()).configured,
       executorStreams: ctx.live.executorStreams,
       ...(ctx.stuckInvocations
         ? { stuckInvocations: ctx.stuckInvocations }

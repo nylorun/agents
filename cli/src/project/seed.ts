@@ -21,6 +21,11 @@ export interface SeedOptions {
   env?: Readonly<Record<string, string>>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /**
+   * Seed the Tenant-level fixture model (`fixtureModel: true`, Host feature
+   * `tenant-fixture-model`) and skip the Project's model credential.
+   */
+  fixtureModel?: boolean;
 }
 
 function tenantHeaders(
@@ -53,7 +58,7 @@ export async function seedTenantFromProject(
   let applied: string[] = [];
   let kept: string[] = [];
 
-  if (sandbox) {
+  if (sandbox || options.fixtureModel) {
     const response = await fetchImpl(
       `${options.hostUrl.replace(/\/$/, "")}/v1/tenant/config/seed`,
       {
@@ -64,7 +69,8 @@ export async function seedTenantFromProject(
         },
         body: JSON.stringify({
           requestId: randomUUID(),
-          sandbox,
+          ...(sandbox ? { sandbox } : {}),
+          ...(options.fixtureModel ? { fixtureModel: true } : {}),
         }),
         signal: options.signal ?? AbortSignal.timeout(15_000),
       },
@@ -85,7 +91,8 @@ export async function seedTenantFromProject(
     kept = body.kept ?? [];
   }
 
-  if (env.NYLORUN_DEV_MODEL?.trim() !== "fixture") {
+  // A fixture-model Tenant never calls a real model: its credential stays out of it.
+  if (!options.fixtureModel && env.NYLORUN_DEV_MODEL?.trim() !== "fixture") {
     const seeded = modelFromEnv(env, options.projectRoot);
     if (seeded) {
       await putHostModel(

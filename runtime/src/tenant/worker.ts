@@ -29,6 +29,23 @@
  *    session again. The abandoned advance has stopped renewing its lease (`advance.ts`), so
  *    the next advance takes over when the lease lapses (§11.4), and the epoch fences anything
  *    the abandoned one still tries to write.
+ *
+ * ## Abort reasons
+ *
+ * Every abort of an advance carries an `AdvanceAbort` whose `kind` says why, because the
+ * advance treats them differently (`advance.ts`, `effects.ts`):
+ *
+ * - `cancel`: a user cancel (or a reset) committed first. Results that arrive afterwards are
+ *   discarded and the turn stays cancelled (§10.7).
+ * - `deadline`: the advance ran too long (`AdvanceDeadlineError`). The segment settles as a
+ *   normal outcome.
+ * - `shutdown`: this Worker gives the advance up (Worker stop, Tenant close, the Restate
+ *   attempt ended). Nothing about the turn is settled: outcomes already in hand are recorded,
+ *   ownership is released and the advance returns `busy`, so the next advance, here or on
+ *   another Worker, resumes the segment from its checkpoint with the cached outcomes.
+ * - `ownership.lost`: another advance took the session over; this one writes nothing more.
+ *
+ * An abort that arrives through the execution's signal is a `shutdown`, whatever its reason.
  */
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -52,12 +69,47 @@ export const DEFAULT_ADVANCE_DEADLINE_MS = 50 * 60_000;
 /** Default time an aborted advance has to settle before it is abandoned. */
 export const DEFAULT_ADVANCE_GRACE_MS = 30_000;
 
+/** Why an advance's signal aborted (see "Abort reasons" above). */
+export type AdvanceAbortKind = "cancel" | "shutdown" | "deadline" | "ownership.lost";
+
+/** The abort reason of an advance. */
+export class AdvanceAbort extends Error {
+  override readonly name: string = "AdvanceAbort";
+  constructor(
+    readonly kind: AdvanceAbortKind,
+    message: string,
+    options?: { cause?: unknown }
+  ) {
+    super(message, options);
+  }
+}
+
 /** The abort reason of an advance that ran past its deadline. */
-export class AdvanceDeadlineError extends Error {
+export class AdvanceDeadlineError extends AdvanceAbort {
   override readonly name = "AdvanceDeadlineError";
   constructor(readonly deadlineMs: number) {
-    super(`The advance ran past its ${deadlineMs} ms deadline`);
+    super("deadline", `The advance ran past its ${deadlineMs} ms deadline`);
   }
+}
+
+/**
+ * The kind of an aborted signal's reason, or `undefined` while it has not aborted. A reason
+ * that is not an `AdvanceAbort` came from outside the Tenant (the execution stopping) and
+ * counts as `shutdown`.
+ */
+export function abortKind(signal: AbortSignal): AdvanceAbortKind | undefined {
+  if (!signal.aborted) return undefined;
+  return signal.reason instanceof AdvanceAbort ? signal.reason.kind : "shutdown";
+}
+
+/** The execution's abort reason as a `shutdown`, keeping its message. */
+function shutdownOf(reason: unknown): AdvanceAbort {
+  if (reason instanceof AdvanceAbort) return reason;
+  return new AdvanceAbort(
+    "shutdown",
+    reason instanceof Error ? reason.message : "The Worker stopped the advance",
+    { cause: reason }
+  );
 }
 
 /** One open Tenant's handlers. */
@@ -88,7 +140,11 @@ const DONE: AdvanceResult = { status: "done" };
 export class TenantWorkers {
   private readonly workers = new Map<string, TenantWorker>();
   private readonly deadlineMs: number;
-  private readonly graceMs: number;
+  /**
+   * How long an aborted advance has to return before it is abandoned. Closing a Tenant waits
+   * as long for its advances before it abandons them (`scheduler.ts` `waitForIdle`).
+   */
+  readonly graceMs: number;
 
   constructor(private readonly options: TenantWorkersOptions = {}) {
     this.deadlineMs = positive(
@@ -139,7 +195,7 @@ export class TenantWorkers {
     const abort = (reason: unknown) => {
       if (!controller.signal.aborted) controller.abort(reason);
     };
-    const forward = () => abort(signal.reason);
+    const forward = () => abort(shutdownOf(signal.reason));
     if (signal.aborted) forward();
     else signal.addEventListener("abort", forward, { once: true });
     const deadline = setTimeout(

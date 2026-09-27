@@ -375,7 +375,7 @@ describe("advance deadline", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     stopping.abort(new Error("Worker stopping"));
     expect(await result).toEqual({ status: "busy", retryAfterMs: 0 });
-    expect(seen?.reason).toEqual(new Error("Worker stopping"));
+    expect(seen?.reason).toMatchObject({ kind: "shutdown", message: "Worker stopping" });
     expect(warnings).toEqual([
       expect.objectContaining({ tenantId: "tenant_a", sessionId: "s1", reason: "Worker stopping" }),
     ]);

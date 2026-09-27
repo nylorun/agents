@@ -7,6 +7,13 @@ export const PROTOCOL_FEATURES = [
   "studio-principal",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
+/**
+ * Host features no client requires: a client that uses one checks the Host's `/health`
+ * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
+ * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
+ */
+export const OPTIONAL_HOST_FEATURES = ["tenant-fixture-model"] as const;
+export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
   min: number;
   max: number;
@@ -15,7 +22,7 @@ export interface ProtocolRange {
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 2,
   max: 2,
-  features: PROTOCOL_FEATURES,
+  features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
 

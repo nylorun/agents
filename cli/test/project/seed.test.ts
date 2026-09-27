@@ -103,3 +103,37 @@ it("F3: seeds sandbox via config/seed and does not overwrite on second call", as
   expect(seedCalls).toBe(2);
   expect(backends).toEqual(["virtual", "auto"]);
 });
+
+it("seeds the Tenant fixture model and keeps the model credential out of it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nylorun-seed-fixture-"));
+  roots.push(root);
+  const bodies: unknown[] = [];
+  let modelPuts = 0;
+  const server = createServer(async (request, response) => {
+    if (request.url === "/v1/tenant/config/seed" && request.method === "PUT") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(chunk as Buffer);
+      bodies.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ applied: ["model.fixture"], kept: [] }));
+      return;
+    }
+    if (request.url === "/v1/tenant/model") modelPuts += 1;
+    response.statusCode = 404;
+    response.end();
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const seeded = await seedTenantFromProject({
+    hostUrl: `http://127.0.0.1:${port}`,
+    tenantId: newTenantId(),
+    applicationKey: "k".repeat(64),
+    projectRoot: root,
+    env: { MODEL_PROVIDER: "openai", MODEL: "gpt", MODEL_PROVIDER_API_KEY: "sk-test" },
+    fixtureModel: true,
+  });
+  expect(seeded.applied).toEqual(["model.fixture"]);
+  expect(bodies).toEqual([{ requestId: expect.any(String), fixtureModel: true }]);
+  expect(modelPuts).toBe(0);
+});
