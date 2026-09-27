@@ -34,7 +34,7 @@ _Avoid_: depending on `runtime` or `harness` from application code.
 **Local stack**: The Runtime image with Postgres, Restate and S2, run by
 `nylorun start` on a developer machine. `@nylorun/runtime` is a library with no
 bin; the Runtime runs as the `ghcr.io/nylorun/runtime` image.
-_Avoid_: "launcher", "native Host", or installing `@nylorun/runtime` globally.
+_Avoid_: "native Host", or installing `@nylorun/runtime` globally.
 
 **Prerequisites**: What a developer installs before using the Runtime: Node 24
 or newer and Docker, on macOS or Linux; Windows developers use WSL2. A missing
