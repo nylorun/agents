@@ -72,7 +72,9 @@ authentication. Unknown, quarantined or rejected Tenant credentials → opaque
 
 Tests and ephemeral embeds use `startEphemeralRuntime()` from
 `@nylorun/runtime/core`: private Host on port 0, temporary Host root, one Tenant,
-returns `{ url, tenantId, applicationKey, adminKey, close() }`.
+returns `{ url, tenantId, applicationKey, adminKey, close() }`. It is not durable:
+its Tenants live in memory and are gone after `close()`. `nylorun dev
+--ephemeral` does not use it; it creates a temporary Tenant on the Docker stack.
 
 Register executors with `PUT /v1/executors` using the application principal
 (application-mode `connectAgents` does this with derived tokens). Model gateway
