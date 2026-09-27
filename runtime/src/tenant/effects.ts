@@ -12,7 +12,11 @@
  * `invokeModel` lives here rather than in `advance.ts`: it is one of the effect dispatchers,
  * and keeping it here avoids an import cycle between the advance and the engine host.
  */
-import type { Action, SessionCommand } from "@nylorun/core/contracts";
+import type {
+  Action,
+  ActionOutcome,
+  SessionCommand,
+} from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue } from "@nylorun/core/define";
 import {
@@ -20,9 +24,12 @@ import {
   deriveAgentEffectSessionId,
   isFlowEffect,
   isFlowToolEffect,
+  linkedMessageKey,
+  linkedTurnEnd,
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
 import { canonical } from "../store/canonical.js";
+import type { Tx } from "../store/types.js";
 import { isOwnershipLost } from "../store/ownership.js";
 import { newStreamIncarnation } from "../streams/types.js";
 import { piModel } from "../model/pi-model.js";
@@ -70,6 +77,32 @@ export function invokeModel(
   });
 }
 
+/**
+ * The outcome of a flow `agent` effect once the linked turn it started ended, or undefined
+ * while it has not. The linked session may still show an earlier iteration's turn.
+ */
+async function linkedOutcome(
+  t: Tx,
+  effect: { request: HostEffect; agentSessionId?: string },
+  agent: Session | undefined
+): Promise<ActionOutcome | undefined> {
+  const end = await linkedTurnEnd(t, effect, agent);
+  if (!end || !agent) return undefined;
+  if (end.status === "completed")
+    return { value: linkedAgentOutput(agent, end.output) };
+  return {
+    value: {
+      kind: "failed",
+      code: `agent.${end.status}`,
+      message:
+        end.error ??
+        (end.status === "failed"
+          ? "Agent turn failed"
+          : "Agent turn was cancelled"),
+    },
+  };
+}
+
 type Journaled =
   | { kind: "resolved"; resolution: EffectResolution }
   | { kind: "flow" }
@@ -104,23 +137,8 @@ export async function resolveEffect(
         const agentSessionId = existing.agentSessionId as string | undefined;
         if (agentSessionId) {
           const agent = await t.get<Session>("sessions", agentSessionId);
-          if (agent?.status === "completed") {
-            const outcome = {
-              value: linkedAgentOutput(agent, agent.lastOutput ?? null),
-            };
-            existing.status = "completed";
-            existing.outcome = outcome;
-            await t.put("effects", request.effectId, existing);
-            return resolved({ status: "completed", outcome });
-          }
-          if (agent?.status === "failed") {
-            const outcome = {
-              value: {
-                kind: "failed",
-                code: "agent.failed",
-                message: agent.error ?? "Agent turn failed",
-              },
-            };
+          const outcome = await linkedOutcome(t, existing, agent);
+          if (outcome) {
             existing.status = "completed";
             existing.outcome = outcome;
             await t.put("effects", request.effectId, existing);
@@ -317,23 +335,7 @@ export async function resolveNewFlowEffect(
         const agent = agentSessionId
           ? await t.get<Session>("sessions", agentSessionId)
           : undefined;
-        const settled = (value: unknown) => ({ value }) as { value: any };
-        const outcome =
-          agent?.status === "completed"
-            ? settled(linkedAgentOutput(agent, agent.lastOutput ?? null))
-            : agent?.status === "cancelled"
-            ? settled({
-                kind: "failed" as const,
-                code: "agent.cancelled",
-                message: agent.error ?? "Agent turn was cancelled",
-              })
-            : agent?.status === "failed"
-            ? settled({
-                kind: "failed" as const,
-                code: "agent.failed",
-                message: agent.error ?? "Agent turn failed",
-              })
-            : undefined;
+        const outcome = await linkedOutcome(t, existing, agent);
         if (!outcome) return resolved({ status: "pending" });
         existing.status = "completed";
         existing.outcome = outcome;
@@ -499,7 +501,8 @@ export async function resolveNewFlowEffect(
     await t.put("sessions", agentSessionId, created);
   });
 
-  const idempotencyKey = `${request.turnId}:${path}:${iterations}`;
+  // Binds this effect to the one linked turn its message opens (`linkedTurnEnd`).
+  const idempotencyKey = linkedMessageKey(request);
   const messageInput = body.input;
   const messageCommand: SessionCommand =
     typeof messageInput === "string"
@@ -540,10 +543,12 @@ export async function resolveNewFlowEffect(
       turnId: accepted.turnId,
     });
     // May already be settled if the agent was fast / replayed.
-    if (agent.status === "completed") {
-      const outcome = {
-        value: linkedAgentOutput(agent, agent.lastOutput ?? null),
-      };
+    const outcome = await linkedOutcome(
+      t,
+      { request, agentSessionId },
+      agent
+    );
+    if (outcome) {
       await t.put("effects", request.effectId, {
         request,
         status: "completed",

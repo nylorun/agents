@@ -8,10 +8,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Action } from "@nylorun/core/contracts";
 import type { Wake } from "../../src/execution/types.js";
+import { commandKey, linkedMessageKey } from "../../src/core/flow-host.js";
 import { MemorySessionStore } from "../../src/store/memory.js";
 import { isOwnershipLost, ownedTx } from "../../src/store/ownership.js";
 import { createSqliteSessionStore } from "../../src/store/sqlite.js";
-import type { SessionStore } from "../../src/store/types.js";
+import type { SessionStore, Tx } from "../../src/store/types.js";
 import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
@@ -98,6 +99,28 @@ function action(fields: Partial<Action> & Pick<Action, "actionId" | "kind">): Ac
         : { path: "p", key: "p" }),
     ...fields,
   } as Action;
+}
+
+/** A Loop's `agent` effect request for iteration `n` of workflow `wf`, turn `t1`. */
+function agentEffect(effectId: string, n: number) {
+  return {
+    effectId,
+    sessionId: "wf",
+    turnId: "t1",
+    kind: "agent",
+    path: "writer",
+    iterations: String(n),
+    input: { agentId: "writer", input: "go", path: "writer" },
+  } as any;
+}
+
+/** Commit the message an agent effect sends: its idempotency key opens `agentTurnId`. */
+async function commitLinkedMessage(t: Tx, request: any, agentTurnId: string) {
+  const key = linkedMessageKey(request);
+  await t.put("commands", commandKey("agent", key), {
+    command: { type: "message", idempotencyKey: key },
+    response: { status: "accepted", turnId: agentTurnId },
+  });
 }
 
 const eventsOf = async (store: SessionStore, sessionId: string) =>
@@ -292,7 +315,11 @@ describe.each(stores)("on the %s store", (_name, makeStore) => {
       await t.put(
         "sessions",
         "agent",
-        session("agent", { status: "completed", lastOutput: "done" })
+        session("agent", {
+          status: "completed",
+          lastOutput: "done",
+          lastTurnId: "a1",
+        })
       );
       await t.put("links", "agent", {
         workflowSessionId: "wf",
@@ -300,11 +327,13 @@ describe.each(stores)("on the %s store", (_name, makeStore) => {
         effectId: "eff",
         turnId: "t1",
       });
+      const request = agentEffect("eff", 1);
       await t.put("effects", "eff", {
-        request: { effectId: "eff", sessionId: "wf", turnId: "t1", kind: "agent" },
+        request,
         status: "pending",
         agentSessionId: "agent",
       });
+      await commitLinkedMessage(t, request, "a1");
     });
     await reconcileLinkedAgents(ctx);
     expect(await store.tx((t) => t.get("effects", "eff"))).toMatchObject({
@@ -319,6 +348,88 @@ describe.each(stores)("on the %s store", (_name, makeStore) => {
     ]);
     await reconcileLinkedAgents(ctx);
     expect(wakes).toHaveLength(1);
+  });
+
+  // The tracer's Postgres flake: the sweep ran between the Loop's iteration-2 `agent` effect
+  // commit and its message commit, and settled iteration 2 from iteration 1's turn.
+  it("never settles a Loop's next agent effect from the linked session's earlier turn", async () => {
+    const store = await makeStore();
+    const { ctx, wakes } = contextOf(store);
+    const first = agentEffect("eff-1", 1);
+    const second = agentEffect("eff-2", 2);
+    await store.tx(async (t) => {
+      await t.put("sessions", "wf", session("wf", { status: "waiting", activeTurnId: "t1" }));
+      // Iteration 1 ended with draft-v1 and settled its effect.
+      await commitLinkedMessage(t, first, "a1");
+      await t.put(
+        "sessions",
+        "agent",
+        session("agent", {
+          status: "completed",
+          lastOutput: "draft-v1",
+          lastTurnId: "a1",
+        })
+      );
+      await t.put("effects", "eff-1", {
+        request: first,
+        status: "completed",
+        agentSessionId: "agent",
+        outcome: { value: "draft-v1" },
+      });
+      // Iteration 2's effect and link are committed; its message is not yet.
+      await t.put("effects", "eff-2", {
+        request: second,
+        status: "pending",
+        agentSessionId: "agent",
+      });
+      await t.put("links", "agent", {
+        workflowSessionId: "wf",
+        path: "writer",
+        effectId: "eff-2",
+        turnId: "t1",
+      });
+    });
+    await reconcileLinkedAgents(ctx);
+    expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
+      status: "pending",
+    });
+    expect(wakes).toEqual([]);
+
+    // The message commits and opens turn a2: still running, still pending.
+    await store.tx(async (t) => {
+      const agent = await t.lockSession<any>("agent");
+      await t.put("sessions", "agent", {
+        ...agent,
+        status: "runnable",
+        activeTurnId: "a2",
+      });
+      await commitLinkedMessage(t, second, "a2");
+    });
+    await reconcileLinkedAgents(ctx);
+    expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
+      status: "pending",
+    });
+    expect(wakes).toEqual([]);
+
+    // Turn a2 ends (its settle's wake was lost): the sweep settles iteration 2 with draft-v2.
+    await store.tx(async (t) => {
+      const agent = await t.lockSession<any>("agent");
+      await t.put("sessions", "agent", {
+        ...agent,
+        status: "completed",
+        activeTurnId: null,
+        lastTurnId: "a2",
+        lastOutput: "draft-v2",
+      });
+    });
+    await reconcileLinkedAgents(ctx);
+    expect(await store.tx((t) => t.get("effects", "eff-2"))).toMatchObject({
+      status: "completed",
+      outcome: { value: "draft-v2" },
+    });
+    expect(wakes).toEqual([
+      { id: "wf", wake: { reason: "linked", dedupeKey: "linked:t1:eff-2" } },
+    ]);
   });
 });
 
