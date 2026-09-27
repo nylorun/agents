@@ -1,13 +1,16 @@
 import { expect, it } from "vitest";
 import type { Action } from "@nylorun/core/contracts";
+import type { HostEffect } from "@nylorun/harness/run";
 import {
   aggregateWaits,
   cancelSiblingWork,
+  commandKey,
   countActiveFlowWork,
   deriveAgentEffectSessionId,
   deriveSessionId,
   fenceWorkflowActions,
   foreignInteractionConflict,
+  linkedMessageKey,
   pathDepth,
   planCancelCascade,
   pendingAgentEffects,
@@ -31,6 +34,32 @@ function memoryStore() {
     get: <T = any>(table: DocTable, id: string) =>
       store.tx((t) => t.get<T>(table, id)),
   };
+}
+
+/** A flow `agent` effect request of workflow `wf-1`, turn `turn-1`. */
+function agentRequest(effectId: string, path: string, iterations = "1") {
+  return {
+    effectId,
+    kind: "agent",
+    sessionId: "wf-1",
+    turnId: "turn-1",
+    path,
+    iterations,
+    input: { agentId: "writer", input: "go", path },
+  } as unknown as HostEffect;
+}
+
+/** Commit the message an agent effect sends: its idempotency key opens `agentTurnId`. */
+async function commitLinkedMessage(
+  put: (table: DocTable, id: string, body: unknown) => Promise<void>,
+  agentId: string,
+  request: HostEffect,
+  agentTurnId: string
+) {
+  await put("commands", commandKey(agentId, linkedMessageKey(request)), {
+    command: { type: "message", idempotencyKey: linkedMessageKey(request) },
+    response: { status: "accepted", turnId: agentTurnId },
+  });
 }
 
 function flowAction(
@@ -449,12 +478,15 @@ it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
     effectId: "eff-1",
     turnId: "turn-1",
   });
-  await put("effects", "eff-1", { status: "pending", request: {} });
+  const request = agentRequest("eff-1", "branch");
+  await put("effects", "eff-1", { status: "pending", request });
+  await commitLinkedMessage(put, agentId, request, "agent-turn-1");
   let scheduled = "";
   await store.tx((t) =>
     wakeLinkedWorkflow({
       t,
       agentSessionId: agentId,
+      turnId: "agent-turn-1",
       cancelled: true,
       schedule: (sid) => {
         scheduled = sid;
@@ -485,13 +517,16 @@ it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async
     effectId: "eff-1",
     turnId: "turn-1",
   });
-  await put("effects", "eff-1", { status: "pending", request: {} });
+  const request = agentRequest("eff-1", "branch");
+  await put("effects", "eff-1", { status: "pending", request });
+  await commitLinkedMessage(put, agentId, request, "agent-turn-1");
   const scheduled: string[] = [];
   await expect(
     store.tx(async (t) => {
       await wakeLinkedWorkflow({
         t,
         agentSessionId: agentId,
+        turnId: "agent-turn-1",
         output: "done",
         schedule: (sid) => scheduled.push(sid),
       });
@@ -514,6 +549,7 @@ it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () 
     id: agentId,
     status: "completed",
     lastOutput: "done",
+    lastTurnId: "agent-turn-1",
     activeTurnId: null,
   });
   await put("links", agentId, {
@@ -522,11 +558,13 @@ it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () 
     effectId: "eff",
     turnId: "turn-1",
   });
+  const request = agentRequest("eff", "writer");
   await put("effects", "eff", {
     status: "pending",
     agentSessionId: agentId,
-    request: { kind: "agent", sessionId: "wf-1", turnId: "turn-1" },
+    request,
   });
+  await commitLinkedMessage(put, agentId, request, "agent-turn-1");
   const scheduled: { id: string; reason: string }[] = [];
   const pending = await store.tx((t) => pendingAgentEffects(t));
   expect(pending.map((e) => e.request.effectId ?? "eff")).toHaveLength(1);
@@ -545,4 +583,81 @@ it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () 
   expect(effect?.status).toBe("completed");
   expect(effect?.outcome).toEqual({ value: "done" });
   expect(scheduled).toEqual([{ id: "wf-1", reason: "linked" }]);
+});
+
+it("an agent effect settles only from the linked turn it started, never an earlier one", async () => {
+  const { store, put, get } = memoryStore();
+  const agentId = deriveSessionId("wf-1", "writer");
+  await put("sessions", "wf-1", {
+    id: "wf-1",
+    status: "waiting",
+    activeTurnId: "turn-1",
+  });
+  // Iteration 1 ended; iteration 2's effect and link are journaled, its message is not.
+  const first = agentRequest("eff-1", "writer", "1");
+  const second = agentRequest("eff-2", "writer", "2");
+  await commitLinkedMessage(put, agentId, first, "agent-turn-1");
+  await put("sessions", agentId, {
+    id: agentId,
+    status: "completed",
+    lastOutput: "draft-v1",
+    lastTurnId: "agent-turn-1",
+    activeTurnId: null,
+  });
+  await put("effects", "eff-1", {
+    status: "completed",
+    agentSessionId: agentId,
+    request: first,
+    outcome: { value: "draft-v1" },
+  });
+  await put("effects", "eff-2", {
+    status: "pending",
+    agentSessionId: agentId,
+    request: second,
+  });
+  await put("links", agentId, {
+    workflowSessionId: "wf-1",
+    path: "writer",
+    effectId: "eff-2",
+    turnId: "turn-1",
+  });
+  const scheduled: string[] = [];
+  const schedule = (id: string) => {
+    scheduled.push(id);
+  };
+
+  // Neither the sweep nor a late settle of the earlier turn settles iteration 2.
+  expect(
+    await store.tx((t) =>
+      reconcilePendingAgentEffect({ t, effectId: "eff-2", schedule })
+    )
+  ).toBe(false);
+  await store.tx((t) =>
+    wakeLinkedWorkflow({
+      t,
+      agentSessionId: agentId,
+      turnId: "agent-turn-1",
+      output: "draft-v1",
+      schedule,
+    })
+  );
+  expect((await get("effects", "eff-2"))?.status).toBe("pending");
+  expect(scheduled).toEqual([]);
+
+  // Iteration 2's turn ends: its settle completes the effect with its own output.
+  await commitLinkedMessage(put, agentId, second, "agent-turn-2");
+  await store.tx((t) =>
+    wakeLinkedWorkflow({
+      t,
+      agentSessionId: agentId,
+      turnId: "agent-turn-2",
+      output: "draft-v2",
+      schedule,
+    })
+  );
+  expect(await get("effects", "eff-2")).toMatchObject({
+    status: "completed",
+    outcome: { value: "draft-v2" },
+  });
+  expect(scheduled).toEqual(["wf-1"]);
 });

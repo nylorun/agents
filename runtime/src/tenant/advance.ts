@@ -288,6 +288,7 @@ async function wakeWorkflowOf(
   ctx: TenantContext,
   t: Tx,
   agent: Session,
+  turnId: string | null,
   type: string,
   payload: unknown
 ): Promise<void> {
@@ -295,6 +296,7 @@ async function wakeWorkflowOf(
     await wakeLinkedWorkflow({
       t,
       agentSessionId: agent.id,
+      turnId,
       output:
         type === "turn.completed"
           ? linkedAgentOutput(
@@ -313,6 +315,7 @@ async function wakeWorkflowOf(
     await wakeLinkedWorkflow({
       t,
       agentSessionId: agent.id,
+      turnId,
       cancelled: true,
       error: "Agent turn was cancelled",
       schedule: ctx.wake,
@@ -398,7 +401,10 @@ async function settle(
         });
         siblings.push(...cancelResult.agentSessionIds);
       }
-      if (result.status !== "paused") current.activeTurnId = null;
+      if (result.status !== "paused") {
+        current.activeTurnId = null;
+        if (s.activeTurnId) current.lastTurnId = s.activeTurnId;
+      }
       const type = `turn.${result.status}`;
       const payload =
         result.status === "completed"
@@ -427,7 +433,7 @@ async function settle(
           : {};
       await t.event(id, s.activeTurnId, type, payload);
       await t.put("sessions", id, current);
-      await wakeWorkflowOf(ctx, t, current, type, payload);
+      await wakeWorkflowOf(ctx, t, current, s.activeTurnId, type, payload);
       return siblings;
     }
   );
@@ -478,9 +484,17 @@ async function settleFailure(
     current.error = error instanceof Error ? error.message : String(error);
     const payload = { message: current.error };
     await t.event(id, current.activeTurnId, "turn.failed", payload);
+    if (current.activeTurnId) current.lastTurnId = current.activeTurnId;
     current.activeTurnId = null;
     await t.put("sessions", id, current);
-    await wakeWorkflowOf(ctx, t, current, "turn.failed", payload);
+    await wakeWorkflowOf(
+      ctx,
+      t,
+      current,
+      s.activeTurnId,
+      "turn.failed",
+      payload
+    );
   });
 }
 

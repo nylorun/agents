@@ -30,6 +30,7 @@ import {
   type JsonValue,
 } from "@nylorun/core/define";
 import {
+  commandKey,
   fenceWorkflowActions,
   foreignInteractionConflict,
   isWorkflowManifest,
@@ -137,7 +138,7 @@ export async function command(
       command = acceptedToolResult(a, command);
     } else if (scope.kind !== "application")
       fail(403, "Application credential required");
-    const key = JSON.stringify([id, command.idempotencyKey]);
+    const key = commandKey(id, command.idempotencyKey);
     const existing = await t.get("commands", key);
     if (existing) {
       if (semantic(existing.command) !== semantic(command))
@@ -145,6 +146,8 @@ export async function command(
       return existing.response;
     }
     let event: LiveEvent;
+    // The turn a `cancel` ended, if one was active.
+    let cancelledTurnId: string | null = null;
     if (command.type === "action_result") {
       const action = (await t.get<Action>("actions", command.actionId))!;
       const prior = await t.get("effects", command.actionId);
@@ -235,7 +238,7 @@ export async function command(
         });
       }
     } else if (command.type === "cancel") {
-      const cancelledTurnId = s.activeTurnId;
+      cancelledTurnId = s.activeTurnId;
       const workflowCancel = isWorkflowManifest(s.manifest);
       const cascade = workflowCancel
         ? await planCancelCascade({
@@ -283,6 +286,7 @@ export async function command(
       // The process running the advance aborts it on `session.cancel` (tenant/control).
       t.afterCommit(() => signalSessionCancel(ctx, id));
       s.activeTurnId = null;
+      if (cancelledTurnId !== null) s.lastTurnId = cancelledTurnId;
       // The next turn starts from the state preceding the cancelled turn, never its paused plan.
       if (cancelledTurnId !== null) s.state = s.turnStartState;
       s.checkpoint = undefined;
@@ -421,6 +425,7 @@ export async function command(
       await wakeLinkedWorkflow({
         t,
         agentSessionId: id,
+        turnId: cancelledTurnId,
         cancelled: true,
         error: "Agent turn was cancelled",
         schedule: ctx.wake,

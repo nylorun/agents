@@ -16,7 +16,11 @@
  * - `isFlowToolEffect(request): boolean`, `isFlowEffect(request): boolean`
  * - `pathDepth(path): number`
  * - `countActiveFlowWork(t, workflowSessionId, turnId): Promise<number>`
- * - `wakeLinkedWorkflow({ t, agentSessionId, output?, failed?, cancelled?, error?, schedule }): Promise<void>`
+ * - `commandKey(sessionId, idempotencyKey): string`
+ * - `linkedMessageKey(request): string`
+ * - `linkedTurnOf(t, agentSessionId, request): Promise<string | undefined>`
+ * - `linkedTurnEnd(t, effect, agent): Promise<LinkedTurnEnd | undefined>`
+ * - `wakeLinkedWorkflow({ t, agentSessionId, turnId, output?, failed?, cancelled?, error?, schedule }): Promise<void>`
  * - `pendingAgentEffects(t): Promise<FlowEffect[]>`
  * - `reconcilePendingAgentEffect({ t, effectId, schedule }): Promise<boolean>`
  * - `claimedFnVerifyActions(t): Promise<Action[]>`
@@ -31,6 +35,12 @@
  *
  * `schedule: (sessionId, wake) => void | Promise<void>` runs after commit, never inside `t`;
  * `wake` carries the reason (`linked`, `flow`) and, where the cause has one, a dedupe key.
+ *
+ * An `agent` effect settles only from the linked turn it started. A linked agent session is
+ * reused by every iteration of a Loop (its id derives from the workflow and the path), so its
+ * status and `lastOutput` may belong to an earlier iteration's turn until this effect's message
+ * commits. The effect is bound to its turn through the message's idempotency key
+ * (`linkedMessageKey`): the `commands` document of that key names the turn it opened.
  *
  * The Tenant sweep (`tenant/sweep.ts`) calls the reconcile and re-offer functions, one
  * transaction per effect or Action.
@@ -138,8 +148,16 @@ export type FlowHostSession = {
   creation?: unknown;
   waits?: unknown;
   lastOutput?: JsonValue;
+  /** The turn `status`, `lastOutput` and `error` describe, once it ended. */
+  lastTurnId?: string;
   error?: string;
 };
+
+/** How a linked agent turn ended. */
+export type LinkedTurnEnd = { readonly turnId: string } & (
+  | { readonly status: "completed"; readonly output: JsonValue }
+  | { readonly status: "failed" | "cancelled"; readonly error?: string }
+);
 
 export type FlowWait = {
   readonly sessionId: string;
@@ -220,10 +238,71 @@ export async function countActiveFlowWork(
   return n;
 }
 
-/** After an agent turn settles, wake the owning workflow if linked. */
+/** The `commands` document key of a session command's idempotency key (`tenant/commands.ts`). */
+export function commandKey(sessionId: string, idempotencyKey: string): string {
+  return JSON.stringify([sessionId, idempotencyKey]);
+}
+
+/** The idempotency key of the message a flow `agent` effect sends its linked session. */
+export function linkedMessageKey(request: HostEffect): string {
+  const path =
+    (request.input as { path?: string } | null | undefined)?.path ??
+    request.path;
+  return `${request.turnId}:${path}:${request.iterations ?? "-"}`;
+}
+
+/**
+ * The linked turn an `agent` effect started: the turn its message opened, or undefined until
+ * that message commits.
+ */
+export async function linkedTurnOf(
+  t: Tx,
+  agentSessionId: string,
+  request: HostEffect
+): Promise<string | undefined> {
+  const accepted = await t.get<{ response?: { turnId?: string | null } }>(
+    "commands",
+    commandKey(agentSessionId, linkedMessageKey(request))
+  );
+  return accepted?.response?.turnId ?? undefined;
+}
+
+/**
+ * How the linked turn an `agent` effect started ended, or undefined while it has not: before
+ * its message commits, the linked session's status and `lastOutput` describe an earlier turn.
+ * `agent` is the linked session, read in the caller's transaction.
+ */
+export async function linkedTurnEnd(
+  t: Tx,
+  effect: Pick<FlowEffect, "request" | "agentSessionId">,
+  agent: FlowHostSession | undefined
+): Promise<LinkedTurnEnd | undefined> {
+  const id = effect.agentSessionId;
+  if (!agent || typeof id !== "string" || agent.activeTurnId !== null)
+    return undefined;
+  const turnId = await linkedTurnOf(t, id, effect.request);
+  // Sessions settled before `lastTurnId` was recorded: the turn ended if none is active.
+  if (!turnId || (agent.lastTurnId ?? turnId) !== turnId) return undefined;
+  if (agent.status === "completed")
+    return { turnId, status: "completed", output: agent.lastOutput ?? null };
+  if (agent.status === "failed" || agent.status === "cancelled")
+    return {
+      turnId,
+      status: agent.status,
+      ...(agent.error !== undefined ? { error: agent.error } : {}),
+    };
+  return undefined;
+}
+
+/**
+ * After a linked agent turn ends, settle the `agent` effect that started it and wake the
+ * workflow. `turnId` is the linked session's turn that ended; an effect bound to another turn
+ * (a later iteration whose message has not committed yet) is left alone.
+ */
 export async function wakeLinkedWorkflow(input: {
   readonly t: Tx;
   readonly agentSessionId: string;
+  readonly turnId: string | null;
   readonly output?: JsonValue;
   readonly failed?: boolean;
   readonly cancelled?: boolean;
@@ -238,6 +317,12 @@ export async function wakeLinkedWorkflow(input: {
   const effect = await t.get<FlowEffect>("effects", link.effectId);
   if (!effect || effect.status === "completed") return;
   if (workflow.activeTurnId !== link.turnId) return;
+  if (
+    !input.turnId ||
+    (await linkedTurnOf(t, input.agentSessionId, effect.request)) !==
+      input.turnId
+  )
+    return;
 
   const outcome: ActionOutcome = input.cancelled
     ? {
@@ -282,7 +367,9 @@ export async function pendingAgentEffects(t: Tx): Promise<FlowEffect[]> {
  * Tenant sweep: settle one pending `agent` effect whose linked turn already finished (the
  * linked settle normally does this in its own transaction). Runs in its own transaction and
  * locks the linked agent (child) session before the workflow (parent), per the lock order in
- * `store/types.ts`. A linked session still `running` or `runnable` is left to the sweep's
+ * `store/types.ts`. Only the linked turn the effect started settles it (`linkedTurnEnd`): the
+ * linked session may still show an earlier iteration's settled turn while this effect's message
+ * is not committed. A linked session still `running` or `runnable` is left to the sweep's
  * orphan re-wake; a paused one surfaces on the workflow when the workflow settles. Returns
  * true when it changed something.
  */
@@ -304,26 +391,20 @@ export async function reconcilePendingAgentEffect(input: {
   const effect = await t.get<FlowEffect>("effects", input.effectId);
   if (!effect || effect.status !== "pending" || !agent || !workflow)
     return false;
-  if (agent.status === "completed") {
-    await wakeLinkedWorkflow({
-      t,
-      agentSessionId: id,
-      output: agent.lastOutput ?? null,
-      schedule: input.schedule,
-    });
-    return true;
-  }
-  if (agent.status === "failed" || agent.status === "cancelled") {
-    await wakeLinkedWorkflow({
-      t,
-      agentSessionId: id,
-      ...(agent.status === "failed" ? { failed: true } : { cancelled: true }),
-      error: agent.error,
-      schedule: input.schedule,
-    });
-    return true;
-  }
-  return false;
+  const end = await linkedTurnEnd(t, effect, agent);
+  if (!end) return false;
+  await wakeLinkedWorkflow({
+    t,
+    agentSessionId: id,
+    turnId: end.turnId,
+    ...(end.status === "completed"
+      ? { output: end.output }
+      : end.status === "failed"
+      ? { failed: true, error: end.error }
+      : { cancelled: true, error: end.error }),
+    schedule: input.schedule,
+  });
+  return true;
 }
 
 /** Claimed `fn`/`verify` Actions, for the re-offer after a Tenant opens. */

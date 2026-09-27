@@ -54,6 +54,12 @@ export interface Session {
   error?: string;
   /** Last completed turn output (for linked agent → workflow settle). */
   lastOutput?: JsonValue;
+  /**
+   * The last turn that ended (completed, failed or cancelled): the turn `status`, `lastOutput`
+   * and `error` describe while no turn is active. A linked `agent` effect settles only from the
+   * turn it started (`linkedTurnEnd` in `core/flow-host.ts`).
+   */
+  lastTurnId?: string;
   creation: unknown;
   vaultIds?: readonly string[];
   credentialSelections?: readonly CredentialSelection[];
