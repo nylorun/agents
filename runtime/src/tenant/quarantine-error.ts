@@ -8,16 +8,9 @@ export class QuarantineError extends Error {
     code: Quarantine["code"],
     message: string,
     repair = "nylorun tenant status",
-    extra?: Pick<Quarantine, "lockPath" | "lockPid">,
   ) {
     super(message);
     this.name = "QuarantineError";
-    this.quarantine = {
-      code,
-      message,
-      repair,
-      ...(extra?.lockPath === undefined ? {} : { lockPath: extra.lockPath }),
-      ...(extra?.lockPid === undefined ? {} : { lockPid: extra.lockPid }),
-    };
+    this.quarantine = { code, message, repair };
   }
 }

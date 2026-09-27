@@ -26,7 +26,7 @@ afterEach(async () => {
 async function setup() {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-create-"));
   roots.push(hostRoot);
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
   const store = createFsTenantStore({ hostRoot, openRuntime, configFor });
   const module = createTenantModule({
@@ -91,7 +91,7 @@ it("create with different material after collision is 409", async () => {
 it("partial create is removed before the error propagates", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-partial-"));
   roots.push(hostRoot);
-  const openRuntime = createFakeOpenRuntime({ hostRoot, claimLock: true });
+  const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
   const store = createFsTenantStore({
     hostRoot,

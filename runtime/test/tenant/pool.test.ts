@@ -58,14 +58,12 @@ it("start opens with concurrency 4 and quarantines open timeouts", async () => {
   const slowId = newTenantId();
   const openRuntime = createFakeOpenRuntime({
     hostRoot,
-    claimLock: true,
     openDelayMs: 200,
     failFor: () => undefined,
   });
   // Override delay only for slowId via beforeOpen sleep.
   const delayed = createFakeOpenRuntime({
     hostRoot,
-    claimLock: true,
     beforeOpen: async (config) => {
       if (config.tenantId === slowId) {
         await new Promise((r) => setTimeout(r, 200));

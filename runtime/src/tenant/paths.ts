@@ -52,7 +52,7 @@ export function hostPaths(hostRoot: string): HostPaths {
  * Validates the id and asserts containment after realpath.
  *
  * Basenames frozen here for Wave 0 (design Rev 3 absent):
- * `tenant.json`, `tenant.sqlite`, `.runtime-lock`, `vault-kek`,
+ * `tenant.json`, `tenant.sqlite`, `vault-kek`,
  * `home/`, `tmp/`, `.migration/`, `sandboxes/`, `plugin-data/`, `logs/tenant.log`.
  */
 export function tenantPaths(hostRoot: string, tenantId: string): TenantPaths {
@@ -72,7 +72,6 @@ export function tenantPaths(hostRoot: string, tenantId: string): TenantPaths {
     root: resolvedRoot,
     envelope: join(resolvedRoot, "tenant.json"),
     database: join(resolvedRoot, "tenant.sqlite"),
-    lock: join(resolvedRoot, ".runtime-lock"),
     kek: join(resolvedRoot, "vault-kek"),
     home: join(resolvedRoot, "home"),
     tmp: join(resolvedRoot, "tmp"),

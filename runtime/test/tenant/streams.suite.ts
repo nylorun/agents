@@ -4,11 +4,9 @@
  * (`streams.test.ts`) and on s2-lite (`streams.integration.test.ts`).
  *
  * "Another node" is a second Tenant runtime in this process over the same SQLite database
- * and the same streams. Until Wave 2 / X removes the Tenant lock file, the second instance
- * opens after its lock file is removed. Both SQLite connections share one thread, so the
- * tests avoid overlapping writes from the two instances.
+ * and the same streams. Both SQLite connections share one thread, so the tests avoid
+ * overlapping writes from the two instances.
  */
-import { rmSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, tool } from "@nylorun/core/define";
@@ -16,7 +14,6 @@ import { newTenantId } from "@nylorun/core/compatibility";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
 import type { TenantContext } from "../../src/tenant/context.js";
-import { tenantPaths } from "../../src/tenant/paths.js";
 import { drainOutbox } from "../../src/tenant/streams.js";
 import type { TenantHandle } from "../../src/tenant/types.js";
 import type { ModelProvider } from "../../src/core/provider.js";
@@ -218,8 +215,6 @@ export function tenantStreamsSuite(
         options: { modelProvider?: ModelProvider; executors?: boolean } = {}
       ): Promise<Node> {
         const first = nodes[0];
-        if (first)
-          rmSync(tenantPaths(first.root, tenantId).lock, { force: true });
         const started = await startTestTenant({
           tenantId,
           applicationKey: APP,

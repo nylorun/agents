@@ -42,6 +42,9 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   principalId?: string;
   /** When true, close() does not delete the Host root. */
   retainRoot?: boolean;
+  /** Host-level execution and Worker id (ownership tests). */
+  execution?: TenantOpenHooks["execution"];
+  workerId?: string;
   /** Durable Streams shared with other instances; the caller closes them. */
   streams?: DurableStreams;
 };
@@ -151,6 +154,11 @@ export async function startTestTenant(
     model,
     childEnv,
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
+    ...(options.ownerLeaseMs === undefined
+      ? {}
+      : { ownerLeaseMs: options.ownerLeaseMs }),
+    // A short sweep so lapsed claims and lost wakes are picked up promptly in tests.
+    sweepIntervalMs: options.sweepIntervalMs ?? 50,
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
     ...(options.vaultFetch === undefined
@@ -161,6 +169,8 @@ export async function startTestTenant(
 
   const hooks: TenantOpenHooks = {
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
+    ...(options.execution ? { execution: options.execution } : {}),
+    ...(options.workerId ? { workerId: options.workerId } : {}),
     ...(options.streams ? { streams: options.streams } : {}),
     createKekIfMissing: true,
   };

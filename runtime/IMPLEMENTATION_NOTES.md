@@ -10,7 +10,7 @@ Built capabilities (current Host + Tenant model):
 
 - Independent standalone HTTP Host and `@nylorun/runtime/core` entry (`startEphemeralRuntime` for tests); no customer function bodies in execution manifests.
 - Per-Tenant SQLite transactional definitions, pinned sessions, command receipts, immutable segment checkpoints, per-effect journal, actions, waits (within session checkpoint), canonical events and opaque resumable cursors.
-- Detached scheduling, one-process ownership per Tenant (`.runtime-lock`), persisted runnable startup discovery, conservative model-intent uncertainty, cancellation fencing and inspectable uncertain actions/effects.
+- Scheduling behind Durable Session Execution, per-session ownership (lease and epoch) with takeover, a Tenant sweep that re-wakes orphaned sessions, conservative model-intent uncertainty, cancellation fencing and inspectable uncertain actions/effects.
 - Separate application/executor credentials; SSE notifications, persisted discovery, exclusive claims, generations, heartbeats, expiry to uncertainty, matching duplicate result receipts and conflict rejection. Executors register via `PUT /v1/executors`.
 - Cancellation fences the current turn and permits later messages in the same session. New turns resume the state preceding the cancelled turn, while canonical history retains its events. Claimed/model work with ambiguous external outcomes remains inspectable as uncertain; late old-turn settlement cannot mutate a later turn.
 - Failed turns retain their failed checkpoint in the SQLite checkpoints table (keyed by session/turn/segment) and their effect/event journal, but restore the pre-turn session state for later messages so abandoned tool plans cannot run under a new turn.
