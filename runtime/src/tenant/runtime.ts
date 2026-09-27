@@ -4,18 +4,15 @@
  * Tenant's Worker handlers and arms its sweep, and implements `TenantHandle` (handle,
  * summary, drain, close) by delegating to the Tenant modules.
  *
- * Seams wired here: the store's commit listener delivers committed events to live observers
- * (`publish`) and `workAvailable` to connected executors (`notify`); `wake` goes to the
+ * Seams wired here: `wireStreams()` connects the store's commits to Durable Streams (the
+ * relay, and the history, SSE, work and control readers); `wake` goes to the
  * `DurableExecution`, whose handlers (`worker.ts`) call `advance` and `sweep`; `abortLocal`
- * aborts an advance running on this process; `history` reads the SQLite events table.
+ * aborts an advance running on this process. The sweep also drains the outbox.
  *
  * Execution: the Host passes one `TenantExecution` for every Tenant it opens
  * (`TenantOpenHooks.execution`); without one, the Tenant runs its own in-process
  * `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
  * session (§10.6) keeps its advances apart.
- *
- * Later waves: Wave 2 / Y replaces the commit listener and `history` with one
- * `wireStreams()` call.
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
@@ -40,15 +37,20 @@ import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
 import { QuarantineError } from "./quarantine-error.js";
+import type { DurableStreams } from "../streams/types.js";
 import type { TenantConfig, TenantHandle, TenantSummary } from "./types.js";
 import type { TenantContext } from "./context.js";
 import {
   connectedExecutorCount,
   createLiveHub,
   endAllStreams,
-  notify,
-  publish,
 } from "./live.js";
+import {
+  closeStreams,
+  drainOutbox,
+  wireStreams,
+  type StreamsWiring,
+} from "./streams.js";
 import {
   abortAll,
   abortLocal,
@@ -81,6 +83,11 @@ export type TenantOpenHooks = {
   execution?: TenantExecution;
   /** The Worker id written as session owner. Defaults to this process's `WORKER_ID`. */
   workerId?: string;
+  /**
+   * Durable Streams for this Tenant, owned by the caller. Without them the Tenant uses
+   * in-memory streams re-hydrated from its SQLite events (until Wave 3 wires S2).
+   */
+  streams?: DurableStreams;
 };
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -130,6 +137,7 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(dirname(paths.database), { recursive: true });
 
     let store: SqliteSessionStore | undefined;
+    let wired: StreamsWiring | undefined;
     try {
       store = createSqliteSessionStore({
         path: paths.database,
@@ -243,7 +251,6 @@ export class TenantRuntime implements TenantHandle {
         config,
         envelope,
         store: opened,
-        history: opened,
         vault,
         registry,
         mcp,
@@ -268,10 +275,14 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
-      // The seams: committed events go to live observers, work to connected executors.
-      opened.onCommit((commit) => {
-        for (const event of commit.events) publish(live, event);
-        if (commit.workAvailable) notify(live);
+      wired = await wireStreams(ctx, {
+        store: opened,
+        streams: hooks.streams,
+        tenantId: config.tenantId,
+      });
+      // Outbox rows a lost relay step left behind are appended by the sweep.
+      sweepHooks.add(async () => {
+        await drainOutbox(ctx);
       });
 
       // Register the handlers, then arm the sweep: its first pass runs at once and re-wakes
@@ -293,6 +304,7 @@ export class TenantRuntime implements TenantHandle {
         await local?.stop();
       });
     } catch (error) {
+      await wired?.close().catch(() => undefined);
       await store?.close().catch(() => undefined);
       throw error;
     }
@@ -352,6 +364,7 @@ export class TenantRuntime implements TenantHandle {
     await waitForIdle(ctx);
     await ctx.sandbox.close();
     ctx.closed = true;
+    await closeStreams(ctx);
     await ctx.store.close();
   }
 }

@@ -16,6 +16,8 @@ export interface StackPaths {
   stack: string;
   compose: string;
   env: string;
+  /** Restate's request-identity private key (Ed25519 PKCS#8 PEM), mode 0600. */
+  restateIdentity: string;
 }
 
 export function stackPaths(hostRoot: string): StackPaths {
@@ -32,5 +34,6 @@ export function stackPaths(hostRoot: string): StackPaths {
     stack,
     compose: join(stack, "compose.yaml"),
     env: join(stack, ".env"),
+    restateIdentity: join(stack, "restate-identity.pem"),
   };
 }

@@ -24,9 +24,10 @@
  *
  * `events(session_id, seq, body, relayed)` holds every event of a session. A
  * row with `relayed = 0` is in the outbox; `deleteOutbox` marks rows relayed
- * rather than deleting them, because the table is also the session history
- * that `readEvents` serves until Durable Streams replace it (Wave 2 / Y).
- * Deleting a session deletes its events.
+ * rather than deleting them, because the SQLite profile has no durable
+ * streams yet: at open, the Tenant runtime re-hydrates its in-memory streams
+ * from the relayed rows (`readRelayed`, `tenant/streams.ts`). Wave 3 removes
+ * that. Deleting a session deletes its events.
  *
  * ## Values
  *
@@ -90,16 +91,22 @@ export interface SqliteSessionStoreOptions extends SessionStoreOptions {
   readOnly?: boolean;
 }
 
-/** The SQLite Session Store, plus the event history it keeps until Wave 2 / Y. */
+/** The SQLite Session Store, plus the event history it keeps until Wave 3. */
 export interface SqliteSessionStore extends SessionStore {
   /**
    * Events of one session with `seq > afterSeq` (all when omitted), in order,
-   * plus the session's last sequence (or null without events).
+   * plus the session's last sequence (or null without events). Store tests and
+   * migration checks only; the Runtime reads history from Durable Streams.
    */
   readEvents(
     sessionId: string,
     afterSeq?: number,
   ): Promise<{ events: LiveEvent[]; lastSeq: number | null }>;
+  /**
+   * Every relayed event (not in the outbox), ordered by session id then
+   * sequence: the re-hydration source of the interim in-memory streams.
+   */
+  readRelayed(): Promise<OutboxRow[]>;
 }
 
 export function createSqliteSessionStore(
@@ -243,6 +250,20 @@ class SqliteStore implements SqliteSessionStore {
         lastSeq: last?.seq == null ? null : Number(last.seq),
       };
     });
+  }
+
+  async readRelayed(): Promise<OutboxRow[]> {
+    return this.read(() =>
+      this.sql(
+        "SELECT session_id, seq, body FROM events WHERE relayed = 1 ORDER BY session_id, seq",
+      )
+        .all()
+        .map((row) => ({
+          sessionId: String(row.session_id),
+          seq: Number(row.seq),
+          event: JSON.parse(String(row.body)) as LiveEvent,
+        })),
+    );
   }
 
   async health(): Promise<StoreHealth> {

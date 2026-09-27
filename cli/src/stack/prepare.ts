@@ -11,6 +11,7 @@ import {
 import type { StackImages } from "./images.js";
 import type { StackPaths } from "./paths.js";
 import { choosePort, DEFAULT_PORTS, type PortProbe } from "./ports.js";
+import { ensureIdentityKey } from "./restate-identity.js";
 
 export interface PreparedStack {
   env: StackEnv;
@@ -43,8 +44,9 @@ export async function readStackEnv(paths: StackPaths) {
 
 /**
  * Write everything `docker compose up` needs under the Host root:
- * host.json, host-credentials.json (0600), stack/compose.yaml and
- * stack/.env (0600). Ports and the Postgres password persist in .env.
+ * host.json, host-credentials.json (0600), stack/compose.yaml,
+ * stack/.env (0600) and stack/restate-identity.pem (0600). Ports and the
+ * Postgres password persist in .env; the identity key persists in its PEM.
  */
 export async function prepareStack(input: {
   paths: StackPaths;
@@ -81,11 +83,14 @@ export async function prepareStack(input: {
     taken,
   );
 
+  const identity = await ensureIdentityKey(paths.restateIdentity, writeFileMode);
+
   const env: StackEnv = {
     runtimePort,
     studioPort,
     restatePort,
     postgresPassword: persisted.postgresPassword ?? randomBytes(24).toString("hex"),
+    restateIdentityKey: identity.publicKey,
     uid: input.uid,
     gid: input.gid,
     hostRoot: paths.root,

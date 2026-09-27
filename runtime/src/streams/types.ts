@@ -105,6 +105,12 @@ export interface DurableStreams {
   /** Deletes one stream (a deleted session). Idempotent. */
   deleteStream(tenantId: string, stream: string): Promise<void>;
   close(): Promise<void>;
+  /**
+   * Resolves when the backing service answers, rejects otherwise (readiness,
+   * `infra/streams.ts`). Absent for in-process implementations, which are
+   * always reachable.
+   */
+  probe?(signal: AbortSignal): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

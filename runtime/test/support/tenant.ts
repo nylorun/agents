@@ -24,6 +24,7 @@ import {
 import { createKekFile } from "../../src/vault/kek.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import { createSqliteSessionStore } from "../../src/store/sqlite.js";
+import type { DurableStreams } from "../../src/streams/types.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
   executors?: readonly {
@@ -44,6 +45,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Host-level execution and Worker id (ownership tests). */
   execution?: TenantOpenHooks["execution"];
   workerId?: string;
+  /** Durable Streams shared with other instances; the caller closes them. */
+  streams?: DurableStreams;
 };
 
 /** Rewrites fields of a stored session in a closed Tenant database (restart tests). */
@@ -168,6 +171,7 @@ export async function startTestTenant(
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     ...(options.workerId ? { workerId: options.workerId } : {}),
+    ...(options.streams ? { streams: options.streams } : {}),
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {

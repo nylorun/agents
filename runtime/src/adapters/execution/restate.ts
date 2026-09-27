@@ -200,6 +200,24 @@ export class RestateExecution implements DurableExecution {
     await this.send(this.names.tenant, tenantKey(tenantId), "disarm", {});
   }
 
+  /**
+   * Readiness: the admin API (`/health`), which `start` registers with, and the
+   * ingress (`/restate/health`), which every wake, timer and sweep goes
+   * through, both answer.
+   */
+  async probe(signal: AbortSignal): Promise<void> {
+    await Promise.all(
+      [`${this.adminUrl}/health`, `${this.ingressUrl}/restate/health`].map(
+        async (url) => {
+          const response = await fetch(url, { signal });
+          await response.body?.cancel();
+          if (!response.ok)
+            throw new Error(`Restate health ${response.status} at ${url}`);
+        },
+      ),
+    );
+  }
+
   async start(handlers: WorkerHandlers): Promise<void> {
     if (this.handlers) throw new Error("DurableExecution already started");
     const { workerListen, workerAdvertisedUrl } = this.options;

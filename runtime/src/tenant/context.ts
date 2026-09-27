@@ -4,17 +4,16 @@
  * in-process work and live-stream state.
  *
  * Business code changes state only inside `ctx.store.tx(async (t) => …)` and follows the
- * seam rules: events through `t.event(...)` (the store delivers them to live observers after
+ * seam rules: events through `t.event(...)` (the relay appends them to Durable Streams after
  * commit), executor wakes through `t.signalWork()`, and advances through
- * `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never calls `publish` or
- * `notify` itself; `runtime.ts` wires the store's commit listener to them. No external I/O
- * runs inside a tx.
+ * `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never publishes or notifies
+ * itself; `runtime.ts` wires the streams with `wireStreams()`. No external I/O runs inside a
+ * tx.
  *
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
- * under ownership (§10.6); `abortLocal` aborts an advance running on this process. Wave 2 / Y
- * puts the commit listener and `history` behind Durable Streams.
+ * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
-import type { LiveEvent, TenantEnvelope } from "@nylorun/core/contracts";
+import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type {
   DurableCheckpoint,
   FlowCheckpoint,
@@ -69,20 +68,10 @@ export type AuthScope =
   | { kind: "application"; principalId: string }
   | { kind: "executor"; executor: ExecutorRecord };
 
-/** Reads a session's committed events (the SQLite events table until Wave 2 / Y). */
-export interface EventHistory {
-  readEvents(
-    sessionId: string,
-    afterSeq?: number
-  ): Promise<{ events: LiveEvent[]; lastSeq: number | null }>;
-}
-
 export interface TenantContext {
   readonly config: TenantConfig;
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
-  /** Seam: session history for `GET …/items` and SSE replay. */
-  readonly history: EventHistory;
   readonly vault: VaultService;
   readonly registry: ExecutorRegistry;
   readonly mcp: McpPool;
@@ -97,7 +86,7 @@ export interface TenantContext {
   closed: boolean;
   /** Advances running on this process, for `abortLocal`, drain and close. */
   readonly work: WorkState;
-  /** In-process live streams: session observers and executor streams. */
+  /** Live delivery over Durable Streams: session feeds, executor streams, the streams wiring. */
   readonly live: LiveHub;
   /** The Worker id this process writes as session `owner` (§10.6). */
   readonly workerId: string;
