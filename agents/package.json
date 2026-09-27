@@ -51,7 +51,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nylorun/harness.git",
+    "url": "git+https://github.com/nylorun/agents.git",
     "directory": "agents"
   },
   "publishConfig": {

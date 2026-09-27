@@ -6,11 +6,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nylorun/harness.git",
+    "url": "git+https://github.com/nylorun/agents.git",
     "directory": "create-agent"
   },
-  "homepage": "https://github.com/nylorun/harness",
-  "bugs": "https://github.com/nylorun/harness/issues",
+  "homepage": "https://github.com/nylorun/agents",
+  "bugs": "https://github.com/nylorun/agents/issues",
   "bin": {
     "create-agent": "dist/cli.js"
   },

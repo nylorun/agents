@@ -15,18 +15,18 @@ const forbidden = [
 ];
 if (
   manifest.description !==
-  "Nylorun's TypeScript agent execution engine. See github.com/nylorun/harness."
+  "Nylorun's TypeScript agent execution engine. See github.com/nylorun/agents."
 )
   throw new Error("Harness package description must direct users to the canonical repository.");
 if (!Array.isArray(manifest.keywords) || manifest.keywords.length === 0)
   throw new Error("Harness package must declare npm keywords.");
 if (manifest.author !== "Nylo") throw new Error("Harness package must identify its author.");
-if (manifest.homepage !== "https://github.com/nylorun/harness")
+if (manifest.homepage !== "https://github.com/nylorun/agents")
   throw new Error("Harness package homepage must point to its canonical repository.");
-if (manifest.bugs !== "https://github.com/nylorun/harness/issues")
+if (manifest.bugs !== "https://github.com/nylorun/agents/issues")
   throw new Error("Harness package bugs field must point to the canonical issue tracker.");
 if (
-  manifest.repository?.url !== "git+https://github.com/nylorun/harness.git" ||
+  manifest.repository?.url !== "git+https://github.com/nylorun/agents.git" ||
   manifest.repository?.directory !== "harness"
 )
   throw new Error(

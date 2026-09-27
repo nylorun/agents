@@ -7,11 +7,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nylorun/harness.git",
+    "url": "git+https://github.com/nylorun/agents.git",
     "directory": "studio"
   },
   "homepage": "https://docs.nylorun.com",
-  "bugs": "https://github.com/nylorun/harness/issues",
+  "bugs": "https://github.com/nylorun/agents/issues",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
