@@ -50,6 +50,8 @@ export interface StackDeps {
   pollMs?: number;
   /** How long `start` waits for the Runtime's /health after Compose. */
   healthTimeoutMs?: number;
+  /** How long a Studio login is retried before warning. */
+  loginTimeoutMs?: number;
 }
 
 const usageError = (message: string) => new CliError(message, 2);
@@ -283,7 +285,7 @@ async function tryStudioLogin(
   studioPort: number,
   adminKey: string,
 ): Promise<string | undefined> {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + (ctx.deps.loginTimeoutMs ?? 15_000);
   let lastError = "";
   for (;;) {
     try {

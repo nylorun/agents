@@ -1,22 +1,36 @@
-import { PINNED_IMAGES } from "./images.js";
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-/**
- * The local stack's Compose file (Runtime Architecture §14.3), written to
- * `<Host root>/stack/compose.yaml` by `nylorun start`. It is the same for every
- * machine: everything that varies (ports, the Postgres password, UID/GID, the
- * Host root, the Runtime and Studio images) comes from `stack/.env`.
- *
- * This wave the Runtime still keeps Tenants in SQLite under the Host root.
- * Postgres, Restate and s2-lite run and are healthy; the Runtime receives their
- * endpoints and starts using them in Wave 3.
- */
-export function renderComposeFile(): string {
-  return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
+exports[`.env > renders every setting and a placeholder for Restate keys 1`] = `
+"# Written by \`nylorun start\`. Mode 0600: holds the Postgres password.
+# Ports and the password are kept across starts; images, UID/GID and the
+# Host root are refreshed on every start.
+
+# Published on 127.0.0.1; clients use http://localhost:<port>.
+NYLORUN_PORT=8787
+NYLORUN_STUDIO_PORT=4161
+NYLORUN_RESTATE_PORT=9070
+
+NYLORUN_POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef
+# Restate request-identity keys are added here in Wave 3.
+
+# The Runtime and Studio containers run as this user, so files they write
+# into the Host root belong to you.
+NYLORUN_UID=501
+NYLORUN_GID=20
+NYLORUN_HOST_ROOT=/Users/dev/.nylorun
+
+NYLORUN_RUNTIME_IMAGE=ghcr.io/nylorun/runtime:0.10.0-beta
+NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
+"
+`;
+
+exports[`compose.yaml > matches the committed file 1`] = `
+"# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
 name: nylorun
 
 services:
   postgres: # Session Store
-    image: ${PINNED_IMAGES.postgres}
+    image: postgres:17.11
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}
@@ -31,7 +45,7 @@ services:
     restart: unless-stopped
 
   restate: # Durable Session Execution
-    image: ${PINNED_IMAGES.restate}
+    image: docker.restate.dev/restatedev/restate:1.7.12
     command: ["--node-name=restate-1"] # stable name, so data is found on restart
     volumes:
       - restate:/restate-data
@@ -45,7 +59,7 @@ services:
     restart: unless-stopped
 
   s2: # Durable Streams; not published, only the Runtime reaches it
-    image: ${PINNED_IMAGES.s2}
+    image: ghcr.io/s2-streamstore/s2:0.43.0
     command: ["lite", "--local-root", "/data"] # local disk; listens on port 80
     volumes:
       - s2:/data
@@ -114,5 +128,5 @@ volumes:
   restate: {}
   s2: {}
   workspaces: {}
+"
 `;
-}
