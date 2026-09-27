@@ -34,7 +34,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("lets exactly one of many racing conditional appends win each sequence", async () => {
       const tenantId = await tenant();
-      const stream = sessionStream("race");
+      const stream = sessionStream("race", "i1");
       for (let seq = 0; seq < 5; seq += 1) {
         const results = await Promise.all(
           Array.from({ length: 12 }, (_, n) =>
@@ -57,7 +57,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("reads history across several pages", async () => {
       const tenantId = await tenant();
-      const stream = sessionStream("long");
+      const stream = sessionStream("long", "i1");
       for (let n = 0; n < 5; n += 1)
         await streams.append(
           tenantId,
@@ -119,7 +119,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("keeps session streams forever and trims signal streams by age", async () => {
       const tenantId = await tenant();
-      await streams.append(tenantId, sessionStream("kept"), [1]);
+      await streams.append(tenantId, sessionStream("kept", "i1"), [1]);
       await streams.append(tenantId, WORK_STREAM, [WORK_AVAILABLE]);
       await streams.append(tenantId, CONTROL_STREAM, [{ type: "session.cancel", sessionId: "s" }]);
       // Stream configs as s2-lite reports them (REST: GET /v1/streams/{stream}).
@@ -131,7 +131,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
         expect(response.status).toBe(200);
         return ((await response.json()) as { retention_policy: unknown }).retention_policy;
       };
-      expect(await config(sessionStream("kept"))).toEqual({ infinite: {} });
+      expect(await config(sessionStream("kept", "i1"))).toEqual({ infinite: {} });
       expect(await config(WORK_STREAM)).toEqual({ age: 86_400 });
       expect(await config(CONTROL_STREAM)).toEqual({ age: 86_400 });
     });

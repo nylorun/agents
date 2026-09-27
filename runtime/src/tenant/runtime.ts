@@ -37,6 +37,7 @@ import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
 import { QuarantineError } from "./quarantine-error.js";
+import { MemoryStreams } from "../streams/memory.js";
 import type { DurableStreams } from "../streams/types.js";
 import type { TenantConfig, TenantHandle, TenantSummary } from "./types.js";
 import type { TenantContext } from "./context.js";
@@ -48,7 +49,9 @@ import {
 import {
   closeStreams,
   drainOutbox,
+  streamsStatus,
   wireStreams,
+  type StreamsStatus,
   type StreamsWiring,
 } from "./streams.js";
 import {
@@ -84,8 +87,9 @@ export type TenantOpenHooks = {
   /** The Worker id written as session owner. Defaults to this process's `WORKER_ID`. */
   workerId?: string;
   /**
-   * Durable Streams for this Tenant, owned by the caller. Without them the Tenant uses
-   * in-memory streams re-hydrated from its SQLite events (until Wave 3 wires S2).
+   * Durable Streams for this Tenant, owned by the caller (the Host's S2 streams). Without
+   * them the Tenant creates its own in-process `MemoryStreams`: the SQLite profile until
+   * Wave 4, whose history does not survive a restart.
    */
   streams?: DurableStreams;
 };
@@ -278,7 +282,8 @@ export class TenantRuntime implements TenantHandle {
       };
       wired = await wireStreams(ctx, {
         store: opened,
-        streams: hooks.streams,
+        streams: hooks.streams ?? new MemoryStreams(),
+        ownsStreams: !hooks.streams,
         tenantId: config.tenantId,
       });
       // Outbox rows a lost relay step left behind are appended by the sweep.
@@ -350,6 +355,14 @@ export class TenantRuntime implements TenantHandle {
    */
   abortLocal(sessionId: string): void {
     this.ctx.abortLocal(sessionId);
+  }
+
+  /**
+   * The Durable Streams seam's status for Tenant status and readiness: S2 reachability, the
+   * basin, outbox depth and relay lag (`streamsStatus` in `tenant/streams.ts`).
+   */
+  streamsStatus(): Promise<StreamsStatus> {
+    return streamsStatus(this.ctx);
   }
 
   /** Adds a callback to the Tenant sweep. Returns a function that removes it. */

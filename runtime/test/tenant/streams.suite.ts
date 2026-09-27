@@ -14,13 +14,20 @@ import { newTenantId } from "@nylorun/core/compatibility";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
 import type { TenantContext } from "../../src/tenant/context.js";
-import { drainOutbox } from "../../src/tenant/streams.js";
+import {
+  COLLECT_SETTING,
+  createTenantStreams,
+  deleteTenantStreams,
+  drainOutbox,
+  streamsStatus,
+} from "../../src/tenant/streams.js";
 import type { TenantHandle } from "../../src/tenant/types.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import {
   CONTROL_STREAM,
+  WORK_AVAILABLE,
   WORK_STREAM,
-  sessionStream,
+  streamOfSession,
   type AppendOptions,
   type AppendResult,
   type DurableStreams,
@@ -89,8 +96,17 @@ export class ProbeStreams implements DurableStreams {
   deleteTenant(tenantId: string): Promise<void> {
     return this.inner.deleteTenant(tenantId);
   }
-  deleteStream(tenantId: string, stream: string): Promise<void> {
+  async deleteStream(tenantId: string, stream: string): Promise<void> {
+    this.check();
     return this.inner.deleteStream(tenantId, stream);
+  }
+  async listStreams(tenantId: string, prefix: string): Promise<string[]> {
+    this.check();
+    return this.inner.listStreams(tenantId, prefix);
+  }
+  async probe(signal: AbortSignal): Promise<void> {
+    this.check();
+    await this.inner.probe?.(signal);
   }
   /** The harness owns the inner streams. */
   async close(): Promise<void> {}
@@ -189,7 +205,11 @@ type Node = Awaited<ReturnType<typeof startTestTenant>>;
 
 export function tenantStreamsSuite(
   name: string,
-  factory: () => Promise<StreamsHarness>
+  factory: () => Promise<StreamsHarness>,
+  options: {
+    /** Deleting a basin keeps its name for a while (s2-lite: about a minute). */
+    slowBasinDeletion?: boolean;
+  } = {}
 ): void {
   describe(`Tenant streams seam: ${name}`, { timeout: 30_000 }, () => {
     const cleanups: (() => Promise<void>)[] = [];
@@ -347,6 +367,29 @@ export function tenantStreamsSuite(
         return harness.streams.tail(tenantId, stream);
       }
 
+      /** The session's current stream, from its stored incarnation. */
+      async function streamOf(node: Node, sessionId = "s1") {
+        const session = await contextOf(node.handle).store.tx((tx) =>
+          tx.get("sessions", sessionId)
+        );
+        if (!session) throw new Error(`Session ${sessionId} not found`);
+        return streamOfSession(session);
+      }
+
+      /** The Tenant's session streams, in name order. */
+      async function sessionStreams(prefix = "sessions/") {
+        return harness.streams.listStreams(tenantId, prefix);
+      }
+
+      async function reset(node: Node, requestId = "reset-1") {
+        const response = await fetch(`${node.url}/v1/tenant/reset`, {
+          method: "POST",
+          headers: node.headers(),
+          body: JSON.stringify({ requestId, scope: "sessions", activeWork: "cancel" }),
+        });
+        expect(response.status).toBe(200);
+      }
+
       async function records(stream: string) {
         const out: unknown[] = [];
         for await (const record of harness.streams.read(tenantId, stream, 0, {
@@ -368,7 +411,11 @@ export function tenantStreamsSuite(
         commitConcurrently,
         relayed,
         tailOf,
+        streamOf,
+        sessionStreams,
+        reset,
         records,
+        streams: harness.streams,
       };
     }
 
@@ -411,7 +458,7 @@ export function tenantStreamsSuite(
       await t.createSession(a);
       await t.commitConcurrently(a, 5);
       const total = (await t.items(a)).items.length;
-      const stream = sessionStream("s1");
+      const stream = await t.streamOf(a);
 
       const one = t.observe(a);
       await one.until("the history", (f) => f.length === total);
@@ -602,27 +649,229 @@ export function tenantStreamsSuite(
       expect(((await listed.json()) as { actions: unknown[] }).actions).toHaveLength(1);
     });
 
-    it("ends observers on reset and restarts a re-created session's stream at 0", async () => {
+    it("ends observers on reset and starts a re-created session on a new stream at 0", async () => {
       const t = await setup();
       const a = await t.node();
       await t.createSession(a);
       await t.commitConcurrently(a, 5);
+      const before = await t.streamOf(a);
       const observer = t.observe(a);
       await observer.until("the history", (f) => f.length === 5);
 
-      const reset = await fetch(`${a.url}/v1/tenant/reset`, {
-        method: "POST",
-        headers: a.headers(),
-        body: JSON.stringify({ requestId: "reset-1", scope: "sessions", activeWork: "cancel" }),
-      });
-      expect(reset.status).toBe(200);
+      await t.reset(a);
       await eventually("the observer to end", () => observer.ended || undefined);
-      expect(await t.tailOf(sessionStream("s1"))).toBe(0);
+      // The abandoned stream is collected; the basin stays.
+      await eventually("the old stream to be deleted", async () =>
+        !(await t.sessionStreams()).includes(before) || undefined
+      );
+      await eventually("the collection to finish", async () =>
+        !(await streamsStatus(contextOf(a.handle))).collectionPending || undefined
+      );
 
       await t.createSession(a);
       await t.commitConcurrently(a, 2);
+      const after = await t.streamOf(a);
+      expect(after).not.toBe(before);
+      expect(after.startsWith("sessions/s1/")).toBe(true);
       const fresh = await t.items(a);
       expect(seqs(fresh.items)).toEqual([0, 1]);
+      expect(await t.sessionStreams()).toEqual([after]);
+    });
+
+    it("gives sessions created during a reset their own streams from 0", async () => {
+      const t = await setup();
+      const a = await t.node();
+      for (const id of ["s1", "s2", "s3"]) {
+        await t.createSession(a, id);
+        await t.commitConcurrently(a, 3, undefined, id);
+      }
+      const old = new Set(await t.sessionStreams());
+      expect(old.size).toBe(3);
+
+      // Sessions are created (some with ids the reset deletes) while the reset runs.
+      const ids = ["s1", "c1", "s2", "c2", "c3"];
+      await Promise.all([
+        t.reset(a),
+        ...ids.map(async (id, i) => {
+          await new Promise((resolve) => setTimeout(resolve, i * 3));
+          await t.createSession(a, id);
+          // The reset may delete the session between these commits.
+          const ctx = contextOf(a.handle);
+          await Promise.all(
+            range(0, 2).map((n) =>
+              ctx.store
+                .tx((tx) => tx.event(id, null, "test.tick", { n }))
+                .catch(() => undefined)
+            )
+          );
+        }),
+      ]);
+      await t.relayed(a);
+      await drainOutbox(contextOf(a.handle));
+
+      const ctx = contextOf(a.handle);
+      const alive = (await ctx.store.tx((tx) => tx.listSessions())).map((s) => s.id);
+      for (const id of alive) {
+        const stream = await t.streamOf(a, id);
+        expect(old.has(stream)).toBe(false);
+        const response = await t.history(a, {}, id);
+        expect(response.status).toBe(200);
+        const { items } = (await response.json()) as { items: LiveEvent[] };
+        expect(seqs(items)).toEqual(range(0, items.length));
+        expect(await t.tailOf(stream)).toBe(items.length);
+      }
+      // Only the live sessions' streams remain once the collection ran.
+      const expected = (
+        await Promise.all(alive.map((id) => t.streamOf(a, id)))
+      ).sort();
+      await eventually("abandoned streams to be collected", async () => {
+        const status = await streamsStatus(ctx);
+        const streams = await t.sessionStreams();
+        return (
+          (!status.collectionPending &&
+            streams.length === expected.length &&
+            streams.every((name, i) => name === expected[i])) ||
+          undefined
+        );
+      });
+    });
+
+    it("ends a session feed on another node when the session is reset there", async () => {
+      const t = await setup();
+      const a = await t.node();
+      const b = await t.node();
+      await t.createSession(a);
+      await t.commitConcurrently(a, 3);
+      const onB = t.observe(b);
+      await onB.until("the history on node B", (f) => f.length === 3);
+
+      await t.reset(a);
+      await eventually("node B's feed to end", () => onB.ended || undefined);
+      expect(contextOf(b.handle).live.feeds.size).toBe(0);
+
+      // The re-created session is followed from its new stream on node B.
+      await t.createSession(a);
+      const again = t.observe(b);
+      await again.ready();
+      await t.commitConcurrently(a, 2);
+      await again.until("the new session's events", (f) => f.length === 2);
+      expect(seqs(onlyEvents(again.close()))).toEqual([0, 1]);
+    });
+
+    it("re-creates a session reset while the streams are down without a collision", async () => {
+      const t = await setup();
+      const a = await t.node();
+      await t.createSession(a);
+      await t.commitConcurrently(a, 4);
+      const before = await t.streamOf(a);
+
+      t.probe.down = true;
+      await t.reset(a);
+      await t.createSession(a);
+      await t.commitConcurrently(a, 2);
+      const ctx = contextOf(a.handle);
+      const outage = await streamsStatus(ctx);
+      expect(outage.reachable).toBe(false);
+      expect(outage.collectionPending).toBe(true);
+      expect(outage.outbox.depth).toBeGreaterThan(0);
+      expect(outage.relayLagMs).toBeGreaterThanOrEqual(0);
+      // The old stream could not be deleted; the new incarnation does not touch it.
+      expect(await t.tailOf(before)).toBe(4);
+
+      t.probe.down = false;
+      await eventually("the outbox to drain", async () =>
+        (await streamsStatus(ctx)).outbox.depth === 0 || undefined
+      );
+      const after = await t.streamOf(a);
+      expect(after).not.toBe(before);
+      const fresh = await t.items(a);
+      expect(seqs(fresh.items)).toEqual(range(0, fresh.items.length));
+      expect(await t.tailOf(after)).toBe(fresh.items.length);
+      // The sweep collects the old stream once the streams are back.
+      await eventually("the old stream to be collected", async () => {
+        const status = await streamsStatus(ctx);
+        return (
+          (!status.collectionPending && !(await t.sessionStreams()).includes(before)) ||
+          undefined
+        );
+      });
+      const settled = await streamsStatus(ctx);
+      expect(settled).toMatchObject({
+        reachable: true,
+        basin: { ready: true, lastError: null },
+        outbox: { depth: 0, oldestAgeMs: null },
+        relayLagMs: 0,
+      });
+    });
+
+    it("repairs a basin missing at open on first use", async () => {
+      const t = await setup();
+      t.probe.down = true;
+      const a = await t.node();
+      const ctx = contextOf(a.handle);
+      expect(ctx.live.wiring!.basin()).toMatchObject({ ready: false });
+      expect(ctx.live.wiring!.basin().failures).toBeGreaterThan(0);
+      await t.createSession(a);
+      await t.commitConcurrently(a, 3);
+      const down = await streamsStatus(ctx);
+      expect(down.basin.ready).toBe(false);
+      expect(down.basin.lastError).toMatch(/unreachable/);
+      expect(down.outbox.depth).toBeGreaterThan(0);
+      expect((await t.history(a)).status).toBe(503);
+
+      t.probe.down = false;
+      // No explicit drain: the basin is created in the background and the sweep relays.
+      await eventually("the basin", () => ctx.live.wiring!.basin().ready || undefined);
+      await eventually("the history", async () => {
+        const response = await t.history(a);
+        if (response.status !== 200) return undefined;
+        const { items } = (await response.json()) as { items: LiveEvent[] };
+        return items.length >= 3 || undefined;
+      });
+      const fresh = await t.items(a);
+      expect(seqs(fresh.items)).toEqual(range(0, fresh.items.length));
+    });
+
+    // s2-lite keeps a deleted basin's name for about a minute, so this runs on memory only.
+    it.skipIf(options.slowBasinDeletion)("repairs a basin deleted under an open Tenant on the next commit", async () => {
+      const t = await setup();
+      const a = await t.node();
+      await t.streams.deleteTenant(t.tenantId);
+      await t.createSession(a, "s2");
+      await t.commitConcurrently(a, 2, undefined, "s2");
+      await eventually(
+        "the new session's events",
+        async () => {
+          const response = await t.history(a, {}, "s2");
+          if (response.status !== 200) return undefined;
+          const { items } = (await response.json()) as { items: LiveEvent[] };
+          return items.length >= 2 || undefined;
+        }
+      );
+      expect(contextOf(a.handle).live.wiring!.basin().ready).toBe(true);
+    });
+
+    it("creates the basin with the Tenant and deletes it only with the Tenant", async () => {
+      const t = await setup();
+      const other = newTenantId();
+      await createTenantStreams(t.streams, other);
+      await t.streams.append(other, WORK_STREAM, [WORK_AVAILABLE]);
+      expect(await t.streams.tail(other, WORK_STREAM)).toBe(1);
+      await deleteTenantStreams(t.streams, other);
+      await deleteTenantStreams(t.streams, other);
+      await expect(t.streams.append(other, WORK_STREAM, [WORK_AVAILABLE])).rejects.toThrow();
+      expect(await t.streams.listStreams(other, "")).toEqual([]);
+
+      // A reset keeps the basin: the work stream is still there.
+      const a = await t.node();
+      await t.createSession(a);
+      await t.commitConcurrently(a, 1);
+      const work = await t.tailOf(WORK_STREAM);
+      await t.reset(a);
+      expect(await t.tailOf(WORK_STREAM)).toBe(work);
+      expect(
+        await contextOf(a.handle).store.tx((tx) => tx.getSetting(COLLECT_SETTING))
+      ).toBeDefined();
     });
 
     it("delivers a cancel to the node running the advance through the control stream", async () => {

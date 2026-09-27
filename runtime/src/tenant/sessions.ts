@@ -12,6 +12,7 @@ import { hashManifest } from "@nylorun/core/compatibility";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
+import { newStreamIncarnation } from "../streams/types.js";
 import { validateSandboxAttach } from "../core/sandbox-routes.js";
 import { sandboxLookup, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
@@ -136,6 +137,7 @@ export function putSession(
       credentialSelections,
       pluginRoots: definition!.pluginRoots ?? {},
       ...(sandboxOwnerId !== undefined ? { sandboxOwnerId } : {}),
+      streamIncarnation: newStreamIncarnation(),
     };
     await t.put("sessions", id, created);
     await ctx.vault.recordAttachment(t, id, vaultIds);

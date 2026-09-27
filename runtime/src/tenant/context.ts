@@ -62,6 +62,11 @@ export interface Session {
   mcpDiagnostics?: readonly McpDiagnostic[];
   /** Session id that keys the shared sandbox; absent means this session owns it. */
   sandboxOwnerId?: string;
+  /**
+   * The incarnation naming this session's event stream (`sessions/<id>/<incarnation>`), set at
+   * creation and never changed. Absent only on sessions created before incarnations.
+   */
+  streamIncarnation?: string;
 }
 
 export type AuthScope =

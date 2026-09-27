@@ -9,5 +9,5 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
       endpoint: stackEndpoints().s2.endpoint,
       basinPrefix: "seam-",
     }),
-  }));
+  }), { slowBasinDeletion: true });
 });
