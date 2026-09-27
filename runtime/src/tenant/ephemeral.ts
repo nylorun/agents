@@ -46,7 +46,7 @@ export interface StartEphemeralRuntimeOptions {
   /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
   baseline?: Readonly<Record<string, string>>;
   model?: TenantModelConfig;
-  sandboxBackend?: "auto" | "microsandbox" | "virtual";
+  sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
   logger?: Logger;

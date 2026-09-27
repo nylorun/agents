@@ -176,7 +176,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
     headers: runtime.headers(),
     body: JSON.stringify({
       requestId: randomUUID(),
-      sandbox: { backend: "microsandbox" },
+      sandbox: { backend: "auto" },
       model: {
         provider: "anthropic",
         model: "claude",

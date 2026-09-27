@@ -1038,7 +1038,7 @@ export const SeedTenantConfigRequestSchema = z
     requestId: RequestIdSchema,
     sandbox: z
       .object({
-        backend: z.enum(["auto", "microsandbox", "virtual"]),
+        backend: z.enum(["auto", "virtual"]),
       })
       .strict()
       .optional(),

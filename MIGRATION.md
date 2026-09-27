@@ -152,6 +152,21 @@ Admin API. Developer applications do **not** depend on it — only
 `@nylorun/agents`. Local Host start/stop/upgrade goes through the launcher,
 never through an import of `@nylorun/runtime`.
 
+### Sandbox: microsandbox backend removed
+
+The Runtime has one sandbox backend, `virtual` (an emulated shell in the
+Runtime process; not a VM boundary). The optional `microsandbox` dependency is
+gone.
+
+- `sandbox.backend` (`PUT /v1/tenant/config/seed`) and `NYLORUN_SANDBOX` accept
+  `auto` or `virtual`; `microsandbox` is rejected. `auto` selects `virtual`.
+- A Tenant that stored `sandbox.backend=microsandbox` reads it as `auto`.
+- Sandbox reports (`GET /v1/tenant/sandbox`, `nylorun doctor sandbox`) list only
+  `virtual` with `process` isolation.
+- Remove leftover microVMs with the `msb` commands under
+  [Microsandbox cleanup](#microsandbox-cleanup-old-nylorun-scopeid--prefixes),
+  or `msb rm --force` on names starting with `nylorun-`, then uninstall `msb`.
+
 ### Existing Host roots
 
 - A Host started by the Tenants-era CLI is reused while it runs.

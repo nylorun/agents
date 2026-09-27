@@ -1,4 +1,3 @@
-import { microsandboxBackend } from "../adapters/sandbox/microsandbox.js";
 import { virtualBackend } from "../adapters/sandbox/virtual.js";
 import type {
   SandboxBackend,
@@ -8,7 +7,7 @@ import type {
 } from "./types.js";
 
 export type SandboxPreference = "auto" | SandboxBackendName;
-const PREFERENCES: readonly SandboxPreference[] = ["auto", "microsandbox", "virtual"];
+const PREFERENCES: readonly SandboxPreference[] = ["auto", "virtual"];
 
 export interface SandboxSelection {
   readonly preference: SandboxPreference;
@@ -27,9 +26,9 @@ export interface SandboxSelectionReport {
   readonly probes: readonly SandboxProbe[];
 }
 
-/** The default order: strongest isolation first, then the backend that always works. */
+/** The backends a Runtime probes, in order. `auto` picks the first available one. */
 export function defaultSandboxBackends(options: { readonly root: string }): SandboxBackend[] {
-  return [microsandboxBackend(), virtualBackend({ root: options.root })];
+  return [virtualBackend({ root: options.root })];
 }
 
 export function parseSandboxPreference(value: string | undefined): SandboxPreference | undefined {
@@ -114,7 +113,7 @@ export async function probeSandboxBackends(
       preference: "auto",
       backend: null,
       isolation: null,
-      reason: "sandbox.backend must be auto, microsandbox or virtual",
+      reason: "sandbox.backend must be auto or virtual",
       probes: await Promise.all(backends.map((backend) => backend.probe())),
     };
   return reportSelection(await selectSandboxBackend(backends, preference));

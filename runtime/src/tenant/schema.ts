@@ -149,7 +149,7 @@ function ensureExecutorPrincipalColumn(db: DatabaseSync): void {
     db.exec("ALTER TABLE executors ADD COLUMN principal_id TEXT");
 }
 
-export type SandboxBackendSetting = "auto" | "microsandbox" | "virtual";
+export type SandboxBackendSetting = "auto" | "virtual";
 
 /** Non-secret Tenant settings persisted for seed / configFor (A18). */
 export function readTenantSetting(
@@ -181,7 +181,7 @@ export function readTenantConfig(db: DatabaseSync): {
   sandboxBackend?: SandboxBackendSetting;
 } {
   const raw = readTenantSetting(db, "sandbox.backend");
-  if (raw === "auto" || raw === "microsandbox" || raw === "virtual")
+  if (raw === "auto" || raw === "virtual")
     return { sandboxBackend: raw };
   return {};
 }

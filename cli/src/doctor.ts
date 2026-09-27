@@ -14,7 +14,6 @@ import { launcher, resolveHome, runtimeInstallCommand } from "./runtime/launcher
 const MIN_NODE_MAJOR = 24;
 
 const LABEL: Record<string, string> = {
-  microsandbox: "microsandbox VM",
   virtual: "virtual shell",
 };
 
@@ -156,8 +155,7 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
     console.log(`  ${key.padEnd(width)}${value}`);
   if (report.backend === "virtual")
     console.log(
-      "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.\n" +
-        "  For hardware isolation use macOS on Apple Silicon or Linux with KVM.",
+      "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.",
     );
 }
 
@@ -190,11 +188,6 @@ export async function sandboxBanner(
   const doctor = "run `npx nylorun doctor sandbox` for options";
   if (!report.backend)
     return `sandbox: unavailable (${report.reason}) · ${doctor}`;
-  const image = capability.sandbox?.image ?? report.defaultImage;
   const network = capability.sandbox?.network?.preset ?? "dev";
-  const fellBack =
-    report.preference === "auto" && report.backend !== report.probes[0]?.name;
-  return fellBack
-    ? `sandbox: ${LABEL[report.backend] ?? report.backend} (${report.reason}) · ${doctor}`
-    : `sandbox: ${LABEL[report.backend] ?? report.backend}${report.backend === "microsandbox" && image ? ` · image ${image}` : ""} · network: ${network}`;
+  return `sandbox: ${LABEL[report.backend] ?? report.backend} · network: ${network}`;
 }

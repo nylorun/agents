@@ -143,7 +143,7 @@ const analyst = Agent({
 }).use(sandbox());
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a Linux machine with a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no connected executor. The agent declares what it needs; the Runtime decides where it runs (a microsandbox VM where the machine supports it, otherwise an emulated shell). Every option is optional plain data:
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a Linux machine with a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no connected executor. The agent declares what it needs; the Runtime decides where it runs (today an emulated shell in the Runtime process). Every option is optional plain data:
 
 ```ts
 .use(sandbox({

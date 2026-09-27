@@ -38,7 +38,7 @@ export interface TenantConfig {
   mode: TenantMode;
   paths: TenantPaths;
   sandbox: {
-    backend: "auto" | "microsandbox" | "virtual";
+    backend: "auto" | "virtual";
     backends?: readonly SandboxBackend[];
   };
   model: TenantModelConfig;

@@ -42,8 +42,7 @@ export class SandboxError extends Error {
  * Give the agent an isolated Linux machine with a persistent `/workspace`.
  *
  * Adds the built-in `bash`, `read`, `write`, `edit`, `grep` and `glob` tools. They run in the
- * Nylorun Runtime, which picks the backend (a microsandbox VM where available). Agent code
- * declares requirements only.
+ * Nylorun Runtime, which picks the backend. Agent code declares requirements only.
  *
  * ```ts
  * Agent({ id: "analyst", instructions: "..." }).use(sandbox())

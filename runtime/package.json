@@ -62,9 +62,6 @@
     "@nylorun/core": "0.5.0-beta",
     "just-bash": "3.4.2"
   },
-  "optionalDependencies": {
-    "microsandbox": "0.7.2"
-  },
   "devDependencies": {
     "@types/node": "^26.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
