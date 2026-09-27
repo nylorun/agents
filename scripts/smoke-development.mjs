@@ -9,21 +9,25 @@
  * that the stack starts on those images, the examples Project gets a Tenant,
  * its executors connect, the printed Studio login works, and that an edit to
  * a host package rebuilds it and restarts the examples runner. The stack is
- * reset afterwards; an existing examples/.nylorun link is set aside and
- * restored.
+ * reset afterwards.
+ *
+ * The examples run from a temporary copy of the files git tracks under
+ * examples/, with examples/node_modules linked in, so the developer's local,
+ * git-ignored state there (.env files, the .nylorun/ link, .data/) neither
+ * affects the smoke nor is read or changed by it.
  */
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { develop, workspaceCommands } from "./lib/development.mjs";
-import { root } from "./lib/repo.mjs";
+import { root, run } from "./lib/repo.mjs";
 import { ensureImages, eventually, studioSession, tenantGet, withStack } from "./lib/stack.mjs";
 
-const examples = join(root, "examples");
+const scratch = await mkdtemp(join(tmpdir(), "nylorun-dev-smoke-"));
+const examples = join(scratch, "examples");
 const link = join(examples, ".nylorun");
-const backup = `${link}.dev-smoke-${randomBytes(4).toString("hex")}`;
 const edited = join(root, "cli/src/baseline.ts");
 const original = await readFile(edited, "utf8");
 const lines = [];
@@ -32,8 +36,24 @@ const log = (line) => {
   lines.push(line.replace(/^\[[^\]]+\] /, ""));
 };
 
-if (existsSync(link)) await rename(link, backup);
+/** A clean-checkout copy of examples/: tracked files only, plus its installed node_modules. */
+async function copyExamples() {
+  const modules = join(root, "examples", "node_modules");
+  if (!existsSync(modules))
+    throw new Error("examples/node_modules is missing; run npm run setup first.");
+  const tracked = (await run("git", ["ls-files", "-z", "--", "examples"], { capture: true }))
+    .split("\0")
+    .filter(Boolean);
+  for (const path of tracked) {
+    const target = join(scratch, path);
+    await mkdir(dirname(target), { recursive: true });
+    await copyFile(join(root, path), target);
+  }
+  await symlink(modules, join(examples, "node_modules"), "dir");
+}
+
 try {
+  await copyExamples();
   const images = await ensureImages();
   await withStack({ name: "nylorun-dev-smoke", images, start: false }, async (stack) => {
     const controller = new AbortController();
@@ -43,7 +63,7 @@ try {
         log,
         signal: controller.signal,
         built: true,
-        commands: workspaceCommands({ env: stack.env }),
+        commands: workspaceCommands({ env: stack.env, project: examples }),
       },
     );
     // Fail fast when the loop ends on its own (e.g. the runner exits).
@@ -106,6 +126,5 @@ try {
   process.exitCode = 1;
 } finally {
   if ((await readFile(edited, "utf8")) !== original) await writeFile(edited, original);
-  await rm(link, { recursive: true, force: true });
-  if (existsSync(backup)) await rename(backup, link);
+  await rm(scratch, { recursive: true, force: true });
 }

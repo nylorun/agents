@@ -80,8 +80,8 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
 | `npm run test:stack`                        | Smoke `nylorun start` on a temporary stack                                 |
-| `npm run test:starter`                      | Smoke the packed starter with `nylorun dev` on a temporary stack           |
-| `npm run test:dev`                          | Smoke `npm run dev` on a temporary stack                                   |
+| `npm run test:starter`                      | Smoke the packed starter with `nylorun dev` and `--ephemeral` on a temporary stack |
+| `npm run test:dev`                          | Smoke `npm run dev` on a temporary stack and a clean copy of `examples/`   |
 | `npm run test:acceptance [-- --only H1,H2]` | Tenant acceptance (H1–H9) on a temporary stack                             |
 
 The four stack smokes (`scripts/lib/stack.mjs`) build `nylorun-runtime:local`
