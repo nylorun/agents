@@ -16,8 +16,7 @@ function templatePath(path: string): string {
 }
 
 export async function starterFiles(
-  compatibility: Compatibility,
-  studio: boolean
+  compatibility: Compatibility
 ): Promise<Readonly<Record<string, string>>> {
   const root = fileURLToPath(new URL("./starter/", import.meta.url));
   const files: Record<string, string> = {};
@@ -36,18 +35,11 @@ export async function starterFiles(
           .replaceAll("{{HARNESS_VERSION}}", compatibility.harness)
           .replaceAll("{{AGENTS_VERSION}}", compatibility.agents)
           .replaceAll("{{ADMIN_VERSION}}", compatibility.admin)
-          .replaceAll("{{RUNTIME_VERSION}}", compatibility.runtime)
-          .replaceAll("{{STUDIO_VERSION}}", compatibility.studio);
+          .replaceAll("{{RUNTIME_VERSION}}", compatibility.runtime);
     }
   }
   await walk(root);
   if (!("." + "gitignore" in files))
     throw new Error("Starter template is missing its .gitignore.");
-  if (!studio) {
-    const manifest = JSON.parse(files["package.json"]!);
-    delete manifest.devDependencies["@nylorun/studio"];
-    delete manifest.scripts.studio;
-    files["package.json"] = JSON.stringify(manifest, null, 2) + "\n";
-  }
   return Object.freeze(files);
 }

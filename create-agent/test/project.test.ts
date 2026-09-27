@@ -9,21 +9,20 @@ const compatibility: Compatibility = {
   harness: "1.2.3",
   agents: "2.3.4",
   admin: "0.1.0-beta",
-  studio: "4.5.6",
   runtime: "7.8.9",
 };
 
 describe("starter template", () => {
   it("installs the known-good stack and contains no hosting implementation", async () => {
-    const files = await starterFiles(compatibility, true);
+    const files = await starterFiles(compatibility);
     const manifest = JSON.parse(files["package.json"]!);
     expect(manifest.dependencies["@nylorun/agents"]).toBe("2.3.4");
     expect(manifest.dependencies["@nylorun/runtime"]).toBeUndefined();
     expect(manifest.dependencies["@nylorun/cli"]).toBeUndefined();
     expect(manifest.devDependencies["@nylorun/cli"]).toBe(compatibility.cli);
-    expect(manifest.devDependencies["@nylorun/studio"]).toBe("4.5.6");
+    expect(manifest.devDependencies["@nylorun/studio"]).toBeUndefined();
     expect(manifest.scripts.dev).toBe("nylorun dev");
-    expect(manifest.scripts.studio).toBe("nylorun-studio");
+    expect(manifest.scripts.studio).toBeUndefined();
     expect(manifest.scripts.start).toBe("node dist/src/main.js");
     expect(manifest.scripts["dev:app"]).toBeUndefined();
     expect(files["scripts/dev.mjs"]).toBeUndefined();
@@ -55,22 +54,14 @@ describe("starter template", () => {
     expect(JSON.parse(files["package.json"]!).name).toBe("my-nylorun-agent");
     expect(files["README.md"]).toMatch(/^# My Nylorun agent\n/u);
   });
-  it("creates a functional headless shell", async () => {
-    const files = await starterFiles(compatibility, false);
-    const manifest = JSON.parse(files["package.json"]!);
-    expect(manifest.devDependencies["@nylorun/studio"]).toBeUndefined();
-    expect(manifest.scripts.dev).toBe("nylorun dev");
-    expect(manifest.scripts.studio).toBeUndefined();
-    expect(manifest.scripts["dev:app"]).toBeUndefined();
-    expect(files["scripts/dev.mjs"]).toBeUndefined();
-    expect(files["README.md"]).toContain(
-      "8787"
-    );
-    expect(manifest.scripts.dev).not.toContain("--no-studio");
-    expect(manifest.scripts.start).toBe("node dist/src/main.js");
+  it("names Docker, not a global Runtime, as the prerequisite", async () => {
+    const files = await starterFiles(compatibility);
+    expect(files["README.md"]).toContain("Docker");
+    expect(files["README.md"]).not.toContain("npm install --global @nylorun/runtime");
+    expect(files["README.md"]).not.toContain("nylorun-studio");
   });
   it("renders ignore files under their real names so npm cannot drop them", async () => {
-    const files = await starterFiles(compatibility, true);
+    const files = await starterFiles(compatibility);
     expect(files[".gitignore"]).toContain("node_modules/");
     expect(files[".env.example"]).toContain("MODEL_PROVIDER=");
     expect(files[".env.example"]).toContain("MODEL=");
@@ -96,11 +87,11 @@ describe("project creation", () => {
       write: async () => undefined,
       run: async () => ({ status: 0 }),
       nodeVersion: "24.15.0",
-      findOnPath: () => "/usr/local/bin/nylorun-runtime",
+      checkDocker: async () => ({ ok: true as const }),
     };
     await expect(
       createProject(
-        { directory: "taken", studio: true, open: true, yes: true },
+        { directory: "taken", open: true, yes: true },
         compatibility,
         dependencies
       )
@@ -119,11 +110,11 @@ describe("project creation", () => {
       write: async () => undefined,
       run: async () => ({ status: 0 }),
       nodeVersion: "24.15.0",
-      findOnPath: () => "/usr/local/bin/nylorun-runtime",
+      checkDocker: async () => ({ ok: true as const }),
     };
     await expect(
       createProject(
-        { directory: "../outside", studio: true, open: true, yes: true },
+        { directory: "../outside", open: true, yes: true },
         compatibility,
         dependencies
       )
@@ -136,7 +127,7 @@ it("renders a fresh project before installation and forwards browser choices", a
   const commands: unknown[] = [];
   let renamed = false;
   await createProject(
-    { directory: "demo", studio: false, open: false, yes: true },
+    { directory: "demo", open: false, yes: true },
     compatibility,
     {
       currentDirectory: () => "/workspace",
@@ -157,7 +148,7 @@ it("renders a fresh project before installation and forwards browser choices", a
         return { status: 0 };
       },
       nodeVersion: "24.15.0",
-      findOnPath: () => "/usr/local/bin/nylorun-runtime",
+      checkDocker: async () => ({ ok: true as const }),
     }
   );
   expect([...files.keys()].some((path) => path.endsWith("/agents/index.ts"))).toBe(
@@ -195,12 +186,12 @@ function fixture() {
     write: vi.fn(async () => {}),
     run: vi.fn<CreatorDependencies["run"]>(async () => ({ status: 0 })),
     nodeVersion: "24.15.0",
-    findOnPath: vi.fn<CreatorDependencies["findOnPath"]>(
-      () => "/usr/local/bin/nylorun-runtime",
-    ),
+    checkDocker: vi.fn<CreatorDependencies["checkDocker"]>(async () => ({
+      ok: true,
+    })),
   };
 }
-const options = { directory: "my agent", studio: true, open: true, yes: false };
+const options = { directory: "my agent", open: true, yes: false };
 
 it("starts development for a noninteractive create", async () => {
   const deps = fixture();
@@ -280,18 +271,30 @@ it("shows recovery instructions when development fails to spawn", async () => {
 it("stops before development and names missing prerequisites; installs nothing", async () => {
   const deps = fixture();
   deps.nodeVersion = "22.19.0";
-  deps.findOnPath = vi.fn(() => undefined);
+  deps.checkDocker = vi.fn(async () => ({
+    ok: false as const,
+    problem: "Install Docker with Compose v2: Docker Desktop, OrbStack or Colima.",
+  }));
   const error = await createProject(options, compatibility, deps).catch(
     (e: unknown) => e,
   );
   expect(error).toBeInstanceOf(CreationError);
   const message = (error as CreationError).message;
   expect(message).toContain("Node.js 24 or newer (found 22.19.0)");
-  expect(message).toContain(
-    `npm install --global @nylorun/runtime@${compatibility.runtime}`,
-  );
+  expect(message).toContain("Install Docker with Compose v2");
+  expect(message).not.toContain("@nylorun/runtime");
   expect(message).toContain("npm run dev");
-  expect(deps.findOnPath).toHaveBeenCalledWith("nylorun-runtime");
+  expect(deps.checkDocker).toHaveBeenCalled();
   // Only the project's own dependencies were installed; dev never started.
   expect(deps.run.mock.calls.map((call) => call[1])).toEqual([["install"]]);
+});
+
+it("prints deprecation notes before creating", async () => {
+  const deps = fixture();
+  await createProject(
+    { ...options, yes: true, notes: ["--no-studio is deprecated and ignored"] },
+    compatibility,
+    deps,
+  );
+  expect(deps.log.mock.calls[0]).toEqual(["--no-studio is deprecated and ignored"]);
 });

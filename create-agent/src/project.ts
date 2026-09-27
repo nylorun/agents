@@ -26,6 +26,7 @@ export async function createProject(
   compatibility: Compatibility,
   dependencies: CreatorDependencies
 ): Promise<void> {
+  for (const note of options.notes ?? []) dependencies.log(note);
   const currentDirectory = resolve(dependencies.currentDirectory());
   const destination = resolve(currentDirectory, options.directory);
   const pathFromCurrentDirectory = relative(currentDirectory, destination);
@@ -48,7 +49,7 @@ export async function createProject(
   await dependencies.makeDirectory(temporary);
   try {
     const files = {
-      ...(await starterFiles(compatibility, options.studio)),
+      ...(await starterFiles(compatibility)),
     };
     const name = packageName(basename(destination));
     const manifest = JSON.parse(files["package.json"]!);
@@ -68,10 +69,10 @@ export async function createProject(
   }
   dependencies.log("Installing dependencies...");
   await stage("Installation", ["install", ...(options.yes ? ["--yes"] : [])]);
-  const missing = missingPrerequisites(dependencies, compatibility.runtime);
+  const missing = await missingPrerequisites(dependencies);
   if (missing.length)
     throw new CreationError(
-      `Project created. Before starting it, install the prerequisites:\n${missing
+      `Project created. Before starting it, set up the prerequisites:\n${missing
         .map((line) => `  ${line}`)
         .join("\n")}\nThen run:\ncd ${quote(destination)}\nnpm run dev`,
     );
@@ -114,24 +115,24 @@ export async function createProject(
   }
 }
 
-/** The Runtime needs node:sqlite and Node 24 APIs. */
+/** The CLI and the generated application need Node 24 APIs. */
 const MIN_NODE_MAJOR = 24;
 
 /**
- * Prerequisites the developer installs before running the Runtime. The
- * creator only reports them; it never downloads Node or the Runtime.
+ * Prerequisites the developer installs before `npm run dev`: Node 24 and
+ * Docker with Compose v2 (the local stack). The creator only reports them; it
+ * never downloads or starts anything.
  */
-function missingPrerequisites(
+async function missingPrerequisites(
   dependencies: CreatorDependencies,
-  runtimeVersion: string,
-): string[] {
+): Promise<string[]> {
   const missing: string[] = [];
   if (!(Number(dependencies.nodeVersion.split(".")[0]) >= MIN_NODE_MAJOR))
     missing.push(
       `Node.js ${MIN_NODE_MAJOR} or newer (found ${dependencies.nodeVersion})`,
     );
-  if (!dependencies.findOnPath("nylorun-runtime"))
-    missing.push(`npm install --global @nylorun/runtime@${runtimeVersion}`);
+  const docker = await dependencies.checkDocker();
+  if (!docker.ok) missing.push(docker.problem);
   return missing;
 }
 

@@ -13,7 +13,7 @@ npm run setup
 npm run dev
 ```
 
-Root development rebuilds local packages and serves Studio on port 4161 and Runtime on port 8787. The first start stores the model provider in the Runtime vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npm run studio` attaches the packaged dashboard to an existing host; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the Runtime is already running.
+Root development rebuilds local packages and serves Studio on port 4161 and Runtime on port 8787. The first start stores the model provider in the Runtime vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens Studio from the local Docker stack; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the Runtime is already running.
 
 `MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. Existing `.env/` directories require [manual migration](../runtime/README.md#upgrading-an-existing-starter); local state is never moved automatically.
 
