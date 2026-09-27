@@ -1,9 +1,9 @@
 /**
  * Tenant administration and vault routes: `/v1/tenant` (status, reset, config seed, host
  * model and providers, sandbox report) and `/v1/vaults` (vaults and credentials).
+ * Reset also deletes the streams of the sessions it removes.
  *
- * Later waves: Wave 2 / X and Y change what
- * reset clears once work and live state leave process memory.
+ * Later waves: Wave 2 / X changes what reset clears once work leaves process memory.
  */
 import type { IncomingMessage } from "node:http";
 import {
@@ -21,6 +21,7 @@ import { buildTenantStatus, seedTenantConfig } from "./status.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { fail, readBody } from "./http.js";
 import { clearExecutorStreams, clearObservers } from "./live.js";
+import { deleteSessionStreams } from "./streams.js";
 import { clearWork, drain } from "./scheduler.js";
 
 export async function dispatchTenant(
@@ -52,6 +53,11 @@ export async function dispatchTenant(
   if (path[2] === "reset" && path.length === 3 && method === "POST") {
     const body = ResetTenantRequestSchema.parse(await readBody(request));
     await drain(ctx, body.activeWork, 30_000);
+    // Session streams go with their sessions, so a re-created id starts again at sequence 0.
+    const resetSessionIds =
+      body.scope === "sandboxes"
+        ? []
+        : (await ctx.store.tx((t) => t.listSessions())).map((s) => s.id);
     await resetTenant(
       {
         store: ctx.store,
@@ -66,6 +72,7 @@ export async function dispatchTenant(
       },
       body.scope
     );
+    await deleteSessionStreams(ctx, resetSessionIds);
     // Reset leaves the Tenant open for new work.
     ctx.closing = false;
     return { ok: true };

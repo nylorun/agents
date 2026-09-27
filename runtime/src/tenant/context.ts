@@ -4,16 +4,15 @@
  * in-process work and live-stream state.
  *
  * Business code changes state only inside `ctx.store.tx(async (t) => …)` and follows the
- * seam rules: events through `t.event(...)` (the store delivers them to live observers after
+ * seam rules: events through `t.event(...)` (the relay appends them to Durable Streams after
  * commit), executor wakes through `t.signalWork()`, and advances through
- * `t.afterCommit(() => ctx.schedule(id))`. It never calls `publish` or `notify` itself;
- * `runtime.ts` wires the store's commit listener to them. No external I/O runs inside a tx.
+ * `t.afterCommit(() => ctx.schedule(id))`. It never publishes or notifies itself;
+ * `runtime.ts` wires the streams with `wireStreams()`. No external I/O runs inside a tx.
  *
  * Later waves replace each seam in one place (`runtime.ts` wires them): Wave 2 / X puts
- * `schedule` and `abortLocal` behind `DurableExecution`, and Wave 2 / Y puts the commit
- * listener and `history` behind Durable Streams.
+ * `schedule` and `abortLocal` behind `DurableExecution`.
  */
-import type { LiveEvent, TenantEnvelope } from "@nylorun/core/contracts";
+import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type {
   DurableCheckpoint,
   FlowCheckpoint,
@@ -67,20 +66,10 @@ export type AuthScope =
   | { kind: "application"; principalId: string }
   | { kind: "executor"; executor: ExecutorRecord };
 
-/** Reads a session's committed events (the SQLite events table until Wave 2 / Y). */
-export interface EventHistory {
-  readEvents(
-    sessionId: string,
-    afterSeq?: number
-  ): Promise<{ events: LiveEvent[]; lastSeq: number | null }>;
-}
-
 export interface TenantContext {
   readonly config: TenantConfig;
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
-  /** Seam: session history for `GET …/items` and SSE replay. */
-  readonly history: EventHistory;
   readonly vault: VaultService;
   readonly registry: ExecutorRegistry;
   readonly mcp: McpPool;
@@ -95,7 +84,7 @@ export interface TenantContext {
   closed: boolean;
   /** In-process advances: running controllers and pending wakes. */
   readonly work: WorkState;
-  /** In-process live streams: session observers and executor streams. */
+  /** Live delivery over Durable Streams: session feeds, executor streams, the streams wiring. */
   readonly live: LiveHub;
   /** Seam: request an advance of a session. Call it from `t.afterCommit`, never inside a tx. */
   schedule(sessionId: string): void;

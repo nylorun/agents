@@ -4,13 +4,12 @@
  * seams, runs startup recovery, and implements `TenantHandle` (handle, summary, drain, close)
  * by delegating to the Tenant modules.
  *
- * Seams wired here: the store's commit listener delivers committed events to live observers
- * (`publish`) and `workAvailable` to connected executors (`notify`); `schedule` and
- * `abortLocal` drive in-process advances; `history` reads the SQLite events table.
+ * Seams wired here: `wireStreams()` connects the store's commits to Durable Streams (the
+ * relay, and the history, SSE, work and control readers); `schedule` and `abortLocal` drive
+ * in-process advances.
  *
  * Later waves: Wave 2 / X replaces the lock file and startup recovery with ownership
- * takeover and wires `DurableExecution`; Wave 2 / Y replaces the commit listener and
- * `history` with one `wireStreams()` call.
+ * takeover and wires `DurableExecution`.
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
 import {
@@ -42,15 +41,15 @@ import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { QuarantineError } from "./quarantine-error.js";
+import type { DurableStreams } from "../streams/types.js";
 import type { TenantConfig, TenantHandle, TenantSummary } from "./types.js";
 import type { TenantContext } from "./context.js";
 import {
   connectedExecutorCount,
   createLiveHub,
   endAllStreams,
-  notify,
-  publish,
 } from "./live.js";
+import { closeStreams, wireStreams, type StreamsWiring } from "./streams.js";
 import {
   abortAll,
   abortLocal,
@@ -71,6 +70,11 @@ export type TenantOpenHooks = {
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
+  /**
+   * Durable Streams for this Tenant, owned by the caller. Without them the Tenant uses
+   * in-memory streams re-hydrated from its SQLite events (until Wave 3 wires S2).
+   */
+  streams?: DurableStreams;
 };
 
 function validateConfig(config: TenantConfig): FlowLimits {
@@ -148,6 +152,7 @@ export class TenantRuntime implements TenantHandle {
     claimLock(lockPath);
 
     let store: SqliteSessionStore | undefined;
+    let wired: StreamsWiring | undefined;
     try {
       store = createSqliteSessionStore({
         path: paths.database,
@@ -247,7 +252,6 @@ export class TenantRuntime implements TenantHandle {
         config,
         envelope,
         store: opened,
-        history: opened,
         vault,
         registry,
         mcp,
@@ -262,10 +266,10 @@ export class TenantRuntime implements TenantHandle {
         schedule: (sessionId) => schedule(ctx, sessionId),
         abortLocal: (sessionId) => abortLocal(ctx, sessionId),
       };
-      // The seams: committed events go to live observers, work to connected executors.
-      opened.onCommit((commit) => {
-        for (const event of commit.events) publish(live, event);
-        if (commit.workAvailable) notify(live);
+      wired = await wireStreams(ctx, {
+        store: opened,
+        streams: hooks.streams,
+        tenantId: config.tenantId,
       });
 
       if (!ephemeral && (await sandbox.hasRecords()))
@@ -283,6 +287,7 @@ export class TenantRuntime implements TenantHandle {
       runtime.timer = startLeaseTimer(ctx);
       return runtime;
     } catch (error) {
+      await wired?.close().catch(() => undefined);
       await store?.close().catch(() => undefined);
       if (existsSync(lockPath)) unlinkSync(lockPath);
       throw error;
@@ -330,6 +335,7 @@ export class TenantRuntime implements TenantHandle {
     await waitForIdle(ctx);
     await ctx.sandbox.close();
     ctx.closed = true;
+    await closeStreams(ctx);
     await ctx.store.close();
     if (existsSync(this.lockPath)) unlinkSync(this.lockPath);
   }
