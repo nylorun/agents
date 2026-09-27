@@ -1,7 +1,7 @@
 {
-  "name": "nylorun-harness-workspace",
+  "name": "nylorun-agents-workspace",
   "private": true,
-  "description": "Public workspace for the Nylorun Harness toolchain.",
+  "description": "Public workspace for Nylorun's TypeScript agents and runtime.",
   "type": "module",
   "license": "Apache-2.0",
   "workspaces": [

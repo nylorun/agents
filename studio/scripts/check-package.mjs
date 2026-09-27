@@ -6,7 +6,7 @@ const manifest = JSON.parse(readFileSync("package.json", "utf8"));
 if (manifest.license !== "Apache-2.0")
   throw new Error("Studio must be licensed under Apache-2.0.");
 if (
-  manifest.repository?.url !== "git+https://github.com/nylorun/harness.git" ||
+  manifest.repository?.url !== "git+https://github.com/nylorun/agents.git" ||
   manifest.repository?.directory !== "studio"
 )
   throw new Error("Studio must reference its public source directory.");

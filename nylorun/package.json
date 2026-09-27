@@ -6,7 +6,7 @@
   "description": "Set up and run the local Nylorun stack (Runtime and Studio) with Docker Compose",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nylorun/harness.git",
+    "url": "git+https://github.com/nylorun/agents.git",
     "directory": "nylorun"
   },
   "files": [

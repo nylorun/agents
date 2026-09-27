@@ -1,4 +1,4 @@
-# Nylorun Harness
+# Nylorun Agents
 
 Observable, portable, composable TypeScript agent execution. Harness is
 state-in/state-out; the optional **Runtime Host** owns sessions across isolated
@@ -68,8 +68,8 @@ project: `npx nylorun up` from any directory.
 Requires **Node 24** and **npm 11**. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ```sh
-git clone https://github.com/nylorun/harness.git
-cd harness
+git clone https://github.com/nylorun/agents.git
+cd agents
 npm run setup
 npm run dev
 ```

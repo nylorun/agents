@@ -1,16 +1,16 @@
 {
   "name": "@nylorun/harness",
   "version": "0.19.1-beta",
-  "description": "Nylorun's TypeScript agent execution engine. See github.com/nylorun/harness.",
+  "description": "Nylorun's TypeScript agent execution engine. See github.com/nylorun/agents.",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nylorun/harness.git",
+    "url": "git+https://github.com/nylorun/agents.git",
     "directory": "harness"
   },
-  "homepage": "https://github.com/nylorun/harness",
-  "bugs": "https://github.com/nylorun/harness/issues",
+  "homepage": "https://github.com/nylorun/agents",
+  "bugs": "https://github.com/nylorun/agents/issues",
   "author": "Nylo",
   "keywords": [
     "agent",
