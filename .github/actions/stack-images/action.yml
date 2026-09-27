@@ -1,0 +1,27 @@
+name: Stack images
+description: >-
+  Builds the Runtime and Studio images from this checkout as nylorun-runtime:ci
+  and nylorun-studio:ci, for the CI jobs that run the Docker stack.
+# Layers come from the GitHub Actions cache, read-only here. Only
+# .github/workflows/cache.yml writes it, on main, which is the one scope every
+# PR and merge-queue run can read.
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@v4
+    - name: Build the Runtime image
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: runtime/Dockerfile
+        tags: nylorun-runtime:ci
+        load: true
+        cache-from: type=gha,scope=stack-runtime
+    - name: Build the Studio image
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: studio/Dockerfile
+        tags: nylorun-studio:ci
+        load: true
+        cache-from: type=gha,scope=stack-studio

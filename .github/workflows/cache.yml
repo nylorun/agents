@@ -1,0 +1,52 @@
+name: Warm caches
+# PR and merge-queue runs can read caches from their own ref or from main, and
+# merge-queue refs are never read again. So CI only reads caches, and this
+# workflow writes them on main: the npm cache that setup-node restores, and the
+# Runtime and Studio layers that .github/actions/stack-images builds from.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: warm-cache
+  cancel-in-progress: true
+jobs:
+  # Same cache-dependency-path as the Linux CI jobs, so they share this key.
+  # setup-node saves ~/.npm in its post step when the key was not restored.
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      - run: npm ci --prefix examples
+  # The scopes .github/actions/stack-images reads. The release workflow keeps
+  # its own scopes.
+  images:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [runtime, studio]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the ${{ matrix.image }} image layers
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.image }}/Dockerfile
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=stack-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=stack-${{ matrix.image }}
