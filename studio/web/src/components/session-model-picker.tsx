@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { proxyFetch } from "@/proxy-client";
+import { tenantRuntime } from "@/proxy-client";
 
 type HostModelProviderInfo = {
   id: string;
@@ -37,20 +37,20 @@ type ModelOption = {
   active: boolean;
 };
 
-const runtime = (path: string, init?: RequestInit) =>
-  proxyFetch(`/_studio/runtime${path}`, init);
-
 function optionKey(providerId: string, modelId: string): string {
   return `${providerId}\0${modelId}`;
 }
 
 export function SessionModelPicker({
+  tenantId,
   disabled = false,
   className,
 }: Readonly<{
+  tenantId: string;
   disabled?: boolean;
   className?: string;
 }>) {
+  const runtime = useMemo(() => tenantRuntime(tenantId), [tenantId]);
   const [open, setOpen] = useState(false);
   const [providers, setProviders] = useState<HostModelProviderInfo[]>([]);
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
@@ -74,7 +74,7 @@ export function SessionModelPicker({
     };
     setProviders(listed.providers);
     setCatalog(models.providers);
-  }, []);
+  }, [runtime]);
 
   useEffect(() => {
     let cancelled = false;
