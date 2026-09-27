@@ -50,12 +50,21 @@ import {
 } from "./session.js";
 import { command } from "./commands.js";
 import { abortKind } from "./worker.js";
+import type { ModelProvider } from "../core/provider.js";
+
+/** What one advance's segment decides for all its effects. */
+export interface SegmentOptions {
+  /** Overrides the Tenant's model (the fixture-model Tenant setting, `model-setting.ts`). */
+  model?: ModelProvider;
+}
 
 export function invokeModel(
   ctx: TenantContext,
   request: HostEffect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  model?: ModelProvider
 ) {
+  if (model) return model(request, signal);
   if (!ctx.useVaultModel) return ctx.modelProvider(request, signal);
   const adapter = piModel({
     root: ctx.config.paths.home,
@@ -80,7 +89,8 @@ export async function resolveEffect(
   ctx: TenantContext,
   request: HostEffect,
   signal: AbortSignal,
-  lease: Lease
+  lease: Lease,
+  segment: SegmentOptions = {}
 ): Promise<EffectResolution> {
   const { store } = ctx;
   const journaled = await store.tx(async (t): Promise<Journaled> => {
@@ -248,7 +258,7 @@ export async function resolveEffect(
         ? await callMcpTool(ctx, request)
         : invoke === "sandbox"
         ? await callSandboxTool(ctx, request, signal)
-        : await invokeModel(ctx, request, signal);
+        : await invokeModel(ctx, request, signal, segment.model);
     return await store.tx(async (t) => {
       const s = await ownedSession(t, lease, request.sessionId);
       // Only a cancel discards an outcome in hand (§10.7). After any other abort (shutdown,

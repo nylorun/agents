@@ -56,6 +56,11 @@ import {
 } from "./session.js";
 import { prepareMcp, resolveEffect } from "./effects.js";
 import { command } from "./commands.js";
+import { usesFixtureModel } from "./model-setting.js";
+import { toolFixtureModel } from "../core/provider.js";
+
+/** The model of Tenants with the fixture-model setting (`model-setting.ts`). Stateless. */
+const fixture = toolFixtureModel();
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
@@ -280,22 +285,22 @@ async function runSegment(
     // prepareMcp mutates the session's mcpSnapshot; read current after it.
     if (!isWorkflowManifest(started.manifest))
       await prepareMcp(ctx, lease, signal);
-    const current = await ownedTx<Session, Session>(
-      ctx.store,
-      id,
-      lease.epoch,
-      async (t, current) => {
-        if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
-          rebaseSessionState(current, current.checkpoint.manifestHash);
-          const cp = current.checkpoint as DurableCheckpoint;
-          current.checkpoint = { ...cp, state: current.state };
-          await t.put("sessions", id, current);
-        }
-        return current;
+    const { current, fixtureModel } = await ownedTx<
+      { current: Session; fixtureModel: boolean },
+      Session
+    >(ctx.store, id, lease.epoch, async (t, current) => {
+      if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
+        rebaseSessionState(current, current.checkpoint.manifestHash);
+        const cp = current.checkpoint as DurableCheckpoint;
+        current.checkpoint = { ...cp, state: current.state };
+        await t.put("sessions", id, current);
       }
-    );
+      return { current, fixtureModel: await usesFixtureModel(t) };
+    });
+    const segment = fixtureModel ? { model: fixture } : {};
     const host = {
-      resolveEffect: (e: HostEffect) => resolveEffect(ctx, e, signal, lease),
+      resolveEffect: (e: HostEffect) =>
+        resolveEffect(ctx, e, signal, lease, segment),
     };
     const result = isWorkflowManifest(current.manifest)
       ? await runFlowDurable({

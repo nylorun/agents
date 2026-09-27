@@ -11,6 +11,7 @@ import type { TenantConfig } from "./types.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type { StuckInvocation } from "../execution/types.js";
 import type { StreamsStatus } from "./streams.js";
+import { FIXTURE_MODEL_SETTING, seedFixtureModel } from "./model-setting.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
@@ -158,6 +159,11 @@ export async function seedTenantConfig(
       return true;
     });
     (inserted ? applied : kept).push("sandbox.backend");
+  }
+
+  if (body.fixtureModel) {
+    const inserted = await ctx.store.tx((t) => seedFixtureModel(t));
+    (inserted ? applied : kept).push(FIXTURE_MODEL_SETTING);
   }
 
   if (body.model) {
