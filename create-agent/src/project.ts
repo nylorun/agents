@@ -69,21 +69,15 @@ export async function createProject(
   }
   dependencies.log("Installing dependencies...");
   await stage("Installation", ["install", ...(options.yes ? ["--yes"] : [])]);
+  const next = nextSteps(destination);
   const missing = await missingPrerequisites(dependencies);
   if (missing.length)
     throw new CreationError(
       `Project created. Before starting it, set up the prerequisites:\n${missing
         .map((line) => `  ${line}`)
-        .join("\n")}\nThen run:\ncd ${quote(destination)}\nnpm run dev`,
+        .join("\n")}\nThen run:\n${next}`,
     );
-  dependencies.log(
-    "Starting development. The first start sets up the model provider in the Runtime vault.",
-  );
-  await stage("Development", [
-    "run",
-    "dev",
-    ...(options.open ? [] : ["--", "--no-open"]),
-  ]);
+  dependencies.log(`Project created. Next:\n${next}`);
 
   async function stage(name: string, args: readonly string[]): Promise<void> {
     try {
@@ -98,21 +92,30 @@ export async function createProject(
         throw new Error(`${name} failed.`);
     } catch (error) {
       const cancelled = error instanceof CreationCancelled;
-      const recovery = [
-        `cd ${quote(destination)}`,
-        ...(name === "Installation" ? ["npm install"] : []),
-        "npm run dev",
-      ].join("\n");
       throw new CreationError(
         `${
           cancelled ? error.message : `${name} failed.`
-        } The generated project was kept.\n${
-          name === "Development" ? "Restart" : "Resume"
-        } with:\n${recovery}`,
+        } The generated project was kept.\nResume with:\ncd ${quote(destination)}\nnpm install\n${NEXT.join("\n")}`,
         cancelled ? error.exitCode : 1
       );
     }
   }
+}
+
+/**
+ * After creation: start the local stack (nylorun), create and link the
+ * Project's Tenant (the Runtime client, @nylorun/cli), then develop. The
+ * creator runs none of them; the project itself depends only on
+ * @nylorun/agents.
+ */
+const NEXT = [
+  "npx nylorun@beta up                  # the local Runtime and Studio (Docker)",
+  "npx @nylorun/cli@beta tenant create  # this project's Tenant, linked in .nylorun/",
+  "npm run dev",
+];
+
+function nextSteps(destination: string): string {
+  return [`cd ${quote(destination)}`, ...NEXT].join("\n");
 }
 
 /** The CLI and the generated application need Node 24 APIs. */

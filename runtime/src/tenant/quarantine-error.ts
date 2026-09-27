@@ -7,7 +7,7 @@ export class QuarantineError extends Error {
   constructor(
     code: Quarantine["code"],
     message: string,
-    repair = "nylorun tenant status",
+    repair = "nylo tenant status",
   ) {
     super(message);
     this.name = "QuarantineError";

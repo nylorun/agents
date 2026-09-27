@@ -32,7 +32,8 @@ imports to call one surface. Each depends only on `@nylorun/core`.
 _Avoid_: depending on `runtime` or `harness` from application code.
 
 **Local stack**: The Runtime image with Postgres, Restate and S2, run by
-`nylorun start` on a developer machine. `@nylorun/runtime` is a library with no
+`nylorun up` (the `nylorun` package) on a developer machine. It never creates
+Tenants; `@nylorun/cli` (`nylo`) and Studio do. `@nylorun/runtime` is a library with no
 bin; the Runtime runs as the `ghcr.io/nylorun/runtime` image.
 _Avoid_: "native Host", or installing `@nylorun/runtime` globally.
 
@@ -51,7 +52,7 @@ forwards Tenant routes to the matching Tenant Runtime, opening it on demand
 `hostId` and protocol range; `/ready` reports Postgres, Restate and S2
 (`infra/readiness.ts`). Tenant data is a Postgres schema per Tenant; the Host
 keeps each Tenant's key, plugin data and logs under `tenants/` in its Host root
-(`NYLORUN_HOME` or `~/.nylorun`). `nylorun start` writes `host.json` and
+(`NYLORUN_HOME` or `~/.nylorun`). `nylorun up` writes `host.json` and
 `host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
@@ -76,8 +77,9 @@ bind-mounts it into the Runtime container at `/nylorun`.
 `{ format, hostUrl, hostId, tenantId }`, plus `.nylorun/credentials.json`
 (mode 0600) holding the application key and principal id. Format `0` (missing
 `format`) may still contain an `executors` map; version 1 ignores it and drops
-it on write. A fresh clone or second worktree does not attach until it creates
-or chooses a link.
+it on write. `nylo tenant create` writes it; `nylo tenant use` chooses another
+Tenant. A fresh clone or second worktree does not attach until it creates or
+chooses a link.
 _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
 flags and env vars that selected a database path.
 
@@ -140,6 +142,7 @@ One line each; the module named is where the term lives in code.
 | `nylorun serve` | `node dist/src/main.js` / `connectAgents` entry |
 | importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
 | storing executor tokens in the Project | derived executor credentials |
-| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun start` |
+| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun up` |
+| `nylorun dev`, `nylorun dev --ephemeral` | `nylo tenant create` once, then the project's `npm run dev` |
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres schema (Session Store) |
 | Hosted Studio, `local.nylorun.studio`, pairing | the stack's Studio service and its login URL |

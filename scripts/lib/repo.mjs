@@ -5,7 +5,15 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 export const root = fileURLToPath(new URL("../../", import.meta.url));
-export const packages = ["core", "harness", "agents", "admin", "runtime", "studio", "cli", "create-agent"];
+export const packages = ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"];
+/**
+ * The npm name of a workspace directory. Every package is `@nylorun/<dir>`
+ * except `nylorun`, the unscoped setup command (`npx nylorun up`).
+ */
+export const packageName = (name) => (name === "nylorun" ? "nylorun" : `@nylorun/${name}`);
+/** The workspace directory of an npm name (the inverse of packageName). */
+export const packageDirectory = (npmName) =>
+  npmName === "nylorun" ? "nylorun" : npmName.replace(/^@nylorun\//, "");
 export const readJson = async (path) =>
   JSON.parse(await readFile(path, "utf8"));
 export const writeJson = (path, value) =>
@@ -105,7 +113,7 @@ export const script = (name, workspace, options = {}) =>
     [
       "run",
       name,
-      ...(workspace ? ["--workspace", `@nylorun/${workspace}`] : []),
+      ...(workspace ? ["--workspace", packageName(workspace)] : []),
     ],
     options,
   );

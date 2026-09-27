@@ -1,7 +1,7 @@
 # My Nylorun agent
 
 Before you start, install the prerequisites once. Nothing downloads them for
-you; `npx nylorun doctor` checks them.
+you; `npx nylorun@beta doctor` checks them.
 
 - Node 24 or newer.
 - Docker with Compose v2: [Docker
@@ -17,30 +17,38 @@ watching works.
 Agent and tool definitions live in `agents/`. The **Runtime** holds your
 sessions in isolated **Tenants**; this project attaches through a **Project
 link** and connects your tools through the SDK's authenticated SSE executor.
-Production entry is `src/main.ts`, which calls `connectAgents`.
+Production entry is `src/main.ts`, which calls `connectAgents`. The project
+depends only on `@nylorun/agents`; the two Nylorun tools run with `npx`:
+
+- `nylorun` sets up and runs the local stack (Runtime and Studio).
+- `@nylorun/cli` (command `nylo`) talks to a Runtime: Tenants, the Project
+  link and the model provider.
 
 ```sh
+npx nylorun@beta up                  # the local stack; the first run pulls the images
+npx @nylorun/cli@beta tenant create  # this project's Tenant, linked in .nylorun/
 npm run dev
 ```
 
-The first run starts the local stack (`npx nylorun start`; the first start
-pulls the images), creates this project's Tenant, writes `.nylorun/link.json`
-and `.nylorun/credentials.json`, opens Studio on the Tenant, and asks for a
-model provider (stored in that Tenant's vault). **The stack keeps running after
-you stop `dev`, so sessions survive a source change.** `npx nylorun stop` stops
-it; `npx nylorun status` shows its health, and `npx nylorun logs runtime -f`
-its logs. Later runs reuse the link. In Studio, ask **Look up order
-demo-123**. The local tool returns `shipped`; Studio shows the tool call and
-assistant response. Model calls use the Tenant's saved provider and may incur
-its usual charges. Studio's Model provider screen can replace an API key.
-`npx nylorun configure` does the same from a terminal.
+`nylorun up` sets up the stack under `~/.nylorun` on the first run and just
+starts it after that. It prints the Runtime URL and a Studio login URL. The
+stack keeps running after you stop `npm run dev`, so sessions survive a source
+change; `npx nylorun down` stops it (volumes are kept), `npx nylorun status`
+shows its health, and `npx nylorun logs runtime -f` its logs.
 
-`npm run dev -- --no-open` prints the Studio login URL without opening a
-browser; `--no-studio` skips Studio. `npm run dev -- --ephemeral` runs the
-project on a temporary Tenant with a fixture model instead (no provider key;
-it answers the order lookup deterministically), and deletes that Tenant when
-you stop it. The login URL works once, for two minutes;
-`npx nylorun studio` opens a fresh one. The Runtime listens on
+`tenant create` creates this project's Tenant, writes `.nylorun/link.json` and
+`.nylorun/credentials.json`, and seeds the Tenant's model provider from
+`MODEL_PROVIDER`, `MODEL` and `MODEL_PROVIDER_API_KEY` in `.env` (see
+`.env.example`). The key is stored in the Tenant vault, never back in `.env`.
+Without them, set the provider in Studio's Model provider screen, or with
+`npx @nylorun/cli configure`. Model calls use the Tenant's provider and may
+incur its usual charges.
+
+`npm run dev` runs `src/main.ts` with `tsx watch`; `connectAgents` finds the
+Runtime through the Project link. `npx nylorun studio` opens a fresh Studio
+login on this project's Tenant (a login URL works once, for two minutes). In
+Studio, ask **Look up order demo-123**. The local tool returns `shipped`;
+Studio shows the tool call and assistant response. The Runtime listens on
 `http://localhost:8787` and Studio on `http://localhost:4161`, or on free ports
 chosen on the first start.
 
@@ -60,17 +68,17 @@ supported.
 Export the linked Project environment:
 
 ```sh
-eval "$(npx nylorun status --env)"
+eval "$(npx @nylorun/cli@beta env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
 ```
 
 Project link and credentials live in gitignored `.nylorun/` beside this project.
 The Host root (`NYLORUN_HOME` or `~/.nylorun`) holds the stack's files and the
 admin key; Tenant data lives in the stack's Docker volumes. A fresh clone or
-second worktree does not reuse this link until you create or choose one.
-Keep `.nylorun/` private. Application credentials are generated automatically;
-executor tokens are derived at start. The model provider key is encrypted in the
-Tenant vault and kept out of browser configuration and `.env`. Ordinary
+second worktree does not reuse this link: run `tenant create` there, or
+`npx @nylorun/cli tenant use <name>` with that Tenant's credentials.
+Keep `.nylorun/` private. Application credentials are generated when the
+Tenant is created; executor tokens are derived at start. Ordinary
 shutdown/restart preserves completed session history; `npx nylorun reset`
 deletes every Tenant.
 `NYLORUN_IMPLEMENTATION_VERSION` defaults to `dev`; assign an explicit version
@@ -79,5 +87,4 @@ when changing a versioned implementation.
 This beta supports local text and ordinary tools. Advanced waits, media, MCP,
 deployment, reconciliation and broad recovery guarantees are deferred.
 Subagents are supported in the SDK and examples (`agents used as tools`); the
-starter itself does not wire them. `NYLORUN_DEV_MODEL=fixture` skips model
-setup for release checks; use `--ephemeral` for a credential-free run.
+starter itself does not wire them.

@@ -11,6 +11,7 @@
     "admin",
     "runtime",
     "studio",
+    "nylorun",
     "cli",
     "create-agent"
   ],

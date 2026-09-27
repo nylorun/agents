@@ -58,7 +58,7 @@ export async function readLink(
       !isTenantId(value.tenantId)
     ) {
       throw new CliError(
-        `Invalid Project link at ${linkPath(projectRoot)}. Remove .nylorun/link.json and run nylorun dev.`,
+        `Invalid Project link at ${linkPath(projectRoot)}. Remove .nylorun/link.json and run nylo tenant create.`,
         1,
       );
     }

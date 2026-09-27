@@ -13,7 +13,14 @@ import {
   removeLink,
   writeLink,
 } from "../project/link.js";
-import { requireProjectRoot } from "../project/root.js";
+import { findProjectRoot, requireProjectRoot } from "../project/root.js";
+import {
+  createProjectTenant,
+  defaultTenantName,
+} from "../project/create-tenant.js";
+import { seedTenantFromProject } from "../project/seed.js";
+import { loadProjectEnvironment } from "../environment.js";
+import { shellQuote } from "../project/env.js";
 
 /** Exact-and-unique name or id match. */
 export function matchTenant(
@@ -42,22 +49,88 @@ function localAdmin(home?: string) {
   return createAdmin(home ? { home } : undefined);
 }
 
+/**
+ * `nylo tenant create [name]`. Inside a Project: create the Tenant, write the
+ * Project link and credentials, and seed it from the Project's `.env` (sandbox
+ * and model provider). Outside one: create the Tenant and print its
+ * connection variables once, since the Host keeps only a hash of the key.
+ */
+async function createTenant(options: { home: string; name?: string }): Promise<void> {
+  const admin = localAdmin(options.home);
+  let hostId: string | undefined;
+  try {
+    hostId = (await admin.status()).host?.hostId;
+  } catch (error) {
+    throw new CliError(
+      `No Runtime answers at ${admin.url} (${error instanceof Error ? error.message : String(error)}). Start the local stack with "npx nylorun up".`,
+      6,
+    );
+  }
+  if (!hostId)
+    throw new CliError(`Host at ${admin.url} did not report hostId in admin status.`, 1);
+
+  const projectRoot = findProjectRoot();
+  if (!projectRoot) {
+    const created = await admin.createTenant({ name: options.name ?? "tenant" });
+    console.log(`Tenant    ${created.tenant.name}  ${created.tenant.id}  (created)`);
+    console.log("# Not in a Project: nothing was linked. The key is shown only once.");
+    console.log(`export NYLORUN_RUNTIME_URL=${shellQuote(admin.url.replace(/\/$/, ""))}`);
+    console.log(`export NYLORUN_SERVER_KEY=${shellQuote(created.applicationKey)}`);
+    console.log(`export NYLORUN_TENANT=${shellQuote(created.tenant.id)}`);
+    return;
+  }
+
+  const link = await readLink(projectRoot);
+  if (link)
+    throw new CliError(
+      `This Project is already linked to Tenant ${link.tenantId}. Use "nylo tenant use <name-or-id>" to switch, or "nylo tenant delete" first.`,
+      1,
+    );
+  const created = await createProjectTenant({
+    admin,
+    hostId,
+    projectRoot,
+    name: options.name ?? (await defaultTenantName(projectRoot)),
+  });
+  console.log(`Tenant    ${created.envelope.name}  ${created.envelope.id}  (created)`);
+  console.log(`Linked    ${projectRoot}/.nylorun/`);
+  const seeded = await seedTenantFromProject({
+    hostUrl: created.link.hostUrl,
+    tenantId: created.link.tenantId,
+    applicationKey: created.credentials.applicationKey,
+    projectRoot,
+    env: loadProjectEnvironment(projectRoot),
+  });
+  console.log(
+    seeded.model
+      ? `Model     ${seeded.model} (from .env)`
+      : "Model     not configured: set it in Studio, or run nylo configure",
+  );
+}
+
 export async function tenantCommand(args: readonly string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb || verb === "--help" || verb === "-h") {
     console.log(
-      `nylorun tenant current|list [--json]|use <name-or-id>|status [--json]|reset [--sessions|--sandboxes|--all] [--yes]|delete <name-or-id> [--yes]`,
+      `nylo tenant create [name]|current|list [--json]|use <name-or-id>|status [--json]|reset [--sessions|--sandboxes|--all] [--yes]|delete <name-or-id> [--yes]`,
     );
     return;
   }
 
   const home = resolveHome();
 
+  if (verb === "create") {
+    if (rest.length > 1 || rest.some((arg) => arg.startsWith("-")))
+      throw new CliError("Usage: nylo tenant create [name]", 2);
+    await createTenant({ home, ...(rest[0] ? { name: rest[0] } : {}) });
+    return;
+  }
+
   if (verb === "current") {
     const root = requireProjectRoot();
     const link = await readLink(root);
     if (!link) {
-      console.log("No Project link. Run nylorun dev to create one.");
+      console.log("No Project link. Run nylo tenant create to create one.");
       return;
     }
     const admin = localAdmin(home);
@@ -72,7 +145,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
   if (verb === "list") {
     const json = rest.includes("--json");
     if (rest.some((a) => a !== "--json")) {
-      throw new CliError("Usage: nylorun tenant list [--json]", 2);
+      throw new CliError("Usage: nylo tenant list [--json]", 2);
     }
     const admin = localAdmin(home);
     const tenants = await admin.listTenants();
@@ -94,7 +167,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
   if (verb === "use") {
     const nameOrId = rest[0];
     if (!nameOrId || rest.length > 1) {
-      throw new CliError("Usage: nylorun tenant use <name-or-id>", 2);
+      throw new CliError("Usage: nylo tenant use <name-or-id>", 2);
     }
     const root = requireProjectRoot();
     const admin = localAdmin(home);
@@ -114,7 +187,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     const credentials = await readCredentials(root);
     if (!credentials) {
       throw new CliError(
-        "No Project credentials. Run nylorun dev to create a Tenant first, or copy credentials for the target Tenant.",
+        "No Project credentials. Run nylo tenant create to create a Tenant first, or copy credentials for the target Tenant.",
         1,
       );
     }
@@ -127,7 +200,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
       await client.transport.json("/v1/tenant", "GET");
     } catch {
       throw new CliError(
-        `Credentials do not authorize Tenant ${selected.id}. Create a new Tenant with nylorun dev instead of reusing another Project's Tenant without its key.`,
+        `Credentials do not authorize Tenant ${selected.id}. Create a new Tenant with nylo tenant create instead of reusing another Project's Tenant without its key.`,
         1,
       );
     }
@@ -146,14 +219,14 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
   if (verb === "status") {
     const json = rest.includes("--json");
     if (rest.some((a) => a !== "--json")) {
-      throw new CliError("Usage: nylorun tenant status [--json]", 2);
+      throw new CliError("Usage: nylo tenant status [--json]", 2);
     }
     const root = requireProjectRoot();
     const link = await readLink(root);
     const credentials = await readCredentials(root);
     if (!link || !credentials) {
       throw new CliError(
-        "No Project link. Run nylorun dev to create one.",
+        "No Project link. Run nylo tenant create to create one.",
         1,
       );
     }
@@ -224,7 +297,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
       scope = "sessions";
     else
       throw new CliError(
-        "Usage: nylorun tenant reset [--sessions|--sandboxes|--all] [--yes]",
+        "Usage: nylo tenant reset [--sessions|--sandboxes|--all] [--yes]",
         2,
       );
     if (
@@ -238,7 +311,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     const link = await readLink(root);
     const credentials = await readCredentials(root);
     if (!link || !credentials) {
-      throw new CliError("No Project link. Run nylorun dev first.", 1);
+      throw new CliError("No Project link. Run nylo tenant create first.", 1);
     }
     const admin = localAdmin(home);
     const tenants = await admin.listTenants();
@@ -276,7 +349,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     const yes = rest.includes("--yes");
     const nameOrId = rest.find((a) => a !== "--yes");
     if (!nameOrId || rest.filter((a) => a !== "--yes").length !== 1) {
-      throw new CliError("Usage: nylorun tenant delete <name-or-id> [--yes]", 2);
+      throw new CliError("Usage: nylo tenant delete <name-or-id> [--yes]", 2);
     }
     const root = requireProjectRoot();
     const admin = localAdmin(home);
@@ -310,7 +383,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
   }
 
   throw new CliError(
-    `Unknown tenant command ${verb}.\nUsage: nylorun tenant current|list|use|status|reset|delete`,
+    `Unknown tenant command ${verb}.\nUsage: nylo tenant current|list|use|status|reset|delete`,
     2,
   );
 }

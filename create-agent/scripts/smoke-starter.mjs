@@ -5,25 +5,27 @@
  *
  * - Packs the workspace (or takes NYLORUN_STACK_TARBALLS from release:check),
  *   scaffolds the starter from the packed creator, installs it offline from
- *   the tarballs and builds it. Its production Nylorun dependencies are only
- *   @nylorun/agents and @nylorun/core; there is no Studio package.
+ *   the tarballs and builds it. Its only Nylorun dependencies are
+ *   @nylorun/agents and @nylorun/core; it has no Nylorun devDependency.
+ * - Installs nylorun (the stack) and @nylorun/cli (nylo, the Runtime client)
+ *   from their tarballs into a separate tools directory, as `npx` would.
  * - Builds (or reuses, see scripts/lib/stack.mjs) the Runtime and Studio
- *   images and runs `nylorun dev --no-open` under a temporary NYLORUN_HOME:
- *   dev starts the stack, creates and links the Project's Tenant, the starter
- *   registers `assistant` and its executor connects, and the printed Studio
- *   login lands on that Tenant (303 + cookie, /_studio/tenants, the Tenant
- *   proxy).
+ *   images and, under a temporary NYLORUN_HOME, runs `nylorun up`, then
+ *   `nylo tenant create` in the project (the Tenant and the Project link),
+ *   then the project's `npm run dev`: the starter registers `assistant`, its
+ *   executor connects, and `nylorun studio` lands on that Tenant (303 +
+ *   cookie, /_studio/tenants, the Tenant proxy).
  * - A source edit re-registers the agent; stopping dev keeps the stack; a
  *   second dev reuses the link; the compiled `npm start` connects with the
  *   three Project variables.
- * - `nylorun dev --ephemeral` runs the starter on a temporary Tenant with the
- *   fixture model: one turn through Studio's proxy calls the starter's own
- *   `lookup_order` tool on its executor and answers with the result; Ctrl-C
- *   deletes the temporary Tenant and leaves the Project's Tenant and link.
- * - Without Docker on PATH, dev says so.
+ * - A temporary Tenant with the fixture model (scripts/lib/temporary-tenant.mjs)
+ *   runs one turn through Studio's proxy that calls the starter's own
+ *   `lookup_order` tool on its executor; the Tenant is deleted afterwards and
+ *   the Project's Tenant and link are untouched.
+ * - Without Docker on PATH, `nylorun up` says so.
  *
- * The Project's own Tenant has no model (the starter seeds none), so it is
- * checked as not configured; the turn runs on the ephemeral Tenant only.
+ * The Project's own Tenant has no model (the starter's .env names none), so
+ * it is checked as not configured; the turn runs on the temporary Tenant only.
  */
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
@@ -40,6 +42,7 @@ import {
   tenantGet,
   withStack,
 } from "../../scripts/lib/stack.mjs";
+import { withTemporaryTenant } from "../../scripts/lib/temporary-tenant.mjs";
 
 // A wedged runner must not hold the job; a healthy run is a few minutes.
 const SMOKE_DEADLINE_MS = Number(process.env.NYLORUN_SMOKE_DEADLINE_MS ?? 20 * 60_000);
@@ -65,12 +68,10 @@ const tarballs = process.env.NYLORUN_STACK_TARBALLS
   ? JSON.parse(await readFile(process.env.NYLORUN_STACK_TARBALLS, "utf8"))
   : {};
 // @nylorun/studio is private (the ghcr.io/nylorun/studio image), and the
-// Runtime runs in its image, so neither is installed into the starter.
-const names = ["core", "agents", "admin", "cli", "create-agent"];
+// Runtime runs in its image, so neither is installed anywhere.
+const names = ["core", "agents", "admin", "nylorun", "cli", "create-agent"];
 
-const bannerLine = (l) => l.includes("Ctrl-C stops this Project only");
-const field = (lines, name) =>
-  new RegExp(`^${name}\\s+(\\S+)`).exec(lines.find((l) => l.startsWith(name)) ?? "")?.[1];
+const field = (text, name) => new RegExp(`^${name}\\s+(\\S+)`, "m").exec(text)?.[1];
 
 async function readProject(project) {
   const [link, credentials] = await Promise.all(
@@ -116,16 +117,19 @@ try {
     await writeFile(join(project, path), content);
   }
   const manifest = JSON.parse(files["package.json"]);
-  assert.equal(manifest.scripts.dev, "nylorun dev");
+  assert.equal(manifest.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts");
   assert.equal(manifest.scripts.start, "node dist/src/main.js");
   assert.ok(!JSON.stringify(manifest.scripts).includes("serve"));
-  assert.equal(manifest.devDependencies["@nylorun/studio"], undefined);
+  assert.ok(!JSON.stringify(manifest.scripts).includes("nylorun"), "no script runs nylorun");
+  assert.deepEqual(
+    Object.keys(manifest.devDependencies).filter((name) => name.includes("nylorun")),
+    [],
+    "the project has no Nylorun devDependency",
+  );
   assert.equal(manifest.dependencies["@nylorun/runtime"], undefined);
   // Offline install: every @nylorun package from its tarball.
   manifest.dependencies["@nylorun/agents"] = `file:${tarballs.agents}`;
   manifest.dependencies["@nylorun/core"] = `file:${tarballs.core}`;
-  manifest.devDependencies["@nylorun/cli"] = `file:${tarballs.cli}`;
-  manifest.devDependencies["@nylorun/admin"] = `file:${tarballs.admin}`;
   await writeFile(join(project, "package.json"), JSON.stringify(manifest, null, 2));
   await run(process.execPath, [npmCli(), "install", "--ignore-scripts", "--no-audit", "--no-fund"], {
     cwd: project,
@@ -133,53 +137,69 @@ try {
   await run(process.execPath, [npmCli(), "run", "build"], { cwd: project });
 
   const tree = JSON.parse(
-    await run(process.execPath, [npmCli(), "ls", "--omit=dev", "--all", "--json"], {
+    await run(process.execPath, [npmCli(), "ls", "--all", "--json"], {
       cwd: project,
       capture: true,
     }),
   );
-  const production = new Set();
+  const installed = new Set();
   const walk = (node) => {
     for (const [name, child] of Object.entries(node.dependencies ?? {})) {
-      if (name.startsWith("@nylorun/")) production.add(name);
+      if (name.startsWith("@nylorun/") || name === "nylorun") installed.add(name);
       walk(child);
     }
   };
   walk(tree);
   assert.deepEqual(
-    [...production].sort(),
+    [...installed].sort(),
     ["@nylorun/agents", "@nylorun/core"],
-    "production Nylorun dependencies are agents and core",
+    "the project installs only agents and core, including development dependencies",
   );
 
-  const cliBin = join(project, "node_modules/@nylorun/cli/dist/cli.js");
+  // The two tools, beside the project rather than in it (what npx runs).
+  const tools = join(temporary, "tools");
+  await mkdir(tools);
+  await writeFile(
+    join(tools, "package.json"),
+    JSON.stringify({
+      private: true,
+      dependencies: Object.fromEntries(
+        ["core", "agents", "admin", "nylorun", "cli"].map((name) => [
+          name === "nylorun" ? "nylorun" : `@nylorun/${name}`,
+          `file:${tarballs[name]}`,
+        ]),
+      ),
+    }),
+  );
+  await run(process.execPath, [npmCli(), "install", "--ignore-scripts", "--no-audit", "--no-fund"], {
+    cwd: tools,
+  });
+  const nylorunBin = join(tools, "node_modules/nylorun/dist/cli.js");
+  const nyloBin = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
+
   const images = await ensureImages();
   await withStack(
-    { name: "nylorun-starter-smoke", cli: cliBin, images, start: false },
+    { name: "nylorun-starter-smoke", cli: nylorunBin, nylo: nyloBin, images, start: false },
     async (stack) => {
       const { env } = stack;
 
-      // 1. First `nylorun dev`: starts the stack, creates the Tenant, links the Project.
-      const dev = group.start("dev", process.execPath, [cliBin, "dev", "--no-open"], {
-        cwd: project,
-        env,
-      });
-      await dev.line(bannerLine, 600_000);
-      const first = { lines: output.get("dev") };
-      const runtimeUrl = field(first.lines, "Runtime");
-      const studioUrl = field(first.lines, "Studio");
-      assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/, first.lines.join("\n"));
-      assert.ok(
-        first.lines.some((l) => /^Runtime\s+\S+\s+\(started; stays running\)/.test(l)),
-        "dev started the stack",
+      // 1. `nylorun up` sets up and starts the stack; it creates no Tenant.
+      const up = (await stack.nylorun(["up"], { cwd: project })).stdout;
+      const runtimeUrl = field(up, "Runtime");
+      assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/, up);
+      assert.match(field(up, "Studio") ?? "", /^http:\/\/localhost:\d+\/login\?token=/, up);
+      const admin = await stack.admin(
+        pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
       );
-      assert.ok(first.lines.some((l) => /^Tenant\s.*\(created\)/.test(l)), "dev created the Tenant");
+      assert.deepEqual(await admin.listTenants(), [], "nylorun up creates no Tenant");
+
+      // 2. `nylo tenant create` creates the Project's Tenant and links it.
+      const created = (await stack.nylo(["tenant", "create"], { cwd: project })).stdout;
+      assert.match(created, /^Tenant\s+\S+\s+tn_\w+\s+\(created\)$/m, created);
+      assert.match(created, /^Model\s+not configured/m, created);
       const { link, credentials } = await readProject(project);
       assert.equal(link.hostUrl, runtimeUrl);
       assert.equal((await stat(join(project, ".nylorun/credentials.json"))).mode & 0o777, 0o600);
-      const admin = await stack.admin(
-        pathToFileURL(join(project, "node_modules/@nylorun/admin/dist/index.js")).href,
-      );
       const tenants = await admin.listTenants();
       assert.ok(
         tenants.some((t) => t.id === link.tenantId && t.state === "open"),
@@ -194,7 +214,7 @@ try {
             (await tenantGet(runtimeUrl, tenantId, key, "/v1/agents")).agents?.some(
               (agent) => agent.manifest?.id === "assistant" && agent.manifest?.name === name,
             ),
-          { message: `agent "assistant" named ${name}` },
+          { timeout: 120_000, message: `agent "assistant" named ${name}` },
         );
       const connected = () =>
         eventually(
@@ -204,14 +224,32 @@ try {
             ),
           { message: "a connected assistant executor" },
         );
+      const disconnected = () =>
+        eventually(
+          async () =>
+            !(await tenantGet(runtimeUrl, tenantId, key, "/v1/executors")).executors?.some(
+              (executor) => executor.connected,
+            ),
+          { message: "the executor to disconnect after dev stops" },
+        );
+
+      // 3. The project's own `npm run dev` finds the Runtime through the link.
+      const dev = group.start("dev", process.execPath, [npmCli(), "run", "dev"], {
+        cwd: project,
+        env,
+      });
       await registered("Order assistant");
       await connected();
 
-      // No model: the starter seeds none (the ephemeral run below uses the fixture model).
+      // No model: the starter's .env names none (the temporary Tenant below uses the fixture model).
       const model = await tenantGet(runtimeUrl, tenantId, key, "/v1/tenant/model");
       assert.equal(model.configured, false, JSON.stringify(model));
 
-      // 2. The Studio login from the banner lands on the Project's Tenant.
+      // 4. `nylorun studio` in the project reads the link and lands on its Tenant.
+      const studioUrl = field(
+        (await stack.nylorun(["studio", "--no-open"], { cwd: project, echo: false })).stdout,
+        "Studio",
+      );
       assert.match(studioUrl ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
       assert.equal(new URL(studioUrl).searchParams.get("next"), `/tenants/${tenantId}`);
       const studio = await studioSession(studioUrl);
@@ -236,7 +274,7 @@ try {
         "a login link is single-use",
       );
 
-      // 3. A source edit restarts the application and re-registers the agent.
+      // 5. A source edit restarts the application and re-registers the agent.
       const source = join(project, "agents/assistant/agent.ts");
       await writeFile(
         source,
@@ -245,31 +283,23 @@ try {
       await registered("Updated order assistant");
       await connected();
 
-      // 4. Ctrl-C stops the Project only.
+      // 6. Ctrl-C stops the Project only.
       await dev.stop();
       assert.equal((await fetch(`${runtimeUrl}/ready`)).status, 200, "the stack keeps running");
+      await disconnected();
 
-      // 5. A second dev reuses the running stack and the Project link.
-      const again = group.start("dev-again", process.execPath, [cliBin, "dev", "--no-studio"], {
+      // 7. A second dev reuses the running stack and the Project link.
+      const again = group.start("dev-again", process.execPath, [npmCli(), "run", "dev"], {
         cwd: project,
         env,
       });
-      await again.line(bannerLine, 120_000);
-      const second = { lines: output.get("dev-again") };
-      assert.ok(second.lines.some((l) => /^Runtime\s+\S+\s+\(already running\)/.test(l)));
-      assert.ok(!second.lines.some((l) => /\(created\)/.test(l)), "the Tenant is reused");
-      assert.ok(!second.lines.some((l) => l.startsWith("Studio")), "--no-studio prints no login");
+      await connected();
       assert.equal((await readProject(project)).link.tenantId, tenantId);
+      assert.equal((await admin.listTenants()).length, 1, "the Tenant is reused");
       await again.stop();
-      await eventually(
-        async () =>
-          !(await tenantGet(runtimeUrl, tenantId, key, "/v1/executors")).executors?.some(
-            (executor) => executor.connected,
-          ),
-        { message: "the executor to disconnect after dev stops" },
-      );
+      await disconnected();
 
-      // 6. The compiled application (built before the edit) connects with the
+      // 8. The compiled application (built before the edit) connects with the
       // three Project variables and registers its own manifest.
       const started = group.start("start", process.execPath, [npmCli(), "start"], {
         cwd: project,
@@ -284,95 +314,70 @@ try {
       await connected();
       await started.stop();
 
-      // 7. `--ephemeral`: a temporary Tenant with the fixture model runs a turn
-      // that calls the starter's tool, and is deleted when dev stops.
-      const ephemeral = group.start(
-        "dev-ephemeral",
-        process.execPath,
-        [cliBin, "dev", "--ephemeral", "--no-open"],
-        { cwd: project, env },
-      );
-      await ephemeral.line(bannerLine, 120_000);
-      const ephemeralLines = output.get("dev-ephemeral");
-      assert.ok(
-        ephemeralLines.some((l) => /^Tenant\s.*\(temporary, fixture model; deleted on exit\)/.test(l)),
-        ephemeralLines.join("\n"),
-      );
-      const ephemeralLogin = field(ephemeralLines, "Studio");
-      assert.match(ephemeralLogin ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
-      const temporaryId = /^\/tenants\/(.+)$/.exec(
-        new URL(ephemeralLogin).searchParams.get("next") ?? "",
-      )?.[1];
-      assert.ok(temporaryId && temporaryId !== tenantId, "a new, temporary Tenant");
-      assert.ok(
-        (await admin.listTenants()).some((t) => t.id === temporaryId),
-        "the Admin API lists the temporary Tenant",
-      );
-      assert.equal((await readProject(project)).link.tenantId, tenantId, "the link is untouched");
-
-      const ephemeralStudio = await studioSession(ephemeralLogin);
-      assert.equal(ephemeralStudio.location, `/tenants/${temporaryId}`);
-      const tenantApi = (path, init = {}) =>
-        ephemeralStudio.get(`/_studio/tenants/${temporaryId}/runtime${path}`, {
-          ...init,
-          headers: {
-            ...(init.body ? { "content-type": "application/json", origin: ephemeralStudio.origin } : {}),
-            ...init.headers,
-          },
+      // 9. A temporary fixture-model Tenant runs a turn that calls the
+      // starter's tool, and is deleted afterwards.
+      let temporaryId;
+      await withTemporaryTenant({ admin, name: "starter-smoke" }, async (temporaryTenant) => {
+        temporaryId = temporaryTenant.id;
+        assert.notEqual(temporaryId, tenantId, "a new, temporary Tenant");
+        // The three variables take precedence over the Project link.
+        const runner = group.start("dev-temporary", process.execPath, [npmCli(), "run", "dev"], {
+          cwd: project,
+          env: { ...env, ...temporaryTenant.env },
         });
-      await eventually(
-        async () =>
-          (await (await tenantApi("/v1/agents")).json()).agents?.some(
-            (agent) => agent.manifest?.id === "assistant",
-          ),
-        { message: "the assistant on the temporary Tenant" },
-      );
-      const sessionId = `smoke-${Date.now()}`;
-      const created = await tenantApi(`/v1/sessions/${sessionId}`, {
-        method: "PUT",
-        body: JSON.stringify({ requestId: `${sessionId}-create`, agentId: "assistant" }),
+        const login = await stack.studioLogin();
+        const temporaryStudio = await studioSession(login);
+        const tenantApi = (path, init = {}) =>
+          temporaryStudio.get(`/_studio/tenants/${temporaryId}/runtime${path}`, {
+            ...init,
+            headers: {
+              ...(init.body ? { "content-type": "application/json", origin: temporaryStudio.origin } : {}),
+              ...init.headers,
+            },
+          });
+        await eventually(
+          async () =>
+            (await (await tenantApi("/v1/agents")).json()).agents?.some(
+              (agent) => agent.manifest?.id === "assistant",
+            ),
+          { timeout: 120_000, message: "the assistant on the temporary Tenant" },
+        );
+        assert.equal((await readProject(project)).link.tenantId, tenantId, "the link is untouched");
+        const sessionId = `smoke-${Date.now()}`;
+        const session = await tenantApi(`/v1/sessions/${sessionId}`, {
+          method: "PUT",
+          body: JSON.stringify({ requestId: `${sessionId}-create`, agentId: "assistant" }),
+        });
+        assert.ok(session.ok, `create session: ${session.status} ${await session.clone().text()}`);
+        const sent = await tenantApi(`/v1/sessions/${sessionId}/commands`, {
+          method: "POST",
+          body: JSON.stringify({
+            type: "message",
+            requestId: `${sessionId}-message`,
+            idempotencyKey: `${sessionId}-message`,
+            content: "Look up order demo-123",
+          }),
+        });
+        assert.ok(sent.ok, `send message: ${sent.status} ${await sent.clone().text()}`);
+        // The fixture model calls lookup_order; the starter's executor runs it
+        // and the model answers with its result.
+        const answer = await eventually(
+          async () => {
+            const { items } = await (await tenantApi(`/v1/sessions/${sessionId}/items`)).json();
+            const text = JSON.stringify(items ?? []);
+            return text.includes("Order lookup complete") && text.includes("shipped") ? text : undefined;
+          },
+          { timeout: 120_000, message: "the assistant's answer from lookup_order" },
+        );
+        assert.ok(answer.includes("demo-123"), "the tool ran for demo-123");
+        await runner.stop();
       });
-      assert.ok(created.ok, `create session: ${created.status} ${await created.clone().text()}`);
-      const sent = await tenantApi(`/v1/sessions/${sessionId}/commands`, {
-        method: "POST",
-        body: JSON.stringify({
-          type: "message",
-          requestId: `${sessionId}-message`,
-          idempotencyKey: `${sessionId}-message`,
-          content: "Look up order demo-123",
-        }),
-      });
-      assert.ok(sent.ok, `send message: ${sent.status} ${await sent.clone().text()}`);
-      // The fixture model calls lookup_order; the starter's executor runs it
-      // and the model answers with its result.
-      const answer = await eventually(
-        async () => {
-          const { items } = await (await tenantApi(`/v1/sessions/${sessionId}/items`)).json();
-          const text = JSON.stringify(items ?? []);
-          return text.includes("Order lookup complete") && text.includes("shipped") ? text : undefined;
-        },
-        { timeout: 120_000, message: "the assistant's answer from lookup_order" },
-      );
-      assert.ok(answer.includes("demo-123"), "the tool ran for demo-123");
-
-      // Ctrl-C deletes the temporary Tenant, not the Project's.
-      process.kill(ephemeral.child.pid, "SIGINT");
-      const exitCode = await Promise.race([
-        ephemeral.exit,
-        new Promise((resolve) => setTimeout(() => resolve("timeout"), 60_000)),
-      ]);
-      await ephemeral.stop();
-      assert.notEqual(exitCode, "timeout", "dev --ephemeral exits after Ctrl-C");
-      assert.ok(
-        ephemeralLines.some((l) => l.includes(`Deleted temporary Tenant ${temporaryId}.`)),
-        ephemeralLines.join("\n"),
-      );
       const remaining = await admin.listTenants();
       assert.ok(!remaining.some((t) => t.id === temporaryId), "the temporary Tenant is gone");
       assert.ok(remaining.some((t) => t.id === tenantId), "the Project's Tenant remains");
 
-      // 8. Without Docker, dev says what to install and starts nothing.
-      const noDocker = await run(process.execPath, [cliBin, "dev", "--no-open"], {
+      // 10. Without Docker, `nylorun up` says what to install and starts nothing.
+      const noDocker = await run(process.execPath, [nylorunBin, "up"], {
         cwd: project,
         capture: true,
         timeout: 60_000,
@@ -381,12 +386,12 @@ try {
         () => undefined,
         (error) => error,
       );
-      assert.ok(noDocker, "nylorun dev fails without Docker");
+      assert.ok(noDocker, "nylorun up fails without Docker");
       assert.match(`${noDocker.stderr}${noDocker.stdout}`, /Docker is required/);
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on the stack: dev starts the stack, creates and links the Tenant, registers and connects the executor, Studio login lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, an --ephemeral turn with the fixture model and its Tenant deleted, Docker missing.",
+    "PASS: packed starter (agents + core only) on the stack: nylorun up starts the stack without a Tenant, nylo tenant create creates and links it, npm run dev registers and connects the executor, nylorun studio lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, a temporary fixture-model Tenant's turn and its deletion, Docker missing.",
   );
 } catch (error) {
   console.error(error);

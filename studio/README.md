@@ -9,14 +9,13 @@ and is not published to npm. It depends only on `@nylorun/agents` and
 
 ## Using Studio
 
-Developers never install this package. The CLI runs it:
+Developers never install this package. `nylorun` runs it:
 
 ```sh
-nylorun start      # starts the stack, including Studio, and prints a login URL
-nylorun studio     # opens a fresh login (on the linked Project's Tenant)
-nylorun dev        # runs the Project and opens Studio on its Tenant
-nylorun status     # reports Studio's health and URL
-nylorun logs studio
+npx nylorun up         # starts the stack, including Studio, and prints a login URL
+npx nylorun studio     # opens a fresh login (on the linked Project's Tenant)
+npx nylorun status     # reports Studio's health and URL
+npx nylorun logs studio
 ```
 
 Studio publishes on loopback (`127.0.0.1:4161` by default) and the CLI opens it

@@ -1,25 +1,29 @@
 # Releasing packages and images
 
-Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime and Studio changes advance CLI, which pins their images. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Nothing publishes on merge or tag push.
+Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime and Studio changes advance nylorun, which pins their images. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Nothing publishes on merge or tag push.
 
 The creator's compatibility combination (`create-agent/compatibility.json`)
-pins exactly what a generated project installs or depends on: Core, Harness,
-Agents, Admin, Runtime and CLI. Studio is not in it: it ships only as its
-image, and the CLI pins that image.
+pins exactly what a generated project or the examples install or depend on:
+Core, Harness, Agents, Admin, Runtime and CLI. Neither nylorun nor Studio is in
+it: developers run nylorun with `npx`, and Studio ships only as its image,
+which nylorun pins.
 
 A release publishes two kinds of artifact:
 
-- **npm packages** under `@nylorun`. A package marked `"private": true` is not
+- **npm packages** under `@nylorun`, plus the unscoped `nylorun` (the stack
+  command, `npx nylorun up`). A package marked `"private": true` is not
   published to npm. Studio is one: it ships only as its image.
 - **Container images** `ghcr.io/nylorun/runtime:<runtime version>` and
   `ghcr.io/nylorun/studio:<studio version>`, for `linux/amd64` and
-  `linux/arm64`. `nylorun start` runs the images the CLI pins in
-  `cli/package.json`: `nylorun.runtime` and `nylorun.studio`.
+  `linux/arm64`. `nylorun up` runs the images nylorun pins in
+  `nylorun/package.json`: `nylorun.runtime` and `nylorun.studio`.
 
 ## Administrator setup
 
 - Use the toolchain and setup in [CONTRIBUTING.md](./CONTRIBUTING.md).
-- Confirm npm organization access for every public `@nylorun` package.
+- Confirm npm organization access for every public `@nylorun` package, and
+  that the organization owns the unscoped `nylorun` package (npm trusted
+  publishing and `NPM_BOOTSTRAP_TOKEN` must cover it too).
 - Configure each package's npm trusted publisher for this repository,
   workflow `publish.yml`, and GitHub environment `npm`, allowing publication.
 - Create the `release` environment with administrator reviewers. It is the
@@ -35,7 +39,7 @@ A release publishes two kinds of artifact:
   package as private and linked to this repository (through the
   `org.opencontainers.image.source` label). Then, once per image, in the
   organization's package settings:
-  - set the visibility to **public**, so `nylorun start` can pull it without
+  - set the visibility to **public**, so `nylorun up` can pull it without
     logging in;
   - under **Manage Actions access**, confirm this repository has the **Write**
     role. A package created some other way needs this before the first push.
@@ -68,8 +72,8 @@ npm run release:check
 ```
 
 Preparation requires a clean branch. It applies Changesets, ensures a creator
-bump, updates the creator's compatibility pins, sets the CLI's image pins
-(`cli/package.json` `nylorun.runtime` and `nylorun.studio`) to the Runtime and
+bump, updates the creator's compatibility pins, sets nylorun's image pins
+(`nylorun/package.json` `nylorun.runtime` and `nylorun.studio`) to the Runtime and
 Studio versions of this release, synchronizes examples, refreshes both
 lockfiles, and writes `.release/plan.json`. It does not commit, push, or
 publish.
@@ -144,18 +148,20 @@ The jobs run in this order:
    version and commit. `scripts/release/images.mjs` decides each push: an
    existing tag is never replaced, so that image is skipped; a version the
    release keeps rather than publishes must already have its image.
-4. **publish** runs only after both images exist, because the CLI it publishes
-   pins them. It publishes the same tarballs: the engines first, then the
-   creator. Then it smokes the public creator on the Docker stack
-   (`scripts/release/smoke.mjs`): `npm exec @nylorun/create-agent@<version>`
-   with no credentials and an empty npm config creates a project and runs
-   `nylorun dev --no-open`, which pulls the CLI's pinned
-   `ghcr.io/nylorun/runtime` and `ghcr.io/nylorun/studio` images. The smoke
-   checks that the stack runs exactly those images, that the Tenant is created
-   and the starter's executor connects, and that the Studio login works. It
+4. **publish** runs only after both images exist, because the nylorun it
+   publishes pins them. It publishes the same tarballs: the engines first, then
+   the creator. Then it smokes the public quickstart on the Docker stack
+   (`scripts/release/smoke.mjs`): with no credentials and an empty npm config,
+   `npm exec @nylorun/create-agent@<version>` creates a project; the published
+   `nylorun up` pulls its pinned `ghcr.io/nylorun/runtime` and
+   `ghcr.io/nylorun/studio` images, `nylo tenant create` links the project, and
+   its `npm run dev` connects. The smoke checks that the stack runs exactly
+   those images, that the Tenant is created and the starter's executor
+   connects, and that the Studio login works. It
    makes no model calls, and it resets the stack's containers and volumes.
 
-Tags use `@nylorun/<package>@<version>`, Studio's included. Images carry only
+Tags use `@nylorun/<package>@<version>`, Studio's included, and
+`nylorun@<version>` for nylorun. Images carry only
 the version tag; there is no `latest` image.
 
 ## Recovery
@@ -205,7 +211,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --file studio/Dockerfile --output type=cacheonly .
 ```
 
-To run a local build under `nylorun start`, tag it with `docker build` and set
+To run a local build under `nylorun up`, tag it with `docker build` and set
 `NYLORUN_RUNTIME_IMAGE` or `NYLORUN_STUDIO_IMAGE` to that tag, as the CI
 `stack` job does.
 
@@ -216,7 +222,7 @@ Studio no longer deploys to Firebase Hosting: it is built into the
 release with the Studio image is published, an administrator:
 
 1. Replaces what `https://local.nylorun.studio` serves with one static page
-   that tells developers to upgrade `@nylorun/cli` and run `nylorun studio`.
+   that tells developers to run `npx nylorun studio`.
    It loads no scripts and needs no API access.
 2. Once that page is live, removes the Firebase Hosting site and project
    (`nylorun-oss-studio`), or keeps only that page on it.

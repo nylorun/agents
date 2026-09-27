@@ -14,9 +14,10 @@ test("starter previews resolve local packages and never overwrite an earlier pre
       manifest.dependencies["@nylorun/agents"],
       `file:${join(root, "agents").replaceAll("\\", "/")}`,
     );
-    assert.equal(
-      manifest.devDependencies["@nylorun/cli"],
-      `file:${join(root, "cli").replaceAll("\\", "/")}`,
+    // nylorun and the CLI run from the workspace, never from the project.
+    assert.deepEqual(
+      Object.keys(manifest.devDependencies).filter((name) => name.includes("nylorun")),
+      [],
     );
     // The Runtime runs in the stack's container; previews never install it.
     assert.equal(manifest.dependencies["@nylorun/runtime"], undefined);

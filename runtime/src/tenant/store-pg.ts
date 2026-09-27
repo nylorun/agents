@@ -49,7 +49,7 @@ export interface PostgresTenantStoreOptions {
 
 /** Repair instructions for a Postgres Tenant, naming its schema. */
 function repairFor(code: Quarantine["code"], tenantId: string): string {
-  const status = `nylorun tenant status ${tenantId}`;
+  const status = `nylo tenant status ${tenantId}`;
   const schema = tenantSchemaName(tenantId);
   switch (code) {
     case "schema-too-new":

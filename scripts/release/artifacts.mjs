@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { root, packages, npm, readJson, writeJson } from "../lib/repo.mjs";
+import { root, packages, packageName, npm, readJson, writeJson } from "../lib/repo.mjs";
 import { validatePlan } from "./model.mjs";
 import { isImageOnly } from "./pins.mjs";
 
@@ -38,7 +38,7 @@ export async function packRelease(directory, plan, repo = root) {
       await npm(
         [
           "pack",
-          ...(candidate ? [] : [`@nylorun/${name}@${version}`]),
+          ...(candidate ? [] : [`${packageName(name)}@${version}`]),
           "--json",
           "--ignore-scripts",
           "--pack-destination",
@@ -47,7 +47,7 @@ export async function packRelease(directory, plan, repo = root) {
         { cwd: candidate ? join(repo, name) : directory, capture: true },
       ),
     )[0];
-    if (result.name !== `@nylorun/${name}` || result.version !== version)
+    if (result.name !== packageName(name) || result.version !== version)
       throw new Error(`Unexpected tarball identity for ${name}.`);
     const file = basename(result.filename);
     const hash = await integrity(join(directory, file));

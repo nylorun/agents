@@ -18,10 +18,14 @@ describe("starter template", () => {
     const manifest = JSON.parse(files["package.json"]!);
     expect(manifest.dependencies["@nylorun/agents"]).toBe("2.3.4");
     expect(manifest.dependencies["@nylorun/runtime"]).toBeUndefined();
-    expect(manifest.dependencies["@nylorun/cli"]).toBeUndefined();
-    expect(manifest.devDependencies["@nylorun/cli"]).toBe(compatibility.cli);
-    expect(manifest.devDependencies["@nylorun/studio"]).toBeUndefined();
-    expect(manifest.scripts.dev).toBe("nylorun dev");
+    // The project depends only on the SDK: nylorun and the Runtime client run with npx.
+    expect(Object.keys(manifest.dependencies).filter((name) => name.includes("nylorun"))).toEqual([
+      "@nylorun/agents",
+    ]);
+    expect(
+      Object.keys(manifest.devDependencies).filter((name) => name.includes("nylorun")),
+    ).toEqual([]);
+    expect(manifest.scripts.dev).toBe("tsx watch --env-file-if-exists=.env src/main.ts");
     expect(manifest.scripts.studio).toBeUndefined();
     expect(manifest.scripts.start).toBe("node dist/src/main.js");
     expect(manifest.scripts["dev:app"]).toBeUndefined();
@@ -91,7 +95,7 @@ describe("project creation", () => {
     };
     await expect(
       createProject(
-        { directory: "taken", open: true, yes: true },
+        { directory: "taken", yes: true },
         compatibility,
         dependencies
       )
@@ -114,7 +118,7 @@ describe("project creation", () => {
     };
     await expect(
       createProject(
-        { directory: "../outside", open: true, yes: true },
+        { directory: "../outside", yes: true },
         compatibility,
         dependencies
       )
@@ -122,12 +126,12 @@ describe("project creation", () => {
   });
 });
 
-it("renders a fresh project before installation and forwards browser choices", async () => {
+it("renders a fresh project before installation, then installs and starts nothing else", async () => {
   const files = new Map<string, string>();
   const commands: unknown[] = [];
   let renamed = false;
   await createProject(
-    { directory: "demo", open: false, yes: true },
+    { directory: "demo", yes: true },
     compatibility,
     {
       currentDirectory: () => "/workspace",
@@ -162,16 +166,21 @@ it("renders a fresh project before installation and forwards browser choices", a
   )![1];
   expect(JSON.parse(packageJson).name).toBe("demo");
   expect(readme.startsWith("# demo\n")).toBe(true);
-  expect(commands).toEqual([
-    ["npm", ["install", "--yes"], "/workspace/demo"],
-    ["npm", ["run", "dev", "--", "--no-open"], "/workspace/demo"],
-  ]);
+  expect(commands).toEqual([["npm", ["install", "--yes"], "/workspace/demo"]]);
 });
 
-it("starts Studio with browser opening by default", async () => {
+it("prints the next steps: the stack, the Tenant, then development", async () => {
   const deps = fixture();
   await createProject({ ...options, yes: true }, compatibility, deps);
-  expect(deps.run.mock.calls.at(-1)?.[1]).toEqual(["run", "dev"]);
+  const next = deps.log.mock.calls.at(-1)?.[0] as string;
+  expect(next).toContain("cd '/workspace/my agent'");
+  expect(next.indexOf("npx nylorun@beta up")).toBeGreaterThan(-1);
+  expect(next.indexOf("npx @nylorun/cli@beta tenant create")).toBeGreaterThan(
+    next.indexOf("npx nylorun@beta up"),
+  );
+  expect(next.indexOf("npm run dev")).toBeGreaterThan(
+    next.indexOf("npx @nylorun/cli@beta tenant create"),
+  );
 });
 
 function fixture() {
@@ -191,16 +200,13 @@ function fixture() {
     })),
   };
 }
-const options = { directory: "my agent", open: true, yes: false };
+const options = { directory: "my agent", yes: false };
 
-it("starts development for a noninteractive create", async () => {
+it("only installs for a noninteractive create", async () => {
   const deps = fixture();
   deps.isInteractive = () => false;
   await createProject(options, compatibility, deps);
-  expect(deps.run.mock.calls.map((call) => call[1])).toEqual([
-    ["install"],
-    ["run", "dev"],
-  ]);
+  expect(deps.run.mock.calls.map((call) => call[1])).toEqual([["install"]]);
 });
 
 it("stamps package name and README title from a sanitized directory", async () => {
@@ -220,10 +226,7 @@ it("stamps package name and README title from a sanitized directory", async () =
   expect(readme.startsWith("# my-agent\n")).toBe(true);
 });
 
-it.each([
-  ["installation", 0, ["install"]],
-  ["development", 1, ["install", "run dev"]],
-])(
+it.each([["installation", 0, ["install"]]])(
   "retains the project and does not advance after %s failure",
   async (_name, failAt, commands) => {
     const deps = fixture();
@@ -257,15 +260,13 @@ it.each([
   }
 );
 
-it("shows recovery instructions when development fails to spawn", async () => {
+it("shows recovery instructions when installation fails to spawn", async () => {
   const deps = fixture();
-  deps.run
-    .mockResolvedValueOnce({ status: 0 })
-    .mockRejectedValueOnce(new Error("spawn failed"));
+  deps.run.mockRejectedValueOnce(new Error("spawn failed"));
   await expect(createProject(options, compatibility, deps)).rejects.toThrow(
-    "npm run dev"
+    /npm install\n.*nylorun@beta up[\s\S]*npm run dev/
   );
-  expect(deps.run).toHaveBeenCalledTimes(2);
+  expect(deps.run).toHaveBeenCalledTimes(1);
 });
 
 it("stops before development and names missing prerequisites; installs nothing", async () => {
@@ -283,9 +284,10 @@ it("stops before development and names missing prerequisites; installs nothing",
   expect(message).toContain("Node.js 24 or newer (found 22.19.0)");
   expect(message).toContain("Install Docker with Compose v2");
   expect(message).not.toContain("@nylorun/runtime");
+  expect(message).toContain("npx nylorun@beta up");
   expect(message).toContain("npm run dev");
   expect(deps.checkDocker).toHaveBeenCalled();
-  // Only the project's own dependencies were installed; dev never started.
+  // Only the project's own dependencies were installed.
   expect(deps.run.mock.calls.map((call) => call[1])).toEqual([["install"]]);
 });
 

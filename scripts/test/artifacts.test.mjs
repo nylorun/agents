@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { packages, writeJson } from "../lib/repo.mjs";
+import { packageName, packages, writeJson } from "../lib/repo.mjs";
 import { packRelease, readArtifacts } from "../release/artifacts.mjs";
 import { CREATOR_PINS } from "../release/version-policy.mjs";
 
@@ -26,7 +26,7 @@ test(
       for (const name of packages) {
         await mkdir(join(repo, name), { recursive: true });
         await writeJson(join(repo, name, "package.json"), {
-          name: `@nylorun/${name}`,
+          name: packageName(name),
           version: versions[name],
           files: ["index.js"],
         });
@@ -74,7 +74,7 @@ test(
       for (const name of packages) {
         await mkdir(join(repo, name), { recursive: true });
         await writeJson(join(repo, name, "package.json"), {
-          name: `@nylorun/${name}`,
+          name: packageName(name),
           version,
           files: ["index.js"],
           ...(name === "studio" ? { private: true } : {}),

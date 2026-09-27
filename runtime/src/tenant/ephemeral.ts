@@ -5,9 +5,9 @@
  * after `close()`, or in the Postgres database a test passes. Scheduling is the in-process
  * execution each Tenant starts for itself.
  *
- * It is not what `nylorun dev --ephemeral` runs: that command creates a temporary Tenant on the
- * running stack, with the Tenant-level fixture model (`model-setting.ts`), and deletes it on
- * exit.
+ * It is not the temporary Tenant the smoke checks use (scripts/lib/temporary-tenant.mjs):
+ * that one is created on the running stack, with the Tenant-level fixture model
+ * (`model-setting.ts`), and deleted afterwards.
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";

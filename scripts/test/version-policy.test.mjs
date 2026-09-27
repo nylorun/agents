@@ -7,6 +7,7 @@ import {
   planVersions,
   protocolEquals,
 } from "../release/version-policy.mjs";
+import { packageDirectory, packageName } from "../lib/repo.mjs";
 
 const versions = {
   core: "0.1.0-beta.1",
@@ -16,6 +17,7 @@ const versions = {
   admin: "0.1.0-beta.1",
   runtime: "0.1.0-beta.1",
   studio: "0.3.0-beta.1",
+  nylorun: "0.1.0-beta.1",
   "create-agent": "0.1.0-beta.1",
 };
 const pins = {
@@ -29,7 +31,7 @@ const pins = {
 const intent = (name, type = "patch") => ({
   id: `change-${name}`,
   summary: "Change behavior.",
-  releases: [{ name: `@nylorun/${name}`, type }],
+  releases: [{ name: packageName(name), type }],
 });
 
 test("the migration computes the approved package targets and exact pins", () => {
@@ -45,7 +47,7 @@ test("the migration computes the approved package targets and exact pins", () =>
     "beta"
   );
   assert.deepEqual(plan.packages, {
-    cli: "0.1.1-beta",
+    nylorun: "0.1.1-beta",
     harness: "0.11.0-beta",
     runtime: "0.1.1-beta",
     studio: "0.4.0-beta",
@@ -53,10 +55,10 @@ test("the migration computes the approved package targets and exact pins", () =>
   });
   for (const name of CREATOR_PINS)
     assert.equal(plan.compatibility[name], plan.packages[name] ?? versions[name]);
-  // Studio ships as an image the CLI pins; the creator does not pin it.
+  // Studio ships as an image nylorun pins; the creator pins neither.
   assert.deepEqual(Object.keys(plan.compatibility).sort(), [...CREATOR_PINS].sort());
   for (const release of releases)
-    assert.equal(release.newVersion, plan.packages[release.name.slice(9)]);
+    assert.equal(release.newVersion, plan.packages[packageDirectory(release.name)]);
 });
 
 for (const [before, type, expected] of [
@@ -88,6 +90,7 @@ test("pre-1.0 latest promotion keeps *-beta versions for dist-tag moves", () => 
     admin: "0.1.0-beta",
     runtime: "0.1.0-beta",
     studio: "0.3.0-beta",
+    nylorun: "0.1.0-beta",
     "create-agent": "0.1.0-beta",
   };
   const { plan, releases } = planVersions(
@@ -130,6 +133,7 @@ test("post-1.0 latest promotion strips -beta from the promoted package", () => {
     admin: "1.0.0",
     runtime: "1.1.0-beta",
     studio: "1.0.0",
+    nylorun: "1.0.0",
     "create-agent": "1.0.0",
   };
   assert.deepEqual(
@@ -139,7 +143,7 @@ test("post-1.0 latest promotion strips -beta from the promoted package", () => {
       [],
       "latest"
     ).plan.packages,
-    { runtime: "1.1.0", cli: "1.0.1", "create-agent": "1.0.1" }
+    { runtime: "1.1.0", nylorun: "1.0.1", "create-agent": "1.0.1" }
   );
 });
 
@@ -195,15 +199,22 @@ test("a Harness release also advances Runtime and pins the canonical contracts t
 });
 
 
-test("a Studio release advances the CLI, which pins its image, and the creator", () => {
+test("a Studio release advances nylorun, which pins its image, and the creator", () => {
   const { plan, changesets } = planVersions(versions, pins, [intent("studio", "minor")], "beta");
   assert.deepEqual(plan.packages, {
-    cli: "0.1.1-beta",
+    nylorun: "0.1.1-beta",
     studio: "0.4.0-beta",
     "create-agent": "0.1.1-beta",
   });
-  assert.ok(changesets.some((item) => item.id === "release-cli-studio"));
-  assert.deepEqual(plan.compatibility, { ...pins, cli: "0.1.1-beta" });
+  assert.ok(changesets.some((item) => item.id === "release-nylorun-studio"));
+  // Neither nylorun nor Studio is a creator pin: the generated project installs neither.
+  assert.deepEqual(plan.compatibility, pins);
+});
+
+test("a Runtime release advances nylorun, which pins its image, and not the CLI", () => {
+  const { plan } = planVersions(versions, pins, [intent("runtime")], "beta");
+  assert.equal(plan.packages.nylorun, "0.1.1-beta");
+  assert.equal(plan.packages.cli, undefined);
 });
 
 test("the creator pins exactly core, harness, agents, admin, runtime and cli", () => {
@@ -221,13 +232,14 @@ test("the creator pins exactly core, harness, agents, admin, runtime and cli", (
 
 test("core releases propagate to both hosts and SDK without coupling engine releases to SDK", () => {
   const shared = planVersions(versions, pins, [intent("core", "minor")], "beta").plan;
-  for (const name of ["core", "harness", "agents", "runtime", "studio", "cli", "create-agent"])
+  for (const name of ["core", "harness", "agents", "runtime", "studio", "nylorun", "cli", "create-agent"])
     assert.ok(shared.packages[name], `${name} must receive its updated dependency pin`);
   const engine = planVersions(versions, pins, [intent("harness")], "beta").plan;
   assert.equal(engine.packages.agents, undefined);
   assert.equal(engine.packages.studio, undefined);
+  assert.equal(engine.packages.cli, undefined);
   assert.ok(engine.packages.runtime);
-  assert.ok(engine.packages.cli);
+  assert.ok(engine.packages.nylorun);
 });
 
 const protocolV1 = {
@@ -316,6 +328,7 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
     admin: "1.0.0",
     runtime: "1.0.0",
     studio: "1.0.0",
+    nylorun: "1.0.0",
     "create-agent": "1.0.0",
   };
   const stablePins = {

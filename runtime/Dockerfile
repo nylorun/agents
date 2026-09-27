@@ -22,6 +22,7 @@ COPY agents/package.json agents/
 COPY admin/package.json admin/
 COPY runtime/package.json runtime/
 COPY studio/package.json studio/
+COPY nylorun/package.json nylorun/
 COPY cli/package.json cli/
 COPY create-agent/package.json create-agent/
 

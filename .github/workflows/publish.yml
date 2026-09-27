@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: false
 # Order: validate → approve → images (ghcr.io/nylorun/runtime and studio) →
 # publish (npm). `approve` is the only reviewed step, so nothing becomes public
-# before an administrator approves the validated candidate. The CLI names its
-# image pins (cli/package.json nylorun.runtime and nylorun.studio), so both
-# images exist before the CLI reaches npm.
+# before an administrator approves the validated candidate. nylorun names its
+# image pins (nylorun/package.json nylorun.runtime and nylorun.studio), so both
+# images exist before nylorun reaches npm.
 jobs:
   validate:
     if: github.ref == 'refs/heads/main'
@@ -80,7 +80,7 @@ jobs:
           load: true
           cache-from: type=gha,scope=release-check-studio
           cache-to: type=gha,mode=max,scope=release-check-studio
-      # Also checks the CLI's image pins against the plan.
+      # Also checks nylorun's image pins against the plan.
       - run: npm run release:check -- --built
         env:
           NYLORUN_RUNTIME_IMAGE: nylorun-runtime:release-check

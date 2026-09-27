@@ -7,7 +7,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "nylorun dev",
+    "dev": "tsx watch --env-file-if-exists=.env src/main.ts",
     "build": "node -e \"import('node:fs/promises').then(async ({rm,cp}) => { await rm('dist', { recursive: true, force: true }); await cp('agents', 'dist/agents', { recursive: true, filter: (source) => !source.endsWith('.ts') }); })\" && tsc -p tsconfig.json",
     "start": "node dist/src/main.js",
     "check": "tsc --noEmit"
@@ -17,7 +17,6 @@
     "@nylorun/agents": "{{AGENTS_VERSION}}"
   },
   "devDependencies": {
-    "@nylorun/cli": "{{CLI_VERSION}}",
     "@types/node": "^22.18.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

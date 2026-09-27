@@ -3,7 +3,7 @@
   "version": "0.3.0-beta",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "Nylorun local development CLI",
+  "description": "Nylorun Runtime client: Tenants, Project links and model providers",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nylorun/harness.git",
@@ -40,10 +40,6 @@
     "vitest": "^5.0.1"
   },
   "bin": {
-    "nylorun": "dist/cli.js"
-  },
-  "nylorun": {
-    "runtime": "0.10.0-beta",
-    "studio": "0.9.0-beta"
+    "nylo": "dist/cli.js"
   }
 }

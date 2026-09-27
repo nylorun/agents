@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { root, npm, run } from "./lib/repo.mjs";
+import { root, npm, packageName, run } from "./lib/repo.mjs";
 const temporary = await mkdtemp(join(tmpdir(), "nylorun-isolated-"));
 try {
   const packed = {};
@@ -16,8 +16,8 @@ try {
     packed[name] = join(temporary, result[0].filename);
   }
   for (const [name, deps, forbidden] of [
-    ["sdk", ["core", "agents"], ["harness", "runtime", "cli"]],
-    ["host", ["core", "harness", "runtime"], ["agents", "cli", "studio"]],
+    ["sdk", ["core", "agents"], ["harness", "runtime", "nylorun", "cli"]],
+    ["host", ["core", "harness", "runtime"], ["agents", "nylorun", "cli", "studio"]],
   ]) {
     const cwd = join(temporary, name);
     await mkdir(cwd);
@@ -37,7 +37,7 @@ try {
     );
     for (const dependency of forbidden)
       await assert.rejects(
-        access(join(cwd, "node_modules/@nylorun", dependency))
+        access(join(cwd, "node_modules", packageName(dependency)))
       );
     const source =
       name === "sdk"

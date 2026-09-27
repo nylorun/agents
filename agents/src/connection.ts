@@ -25,7 +25,9 @@ export class ConnectionError extends Error {
 
 function missing(tried: string[]): never {
   throw new ConnectionError(
-    `connection_missing: no Runtime connection found (tried ${tried.join(", ")})`,
+    `connection_missing: no Runtime connection found (tried ${tried.join(", ")}). ` +
+      `Start the local stack with "npx nylorun up" and link this project with "npx @nylorun/cli tenant create", ` +
+      `or set NYLORUN_RUNTIME_URL, NYLORUN_TENANT and NYLORUN_SERVER_KEY.`,
   );
 }
 

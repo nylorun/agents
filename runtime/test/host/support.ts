@@ -167,7 +167,7 @@ export function createFakeModule(options?: {
           quarantine: t.quarantine ?? {
             code: "open-failed",
             message: "quarantined",
-            repair: "nylorun tenant status",
+            repair: "nylo tenant status",
           },
         };
       }

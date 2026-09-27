@@ -43,19 +43,19 @@ export function repairFor(
   const id = detail.tenantId ? ` ${detail.tenantId}` : "";
   switch (code) {
     case "kek-missing":
-      return `nylorun tenant status${id} — restore vault-kek for this Tenant (ciphertext cannot be opened without it)`;
+      return `nylo tenant status${id} — restore vault-kek for this Tenant (ciphertext cannot be opened without it)`;
     case "corrupt":
-      return `nylorun tenant status${id} — restore the Tenant from backup`;
+      return `nylo tenant status${id} — restore the Tenant from backup`;
     case "schema-too-new":
-      return `nylorun tenant status${id} — the Tenant was migrated by a newer Runtime; run that version or newer`;
+      return `nylo tenant status${id} — the Tenant was migrated by a newer Runtime; run that version or newer`;
     case "migration-failed":
-      return `nylorun tenant status${id} — inspect the Runtime log for the failed migration, fix it, then restart the Runtime`;
+      return `nylo tenant status${id} — inspect the Runtime log for the failed migration, fix it, then restart the Runtime`;
     case "envelope-invalid":
-      return `nylorun tenant status${id} — the Tenant envelope is missing or invalid; restore the Tenant from backup`;
+      return `nylo tenant status${id} — the Tenant envelope is missing or invalid; restore the Tenant from backup`;
     case "open-timeout":
-      return `nylorun tenant status${id} — open timed out; inspect the Runtime log and Postgres, then retry`;
+      return `nylo tenant status${id} — open timed out; inspect the Runtime log and Postgres, then retry`;
     case "open-failed":
-      return `nylorun tenant status${id} — inspect Tenant logs and repair before the Host retries open`;
+      return `nylo tenant status${id} — inspect Tenant logs and repair before the Host retries open`;
   }
 }
 

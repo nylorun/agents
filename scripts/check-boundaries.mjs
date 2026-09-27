@@ -9,6 +9,7 @@ const allowed = {
   admin: ["core"],
   runtime: ["core", "harness"],
   studio: ["agents", "admin"],
+  nylorun: ["core"],
   cli: ["agents", "admin"],
 };
 // Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
@@ -67,9 +68,12 @@ export function checkBoundaries(name) {
       if (name === "core" && /(?:from\s*|import\s*\()["']node:/.test(source))
         throw new Error(`Core must remain portable: ${path}`);
     }
-  // The CLI owns `nylorun`; the Runtime is a library and an image, with no bin.
+  // The nylorun package owns `nylorun`; the Runtime is a library and an image, with no bin.
   if (name === "runtime" && pkg.bin !== undefined)
-    throw new Error("Runtime must have no bin: the CLI owns nylorun, and the Runtime runs as the ghcr.io/nylorun/runtime image");
+    throw new Error("Runtime must have no bin: the nylorun package owns nylorun, and the Runtime runs as the ghcr.io/nylorun/runtime image");
+  // One package per command: nylorun (setup) and @nylorun/cli (nylo) never share a bin.
+  if (name !== "nylorun" && pkg.bin?.nylorun !== undefined)
+    throw new Error(`${name} must not declare the nylorun bin: the nylorun package owns it`);
   // Studio ships only as the ghcr.io/nylorun/studio image, never to npm.
   if (name === "studio" && (pkg.private !== true || pkg.bin !== undefined))
     throw new Error("Studio must be private with no bin: it ships only as the ghcr.io/nylorun/studio image");

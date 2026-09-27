@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { newTenantId } from "@nylorun/agents";
+import { newTenantId } from "@nylorun/core/compatibility";
 import { CliError } from "../errors.js";
 import type { StackPaths } from "./paths.js";
 
@@ -78,7 +78,7 @@ export async function writeStackHostConfig(
     (typeof format !== "number" || !Number.isInteger(format) || format > KNOWN_FORMAT)
   )
     throw new CliError(
-      `host.json format ${String(format)} at ${paths.config} is newer than this CLI supports (${KNOWN_FORMAT}). Upgrade @nylorun/cli.`,
+      `host.json format ${String(format)} at ${paths.config} is newer than this CLI supports (${KNOWN_FORMAT}). Upgrade nylorun.`,
       1,
     );
   const hostId =

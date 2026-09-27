@@ -1,3 +1,48 @@
+# `nylorun` and `nylo`: setup and the Runtime client (breaking beta)
+
+The `nylorun` command moves to a new unscoped package, `nylorun`, which only
+sets up and runs the local stack and never creates Tenants. `@nylorun/cli`
+stays as the Runtime client with its own command, `nylo`: Tenants, the Project
+link and the model provider. The two packages are independent. A project
+depends on `@nylorun/agents` alone and runs both tools with `npx`:
+
+```sh
+npx nylorun up                   # set up the stack on the first run, then start it
+npx @nylorun/cli tenant create   # the project's Tenant and Project link, model from .env
+npm run dev                      # tsx watch src/main.ts
+```
+
+| Before | After |
+| --- | --- |
+| `nylorun start` / `nylorun stop` (from `@nylorun/cli`) | unchanged, from `nylorun`; `nylorun up` / `nylorun down` are aliases |
+| `nylorun dev` | `nylo tenant create` once, then the project's `npm run dev` (`tsx watch`) |
+| `nylorun dev --ephemeral` | removed; the repository's smoke checks create temporary fixture-model Tenants themselves |
+| `nylorun dev --no-studio` / `--no-open` | `npm run dev`; `nylorun studio` opens Studio on the linked Tenant |
+| `nylorun tenant …` | `nylo tenant …` (plus `nylo tenant create [name]`) |
+| `nylorun configure` | `nylo configure` |
+| `nylorun status --env` | `nylo env` |
+| `nylorun doctor sandbox` | `nylo doctor sandbox` |
+| `package.json` `nylorun.runtime` / `nylorun.studio` in `@nylorun/cli` | the same fields in `nylorun` |
+
+The moved `nylorun` commands exit 2 and name their replacement; `nylo` does the
+same for the stack commands. In a generated project, drop the CLI and change
+the `dev` script:
+
+```diff
+   "scripts": {
+-    "dev": "nylorun dev",
++    "dev": "tsx watch --env-file-if-exists=.env src/main.ts",
+     "start": "node dist/src/main.js"
+   },
+   "devDependencies": {
+-    "@nylorun/cli": "…",
+```
+
+An existing Project link keeps working: `connectAgents` reads it, so a linked
+project only needs the new `dev` script. `npm create @nylorun/agent` now
+installs the project and prints these steps instead of starting development;
+`--no-open` is accepted and ignored.
+
 # Runtime V1: the Docker stack (breaking beta)
 
 The local Runtime moves from one SQLite file per Tenant, run by the
@@ -27,16 +72,16 @@ checks the prerequisites and the stack's health.
 
 | Before | After |
 | --- | --- |
-| `nylorun runtime up`, `nylorun up`, `nylorun runtime run` | `nylorun start` |
-| `nylorun runtime down`, `nylorun down` | `nylorun stop` (volumes are kept) |
+| `nylorun runtime up`, `nylorun runtime run` | `nylorun start` (or its alias `nylorun up`) |
+| `nylorun runtime down` | `nylorun stop` (or its alias `nylorun down`; volumes are kept) |
 | `nylorun runtime restart` | `nylorun stop`, then `nylorun start` |
 | `nylorun runtime status [--json]` | `nylorun status [--json]` |
-| `nylorun runtime status --env` | `nylorun status --env` |
+| `nylorun runtime status --env` | `nylo env` ([above](#nylorun-and-nylo-setup-and-the-runtime-client-breaking-beta)) |
 | `nylorun runtime logs`, `nylorun logs` (launcher) | `nylorun logs [service] [-f] [--tail <n>]` |
 | `nylorun stack logs`, `nylorun stack studio` | `nylorun logs`, `nylorun studio` (the `stack` spelling still works) |
 | `nylorun studio [--local-ui] [--port <n>]` (in-process proxy) | `nylorun studio [--no-open]`: a fresh login URL for the stack's Studio, on the linked Project's Tenant |
-| `nylorun dev --local-ui` | `nylorun dev` (opens Studio on the Project's Tenant) |
-| `nylorun dev --ephemeral` (in-process Runtime) | `nylorun dev --ephemeral`: a temporary Tenant on the stack ([step 6](#6-nylorun-dev---ephemeral-and-the-fixture-model)) |
+| `nylorun dev --local-ui` | `npm run dev`, then `nylorun studio` (opens Studio on the Project's Tenant) |
+| `nylorun dev --ephemeral` (in-process Runtime) | removed ([step 6](#6-nylorun-dev---ephemeral-and-the-fixture-model)) |
 | `nylorun doctor runtime` | `nylorun doctor` (Node, Docker, Compose v2, stack health) |
 | `nylorun-runtime up\|down\|status\|logs` | `nylorun start\|stop\|status\|logs` |
 | — | `nylorun reset [--yes]`: delete the stack's volumes and every Tenant |
@@ -55,11 +100,8 @@ Runtime (`~/.nylorun/tenants/<id>/` holding a `tenant.sqlite`) to
 `~/.nylorun/trash/<id>-sqlite-<time>/` and logs `sqlite_tenant_moved_to_trash`
 with its id. Copy anything you still need out of `trash/`, then delete it.
 
-Recreate each Tenant. `nylorun dev` keeps an existing Project link when the
-stack's Host has the same Host id (the stack reuses `host.json`'s id and
-rewrites its URL to `http://localhost:<port>`). When it reports the linked
-Tenant as unknown, let it create a new one (in a terminal), or remove
-`.nylorun/link.json` and `.nylorun/credentials.json` and run it again.
+Recreate each Tenant: remove `.nylorun/link.json` and
+`.nylorun/credentials.json`, then run `nylo tenant create` in the project.
 
 ### 4. The `nylorun-runtime` launcher is removed
 
@@ -106,12 +148,10 @@ deprecated no-op.
 
 ### 6. `nylorun dev --ephemeral` and the fixture model
 
-`--ephemeral` no longer starts a private in-process Runtime. On the running
-stack it creates a temporary Tenant through `@nylorun/admin` (no Project link
-or credentials are written), seeds it from `.env` with the Tenant-level fixture
-model, opens Studio on it, runs the watcher, and deletes the Tenant with its
-active work cancelled when the watcher ends, Ctrl-C included. If the CLI cannot
-delete it, it prints the `nylorun tenant delete <id> --yes` to run.
+`--ephemeral` is removed with `nylorun dev`. The repository's smoke checks
+create a temporary Tenant through `@nylorun/admin`, seed it with the
+Tenant-level fixture model and delete it afterwards
+(`scripts/lib/temporary-tenant.mjs`).
 
 The fixture model is a Tenant setting rather than a Host-wide mode:
 `PUT /v1/tenant/config/seed` accepts `fixtureModel: true` (stored as
@@ -150,7 +190,7 @@ they report an older Host as `incompatible_host`.
 | Change | Where |
 | --- | --- |
 | Required feature `studio-principal`: `POST /v1/admin/tenants` accepts optional `studioCredentialHash` (SHA-256 of the derived Studio key) and stores application principal `studio`; idempotent create compares it too. `principalId: "studio"` is reserved (400) | `PROTOCOL_FEATURES`, `CreateTenantRequestSchema` |
-| Optional Host feature `tenant-fixture-model`: `fixtureModel: true` on the Tenant seed. Clients do not require it; `nylorun dev --ephemeral` checks `/health` for it | `OPTIONAL_HOST_FEATURES`, `SeedTenantConfigRequestSchema` |
+| Optional Host feature `tenant-fixture-model`: `fixtureModel: true` on the Tenant seed. Clients do not require it; the temporary test Tenants check `/health` for it | `OPTIONAL_HOST_FEATURES`, `SeedTenantConfigRequestSchema` |
 | `GET /v1/tenant` reports `checks.store` instead of `checks.sqlite`, and gains optional `execution` (stuck Restate invocations) and `streams` (basin, outbox depth, relay lag) | `TenantStatusSchema` |
 | `GET /v1/admin/status` aggregates gain optional `outboxDepth` and `relayLagMs` | `HostAggregateSchema` |
 | Quarantine code `locked` and its `lockPath`/`lockPid` are removed; the codes are `kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout` and `open-failed`. A schema newer than the Runtime is `schema-too-new` | `QuarantineSchema` |

@@ -66,12 +66,12 @@ try {
       content,
       `Setup modified ${file}`,
     );
-  // Starter scripts: nylorun dev on the Docker stack, no serve, and no
-  // Studio script (Studio runs in the stack; `nylorun studio` opens it).
+  // Starter scripts: tsx watch on the linked Tenant, no serve, and no Studio
+  // script (Studio runs in the stack; `nylorun studio` opens it).
   const starterPkg = await readJson(
     join(temporary, "create-agent/starter/package.json"),
   );
-  assert.equal(starterPkg.scripts.dev, "nylorun dev");
+  assert.equal(starterPkg.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts");
   assert.equal(starterPkg.scripts.studio, undefined);
   assert.equal(starterPkg.scripts.start, "node dist/src/main.js");
   assert.ok(
@@ -113,9 +113,10 @@ try {
     cwd: temporary,
   });
   const plan = await readJson(join(temporary, ".release/plan.json"));
+  // A Runtime release reaches developers through nylorun, which pins its image.
   assert.deepEqual(Object.keys(plan.packages).sort(), [
-    "cli",
     "create-agent",
+    "nylorun",
     "runtime",
   ]);
   assert.notEqual(plan.packages.runtime, compatibility.runtime);
