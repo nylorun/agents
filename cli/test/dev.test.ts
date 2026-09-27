@@ -72,16 +72,23 @@ vi.mock("../src/project/attach.js", async () => {
   };
 });
 
+const seeds: Record<string, unknown>[] = [];
+const seedFailure: { error?: Error } = {};
 vi.mock("../src/project/seed.js", () => ({
-  seedTenantFromProject: async () => ({ applied: [], kept: [] }),
+  seedTenantFromProject: async (options: Record<string, unknown>) => {
+    seeds.push(options);
+    if (seedFailure.error) throw seedFailure.error;
+    return { applied: [], kept: [] };
+  },
 }));
 
+import type { Admin } from "@nylorun/admin";
 import {
   develop,
   developmentPreflight,
-  EPHEMERAL_UNSUPPORTED,
   LOCAL_UI_REMOVED,
 } from "../src/dev.js";
+import type { StackDeps } from "../src/stack/index.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const roots: string[] = [];
@@ -99,6 +106,8 @@ afterEach(async () => {
 beforeEach(async () => {
   homeRef.value = await realpath(await mkdtemp(join(tmpdir(), "nylorun-home-")));
   for (const list of Object.values(calls)) list.length = 0;
+  seeds.length = 0;
+  delete seedFailure.error;
 });
 
 async function fixture(app = true) {
@@ -179,14 +188,6 @@ it("F2-1: preflight requires tsx; Studio flags", async () => {
   });
 });
 
-it("--ephemeral is not supported on the stack yet: exit 2, stack untouched", async () => {
-  const root = await fixture();
-  await expect(
-    develop({ projectRoot: root, flags: ["--ephemeral"] }),
-  ).rejects.toMatchObject({ exitCode: 2, message: EPHEMERAL_UNSUPPORTED });
-  expect(calls.ensure).toEqual([]);
-});
-
 it("rejects removed --global and --local-ui via the CLI", async () => {
   const root = await fixture();
   const global = await runCli(["dev", "--global"], root);
@@ -222,13 +223,22 @@ it("F2-5: serve command remains removed", async () => {
   expect(serve.output).toMatch(/removed/);
 });
 
-async function runDevelop(root: string, flags: string[]) {
+async function runDevelop(
+  root: string,
+  flags: string[],
+  extra: Partial<Parameters<typeof develop>[0]> & {
+    /** Runs once the application started, instead of killing it. */
+    whileRunning?: () => void;
+  } = {},
+) {
   const logs: string[] = [];
   const original = console.log;
   console.log = (...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
   };
-  const runPromise = develop({ projectRoot: root, flags });
+  const { whileRunning, ...options } = extra;
+  const runPromise = develop({ projectRoot: root, flags, ...options });
+  let code: unknown;
   try {
     await new Promise<void>((resolve, reject) => {
       const deadline = Date.now() + 10_000;
@@ -243,21 +253,24 @@ async function runDevelop(root: string, flags: string[]) {
       };
       void tick();
     });
+    whileRunning?.();
   } finally {
     console.log = original;
-    const { execSync } = await import("node:child_process");
-    try {
-      execSync(`pkill -f ${JSON.stringify(join(root, "node_modules/tsx/cli.js"))} || true`);
-    } catch {
-      /* ignore */
+    if (!whileRunning) {
+      const { execSync } = await import("node:child_process");
+      try {
+        execSync(`pkill -f ${JSON.stringify(join(root, "node_modules/tsx/cli.js"))} || true`);
+      } catch {
+        /* ignore */
+      }
     }
-    await Promise.race([runPromise, new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    code = await Promise.race([runPromise, new Promise((resolve) => setTimeout(resolve, 3_000))]);
   }
   const app = JSON.parse(await readFile(join(root, "app.json"), "utf8")) as {
     args: string[];
     env: { url: string; tenant: string; key: string };
   };
-  return { logs, app };
+  return { logs, app, code };
 }
 
 it(
@@ -306,3 +319,145 @@ it(
     expect(noStudio.logs.some((line) => line.startsWith("Studio"))).toBe(false);
   },
 );
+
+const EPHEMERAL_ID = "tn_01TESTEPHEMERAL00000000001";
+
+/** A fake Admin API client and stack dependencies for `--ephemeral`. */
+function ephemeralFakes(options: { features?: string[] } = {}) {
+  const admin = {
+    created: [] as string[],
+    deleted: [] as { id: string; activeWork?: string }[],
+  };
+  const errors: string[] = [];
+  const client = {
+    url: "http://localhost:8787",
+    source: "local-host",
+    createTenant: async ({ name }: { name: string }) => {
+      admin.created.push(name);
+      const now = new Date().toISOString();
+      return {
+        tenant: { id: EPHEMERAL_ID, name, createdAt: now, updatedAt: now, schemaVersion: 1 },
+        applicationKey: "ef".repeat(32),
+      };
+    },
+    deleteTenant: async (id: string, opts?: { activeWork?: string }) => {
+      admin.deleted.push({ id, ...(opts?.activeWork ? { activeWork: opts.activeWork } : {}) });
+    },
+  } as unknown as Admin;
+  const deps = {
+    fetch: async (url: string) => {
+      expect(url).toBe("http://localhost:8787/health");
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          version: "0.10.0-beta",
+          protocol: {
+            min: 2,
+            max: 2,
+            features: options.features ?? ["runtime-tenants", "tenant-fixture-model"],
+          },
+        }),
+      );
+    },
+    openBrowser: async (url: string) => {
+      calls.opened.push(url);
+    },
+    err: (line: string) => errors.push(line),
+  } as unknown as StackDeps;
+  return { admin, client, deps, errors };
+}
+
+it(
+  "dev --ephemeral runs the watcher on a temporary fixture-model Tenant and deletes it on exit",
+  { timeout: 15_000 },
+  async () => {
+    const root = await fixture();
+    const fakes = ephemeralFakes();
+    const homes: string[] = [];
+    const { logs, app } = await runDevelop(root, ["--ephemeral"], {
+      stack: fakes.deps,
+      admin: (home) => {
+        homes.push(home);
+        return fakes.client;
+      },
+    });
+    expect(calls.ensure).toEqual([{ studio: true }]);
+    expect(homes).toEqual([homeRef.value]);
+    // No Project link: the Project's own Tenant is never attached or created.
+    expect(calls.attach).toEqual([]);
+    await expect(readFile(join(root, ".nylorun/link.json"), "utf8")).rejects.toThrow();
+    expect(fakes.admin.created).toEqual(["dev-demo (ephemeral)"]);
+    expect(seeds).toEqual([
+      expect.objectContaining({
+        hostUrl: "http://localhost:8787",
+        tenantId: EPHEMERAL_ID,
+        applicationKey: "ef".repeat(32),
+        projectRoot: root,
+        fixtureModel: true,
+      }),
+    ]);
+    expect(app.env).toEqual({
+      url: "http://localhost:8787",
+      tenant: EPHEMERAL_ID,
+      key: "ef".repeat(32),
+    });
+    expect(calls.login).toEqual([`/tenants/${EPHEMERAL_ID}`]);
+    expect(logs.some((line) => line.includes("(temporary, fixture model; deleted on exit)"))).toBe(
+      true,
+    );
+    expect(fakes.admin.deleted).toEqual([{ id: EPHEMERAL_ID, activeWork: "cancel" }]);
+    expect(fakes.errors).toContain(`Deleted temporary Tenant ${EPHEMERAL_ID}.`);
+  },
+);
+
+it("dev --ephemeral deletes the Tenant on Ctrl-C", { timeout: 15_000 }, async () => {
+  const root = await fixture();
+  const fakes = ephemeralFakes();
+  const before = process.listeners("SIGINT");
+  const { code } = await runDevelop(root, ["--ephemeral", "--no-studio"], {
+    stack: fakes.deps,
+    admin: () => fakes.client,
+    // Deliver SIGINT to the listeners dev installed, as the terminal would.
+    whileRunning: () => {
+      for (const listener of process.listeners("SIGINT"))
+        if (!before.includes(listener)) (listener as (signal: string) => void)("SIGINT");
+    },
+  });
+  expect(typeof code).toBe("number");
+  expect(fakes.admin.deleted).toEqual([{ id: EPHEMERAL_ID, activeWork: "cancel" }]);
+  expect(process.listeners("SIGINT")).toEqual(before);
+  await expect(readFile(join(root, "app-stopped"), "utf8")).resolves.toBe("yes");
+});
+
+it("dev --ephemeral deletes the Tenant when seeding fails", async () => {
+  const root = await fixture();
+  const fakes = ephemeralFakes();
+  seedFailure.error = new Error("seed rejected");
+  await expect(
+    develop({
+      projectRoot: root,
+      flags: ["--ephemeral"],
+      stack: fakes.deps,
+      admin: () => fakes.client,
+    }),
+  ).rejects.toThrow("seed rejected");
+  expect(fakes.admin.deleted).toEqual([{ id: EPHEMERAL_ID, activeWork: "cancel" }]);
+});
+
+it("dev --ephemeral refuses a Runtime without the Tenant fixture model and creates nothing", async () => {
+  const root = await fixture();
+  const fakes = ephemeralFakes({ features: ["runtime-tenants"] });
+  await expect(
+    develop({
+      projectRoot: root,
+      flags: ["--ephemeral"],
+      stack: fakes.deps,
+      admin: () => fakes.client,
+    }),
+  ).rejects.toMatchObject({
+    exitCode: 1,
+    message: expect.stringContaining("tenant-fixture-model"),
+  });
+  expect(fakes.admin.created).toEqual([]);
+  expect(seeds).toEqual([]);
+});

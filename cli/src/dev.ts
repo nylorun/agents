@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+import { createAdmin, type Admin } from "@nylorun/admin";
 import { baselineEnv } from "./baseline.js";
 import { loadProjectEnvironment } from "./environment.js";
 import { CliError } from "./errors.js";
 import { attachProject } from "./project/attach.js";
+import { defaultTenantName } from "./project/create-tenant.js";
 import { seedTenantFromProject } from "./project/seed.js";
 import { requireProjectRoot } from "./project/root.js";
 import {
@@ -19,9 +21,8 @@ const DEV_FLAGS = ["--ephemeral", "--no-studio", "--no-open"] as const;
 const DEV_USAGE =
   "Usage: nylorun dev [entry] [--ephemeral] [--no-studio] [--no-open]\nDefault entry: src/main.ts";
 
-/** `--ephemeral` until Wave 4a adds a Tenant-level fixture model to the Runtime. */
-export const EPHEMERAL_UNSUPPORTED =
-  "nylorun dev --ephemeral is not supported yet on the Docker stack; coming in this release. Run nylorun dev without it.";
+/** The Host feature `--ephemeral` needs: the Tenant-level fixture model. */
+export const FIXTURE_MODEL_FEATURE = "tenant-fixture-model";
 
 export const LOCAL_UI_REMOVED =
   "--local-ui was removed: Studio runs in the stack's studio container. Run nylorun studio, or nylorun dev to open it on the Project's Tenant.";
@@ -34,6 +35,8 @@ export interface DevelopOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Stack dependencies (tests). Default: docker on PATH, fetch, the terminal. */
   stack?: StackDeps;
+  /** The Admin API client for the stack's Host root (tests). Default: `createAdmin({ home })`. */
+  admin?: (home: string) => Admin;
 }
 
 export type DevelopmentPreflight = {
@@ -90,6 +93,9 @@ export function developmentPreflight(
  * 3. seed Tenant settings from `.env`;
  * 4. open Studio on the Tenant through a fresh login URL;
  * 5. run `tsx watch <entry>` with the three Project environment variables.
+ *
+ * With `--ephemeral`, steps 2–3 use a temporary Tenant with the fixture model
+ * instead, deleted on exit (`developEphemeral`).
  */
 export async function develop(options: DevelopOptions = {}): Promise<number> {
   const projectRoot = options.projectRoot ?? requireProjectRoot();
@@ -105,17 +111,17 @@ export async function develop(options: DevelopOptions = {}): Promise<number> {
     process.chdir(previous);
   }
 
-  if (preflight.ephemeral) {
-    // Wave 4a plugs `--ephemeral` in here, once the Runtime has a Tenant-level
-    // fixture model: ensureStack (below), then `admin.createTenant` for a
-    // temporary Tenant with that fixture-model setting (no Project link
-    // written), seedTenantFromProject, the Studio login on that Tenant,
-    // spawnWatcher, and `admin.deleteTenant` in a finally block on exit.
-    throw new CliError(EPHEMERAL_UNSUPPORTED, 2);
-  }
-
   const deps = options.stack ?? defaultStackDeps(options.env ?? baselineEnv());
   const stack = await ensureStack(deps, { studio: preflight.studio });
+  if (preflight.ephemeral)
+    return developEphemeral({
+      projectRoot,
+      preflight,
+      deps,
+      stack,
+      admin: (options.admin ?? ((home) => createAdmin({ home })))(stack.home),
+    });
+
   const attached = await attachProject({
     projectRoot,
     host: {
@@ -154,11 +160,128 @@ export async function develop(options: DevelopOptions = {}): Promise<number> {
     tenantId: attached.link.tenantId,
     applicationKey: attached.credentials.applicationKey,
     tenantName: attached.tenantName,
-    tenantCreated: attached.created,
+    ...(attached.created ? { tenantNote: "(created)" } : {}),
     hostStarted: attached.hostStarted,
     ...(studioUrl ? { studioUrl } : {}),
     open: preflight.open ? (url) => deps.openBrowser(url) : undefined,
   });
+}
+
+type Stack = Awaited<ReturnType<typeof ensureStack>>;
+
+/**
+ * `nylorun dev --ephemeral`: the same watcher on a temporary Tenant of the
+ * running stack. The Tenant is created through the Admin API (no Project link
+ * or credentials are written), seeded from the Project with the Tenant-level
+ * fixture model (no model credential needed or sent), opened in Studio, and
+ * deleted when the watcher ends, cancelling its active work, also on Ctrl-C.
+ */
+async function developEphemeral(input: {
+  projectRoot: string;
+  preflight: DevelopmentPreflight;
+  deps: StackDeps;
+  stack: Stack;
+  admin: Admin;
+}): Promise<number> {
+  const { projectRoot, preflight, deps, stack, admin } = input;
+  const hostUrl = stack.runtimeUrl.replace(/\/$/, "");
+  await requireHostFeature(deps, hostUrl, FIXTURE_MODEL_FEATURE);
+
+  // From here on a signal ends in the finally block that deletes the Tenant.
+  let stopping: NodeJS.Signals | undefined;
+  const interrupt = () => (stopping ??= "SIGINT");
+  const terminate = () => (stopping ??= "SIGTERM");
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
+  const stopped = () => (stopping === "SIGINT" ? 130 : 143);
+  try {
+    let created: Awaited<ReturnType<Admin["createTenant"]>>;
+    try {
+      created = await admin.createTenant({
+        name: `${await defaultTenantName(projectRoot)} (ephemeral)`,
+      });
+    } catch (error) {
+      throw new CliError(
+        `Could not create a temporary Tenant: ${error instanceof Error ? error.message : String(error)}`,
+        1,
+      );
+    }
+    const tenantId = created.tenant.id;
+    try {
+      if (stopping) return stopped();
+      const envMap = loadProjectEnvironment(projectRoot);
+      await seedTenantFromProject({
+        hostUrl,
+        tenantId,
+        applicationKey: created.applicationKey,
+        projectRoot,
+        env: envMap,
+        fixtureModel: true,
+      });
+      let studioUrl: string | undefined;
+      if (preflight.studio) {
+        if (stack.studioUp)
+          studioUrl = await studioLoginUrl(deps, stack, tenantStudioPath(tenantId));
+        else deps.err(`Studio is not running; see "nylorun logs studio".`);
+      }
+      if (stopping) return stopped();
+      return await spawnWatcher({
+        projectRoot,
+        entry: preflight.entry,
+        tsx: preflight.tsx,
+        envMap,
+        hostUrl,
+        tenantId,
+        applicationKey: created.applicationKey,
+        tenantName: created.tenant.name,
+        tenantNote: "(temporary, fixture model; deleted on exit)",
+        hostStarted: stack.started,
+        ...(studioUrl ? { studioUrl } : {}),
+        open: preflight.open ? (url) => deps.openBrowser(url) : undefined,
+      });
+    } finally {
+      try {
+        await admin.deleteTenant(tenantId, { activeWork: "cancel" });
+        deps.err(`Deleted temporary Tenant ${tenantId}.`);
+      } catch (error) {
+        deps.err(
+          `Could not delete temporary Tenant ${tenantId}: ${error instanceof Error ? error.message : String(error)}. Delete it with: nylorun tenant delete ${tenantId} --yes`,
+        );
+      }
+    }
+  } finally {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", terminate);
+  }
+}
+
+/** Fails unless the running Runtime advertises `feature` on `/health`. */
+async function requireHostFeature(
+  deps: StackDeps,
+  hostUrl: string,
+  feature: string,
+): Promise<void> {
+  let features: unknown;
+  let version: unknown;
+  try {
+    const response = await deps.fetch(`${hostUrl}/health`, {
+      signal: AbortSignal.timeout(5_000),
+      redirect: "error",
+    });
+    const body = (await response.json()) as {
+      version?: unknown;
+      protocol?: { features?: unknown };
+    };
+    features = body.protocol?.features;
+    version = body.version;
+  } catch {
+    /* reported below */
+  }
+  if (Array.isArray(features) && features.includes(feature)) return;
+  throw new CliError(
+    `The running Runtime${typeof version === "string" ? ` (${version})` : ""} does not support nylorun dev --ephemeral (Host feature ${feature}). Restart the stack on this CLI's Runtime: nylorun stop, then nylorun start.`,
+    1,
+  );
 }
 
 async function spawnWatcher(options: {
@@ -170,7 +293,8 @@ async function spawnWatcher(options: {
   tenantId: string;
   applicationKey: string;
   tenantName: string;
-  tenantCreated: boolean;
+  /** Shown after the Tenant id, e.g. "(created)". */
+  tenantNote?: string;
   hostStarted: boolean;
   studioUrl?: string;
   open: ((url: string) => Promise<void>) | undefined;
@@ -231,7 +355,7 @@ function printBanner(options: {
   hostStarted: boolean;
   tenantName: string;
   tenantId: string;
-  tenantCreated: boolean;
+  tenantNote?: string;
   entry: string;
   studioUrl?: string;
 }): void {
@@ -242,7 +366,7 @@ function printBanner(options: {
       : options.tenantId;
   console.log(`Runtime       ${options.hostUrl}  ${hostNote}`);
   console.log(
-    `Tenant        ${options.tenantName}  ${short}${options.tenantCreated ? "  (created)" : ""}`,
+    `Tenant        ${options.tenantName}  ${short}${options.tenantNote ? `  ${options.tenantNote}` : ""}`,
   );
   console.log(`Entry         ${options.entry}`);
   if (options.studioUrl) {

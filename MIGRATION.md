@@ -19,7 +19,7 @@ checks them.
 | `nylorun stack logs`, `nylorun stack studio` | `nylorun logs`, `nylorun studio` (the `stack` spelling still works) |
 | `nylorun studio [--local-ui] [--port <n>]` (in-process proxy) | `nylorun studio [--no-open]`: a fresh login URL for the stack's Studio, on the linked Project's Tenant |
 | `nylorun dev --local-ui` | `nylorun dev` (opens Studio on the Project's Tenant) |
-| `nylorun dev --ephemeral` | Not available on the Docker stack yet (exit 2); it returns later in this release |
+| `nylorun dev --ephemeral` (in-process Runtime) | `nylorun dev --ephemeral`: a temporary Tenant on the stack with the fixture model, deleted on exit ([below](#nylorun-dev---ephemeral)) |
 | `nylorun doctor runtime` | `nylorun doctor` (Node, Docker, Compose v2, stack health) |
 | — | `nylorun reset [--yes]` deletes the stack's volumes and every Tenant |
 
@@ -62,6 +62,31 @@ Host id (the stack reuses `host.json`'s id and rewrites its URL to
 are not supported on the stack: when `nylorun dev` reports the linked Tenant as
 unknown, let it create a new one (in a terminal), or remove
 `.nylorun/link.json` and `.nylorun/credentials.json` and run it again.
+
+### `nylorun dev --ephemeral`
+
+`--ephemeral` no longer starts a private in-process Runtime. On the running
+stack it creates a temporary Tenant through `@nylorun/admin` (no Project link
+or credentials are written), seeds it from `.env` with the Tenant-level fixture
+model, opens Studio on it, runs the watcher, and deletes the Tenant with its
+active work cancelled when the watcher ends, Ctrl-C included. If the CLI cannot
+delete it, it prints the `nylorun tenant delete <id> --yes` to run.
+
+The fixture model is now a Tenant setting rather than a Host-wide mode:
+`PUT /v1/tenant/config/seed` accepts `fixtureModel: true` (stored as
+`model.fixture`, insert-if-absent), behind the optional Host feature
+`tenant-fixture-model`, which clients do not require. Other Tenants on the same
+Host keep their model. `NYLORUN_DEV_MODEL=fixture` still switches a whole Host
+to the fixture model for release smokes; prefer the Tenant setting.
+
+### `startEphemeralRuntime` keeps its Tenants in memory
+
+`startEphemeralRuntime()` (`@nylorun/runtime`, `@nylorun/runtime/core`) keeps
+its signature, but its Tenants now live in memory (the memory Session Store and
+memory Durable Streams) instead of SQLite under the Host root. Nothing survives
+`close()`, and a retained Host root cannot be reopened with its sessions. Use it
+for tests and embeds that need the Runtime's HTTP API without Docker; use the
+stack for anything durable.
 
 # Runtime Clients and Admin API (breaking beta)
 

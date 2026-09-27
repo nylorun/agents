@@ -25,7 +25,8 @@ export interface CreateTenantResult {
   envelope: { id: string; name: string };
 }
 
-async function defaultTenantName(projectRoot: string): Promise<string> {
+/** The Project's `package.json` name, else its directory name. */
+export async function defaultTenantName(projectRoot: string): Promise<string> {
   try {
     const pkg = JSON.parse(
       await readFile(join(projectRoot, "package.json"), "utf8"),
