@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
-import { runtimeVersion } from "./runtime-version.js";
 import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js";
 import { spawnDocker } from "./docker.js";
-import { STUDIO_VERSION } from "./images.js";
+import { pinnedVersion } from "./versions.js";
 import { loopbackPorts } from "./ports.js";
 
 export {
@@ -37,8 +36,8 @@ export function defaultStackDeps(
     ports: loopbackPorts,
     uid: typeof process.getuid === "function" ? process.getuid() : 1000,
     gid: typeof process.getgid === "function" ? process.getgid() : 1000,
-    runtimeVersion: runtimeVersion(),
-    studioVersion: STUDIO_VERSION,
+    runtimeVersion: pinnedVersion("runtime"),
+    studioVersion: pinnedVersion("studio"),
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     ...(interactive

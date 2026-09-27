@@ -1,4 +1,4 @@
-import { runtimeVersion } from "./runtime-version.js";
+import { pinnedVersion } from "./versions.js";
 
 /**
  * Images the local stack runs. The Runtime and Studio tags are pinned by this
@@ -6,8 +6,6 @@ import { runtimeVersion } from "./runtime-version.js";
  * (local builds, CI images). Postgres, Restate and s2-lite are the official
  * images, pinned here.
  */
-export const STUDIO_VERSION = "0.9.0-beta";
-
 export const PINNED_IMAGES = {
   postgres: "postgres:17.11",
   restate: "docker.restate.dev/restatedev/restate:1.7.12",
@@ -25,8 +23,8 @@ export interface StackImages {
 export function stackImages(
   env: Readonly<Record<string, string | undefined>>,
   versions: { runtime: string; studio: string } = {
-    runtime: runtimeVersion(),
-    studio: STUDIO_VERSION,
+    runtime: pinnedVersion("runtime"),
+    studio: pinnedVersion("studio"),
   },
 ): StackImages {
   const override = (name: string) => {

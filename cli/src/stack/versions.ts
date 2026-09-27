@@ -8,12 +8,16 @@ function cliPackageJsonPath(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
 }
 
+/** An image this CLI release pins in `cli/package.json` `nylorun` (D7). */
+export type PinnedImage = "runtime" | "studio";
+
 /**
- * The Runtime version this CLI release pins, from `cli/package.json`
- * `nylorun.runtime` (D7): the tag of the `ghcr.io/nylorun/runtime` image the
- * stack runs unless `NYLORUN_RUNTIME_IMAGE` overrides it.
+ * The version this CLI release pins for an image, from `cli/package.json`
+ * `nylorun.runtime` or `nylorun.studio`: the tag of `ghcr.io/nylorun/<name>`
+ * the stack runs unless `NYLORUN_RUNTIME_IMAGE` / `NYLORUN_STUDIO_IMAGE`
+ * overrides it. The release tooling writes both pins.
  */
-export function runtimeVersion(): string {
+export function pinnedVersion(name: PinnedImage): string {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(cliPackageJsonPath(), "utf8"));
@@ -23,10 +27,10 @@ export function runtimeVersion(): string {
       1,
     );
   }
-  const version = (raw as { nylorun?: { runtime?: unknown } })?.nylorun?.runtime;
+  const version = (raw as { nylorun?: Record<string, unknown> })?.nylorun?.[name];
   if (typeof version !== "string" || version.trim() === "") {
     throw new CliError(
-      'cli/package.json is missing "nylorun.runtime" (the recommended Runtime version).',
+      `cli/package.json is missing "nylorun.${name}" (the pinned ${name} image version).`,
       1,
     );
   }
