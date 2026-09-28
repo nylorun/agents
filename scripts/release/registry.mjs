@@ -110,8 +110,12 @@ export const registry = {
       }
       await pause(2000);
     }
-    throw new Error(
-      `Published ${name}@${version}, but its ${channel} tag differs. An npm administrator must run: npm dist-tag add ${packageName(name)}@${version} ${channel}`,
+    const command = `npm dist-tag add ${packageName(name)}@${version} ${channel}`;
+    throw Object.assign(
+      new Error(
+        `Published ${name}@${version}, but its ${channel} tag differs. An npm administrator must run: ${command}`,
+      ),
+      { distTagCommand: command },
     );
   },
 };

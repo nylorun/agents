@@ -202,6 +202,12 @@ export async function releaseNotes(repo, name, version) {
  * creator, which is never published before its pins exist. Image-only
  * packages (artifact `image: true`, e.g. a private Studio) are never
  * published to npm; the release workflow pushed their images before this.
+ *
+ * A channel tag the registry client cannot move (an error carrying
+ * `distTagCommand`: npm trusted publishing publishes versions but cannot edit
+ * tags, so every promotion of published versions hits this) does not stop the
+ * release: every package is tried, then one error names the single command an
+ * npm administrator runs for all of them.
  */
 export async function publishCandidates(
   plan,
@@ -224,7 +230,7 @@ export async function publishCandidates(
     if (!artifacts[name]?.integrity)
       throw new Error(`Missing verified artifact for ${name}.`);
   const engines = names.filter((name) => name !== "create-agent");
-  await publishWave(engines, plan, artifacts, registry, report);
+  const untagged = await publishWave(engines, plan, artifacts, registry, report);
   if (names.includes("create-agent")) {
     for (const engine of CREATOR_PINS) {
       if (imageOnly(engine)) continue;
@@ -233,8 +239,17 @@ export async function publishCandidates(
           `Creator pin is unavailable: ${engine}@${plan.compatibility[engine]}`,
         );
     }
-    await publishWave(["create-agent"], plan, artifacts, registry, report);
+    untagged.push(
+      ...(await publishWave(["create-agent"], plan, artifacts, registry, report)),
+    );
   }
+  if (untagged.length)
+    throw new Error(
+      `Published, but the ${plan.channel} tag of ${untagged.length} package(s) could not be moved ` +
+        `(npm trusted publishing cannot edit tags of published versions). An npm administrator runs, ` +
+        `after npm login:\n  ${untagged.join(" && ")}\nthen reruns this job, which skips the tags ` +
+        `and finishes the release.`,
+    );
 }
 
 async function publishWave(names, plan, artifacts, registry, report) {
@@ -261,11 +276,18 @@ async function publishWave(names, plan, artifacts, registry, report) {
       report(`${name}@${version}: published and verified`);
     }),
   );
-  await Promise.all(
+  const tagged = await Promise.allSettled(
     names.map((name) =>
       registry.ensureTag(name, plan.packages[name], plan.channel),
     ),
   );
+  const untagged = [];
+  for (const result of tagged) {
+    if (result.status === "fulfilled") continue;
+    if (!result.reason?.distTagCommand) throw result.reason;
+    untagged.push(result.reason.distTagCommand);
+  }
+  return untagged;
 }
 
 export async function verifyReleaseCommit(repo, sha) {

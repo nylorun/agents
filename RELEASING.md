@@ -105,7 +105,9 @@ Typical pre-1.0 flow:
 1. `release:prepare -- --channel beta` — bump `*-beta` versions and publish to the
    `beta` dist-tag for soak testing.
 2. `release:prepare -- --channel latest` with no pending changesets — keep the same
-   `*-beta` versions and move the `latest` dist-tag onto them (tag promotion).
+   `*-beta` versions and move the `latest` dist-tag onto them (tag promotion). An
+   npm administrator moves the tags by hand; see
+   [Promote to latest](#promote-to-latest).
 3. With pending changesets, `--channel latest` bumps the numeric core, keeps the
    pre-1.0 `-beta` suffix, and publishes directly to `latest`.
 
@@ -164,6 +166,41 @@ Tags use `@nylorun/<package>@<version>`, Studio's included, and
 `nylorun@<version>` for nylorun. Images carry only
 the version tag; there is no `latest` image.
 
+## Promote to latest
+
+A promotion moves the `latest` dist-tag onto versions already published on
+`beta`. npm trusted publishing (OIDC) publishes versions but cannot edit the
+tags of published versions, so this step is manual, done by an npm
+administrator of every public `@nylorun` package and of `nylorun`:
+
+1. Prepare, review and merge the promotion PR
+   (`release:prepare -- --channel latest` with no pending changesets; it
+   changes only `.release/plan.json`), and run **Publish reviewed release** for
+   its commit as above.
+2. **publish** finds every package already published with matching integrity,
+   tries each `latest` tag, and fails once with a single command that moves all
+   of them, for example:
+
+   ```text
+   Published, but the latest tag of 8 package(s) could not be moved (npm trusted
+   publishing cannot edit tags of published versions). An npm administrator runs,
+   after npm login:
+     npm dist-tag add @nylorun/core@0.7.0-beta latest && npm dist-tag add … latest
+   then reruns this job, which skips the tags and finishes the release.
+   ```
+
+3. The administrator runs `npm login`, checks the account with `npm whoami`,
+   and runs that command as printed. npm asks for web or one-time-password
+   authentication for each tag.
+4. **Re-run failed jobs** on the same workflow run. The tags now match, so
+   publish skips them and runs the public quickstart smoke, which the first
+   attempt did not reach.
+5. Check `npm view <package> dist-tags` for each package, and that a plain
+   `npx nylorun up` (no `@beta`) starts the promoted Runtime image.
+
+Studio is image only and has no npm tag. Never move a tag backward: publish
+refuses to, and a newer `latest` means a newer release is needed instead.
+
 ## Recovery
 
 | Failure | Action |
@@ -178,7 +215,7 @@ the version tag; there is no `latest` image.
 | Partial publication/network failure | Rerun for the same release commit; matching artifact integrity allows completed packages to be skipped |
 | npm accepted publication but is still processing it | Wait for the version and tag to appear in ordinary npm reads before retrying; preparation/publication must not assign a new artifact to that version |
 | Published integrity differs | Stop; investigate the existing release and prepare a new version |
-| Missing/older dist-tag after publication | Prefer rerunning the same commit so publish can retry `npm dist-tag add` (needs a classic token such as `NPM_BOOTSTRAP_TOKEN`). Otherwise an npm administrator must run `npm dist-tag add @nylorun/<pkg>@<version> <channel>`; OIDC alone does not authenticate standalone tag edits |
+| Missing/older dist-tag after publication (every promotion) | An npm administrator runs the one `npm dist-tag add … && …` command the publish job printed, then reruns the failed job: [Promote to latest](#promote-to-latest). OIDC alone cannot edit tags |
 | A newer dist-tag exists | Do not move it backward; prepare a newer release |
 | `Tag … points to a different commit` on a channel promotion | Expected when version tags already exist from an earlier publish of the same versions. Publish tooling allows this when the version is already on the registry; fix/rerun on a commit that updates `.release/plan.json` if an older publish script still rejects it |
 | Public creator smoke cannot pull `ghcr.io/nylorun/…` (`denied`, `unauthorized`) | The smoke pulls without logging in, as developers do. Set that image's visibility to **public** (see Administrator setup), then rerun the same workflow |
