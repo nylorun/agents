@@ -51,8 +51,8 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   `http://localhost:<port>` (the URL `nylorun up` prints). An app server
   container joins the stack's Compose network and calls `http://runtime:4000`,
   which the stack already accepts as a `Host`. An app server on another
-  machine needs a reverse proxy in front of the Runtime; that recipe is not
-  part of this release.
+  machine reaches it through a reverse proxy:
+  [Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine).
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
   Studio for operators (loopback or an SSH tunnel).
 - The app server drops every `Nylorun-*` header its own clients send, never
@@ -63,6 +63,86 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   of storing one (`admin.deriveTenantKey`, derived principals).
 - Removing a person is the app server's decision: it stops acting for them and
   closes their open streams. There is no per-person credential to revoke.
+
+## Reaching the Runtime from another machine
+
+When your app server runs on another machine (a laptop reaching a Mac mini on
+the LAN, or a cloud backend reaching a server), put a reverse proxy in front of
+the Runtime on the Runtime's machine. The stack publishes the Runtime on
+`127.0.0.1` only and accepts only its own `Host` names, so the proxy is the one
+way in. Nothing in the Runtime changes.
+
+| Proxy rule | Why |
+| --- | --- |
+| Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun up` prints) | The Tenant key travels on every request and controls the whole Tenant |
+| Rewrite `Host` to `localhost:<port>` | The stack answers `421` to any other `Host` |
+| Answer `/v1/admin/*` with `403` | The Admin API shares the Runtime's port; the admin key never leaves the machine |
+| Forward only `/health`, `/ready` and `/v1/*`; never proxy Studio or Restate | The operator tools stay on the machine |
+| Pass every other header through: `Authorization`, `Nylorun-Tenant`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers; the Runtime refuses any request with an `Origin`, so browsers stay out |
+| Don't buffer responses; allow idle streams | Event streams and the executor's connection are long-lived SSE with a keepalive every 15 seconds |
+| Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
+
+A [Caddy](https://caddyserver.com) configuration that does all of this
+(replace the name and `8787` with your host name and the port `nylorun up`
+prints):
+
+```caddyfile
+runtime.example.com {
+	# One handle runs per request, the first that matches. Keep the admin block
+	# first: a bare `respond` would run after the proxy, not before it.
+	@admin path /v1/admin /v1/admin/*
+	handle @admin {
+		# The Admin API shares the Runtime's port; it stays on this machine.
+		respond "Blocked by the reverse proxy" 403
+	}
+
+	@api path /health /ready /v1/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8787 {
+			# The stack answers only its own Host names.
+			header_up Host localhost:8787
+			# Event streams and the executor's connection: flush every write.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}
+```
+
+TLS by placement:
+
+| Placement | Certificate | Notes |
+| --- | --- | --- |
+| Same LAN | Tailscale: name the site after the machine (`mac-mini.<tailnet>.ts.net`) and Caddy fetches its certificate from the local Tailscale daemon. Or a local CA (`tls internal`) whose root the app server trusts (`NODE_EXTRA_CA_CERTS`) | Never plain HTTP on a LAN or Wi-Fi: it exposes the Tenant key. With Tailscale, accept only the tailnet: add `@outside not remote_ip 100.64.0.0/10` with `handle @outside { respond 403 }` as the first block |
+| Internet | A public certificate: Caddy obtains one automatically for a public DNS name | Prefer a private path (Tailscale, a VPN or the same cloud network) over a public endpoint; publish publicly only when the backend cannot join one |
+
+On the app server's machine:
+
+- Use an **application key**, never the admin key. Create a Tenant for the app
+  on the Runtime's machine with `npx @nylorun/cli tenant create <name>`,
+  run outside a Project: it prints the three variables once. Keep the key in
+  the app server's secret store.
+- Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
+  for both the client and the executor (`connectAgents`); keep
+  `NYLORUN_TENANT` and `NYLORUN_SERVER_KEY` as printed.
+- To check a placement end to end, run the remote check from a checkout of this
+  repository on the app server's machine, against a Tenant made for it:
+
+  ```sh
+  npm ci && npm run build --workspace @nylorun/core --workspace @nylorun/agents
+  node scripts/acceptance/remote.mjs --placement lan --fixture-model
+  ```
+
+  It checks the proxy rules, runs a chat with an approval, drops the connection
+  and reattaches, then keeps an event stream and the executor connected through
+  ten idle minutes (`--idle-minutes`). `--fixture-model` switches that Tenant's
+  model calls to the Runtime's deterministic fixture model.
+
+This is one Runtime on one server, operated by hand: no replicas, managed
+backups, Helm charts or upgrade automation.
 
 ## Container images
 
