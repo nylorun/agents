@@ -333,15 +333,57 @@ identity).
   last id you received.
 - Closing the connection stops reading; it never cancels the turn.
 - A busy or paused thread ends the run with `RUN_ERROR` code `session_busy`.
-- The handler needs a Runtime with the optional feature `transcript-events` and
-  answers `502` (`runtime_feature_missing`) without it.
+- The handler calls the Runtime as each person (`client.as(subject, { scopes })`,
+  below), so the Runtime itself keeps one person out of another's threads.
+  `scopes` defaults to `["sessions:own"]`; add `"vaults:own"` when `session()`
+  attaches the person's vaults. A `subject` the Runtime cannot name (see below)
+  answers `500` (`subject_invalid`).
+- The handler needs a Runtime with the optional features `transcript-events`
+  and `subject-headers` and answers `502` (`runtime_feature_missing`) without
+  them.
 
 Limitations: assistant text arrives once per model step (no token streaming);
 no reasoning, state, activity or subagent events, and an agent used as a tool
 shows only its result; frontend tools in `RunAgentInput.tools` are rejected
 (`400`); one text part per user message; earlier messages cannot be edited or
-regenerated. The Runtime does not yet enforce who owns a session, so isolation
-between people relies on the handler's per-person session ids: never let a
-browser call the Runtime directly.
+regenerated. Browsers always go through your server: never let one call the
+Runtime directly.
+
+## Acting for a person (app servers)
+
+A server that signs people in and calls the Runtime for them (an "app server")
+keeps the Tenant key to itself and names the person on each call:
+
+```ts
+import { createClient } from "@nylorun/agents";
+
+const app = createClient(); // the Tenant key, on the server only
+
+// Per request, after your own sign-in:
+const person = app.as(`app:${user.id}`, { scopes: ["sessions:own", "vaults:own"] });
+await person.createSession({ agentId: "support", ownerUserId: `app:${user.id}` });
+await person.listSessions(); // only this person's sessions
+```
+
+`as()` sends `Nylorun-Subject` and `Nylorun-Scopes` on every call, event
+streams included, and the Runtime (optional feature `subject-headers`)
+enforces both: another person's sessions and vaults answer the same `404` as
+missing ones, and a route outside the scopes answers `403` (`scope_required`).
+Nothing is minted, cached or refreshed, and the copy shares the client's
+compatibility check, so calling `as()` per request is cheap.
+
+| Scope | Allows |
+| --- | --- |
+| `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel |
+| `vaults:own` | The person's own vaults and credentials |
+| `agents:read` | Listing the Tenant's agents |
+| `agents:write` | Saving agents; listing agents, models and providers |
+| `tenant:settings` | The Tenant's status, model provider and sandbox settings |
+
+No scope reaches Tenant reset, config seed, executors, actions or the sandbox
+tool routes; call those without `as()`. A subject is 1–200 visible ASCII
+characters (spaces only inside) and `host` is reserved. Your server must drop
+any `Nylorun-*` header its own clients send, and only an application key can act
+for a subject: an executor key that tries is `403`.
 
 The SDK depends only on core within the Nylorun packages; installing it does not install harness. `/ag-ui` adds `@ag-ui/core`; nothing else imports it. Use `/define`, `/client`, `/executor` or `/ag-ui` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
