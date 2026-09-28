@@ -98,6 +98,9 @@ function problemOf(error: unknown): Problem {
   if (error instanceof Problem) return error;
   if (error instanceof RuntimeError) {
     if (error.status === 404) return new Problem(404, "Not found");
+    // The Runtime refused what the client sent (e.g. a cursor it cannot read).
+    if (error.status === 400)
+      return new Problem(400, "The request was rejected", "invalid_request");
     if (error.status === 409)
       return new Problem(
         409,

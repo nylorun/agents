@@ -342,6 +342,9 @@ identity).
   and `subject-headers` and answers `502` (`runtime_feature_missing`) without
   them.
 
+A complete web backend with a test is in
+[examples/src/ag-ui](../examples/README.md#an-agent-in-your-web-app-ag-ui).
+
 Limitations: assistant text arrives once per model step (no token streaming);
 no reasoning, state, activity or subagent events, and an agent used as a tool
 shows only its result; frontend tools in `RunAgentInput.tools` are rejected
