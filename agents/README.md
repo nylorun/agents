@@ -286,4 +286,62 @@ After registration, `connectAgents` opens authenticated fetch SSE before discove
 
 Tools receive state, info, identity, resume, signal, approval/response helpers and memoized `step`. Step outcomes survive a persisted wait result; they do not establish exactly-once external effects after an unacknowledged crash. `sleep` and `waitFor` currently return inspectable deferred outcomes; automatic timer/event wakeups remain runtime implementation work. Remote `onModelCall` convenience and progress-event transport are not supplied in this pass. Arbitrary middleware closures are rejected for durable definitions; use `before`/`after` hooks. The executor runs every capability registered at a hook point in one action. Agent definitions have no `.run()`; explicit local execution is available through `@nylorun/harness/run`.
 
-The SDK depends only on core within the Nylorun packages; installing it does not install harness. Use `/define`, `/client`, or `/executor` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+## AG-UI
+
+`@nylorun/agents/ag-ui` serves the Tenant's agents to any
+[AG-UI](https://docs.ag-ui.com) client (`@ag-ui/client`'s `HttpAgent`,
+CopilotKit, a desktop renderer) from your own server. Your server signs people
+in and names the person each request is for; the handler maps each AG-UI thread
+to one session per person, agent and thread, and streams it as AG-UI events.
+
+```ts
+import { createServer } from "node:http";
+import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
+import support from "./agents/support.js";
+
+const agui = createAgUiHandler({
+  basePath: "/api/agui",
+  agents: [support], // nothing else is reachable
+  subject: async (request) => (await getSignedInUser(request))?.id, // undefined → 401
+});
+
+createServer(toNodeListener(agui)).listen(3000);
+// Next.js, Hono, Bun, Deno, Workers: export or mount `agui.fetch` directly.
+```
+
+| Method and path under `basePath` | Operation |
+| --- | --- |
+| `POST /{agentId}` | Run: an AG-UI `RunAgentInput` in, server-sent events out |
+| `GET /{agentId}/threads/{threadId}/messages` | History as a plain AG-UI `Message[]`, usable as `HttpAgent`'s `initialMessages` |
+| `GET /{agentId}/threads/{threadId}/events` | Reattach: the rest of a run after a dropped connection, from `Last-Event-ID` (or `?cursor=`); `204` when nothing is left |
+| `POST /{agentId}/threads/{threadId}/cancel` | Cancel the running turn |
+
+`run`, `history`, `reattach` and `cancel` are also on the handler for your own
+routing. The default `client` is `createClient()`; pass `client` to use another
+one, and `session(subject, agentId)` to add the person's `vaultIds` or
+`credentialSelections` (keep `info` stable: it is part of the session's
+identity).
+
+- Each AG-UI message id is the command's idempotency key: a retried run replays
+  the same turn instead of starting a second one.
+- An approval ends the run with an AG-UI interrupt (`reason: "tool_approval"`,
+  `toolCallId` the model's call id). Resume with
+  `runAgent({ resume: [{ interruptId, status: "resolved", payload: { approved: true } }] })`.
+  Other interactions answer with `payload` as the response.
+- Every event that ends a group carries the Runtime cursor as its SSE `id`.
+  `HttpAgent` does not reconnect by itself; call the reattach route with the
+  last id you received.
+- Closing the connection stops reading; it never cancels the turn.
+- A busy or paused thread ends the run with `RUN_ERROR` code `session_busy`.
+- The handler needs a Runtime with the optional feature `transcript-events` and
+  answers `502` (`runtime_feature_missing`) without it.
+
+Limitations: assistant text arrives once per model step (no token streaming);
+no reasoning, state, activity or subagent events, and an agent used as a tool
+shows only its result; frontend tools in `RunAgentInput.tools` are rejected
+(`400`); one text part per user message; earlier messages cannot be edited or
+regenerated. The Runtime does not yet enforce who owns a session, so isolation
+between people relies on the handler's per-person session ids: never let a
+browser call the Runtime directly.
+
+The SDK depends only on core within the Nylorun packages; installing it does not install harness. `/ag-ui` adds `@ag-ui/core`; nothing else imports it. Use `/define`, `/client`, `/executor` or `/ag-ui` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).

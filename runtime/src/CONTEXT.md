@@ -98,9 +98,10 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
-`admin-status` and `studio-principal`; optional Host feature
-`tenant-fixture-model`). Independent of package semver. Incompatible clients
-receive `426` before authentication.
+`admin-status` and `studio-principal`; optional Host features
+`tenant-fixture-model`, `transcript-events` and `derived-principals`).
+Independent of package semver. Incompatible clients receive `426` before
+authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
 
 **Studio principal**: Application principal `studio` that every Tenant created
@@ -108,6 +109,26 @@ by `@nylorun/admin` registers. Its key is derived from the admin key and the
 Tenant id (`deriveStudioToken`, `admin/src/derived-credentials.ts`); the Tenant
 stores only its hash (`tenant/principals.ts`). Studio derives it to call the
 Tenant API; the admin key is never a Tenant bearer.
+
+**Derived principal**: Application principal, named by its client (`babai`),
+whose key is derived from the admin key, the principal id and the Tenant id
+(`deriveTenantKey`, `admin/src/derived-credentials.ts`). Registered by hash when
+the Tenant is created (`derivedPrincipals`, feature `derived-principals`), so
+the client stores no key. The Studio principal is the first of these, with its
+own derivation.
+_Avoid_: storing an application key on a machine that already holds the admin
+key.
+
+**Transcript event**: A session event a chat UI renders (feature
+`transcript-events`): `message.assistant` for each completed model step (text
+and tool calls, keyed by the model's `invocationId` and each call's `callId`),
+`tool.completed` for an MCP or sandbox tool, and the `callId` on tool
+`action.*` and `delegation.*` events. Written in the transaction that completes
+the effect, so a replay writes nothing (`tenant/transcript.ts`); payload
+schemas and `parseTranscriptEvent` are in `@nylorun/core/contracts`.
+`@nylorun/agents/ag-ui` turns them into AG-UI events.
+_Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
+formats.
 
 ## Runtime architecture
 

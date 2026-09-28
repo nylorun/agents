@@ -28,6 +28,26 @@ sending the hash of `deriveStudioToken(adminKey, tenantId)`. Studio derives the
 same key from the admin key to call that Tenant's API, so whoever holds the
 admin key can reach every Tenant created this way.
 
+A client on the Host's machine or server that holds the admin key can avoid
+storing an application key too. Name it as a **derived principal** when the
+Tenant is created, then recompute its key whenever it needs one:
+
+```ts
+const { tenant } = await admin.createTenant({
+  name: "my-app",
+  principals: ["babai"],
+});
+// Later, in any process that holds the admin key:
+const key = admin.deriveTenantKey(tenant.id, "babai");
+```
+
+Ids match `^[a-z][a-z0-9-]{0,31}$`; `studio` is reserved. Only each key's hash
+is sent. The key is `deriveTenantKey(adminKey, tenantId, principalId)`, so
+rotating the admin key rotates every derived key. Principals are named when the
+Tenant is created; an older Tenant keeps its application key. This needs the
+optional Host feature `derived-principals`: `createTenant` checks `/health` and
+throws `incompatible_host` before sending anything to a Host without it.
+
 Local Host resolution reads `host.json` and `host-credentials.json` under
 `NYLORUN_HOME` / `~/.nylorun` (or `options.home`). On POSIX the credentials
 file must be owned by the user and not group- or world-readable. First use
@@ -35,7 +55,7 @@ checks `/health` compatibility and throws `incompatible_host` on mismatch.
 
 Errors are `AdminError` with a registry `code` from `@nylorun/core`
 (`ERROR_CODES`). Re-exports: `PROTOCOL_FEATURES`, `ERROR_CODES`,
-`compareVersions`.
+`compareVersions`, `deriveStudioToken`, `deriveTenantKey`.
 
 Developer applications do **not** depend on this package — only managing
 clients (CLI, desktop Runtime panel, CI) do.
