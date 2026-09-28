@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveStudioToken } from "../src/index.js";
+import { deriveStudioToken, deriveTenantKey } from "../src/index.js";
 
 const ADMIN_KEY = "a".repeat(64);
 const TENANT = "tn_00000000000000000000000001";
@@ -20,5 +20,28 @@ describe("deriveStudioToken", () => {
     expect(a).not.toBe(ADMIN_KEY);
     expect(deriveStudioToken(ADMIN_KEY, TENANT)).toBe(a);
     expect(deriveStudioToken("b".repeat(64), TENANT)).not.toBe(a);
+  });
+});
+
+describe("deriveTenantKey", () => {
+  it("matches a fixed vector computed independently (Python hmac)", () => {
+    // hmac.new(b"a"*64, b"nylorun/principal/v1\x00babai\x00" + tenant, sha256).hexdigest()
+    expect(deriveTenantKey(ADMIN_KEY, TENANT, "babai")).toBe(
+      "e75e386ac70503370967006bf76ba46b6c9603ca52e282bcfac2f8f972ea771c",
+    );
+  });
+
+  it("is stable and distinct per principal, Tenant, admin key and from Studio's key", () => {
+    const a = deriveTenantKey(ADMIN_KEY, TENANT, "babai");
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(deriveTenantKey(ADMIN_KEY, TENANT, "babai")).toBe(a);
+    expect(deriveTenantKey(ADMIN_KEY, TENANT, "other")).not.toBe(a);
+    expect(
+      deriveTenantKey(ADMIN_KEY, "tn_00000000000000000000000002", "babai"),
+    ).not.toBe(a);
+    expect(deriveTenantKey("b".repeat(64), TENANT, "babai")).not.toBe(a);
+    expect(deriveTenantKey(ADMIN_KEY, TENANT, "studio")).not.toBe(
+      deriveStudioToken(ADMIN_KEY, TENANT),
+    );
   });
 });

@@ -16,6 +16,7 @@ import { canonical } from "./utils/canonical.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
+import { DERIVED_PRINCIPAL_ID_PATTERN } from "./compatibility.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
@@ -749,6 +750,7 @@ export const ActionSchema = z.union([
   verifyActionSchema,
 ]);
 export type Action = z.infer<typeof ActionSchema>;
+
 /**
  * Transcript events (Host feature `transcript-events`): the log entries a chat UI
  * renders. `LiveEvent.payload` stays `unknown` on the wire; `parseTranscriptEvent`
@@ -1017,8 +1019,47 @@ export const CreateTenantRequestSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
+    /**
+     * SHA-256 of each derived principal's key (feature `derived-principals`): application
+     * principals whose keys the admin key derives, so their clients store no key.
+     */
+    derivedPrincipals: z
+      .array(
+        z
+          .object({
+            id: z
+              .string()
+              .regex(DERIVED_PRINCIPAL_ID_PATTERN)
+              .refine((id) => id !== "studio", "principal id `studio` is reserved"),
+            credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
+          })
+          .strict()
+      )
+      .max(16)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((body, ctx) => {
+    const ids = new Set([body.principalId]);
+    const hashes = new Set([body.credentialHash]);
+    if (body.studioCredentialHash) hashes.add(body.studioCredentialHash);
+    for (const [index, principal] of (body.derivedPrincipals ?? []).entries()) {
+      if (ids.has(principal.id))
+        ctx.addIssue({
+          code: "custom",
+          path: ["derivedPrincipals", index, "id"],
+          message: `Principal id ${principal.id} is used twice`,
+        });
+      if (hashes.has(principal.credentialHash))
+        ctx.addIssue({
+          code: "custom",
+          path: ["derivedPrincipals", index, "credentialHash"],
+          message: "Every principal needs its own credential",
+        });
+      ids.add(principal.id);
+      hashes.add(principal.credentialHash);
+    }
+  });
 export type CreateTenantRequest = z.infer<typeof CreateTenantRequestSchema>;
 
 export const AdminTenantSchema = z

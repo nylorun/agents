@@ -74,5 +74,6 @@ describe("parseTranscriptEvent", () => {
 
   it("is advertised as an optional Host feature", () => {
     expect(HOST_PROTOCOL.features).toContain("transcript-events");
+    expect(HOST_PROTOCOL.features).toContain("derived-principals");
   });
 });

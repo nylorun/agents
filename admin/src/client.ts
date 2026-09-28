@@ -18,11 +18,12 @@ import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
   checkCompatibility,
+  DERIVED_PRINCIPAL_ID_PATTERN,
   newPrincipalId,
   newTenantId,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
-import { deriveStudioToken } from "./derived-credentials.js";
+import { deriveStudioToken, deriveTenantKey } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export type AdminSource = "options" | "environment" | "local-host";
@@ -242,6 +243,8 @@ export class AdminClient {
   readonly source: AdminSource;
   private readonly key: string;
   private compatible = false;
+  /** Features the Host advertised at the last compatibility check. */
+  private features: readonly string[] = [];
 
   constructor(resolved: ResolvedAdmin) {
     this.url = resolved.url;
@@ -299,6 +302,7 @@ export class AdminClient {
         { details: result },
       );
     }
+    this.features = [...protocol.features];
     this.compatible = true;
   }
 
@@ -398,9 +402,34 @@ export class AdminClient {
     );
   }
 
+  /**
+   * The key of derived principal `principalId` on `tenantId`, from this client's admin key.
+   * Valid once the Tenant was created with that principal in `principals`.
+   */
+  deriveTenantKey(tenantId: string, principalId: string): string {
+    return deriveTenantKey(this.key, tenantId, principalId);
+  }
+
   async createTenant(options: {
     name: string;
+    principals?: readonly string[];
   }): Promise<{ tenant: TenantEnvelope; applicationKey: string }> {
+    const principals = options.principals ?? [];
+    for (const id of principals)
+      if (!DERIVED_PRINCIPAL_ID_PATTERN.test(id) || id === "studio")
+        throw new TypeError(
+          `Principal id '${id}' must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be 'studio'.`,
+        );
+    if (new Set(principals).size !== principals.length)
+      throw new TypeError("Principal ids must be unique.");
+    if (principals.length) {
+      await this.ensureCompatible();
+      if (!this.features.includes("derived-principals"))
+        throw new AdminError(
+          "incompatible_host",
+          "Host does not support derived principals (feature derived-principals); upgrade it with `nylorun up`.",
+        );
+    }
     const applicationKey = mintApplicationKey();
     const tenantId = newTenantId();
     const body = {
@@ -410,6 +439,16 @@ export class AdminClient {
       credentialHash: hashCredential(applicationKey),
       idempotencyKey: randomUUID(),
       studioCredentialHash: hashCredential(deriveStudioToken(this.key, tenantId)),
+      ...(principals.length
+        ? {
+            derivedPrincipals: principals.map((id) => ({
+              id,
+              credentialHash: hashCredential(
+                deriveTenantKey(this.key, tenantId, id),
+              ),
+            })),
+          }
+        : {}),
     };
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {

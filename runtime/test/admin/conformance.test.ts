@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { Agent } from "@nylorun/agents";
-import { createAdmin, deriveStudioToken } from "@nylorun/admin";
+import {
+  createAdmin,
+  deriveStudioToken,
+  deriveTenantKey,
+} from "@nylorun/admin";
 import {
   ERROR_CODES,
   PROTOCOL_HEADER,
@@ -338,4 +342,77 @@ it("registers principal studio from studioCredentialHash; the derived Studio key
     ),
   });
   expect(denied.status).toBe(404);
+});
+
+it("registers derived principals; each derived key reaches Tenant routes and a retry must name the same ones", async () => {
+  const runtime = await startHost();
+  const { url, adminKey } = runtime;
+  const admin = createAdmin({ url, key: adminKey });
+
+  const { tenant } = await admin.createTenant({
+    name: "derived",
+    principals: ["babai", "smoke"],
+  });
+  const agents = (key: string) =>
+    getJson(`${url}/v1/agents`, { headers: tenantApiHeaders(tenant.id, key) });
+  expect((await agents(admin.deriveTenantKey(tenant.id, "babai"))).status).toBe(200);
+  expect((await agents(deriveTenantKey(adminKey, tenant.id, "smoke"))).status).toBe(200);
+  // Unregistered principals and other admin keys derive nothing the Tenant accepts.
+  expect((await agents(deriveTenantKey(adminKey, tenant.id, "other"))).status).toBe(404);
+  expect(
+    (await agents(deriveTenantKey("f".repeat(64), tenant.id, "babai"))).status,
+  ).toBe(404);
+
+  const headers = {
+    ...adminHeaders(adminKey),
+    "content-type": "application/json",
+  };
+  const post = (payload: unknown) =>
+    getJson(`${url}/v1/admin/tenants`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  const body = createBody({ name: "derived-retry" });
+  const derived = (id: string) => ({
+    id,
+    credentialHash: hashCredential(
+      deriveTenantKey(adminKey, body.request.tenantId, id),
+    ),
+  });
+  const request = { ...body.request, derivedPrincipals: [derived("babai")] };
+  expect((await post(request)).status).toBe(201);
+  expect((await post(request)).status).toBe(200);
+  expect(
+    (
+      await post({
+        ...request,
+        derivedPrincipals: [{ id: "babai", credentialHash: "ef".repeat(32) }],
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (await post({ ...request, derivedPrincipals: [derived("other")] })).status,
+  ).toBe(409);
+
+  // Invalid, reserved and duplicate principals are rejected before anything is created.
+  const invalid = createBody({ name: "derived-invalid" }).request;
+  for (const derivedPrincipals of [
+    [{ id: "Bad_Id", credentialHash: "ab".repeat(32) }],
+    [{ id: "studio", credentialHash: "ab".repeat(32) }],
+    [
+      { id: "a", credentialHash: "ab".repeat(32) },
+      { id: "a", credentialHash: "cd".repeat(32) },
+    ],
+    [
+      { id: "a", credentialHash: "ab".repeat(32) },
+      { id: "b", credentialHash: "ab".repeat(32) },
+    ],
+    [{ id: "a", credentialHash: invalid.credentialHash }],
+  ])
+    expect((await post({ ...invalid, derivedPrincipals })).status).toBe(400);
+  expect(
+    (await getJson(`${url}/v1/admin/tenants/${invalid.tenantId}`, { headers }))
+      .status,
+  ).toBe(404);
 });

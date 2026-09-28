@@ -161,7 +161,7 @@ export function createPostgresTenantCatalog(
     const schema = tenantSchemaName(id);
     const rows = await q`
       SELECT id, token_hash, idempotency_key FROM ${q(`${schema}.principals`)}
-      WHERE role = 'application' AND id IN (${bootstrap.principalId}, ${STUDIO_PRINCIPAL_ID})`;
+      WHERE role = 'application'`;
     const app = rows.find((row) => row.id === bootstrap.principalId);
     if (
       !app ||
@@ -170,7 +170,12 @@ export function createPostgresTenantCatalog(
     )
       return false;
     const studio = rows.find((row) => row.id === STUDIO_PRINCIPAL_ID);
-    return studio?.token_hash === bootstrap.studioCredentialHash;
+    if (studio?.token_hash !== bootstrap.studioCredentialHash) return false;
+    return (bootstrap.derivedPrincipals ?? []).every(
+      (principal) =>
+        rows.find((row) => row.id === principal.id)?.token_hash ===
+        principal.credentialHash
+    );
   }
 
   const catalog: PostgresTenantCatalog = {
@@ -231,6 +236,10 @@ export function createPostgresTenantCatalog(
             INSERT INTO ${tx(`${schema}.principals`)} (id, role, token_hash, idempotency_key, created_at)
             VALUES (${STUDIO_PRINCIPAL_ID}, 'application', ${principals.studioCredentialHash},
                     NULL, ${createdAt})`;
+        for (const derived of principals.derivedPrincipals ?? [])
+          await tx`
+            INSERT INTO ${tx(`${schema}.principals`)} (id, role, token_hash, idempotency_key, created_at)
+            VALUES (${derived.id}, 'application', ${derived.credentialHash}, NULL, ${createdAt})`;
         return { created: true as const, envelope: stored };
       });
       if (outcome.created) return { status: "created", envelope: outcome.envelope };

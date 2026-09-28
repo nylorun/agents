@@ -32,9 +32,20 @@ export async function bootstrapPrincipal(
       idempotencyKey: null,
       createdAt,
     });
+  for (const principal of bootstrap.derivedPrincipals ?? [])
+    await t.insertPrincipal({
+      id: principal.id,
+      role: "application",
+      tokenHash: principal.credentialHash,
+      idempotencyKey: null,
+      createdAt,
+    });
 }
 
-/** Whether the stored bootstrap (and Studio) principals equal `bootstrap`. */
+/**
+ * Whether the stored bootstrap, Studio and derived principals equal `bootstrap`. A retried
+ * create names the same derived principals, so each must be stored with its hash.
+ */
 export async function bootstrapPrincipalMatches(
   t: Tx,
   bootstrap: BootstrapPrincipal,
@@ -48,8 +59,18 @@ export async function bootstrapPrincipalMatches(
   )
     return false;
   const studio = await t.principalById(STUDIO_PRINCIPAL_ID);
-  return (
-    (studio?.role === "application" ? studio.tokenHash : undefined) ===
+  if (
+    (studio?.role === "application" ? studio.tokenHash : undefined) !==
     bootstrap.studioCredentialHash
-  );
+  )
+    return false;
+  for (const principal of bootstrap.derivedPrincipals ?? []) {
+    const stored = await t.principalById(principal.id);
+    if (
+      stored?.role !== "application" ||
+      stored.tokenHash !== principal.credentialHash
+    )
+      return false;
+  }
+  return true;
 }

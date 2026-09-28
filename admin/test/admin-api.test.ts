@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { createAdmin, AdminError, deriveStudioToken } from "../src/index.js";
+import {
+  createAdmin,
+  AdminError,
+  deriveStudioToken,
+  deriveTenantKey,
+} from "../src/index.js";
+import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import {
   ADMIN_KEY,
   healthBody,
@@ -181,6 +187,86 @@ describe("B5 createTenant", () => {
       );
       expect(JSON.stringify(bodies)).not.toContain(studioToken);
       expect(JSON.stringify(bodies)).not.toContain(ADMIN_KEY);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("registers derived principals by hash when the Host supports them", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const server = await startStubServer((request, response, body) => {
+      if (request.url === "/health") {
+        sendJson(
+          response,
+          200,
+          healthBody({ protocol: { ...HOST_PROTOCOL } }),
+        );
+        return;
+      }
+      if (request.url === "/v1/admin/tenants" && request.method === "POST") {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        bodies.push(parsed);
+        sendJson(response, 201, sampleEnvelope(String(parsed.tenantId)));
+        return;
+      }
+      sendJson(response, 404, { status: "rejected", code: "not_found", message: "no" });
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
+      const { tenant } = await admin.createTenant({
+        name: "demo",
+        principals: ["babai", "smoke"],
+      });
+      const sent = bodies[0] as {
+        tenantId: string;
+        derivedPrincipals: { id: string; credentialHash: string }[];
+      };
+      expect(Object.keys(sent).sort()).toContain("derivedPrincipals");
+      const key = admin.deriveTenantKey(tenant.id, "babai");
+      expect(key).toBe(deriveTenantKey(ADMIN_KEY, sent.tenantId, "babai"));
+      expect(sent.derivedPrincipals).toEqual([
+        {
+          id: "babai",
+          credentialHash: createHash("sha256").update(key, "utf8").digest("hex"),
+        },
+        {
+          id: "smoke",
+          credentialHash: createHash("sha256")
+            .update(deriveTenantKey(ADMIN_KEY, sent.tenantId, "smoke"), "utf8")
+            .digest("hex"),
+        },
+      ]);
+      expect(JSON.stringify(bodies)).not.toContain(key);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("refuses principals before any POST when the Host lacks derived-principals", async () => {
+    let posts = 0;
+    const server = await startStubServer((request, response) => {
+      if (request.url === "/health") {
+        sendJson(response, 200, healthBody());
+        return;
+      }
+      posts += 1;
+      sendJson(response, 500, {});
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
+      await expect(
+        admin.createTenant({ name: "demo", principals: ["babai"] }),
+      ).rejects.toMatchObject({ code: "incompatible_host" });
+      await expect(
+        admin.createTenant({ name: "demo", principals: ["Bad_Id"] }),
+      ).rejects.toThrow(TypeError);
+      await expect(
+        admin.createTenant({ name: "demo", principals: ["studio"] }),
+      ).rejects.toThrow(TypeError);
+      await expect(
+        admin.createTenant({ name: "demo", principals: ["a", "a"] }),
+      ).rejects.toThrow(TypeError);
+      expect(posts).toBe(0);
     } finally {
       await server.close();
     }

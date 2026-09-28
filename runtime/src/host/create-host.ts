@@ -210,6 +210,9 @@ export function createHost(options: CreateHostOptions): HostServer {
             ...(body.studioCredentialHash
               ? { studioCredentialHash: body.studioCredentialHash }
               : {}),
+            ...(body.derivedPrincipals?.length
+              ? { derivedPrincipals: body.derivedPrincipals }
+              : {}),
           });
           return sendJson(
             response,

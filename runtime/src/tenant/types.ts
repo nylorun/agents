@@ -126,6 +126,13 @@ export interface BootstrapPrincipal {
   idempotencyKey: string;
   /** When set, also registers application principal `studio` with this hash. */
   studioCredentialHash?: string;
+  /** Application principals whose keys the admin key derives (feature `derived-principals`). */
+  derivedPrincipals?: readonly DerivedPrincipal[];
+}
+
+export interface DerivedPrincipal {
+  id: string;
+  credentialHash: string;
 }
 
 /**
