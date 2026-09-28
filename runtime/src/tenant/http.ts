@@ -13,14 +13,28 @@ export const OPAQUE_NOT_FOUND = {
   message: "Not found",
 };
 
+/** A rejection's stable code and details, for the ones a client acts on (default `request_rejected`). */
+export interface Rejection {
+  readonly code?: string;
+  readonly details?: unknown;
+}
+
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly rejection: Rejection = {}
+  ) {
     super(message);
   }
 }
 
-export const fail = (status: number, message: string): never => {
-  throw new HttpError(status, message);
+export const fail = (
+  status: number,
+  message: string,
+  rejection?: Rejection
+): never => {
+  throw new HttpError(status, message, rejection);
 };
 
 export class OpaqueAuthError extends Error {

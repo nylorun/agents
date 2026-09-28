@@ -739,7 +739,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx(async (t) => {
           await t.put("sessions", "s1", session("s1", { status: "running" }));
           await t.put("sessions", "s2", session("s2", { status: "runnable", agentId: "agent-b" }));
-          await t.put("sessions", "s3", session("s3", { status: "paused", activeTurnId: "t3" }));
+          await t.put("sessions", "s3", session("s3", { status: "paused", activeTurnId: "t3", ownerUserId: "user-2" }));
           await t.put("sessions", "s4", session("s4", { status: "completed" }));
           await t.put("sessions", "wf", session("wf", { status: "waiting", agentId: "flow" }));
           await t.put("sessions", "wf-a", session("wf-a", { status: "paused" }));
@@ -794,6 +794,9 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect((await t.sessionsWithStatus(["running"]))[0]).toMatchObject({ owner: "w", epoch: 1 });
           expect(ids(await t.listSessions())).toEqual(["s1", "s2", "s3", "s4", "wf", "wf-a", "wf-b"]);
           expect(ids(await t.listSessions({ agentId: "agent-b" }))).toEqual(["s2"]);
+          expect(ids(await t.listSessions({ ownerUserId: "user-2" }))).toEqual(["s3"]);
+          expect(ids(await t.listSessions({ ownerUserId: "user-1", agentId: "agent-b" }))).toEqual(["s2"]);
+          expect(ids(await t.listSessions({ ownerUserId: "user-2", agentId: "agent-b" }))).toEqual([]);
           // s2 has no owner; s1's lease ends at +1s; wf-b's at +60s.
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 500), 10))).toEqual(["s2"]);
           expect(ids(await t.orphanedSessions(new Date(now.getTime() + 1000), 10))).toEqual(["s2", "s1"]);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -20,8 +21,10 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
 /**
- * Phase 0 exit gate: an AG-UI client drives the handler against a Runtime, through
- * `toNodeListener` on `node:http`.
+ * Phase 0 and Phase 1 exit gates: an AG-UI client drives the handler against a Runtime,
+ * through `toNodeListener` on `node:http`, inside a stub app server that authenticates the
+ * person (`x-user`) and strips any `Nylorun-*` header its clients send. The handler calls the
+ * Runtime as each person (`client.as`), so the Runtime enforces who owns which thread.
  */
 
 const APP = "ag-ui-e2e-app-token-aaaaaaaaaaaa";
@@ -139,6 +142,14 @@ let runtime: Awaited<ReturnType<typeof startTestTenant>>;
 let connection: AgentConnection;
 let server: Server;
 let base: string;
+let runtimeClient: ReturnType<typeof createClient>;
+
+/** The handler's session id for a person's thread (`sessionIdFor`). */
+const sessionOf = (subject: string, agentId: string, threadId: string) =>
+  createHash("sha256")
+    .update(`${subject}\u0000${agentId}\u0000${threadId}`)
+    .digest("hex")
+    .slice(0, 32);
 
 beforeAll(async () => {
   runtime = await startTestTenant({
@@ -164,7 +175,14 @@ beforeAll(async () => {
     client,
     subject: (request) => request.headers.get("x-user") ?? undefined,
   });
-  server = createServer(toNodeListener(handler));
+  const listener = toNodeListener(handler);
+  server = createServer((req, res) => {
+    // The app server's rule: a client never names a subject or scopes itself.
+    for (const name of Object.keys(req.headers))
+      if (name.startsWith("nylorun-")) delete req.headers[name];
+    listener(req, res);
+  });
+  runtimeClient = client;
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/agui`;
 }, 60_000);
@@ -280,6 +298,31 @@ describe("AG-UI handler against the Runtime", () => {
 
     // Another person naming the same thread reaches a different, empty session.
     expect(await historyOf("shop", "bob", "t-shop")).toEqual([]);
+    // And the Runtime itself refuses the other person the first one's session.
+    const adaSession = sessionOf("ada", "shop", "t-shop");
+    const asAda = await runtimeClient.as("ada").session(adaSession).inspect();
+    expect(asAda.ownerUserId).toBe("ada");
+    await expect(
+      runtimeClient.as("bob").session(adaSession).inspect()
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      runtimeClient.as("bob").session(adaSession).history()
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("acts for the person the app server signed in, whatever Nylorun-* headers the client sends", async () => {
+    const h = agentFor("shop", "ada", "t-forged");
+    await say(h, "Where is my order?");
+    const forged = await fetch(`${base}/shop/threads/t-forged/messages`, {
+      headers: {
+        "x-user": "bob",
+        "Nylorun-Subject": "ada",
+        "Nylorun-Scopes": "sessions:own tenant:settings",
+      },
+    });
+    expect(forged.status).toBe(200);
+    expect(await forged.json()).toEqual([]);
+    expect((await historyOf("shop", "ada", "t-forged")).length).toBeGreaterThan(0);
   });
 
   it("replays a retried message instead of starting a second turn", async () => {

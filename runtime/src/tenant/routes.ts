@@ -24,7 +24,13 @@ import {
   readBody,
   requestAborted,
 } from "./http.js";
-import { authenticate, requireApplication } from "./auth.js";
+import {
+  authenticate,
+  authorize,
+  ownerOf,
+  requireApplication,
+  requirePrincipal,
+} from "./auth.js";
 import { command } from "./commands.js";
 import {
   actionSandboxTool,
@@ -73,6 +79,9 @@ export async function handle(
     const method = request.method;
     const scope = await authenticate(ctx, request);
     if (path[0] !== "v1") fail(404, "Route not found");
+    authorize(scope, method, path);
+    // Set when the request acts for a subject: only the subject's own sessions are reachable.
+    const owner = ownerOf(scope);
     if (path[1] === "executors" && path[2] === "connect" && method === "GET") {
       if (scope.kind !== "executor")
         return fail(403, "Executor credential required");
@@ -118,7 +127,7 @@ export async function handle(
       return json(await dispatchVault(ctx, scope, method, path, url, request));
     if (path[1] === "tenant")
       return json(await dispatchTenant(ctx, scope, method, path, request));
-    const principalId = requireApplication(scope);
+    const principalId = requirePrincipal(scope);
     if (path[1] === "executors" && path.length === 2 && method === "GET")
       return json(listExecutors(ctx));
     // The length guard matters: the connect branch above only matches GET, so without it a
@@ -141,7 +150,9 @@ export async function handle(
     if (path[1] === "agents" && path.length === 2 && method === "GET")
       return json(await listDefinitions(ctx));
     if (path[1] === "sessions" && path.length === 2 && method === "GET")
-      return json(await listSessions(ctx, url.searchParams.get("agentId")));
+      return json(
+        await listSessions(ctx, url.searchParams.get("agentId"), owner)
+      );
     if (
       path[1] === "agents" &&
       path[2] &&
@@ -159,17 +170,17 @@ export async function handle(
       const id = path[2];
       if (method === "PUT" && path.length === 3) {
         const body = PutSessionRequestSchema.parse(await readBody(request));
-        const session = await putSession(ctx, id, body);
+        const session = await putSession(ctx, id, body, owner);
         return json(await ctx.store.tx((t) => sessionView(t, session)));
       }
       if (method === "GET" && path.length === 3)
         return json(
           await ctx.store.tx(async (t) =>
-            sessionView(t, await sessionOf(t, id))
+            sessionView(t, await sessionOf(t, id, owner))
           )
         );
       // Every other session route needs the session to exist.
-      await loadSession(ctx, id);
+      await loadSession(ctx, id, owner);
       const cursor = requestCursor(request, url);
       if (method === "GET" && path[3] === "items")
         return json(
@@ -226,12 +237,19 @@ export async function handle(
           (error as Error)?.message === "Invalid cursor"
         ? 400
         : 500;
+    const rejection = error instanceof HttpError ? error.rejection : {};
     json(
       {
         status: "rejected",
-        code: status === 500 ? "internal_error" : "request_rejected",
+        code:
+          status === 500
+            ? "internal_error"
+            : rejection.code ?? "request_rejected",
         message:
           status === 500 ? "Runtime request failed" : (error as Error).message,
+        ...(rejection.details === undefined
+          ? {}
+          : { details: rejection.details }),
       },
       status
     );

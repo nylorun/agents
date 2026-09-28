@@ -47,7 +47,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { scoped } from "./auth.js";
+import { ownerOf, scoped } from "./auth.js";
 import {
   actionTarget,
   rebaseSessionState,
@@ -136,7 +136,7 @@ export async function command(
   const { store } = ctx;
   const cascadeCancelIds: string[] = [];
   const response = await store.tx(async (t) => {
-    const s = await lockedSession(t, id);
+    const s = await lockedSession(t, id, ownerOf(scope));
     let command = input;
     if (command.type === "action_result") {
       const a =
@@ -145,7 +145,7 @@ export async function command(
       if (a.sessionId !== id) fail(403, "Action belongs to another session");
       scoped(scope, a);
       command = acceptedToolResult(a, command);
-    } else if (scope.kind !== "application")
+    } else if (scope.kind === "executor")
       fail(403, "Application credential required");
     const key = commandKey(id, command.idempotencyKey);
     const existing = await t.get("commands", key);

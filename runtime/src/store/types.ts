@@ -467,8 +467,10 @@ export interface Tx {
     now: Date,
     limit: number,
   ): Promise<StoredSession<T>[]>;
+  /** Sessions, optionally of one agent and one owner (`ownerUserId`), by id. */
   listSessions<T extends SessionDoc = SessionDoc>(filter?: {
     agentId?: string;
+    ownerUserId?: string;
   }): Promise<StoredSession<T>[]>;
   listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]>;
   listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]>;

@@ -2,13 +2,18 @@
  * An AG-UI endpoint over the Tenant's agents, as web-standard `Request` → `Response`
  * handlers. The host authenticates people (`subject`); the handler maps each AG-UI thread to
  * one session per subject, agent and thread, and streams the session's transcript events as
- * AG-UI events. It never trusts a session id from the client.
+ * AG-UI events. It never trusts a session id from the client, and it calls the Runtime as the
+ * subject (`client.as`), so the Runtime itself keeps one subject out of another's sessions.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { EventType, type BaseEvent, type Message, type RunAgentInput } from "@ag-ui/core";
 import { RunAgentInputSchema } from "@ag-ui/core/schemas";
 import type { BuiltWorkflow } from "@nylorun/core/define";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import {
+  parseSubjectHeaders,
+  type LiveEvent,
+  type SubjectScope,
+} from "@nylorun/core/contracts";
 import {
   createClient,
   type AgentSource,
@@ -21,7 +26,9 @@ import { SSE_CONTENT_TYPE, SSE_HEARTBEAT, sseFrame } from "./sse.js";
 import { RunTranslator } from "./translate.js";
 
 const HEARTBEAT_MS = 15_000;
-const TRANSCRIPT_FEATURE = "transcript-events";
+/** Host features the handler needs: the chat transcript, and acting for each subject. */
+const REQUIRED_FEATURES = ["transcript-events", "subject-headers"] as const;
+const DEFAULT_SCOPES: readonly SubjectScope[] = ["sessions:own"];
 const TERMINAL = new Set([
   "turn.completed",
   "turn.paused",
@@ -48,6 +55,11 @@ export interface AgUiHandlerOptions {
   basePath?: string;
   /** Application client. Default: `createClient()`, from the environment or the Project link. */
   client?: AgentsClient | Promise<AgentsClient>;
+  /**
+   * What each subject may do through this endpoint. Default `["sessions:own"]`; add
+   * `vaults:own` if `session()` attaches the person's vaults.
+   */
+  scopes?: readonly SubjectScope[];
   /** Optional per-session parameters, e.g. the person's vault for connected accounts. */
   session?(
     subject: string,
@@ -133,17 +145,21 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
     options.agents.map((agent) => (typeof agent === "string" ? agent : agent.id))
   );
   const base = normalizeBase(options.basePath);
+  const scopes = options.scopes ?? DEFAULT_SCOPES;
+  const checked = parseSubjectHeaders("probe", scopes.join(" "));
+  if (!checked.ok) throw new TypeError(`createAgUiHandler: ${checked.message}`);
   let ready: Promise<AgentsClient> | undefined;
 
-  /** The client, once the Runtime is known to write transcript events. Retries after a failure. */
+  /** The client, once the Runtime is known to have every required feature. Retries after a failure. */
   function connected(): Promise<AgentsClient> {
     ready ??= (async () => {
       const client = await (options.client ?? createClient());
       const features = await client.hostFeatures();
-      if (!features.includes(TRANSCRIPT_FEATURE))
+      const missing = REQUIRED_FEATURES.filter((f) => !features.includes(f));
+      if (missing.length > 0)
         throw new Problem(
           502,
-          `The Runtime does not support ${TRANSCRIPT_FEATURE}; upgrade the stack (nylorun up).`,
+          `The Runtime does not support ${missing.join(", ")}; upgrade the stack (nylorun up).`,
           "runtime_feature_missing"
         );
       return client;
@@ -152,6 +168,17 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
       ready = undefined;
     });
     return ready;
+  }
+
+  /** The client acting for `subject`: the Runtime limits it to the subject's own sessions. */
+  async function clientFor(subject: string): Promise<AgentsClient> {
+    const client = await connected();
+    try {
+      return client.as(subject, { scopes });
+    } catch (error) {
+      // The host's `subject` returned something the Runtime cannot name (see `as`).
+      throw new Problem(500, (error as Error).message, "subject_invalid");
+    }
   }
 
   async function subjectOf(request: Request): Promise<string> {
@@ -171,7 +198,7 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
   ): Promise<{ client: AgentsClient; subject: string; session: SessionClient }> {
     assertAgent(agentId);
     const subject = await subjectOf(request);
-    const client = await connected();
+    const client = await clientFor(subject);
     return {
       client,
       subject,
@@ -300,16 +327,17 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
       // Nylorun tools run in the Runtime or the app's executor; the browser runs none.
       if (input.tools?.length)
         throw new Problem(400, "Frontend tools are not supported");
-      const client = await connected();
+      const client = await clientFor(subject);
       const extra = (await options.session?.(subject, agentId)) ?? {};
       const translator = new RunTranslator(input.threadId, input.runId);
       let session: SessionClient;
       try {
+        // The host's parameters first: they never replace the session's identity.
         session = await client.createSession({
+          ...extra,
           id: sessionIdFor(subject, agentId, input.threadId),
           agentId,
           ownerUserId: subject,
-          ...extra,
         });
       } catch (error) {
         if (error instanceof RuntimeError && error.status === 409)
@@ -396,11 +424,12 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
         );
       // No turn is running: send what the client missed, if the run ended after the cursor.
       const missed: LiveEvent[] = [];
-      let page = await session.history({ cursor });
+      let from = cursor;
       for (;;) {
+        const page = await session.history({ cursor: from });
         missed.push(...page.items);
-        if (!page.cursor || page.items.length === 0) break;
-        page = await session.history({ cursor: page.cursor });
+        if (!page.cursor || page.cursor === from || page.items.length === 0) break;
+        from = page.cursor;
       }
       if (!missed.some((event) => TERMINAL.has(event.type)))
         return new Response(null, { status: 204 });

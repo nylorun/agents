@@ -84,8 +84,36 @@ _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
 flags and env vars that selected a database path.
 
 **Application principal**: Bearer credential hashed in the Tenant `principals`
-table. Authorizes definition and session routes for that Tenant only.
+table. Authorizes definition and session routes for that Tenant only. May act
+for a **subject** on any request, which only narrows what it can reach.
 _Avoid_: "server token" / `serverToken` as the public name (legacy API).
+
+**Subject**: The person an application principal acts for, named with
+`Nylorun-Subject` (feature `subject-headers`, `tenant/auth.ts`). Chosen by the
+integrator (`app:42`); 1–200 visible ASCII characters, `host` reserved (it owns
+the host model's vault). A subject reaches only sessions and vaults whose
+`ownerUserId` is the subject; another owner's resource is the same `404` as a
+missing one. Only application principals may send it; from an executor it is
+`403`.
+_Avoid_: "user" for the header value (the Runtime has no user accounts);
+per-person tokens (deferred until a credential must leave the app server).
+
+**Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
+(required, no default): `agents:read`, `agents:write`, `sessions:own`,
+`vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). `routeAccess` maps each
+route to the scopes that allow it, decided from the route alone before any
+lookup (`403 scope_required`); reset, config seed, executors, actions and the
+sandbox tool routes are open to no subject.
+
+**App server**: The developer's own server: signs people in, names the subject
+and scopes on each Runtime call (`client.as`), hosts the AG-UI handler and the
+executor, and strips any `Nylorun-*` header its clients send. Nylorun ships
+libraries that run inside it, not the server.
+_Avoid_: "proxy" or "gateway" for it in Nylorun docs.
+
+**Reverse proxy**: Infrastructure on the Runtime's machine, needed only when the
+app server is on another machine: TLS, `Host` rewrite, admin routes and Studio
+blocked. Configured by the developer (Caddy, nginx, Tailscale).
 
 **Executor principal**: Bearer credential hashed in the Tenant `executors`
 table, scoped to an `agentId`. Never equal to an application principal hash.
@@ -99,7 +127,8 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
 `admin-status` and `studio-principal`; optional Host features
-`tenant-fixture-model`, `transcript-events` and `derived-principals`).
+`tenant-fixture-model`, `transcript-events`, `derived-principals` and
+`subject-headers`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.

@@ -13,12 +13,15 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
  * `transcript-events`: the log carries `message.assistant` and `tool.completed`, and
  * tool `action.*` events carry `callId` and `invocationId`. `derived-principals`:
- * `POST /v1/admin/tenants` accepts `derivedPrincipals`.
+ * `POST /v1/admin/tenants` accepts `derivedPrincipals`. `subject-headers`: an application
+ * principal may act for a subject with `Nylorun-Subject` and `Nylorun-Scopes`, and the Runtime
+ * enforces the scopes and the subject's ownership of sessions and vaults.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
   "transcript-events",
   "derived-principals",
+  "subject-headers",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -35,6 +38,10 @@ export const DEFINITION_SCHEMA_VERSION = 2;
 
 export const TENANT_HEADER = "Nylorun-Tenant";
 export const PROTOCOL_HEADER = "Nylorun-Protocol";
+/** The subject an application principal acts for (Host feature `subject-headers`). */
+export const SUBJECT_HEADER = "Nylorun-Subject";
+/** The space-separated scopes of that subject; required with `Nylorun-Subject`. */
+export const SCOPES_HEADER = "Nylorun-Scopes";
 
 export const ERROR_CODES = [
   "not_found",
@@ -46,6 +53,8 @@ export const ERROR_CODES = [
   "active_work",
   "connection_missing",
   "incompatible_host",
+  "subject_invalid",
+  "scope_required",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

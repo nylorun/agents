@@ -36,6 +36,33 @@ Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
 
+## Serving people through an app server
+
+To put agents in front of people, run your own **app server** (vocabulary in
+[CONTEXT.md](./runtime/src/CONTEXT.md)): it signs people in, holds the Tenant
+key, and calls the Runtime for each person with
+`client.as(subject, { scopes })` or the AG-UI handler
+([agents/README.md](./agents/README.md#acting-for-a-person-app-servers)). The
+Runtime enforces the scopes and each subject's ownership of sessions and vaults
+itself.
+
+- Keep the Runtime off the network. An app server on the same machine calls
+  `http://localhost:<port>` (the URL `nylorun up` prints). An app server
+  container joins the stack's Compose network and calls `http://runtime:4000`,
+  which the stack already accepts as a `Host`. An app server on another
+  machine needs a reverse proxy in front of the Runtime; that recipe is not
+  part of this release.
+- Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
+  Studio for operators (loopback or an SSH tunnel).
+- The app server drops every `Nylorun-*` header its own clients send, never
+  forwards `Origin` (the Runtime refuses browser requests), and terminates TLS
+  for its clients.
+- The admin key and any application keys stay on the server; clients get
+  nothing. A server that holds the admin key can derive its Tenant key instead
+  of storing one (`admin.deriveTenantKey`, derived principals).
+- Removing a person is the app server's decision: it stops acting for them and
+  closes their open streams. There is no per-person credential to revoke.
+
 ## Container images
 
 Each release publishes the Runtime and Studio as multi-arch images

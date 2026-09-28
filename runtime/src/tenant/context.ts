@@ -13,7 +13,7 @@
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
-import type { TenantEnvelope } from "@nylorun/core/contracts";
+import type { SubjectScope, TenantEnvelope } from "@nylorun/core/contracts";
 import type {
   DurableCheckpoint,
   FlowCheckpoint,
@@ -77,6 +77,13 @@ export interface Session {
 
 export type AuthScope =
   | { kind: "application"; principalId: string }
+  /** An application principal acting for `subject` (`Nylorun-Subject`), narrowed to `scopes`. */
+  | {
+      kind: "subject";
+      principalId: string;
+      subject: string;
+      scopes: ReadonlySet<SubjectScope>;
+    }
   | { kind: "executor"; executor: ExecutorRecord };
 
 export interface TenantContext {
@@ -119,19 +126,32 @@ export interface TenantContext {
   onSweep(hook: () => Promise<void>): () => void;
 }
 
+/**
+ * `owner`, when set, is the subject the request acts for: another owner's session is the same
+ * 404 as a missing one, so a subject cannot learn which session ids exist.
+ */
+function owned<T extends Session>(session: T | undefined, owner?: string): T {
+  if (!session || (owner !== undefined && session.ownerUserId !== owner))
+    return fail(404, "Session not found");
+  return session;
+}
+
 /** The session, or a 404. Reads without locking. */
-export async function sessionOf(t: Tx, id: string): Promise<Session> {
-  return (
-    (await t.get<StoredSession<Session>>("sessions", id)) ??
-    fail(404, "Session not found")
-  );
+export async function sessionOf(
+  t: Tx,
+  id: string,
+  owner?: string
+): Promise<Session> {
+  return owned(await t.get<StoredSession<Session>>("sessions", id), owner);
 }
 
 /** Locks the session for the rest of the transaction and returns it, or a 404. */
-export async function lockedSession(t: Tx, id: string): Promise<Session> {
-  return (
-    (await t.lockSession<Session>(id)) ?? fail(404, "Session not found")
-  );
+export async function lockedSession(
+  t: Tx,
+  id: string,
+  owner?: string
+): Promise<Session> {
+  return owned(await t.lockSession<Session>(id), owner);
 }
 
 /** An advance's hold on its session (§10.6): every write the advance makes presents `epoch`. */
@@ -157,8 +177,12 @@ export async function ownedSession(
 }
 
 /** The session read in its own transaction, or a 404. */
-export function loadSession(ctx: TenantContext, id: string): Promise<Session> {
-  return ctx.store.tx((t) => sessionOf(t, id));
+export function loadSession(
+  ctx: TenantContext,
+  id: string,
+  owner?: string
+): Promise<Session> {
+  return ctx.store.tx((t) => sessionOf(t, id, owner));
 }
 
 /**
