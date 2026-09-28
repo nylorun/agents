@@ -580,7 +580,9 @@ export function tenantStreamsSuite(
       expect(await outage.json()).toMatchObject({ code: "request_rejected" });
 
       t.probe.down = false;
-      expect(await drainOutbox(contextOf(a.handle))).toBeGreaterThan(0);
+      // The Tenant sweep also drains the outbox (every few seconds), so this call can find it
+      // already empty. What must hold is below: every event arrives, once and in order.
+      await drainOutbox(contextOf(a.handle));
       const recovered = await t.items(a);
       expect(seqs(recovered.items)).toEqual(range(0, recovered.items.length));
       expect(recovered.items.map((e) => e.cursor)).toContain(accepted.cursor);

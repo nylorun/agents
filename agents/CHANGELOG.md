@@ -1,5 +1,36 @@
 # @nylorun/agents
 
+## 0.8.0-beta
+
+### Minor Changes
+
+- a322696: **`@nylorun/agents/ag-ui`: serve agents to AG-UI clients from your own server.** `createAgUiHandler({ basePath, agents, subject })` returns a web-standard `fetch` handler (plus `run`, `history`, `reattach` and `cancel`), and `toNodeListener` adapts it to `node:http` and Express.
+
+  - One session per person, agent and thread; the AG-UI message id is the idempotency key, so a retried run replays the same turn.
+  - Approvals become AG-UI interrupts and resume through `runAgent({ resume })`.
+  - History returns a plain AG-UI `Message[]` with the ids the live run used; reattach continues a run from `Last-Event-ID`.
+  - Needs a Runtime with `transcript-events`. Adds the `@ag-ui/core` dependency (`~1.0.0`), loaded only by this subpath.
+
+  `AgentsClient.hostFeatures()` returns the Runtime's protocol features, including optional ones.
+
+- 844bff3: **Act for a person: `Nylorun-Subject` and `Nylorun-Scopes`.** An app server that holds the Tenant key can name the person each request is for, and the Runtime enforces it (optional Host feature `subject-headers`).
+
+  - `client.as(subject, { scopes })` in `@nylorun/agents` sends both headers on every call, event streams included. Scopes: `agents:read`, `agents:write`, `sessions:own`, `vaults:own`, `tenant:settings`; default `["sessions:own"]`.
+  - The Runtime limits a subject to the routes its scopes allow (`403 scope_required`) and to its own sessions and vaults: another owner's session, vault or sandbox is the same `404` as a missing one, including `PUT` on its session id (was `409`). Reset, config seed, executors, actions and the sandbox tool routes are open to no subject. Only application keys may send the headers.
+  - The AG-UI handler calls the Runtime as each person and requires `subject-headers`; new optional `scopes` option. The host's `session()` parameters can no longer replace a session's id, agent or owner.
+  - Core exports `SUBJECT_HEADER`, `SCOPES_HEADER`, `SUBJECT_SCOPES` and `parseSubjectHeaders`. Postgres Tenant schemas migrate to version 2 (an indexed session owner column).
+
+  Requests without `Nylorun-Subject` are unchanged.
+
+### Patch Changes
+
+- 42272f8: The AG-UI handler answers `400` (`invalid_request`) when the Runtime refuses what the client sent, such as a `Last-Event-ID` it cannot read, instead of `502`.
+- Pin core to the tested release.
+- Updated dependencies [a322696]
+- Updated dependencies [844bff3]
+- Updated dependencies [a322696]
+  - @nylorun/core@0.7.0-beta
+
 ## 0.7.0-beta
 
 ### Minor Changes

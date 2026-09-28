@@ -1,5 +1,20 @@
 # @nylorun/cli
 
+## 0.4.1-beta
+
+### Patch Changes
+
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [a322696]
+- Updated dependencies [42272f8]
+- Updated dependencies [a322696]
+- Updated dependencies [844bff3]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.8.0-beta
+  - @nylorun/admin@0.4.0-beta
+
 ## 0.4.0-beta
 
 ### Minor Changes

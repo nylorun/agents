@@ -1,5 +1,17 @@
 # nylorun
 
+## 0.1.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [a322696]
+- Updated dependencies [844bff3]
+- Updated dependencies [a322696]
+  - @nylorun/core@0.7.0-beta
+
 ## 0.1.0-beta
 
 ### Minor Changes
