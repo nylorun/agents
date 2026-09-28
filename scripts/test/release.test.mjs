@@ -270,6 +270,71 @@ test("publication retries retain completed packages and never publish creator be
   );
 });
 
+test("a promotion tries every tag and names one command for the ones it cannot move", async () => {
+  const versions = {
+    core: "0.2.0-beta",
+    runtime: "0.2.0-beta",
+    nylorun: "0.1.0-beta",
+    "create-agent": "0.2.0-beta",
+  };
+  const plan = {
+    packages: versions,
+    channel: "latest",
+    compatibility: {
+      core: "0.2.0-beta",
+      harness: "0.11.0-beta",
+      agents: "0.1.0-beta",
+      admin: "0.1.0-beta",
+      runtime: "0.2.0-beta",
+      cli: "0.1.0-beta",
+    },
+  };
+  const artifacts = Object.fromEntries(
+    Object.keys(versions).map((name) => [name, { integrity: `${name}-hash`, path: `${name}.tgz` }]),
+  );
+  // Everything is already on the registry: a promotion publishes nothing.
+  const published = new Map(
+    [...Object.keys(versions), "harness", "agents", "admin", "cli"].map((name) => [
+      name,
+      { integrity: `${name}-hash` },
+    ]),
+  );
+  const tried = [];
+  const registry = {
+    lookup: async (name) => published.get(name),
+    checkTag: async () => {},
+    publish: async (name) => assert.fail(`published ${name}`),
+    waitFor: async (name) => published.get(name),
+    async ensureTag(name, version, channel) {
+      tried.push(name);
+      if (name === "runtime") return; // Already on the channel.
+      const scoped = name === "nylorun" ? name : `@nylorun/${name}`;
+      throw Object.assign(new Error(`${name} tag differs`), {
+        distTagCommand: `npm dist-tag add ${scoped}@${version} ${channel}`,
+      });
+    },
+  };
+  await assert.rejects(publishCandidates(plan, artifacts, registry), (error) => {
+    assert.match(error.message, /latest tag of 3 package\(s\) could not be moved/);
+    assert.ok(
+      error.message.includes(
+        "npm dist-tag add @nylorun/core@0.2.0-beta latest && " +
+          "npm dist-tag add nylorun@0.1.0-beta latest && " +
+          "npm dist-tag add @nylorun/create-agent@0.2.0-beta latest",
+      ),
+      error.message,
+    );
+    return true;
+  });
+  assert.deepEqual(tried.sort(), ["core", "create-agent", "nylorun", "runtime"]);
+
+  // Any other failure still stops the release at once.
+  registry.ensureTag = async () => {
+    throw new Error("registry unreachable");
+  };
+  await assert.rejects(publishCandidates(plan, artifacts, registry), /registry unreachable/);
+});
+
 test("publication waits for the engines together, then publishes the creator", async () => {
   const versions = {
     core: "0.2.0-beta",
