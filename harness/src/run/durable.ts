@@ -306,8 +306,10 @@ export async function runDurable(options: {
       definition: hostedDefinition(delegate.manifest, ref),
       onModelCall: modelCall(ref),
     }),
-    async announce(phase, ref, payload) {
-      await effect("delegation", payload, {}, `${ref.delegationId}:${phase}`, { agent: ref });
+    async announce(phase, ref, payload, ids) {
+      await effect("delegation", payload, { ...ids }, `${ref.delegationId}:${phase}`, {
+        agent: ref,
+      });
     },
   };
   const hosted = hostedDefinition(manifest);

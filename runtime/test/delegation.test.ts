@@ -264,6 +264,9 @@ it("runs agents used as tools on the root executor and journals them once", asyn
     expect(completed.every((item) => item.payload.status === "completed")).toBe(
       true
     );
+    // Each lifecycle event names the parent's tool call, for chat UIs.
+    for (const item of [...started, ...completed])
+      expect(item.payload.callId).toEqual(expect.any(String));
     const work = history.filter((item) => item.type.startsWith("action."));
     expect(work).toHaveLength(6);
     expect(

@@ -56,6 +56,7 @@ import {
   pinnedTool,
 } from "./session.js";
 import { command } from "./commands.js";
+import { assistantMessage, toolCompleted, toolIds } from "./transcript.js";
 import { abortKind } from "./worker.js";
 import type { ModelProvider } from "../core/provider.js";
 
@@ -118,6 +119,21 @@ type Journaled =
   | { kind: "flow" }
   | { kind: "invoke"; invoke: "model" | "mcp" | "sandbox" };
 
+/**
+ * What an effect's journal row must match on replay. A delegation's context carries only the
+ * parent's tool call id, for its events; rows journaled before it existed still match.
+ */
+function requestIdentity(request: HostEffect): HostEffect {
+  if (request.kind !== "delegation") return request;
+  const { context: _, ...identity } = request;
+  return identity as HostEffect;
+}
+
+function delegationCallId(request: HostEffect): { callId?: string } {
+  const callId = (request.context as { callId?: unknown } | undefined)?.callId;
+  return typeof callId === "string" ? { callId } : {};
+}
+
 export async function resolveEffect(
   ctx: TenantContext,
   request: HostEffect,
@@ -138,7 +154,7 @@ export async function resolveEffect(
     });
     const existing = await t.get("effects", request.effectId);
     if (existing) {
-      if (canonical(existing.request) !== canonical(request))
+      if (canonical(requestIdentity(existing.request)) !== canonical(requestIdentity(request)))
         throw new Error("Effect identity request drift");
       if (existing.status === "completed")
         return resolved({ status: "completed", outcome: existing.outcome });
@@ -184,7 +200,11 @@ export async function resolveEffect(
         s.id,
         s.activeTurnId,
         settled ? "delegation.completed" : "delegation.started",
-        { agent: request.agent, ...(request.input as object) }
+        {
+          agent: request.agent,
+          ...delegationCallId(request),
+          ...(request.input as object),
+        }
       );
       return resolved({ status: "completed", outcome });
     }
@@ -257,6 +277,7 @@ export async function resolveEffect(
       actionId: action.actionId,
       kind: action.kind,
       ...actionTarget(action),
+      ...(action.kind === "tool" ? toolIds(request.context) : {}),
       input: action.input,
     });
     t.signalWork();
@@ -291,6 +312,17 @@ export async function resolveEffect(
       effect.status = "completed";
       effect.outcome = { value };
       await t.put("effects", request.effectId, effect);
+      const transcript =
+        invoke === "model"
+          ? assistantMessage(request, value)
+          : toolCompleted(request, value);
+      if (transcript)
+        await t.event(
+          s.id,
+          request.turnId,
+          invoke === "model" ? "message.assistant" : "tool.completed",
+          transcript
+        );
       return { status: "completed" as const, outcome: effect.outcome };
     });
   } catch (error) {

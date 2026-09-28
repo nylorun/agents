@@ -11,8 +11,13 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * Host features no client requires: a client that uses one checks the Host's `/health`
  * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
  * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
+ * `transcript-events`: the log carries `message.assistant` and `tool.completed`, and
+ * tool `action.*` events carry `callId` and `invocationId`.
  */
-export const OPTIONAL_HOST_FEATURES = ["tenant-fixture-model"] as const;
+export const OPTIONAL_HOST_FEATURES = [
+  "tenant-fixture-model",
+  "transcript-events",
+] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
   min: number;

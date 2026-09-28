@@ -55,6 +55,7 @@ import {
   variantStore,
 } from "./session.js";
 import { signalSessionCancel } from "./streams.js";
+import { toolIds } from "./transcript.js";
 
 /** A tool result whose output does not match the Action's stored output schema fails the tool. */
 function acceptedToolResult(
@@ -63,7 +64,8 @@ function acceptedToolResult(
 ): Extract<SessionCommand, { type: "action_result" }> {
   if (action.kind !== "tool" || !action.outputSchema) return command;
   const value = command.outcome.value;
-  if (isFailedToolValue(value)) return command;
+  // Only a result carries output: failures, denials, interactions and deferrals pass as sent.
+  if (!isResultToolValue(value)) return command;
   // Executors wrap successful tool output as `{ kind: "completed", output }`.
   // Validate the tool payload, not the outcome envelope.
   const candidate = completedToolOutput(value);
@@ -103,12 +105,19 @@ function completedToolOutput(value: unknown): unknown {
   return value;
 }
 
-function isFailedToolValue(value: unknown): boolean {
-  return (
+const NON_RESULT_KINDS = new Set([
+  "failed",
+  "denied",
+  "interaction-required",
+  "deferred",
+]);
+
+function isResultToolValue(value: unknown): boolean {
+  return !(
     !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
-    (value as { kind?: unknown }).kind === "failed"
+    NON_RESULT_KINDS.has((value as { kind?: unknown }).kind as string)
   );
 }
 
@@ -184,6 +193,7 @@ export async function command(
         actionId: action.actionId,
         ...actionTarget(action),
         kind: action.kind,
+        ...(action.kind === "tool" ? toolIds(action.context) : {}),
         result: command.outcome.value,
       });
       if (action.kind === "verify") {

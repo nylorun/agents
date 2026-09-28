@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
-  PROTOCOL_FEATURES,
+  HOST_PROTOCOL,
   TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
@@ -238,7 +238,7 @@ export async function startTestTenant(
           protocol: {
             min: PROTOCOL_VERSION,
             max: PROTOCOL_VERSION,
-            features: [...PROTOCOL_FEATURES],
+            features: [...HOST_PROTOCOL.features],
           },
           coreVersion: "test",
           hostId: "host_test",

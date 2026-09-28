@@ -95,8 +95,7 @@ function workTool(gates: ReturnType<typeof createGates>) {
     name: "work",
     description: "Do the parity work.",
     input: z.object({ note: z.string() }),
-    // No output schema: Runtime `acceptedToolResult` would otherwise rewrite
-    // `interaction-required` outcomes as `tool.invalid-output` before pause.
+    output: z.object({ done: z.literal(true), note: z.string() }),
     approval: () => (gates.requireApproval ? "Approve work?" : false),
     async run({ note }) {
       await gates._runHold();
