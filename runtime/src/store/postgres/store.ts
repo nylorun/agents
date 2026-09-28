@@ -538,13 +538,20 @@ class PostgresTx implements Tx {
   }
 
   async listSessions<T extends SessionDoc = SessionDoc>(
-    filter: { agentId?: string } = {},
+    filter: { agentId?: string; ownerUserId?: string } = {},
   ): Promise<StoredSession<T>[]> {
     this.check();
+    const sql = this.sql;
+    const conditions = [
+      ...(filter.agentId === undefined ? [] : [sql`agent_id = ${filter.agentId}`]),
+      ...(filter.ownerUserId === undefined
+        ? []
+        : [sql`owner_user_id = ${filter.ownerUserId}`]),
+    ];
     return this.sessionRows<T>(
-      filter.agentId === undefined
+      conditions.length === 0
         ? undefined
-        : this.sql`agent_id = ${filter.agentId}`,
+        : conditions.reduce((all, next) => sql`${all} AND ${next}`),
     );
   }
 

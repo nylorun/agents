@@ -429,11 +429,14 @@ class MemoryTx implements Tx {
   }
 
   async listSessions<T extends SessionDoc = SessionDoc>(
-    filter: { agentId?: string } = {},
+    filter: { agentId?: string; ownerUserId?: string } = {},
   ): Promise<StoredSession<T>[]> {
     this.check();
     return this.sessions<T>().filter(
-      (s) => filter.agentId === undefined || s.agentId === filter.agentId,
+      (s) =>
+        (filter.agentId === undefined || s.agentId === filter.agentId) &&
+        (filter.ownerUserId === undefined ||
+          (s as { ownerUserId?: unknown }).ownerUserId === filter.ownerUserId),
     );
   }
 

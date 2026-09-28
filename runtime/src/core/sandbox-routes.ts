@@ -152,12 +152,15 @@ export async function handleActionSandboxTool(
 export function validateSandboxAttach(
   body: { ownerUserId: string; sandbox?: { session: string } },
   newManifest: SessionSandboxRef["manifest"],
-  lookup: (id: string) => SessionSandboxRef | undefined
+  lookup: (id: string) => SessionSandboxRef | undefined,
+  /** Acting for a subject: another owner's session is the 404 of a missing one. */
+  options: { opaque?: boolean } = {}
 ): string | undefined {
   const share = body.sandbox?.session;
   if (!share) return undefined;
   const owner = lookup(share);
-  if (!owner) throw new SandboxRouteError(404, "Sandbox session not found");
+  if (!owner || (options.opaque && owner.ownerUserId !== body.ownerUserId))
+    throw new SandboxRouteError(404, "Sandbox session not found");
   if (owner.ownerUserId !== body.ownerUserId)
     throw new SandboxRouteError(
       403,

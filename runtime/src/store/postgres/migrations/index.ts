@@ -15,6 +15,7 @@ import type { Sql, TransactionSql } from "postgres";
 import { quarantine } from "../../../tenant/quarantine.js";
 import { quoteIdentifier, tenantIdFromSchema } from "../names.js";
 import { initial } from "./001_initial.js";
+import { sessionOwner } from "./002_session_owner.js";
 
 export interface Migration {
   /** 1, 2, 3, … without gaps. */
@@ -24,7 +25,7 @@ export interface Migration {
   up(s: string): string;
 }
 
-export const MIGRATIONS: readonly Migration[] = [initial];
+export const MIGRATIONS: readonly Migration[] = [initial, sessionOwner];
 
 /** The schema version this Runtime writes and expects. */
 export const POSTGRES_SCHEMA_VERSION = MIGRATIONS.at(-1)!.version;

@@ -1311,3 +1311,57 @@ export const ResetTenantRequestSchema = z
   })
   .strict();
 export type ResetTenantRequest = z.infer<typeof ResetTenantRequestSchema>;
+
+/**
+ * Acting for a subject (Host feature `subject-headers`): what an application principal may
+ * narrow a request to. `sessions:own` and `vaults:own` reach only the subject's own sessions
+ * and vaults; the others reach Tenant-wide resources.
+ */
+export const SUBJECT_SCOPES = [
+  "agents:read",
+  "agents:write",
+  "sessions:own",
+  "vaults:own",
+  "tenant:settings",
+] as const;
+export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
+
+/** 1–200 visible ASCII characters; spaces only inside. */
+const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
+/** Owner ids the Runtime uses itself: the host model's vault is owned by `host`. */
+const RESERVED_SUBJECTS = new Set(["host"]);
+
+/**
+ * Validates `Nylorun-Subject` and `Nylorun-Scopes`. Returns the subject and its scopes, or a
+ * message naming what is wrong. Scopes are required: the Runtime never grants a default.
+ */
+export function parseSubjectHeaders(
+  subject: string,
+  scopes: string | undefined
+):
+  | { ok: true; subject: string; scopes: ReadonlySet<SubjectScope> }
+  | { ok: false; message: string } {
+  if (!SUBJECT_PATTERN.test(subject))
+    return {
+      ok: false,
+      message: "Nylorun-Subject must be 1-200 visible ASCII characters",
+    };
+  if (RESERVED_SUBJECTS.has(subject))
+    return { ok: false, message: `Subject ${subject} is reserved` };
+  const names = (scopes ?? "").split(" ").filter(Boolean);
+  if (names.length === 0)
+    return {
+      ok: false,
+      message: "Nylorun-Scopes is required with Nylorun-Subject",
+    };
+  const unknown = names.filter(
+    (name) => !(SUBJECT_SCOPES as readonly string[]).includes(name)
+  );
+  if (unknown.length > 0)
+    return { ok: false, message: `Unknown scope ${unknown.join(", ")}` };
+  return {
+    ok: true,
+    subject,
+    scopes: new Set(names as SubjectScope[]),
+  };
+}

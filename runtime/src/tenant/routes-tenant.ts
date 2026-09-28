@@ -19,6 +19,7 @@ import {
 import { hostModelCatalog } from "../model/catalog.js";
 import { resetTenant } from "./reset.js";
 import { buildTenantStatus, seedTenantConfig } from "./status.js";
+import { ownerOf } from "./auth.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { fail, readBody } from "./http.js";
 import { clearExecutorStreams, clearObservers } from "./live.js";
@@ -38,7 +39,8 @@ export async function dispatchTenant(
   request: IncomingMessage
 ): Promise<unknown> {
   const { vault } = ctx;
-  if (scope.kind !== "application") {
+  // A subject reaches only the routes `authorize` allowed its scopes.
+  if (scope.kind === "executor") {
     await vault.reject(path.join("/"));
     fail(403, "Application credential required");
   }
@@ -130,22 +132,30 @@ export async function dispatchVault(
   request: IncomingMessage
 ): Promise<unknown> {
   const { vault } = ctx;
-  if (scope.kind !== "application") {
+  if (scope.kind === "executor") {
     await vault.reject(path.join("/"));
     fail(403, "Application credential required");
   }
+  // Acting for a subject: only the subject's own vaults, and never on another's behalf.
+  const owner = ownerOf(scope);
   if (path.length === 2 && method === "POST") {
     const body = CreateVaultRequestSchema.parse(await readBody(request));
+    if (owner !== undefined && body.ownerUserId !== owner)
+      fail(403, "ownerUserId must be the subject");
     return vault.createVault(body);
   }
   if (path.length === 2 && method === "GET") {
     const ownerUserId =
       url.searchParams.get("ownerUserId") ??
+      owner ??
       fail(400, "ownerUserId is required");
+    if (owner !== undefined && ownerUserId !== owner)
+      fail(403, "ownerUserId must be the subject");
     return { vaults: await vault.listVaults(ownerUserId) };
   }
   const vaultId = path[2];
   if (!vaultId) fail(404, "Vault not found");
+  if (owner !== undefined) await vault.assertOwner(vaultId!, owner);
   if (path.length === 3 && method === "GET") return vault.getVault(vaultId);
   if (path.length === 3 && method === "DELETE")
     return vault.deleteVault(vaultId);

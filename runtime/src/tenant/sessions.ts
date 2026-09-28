@@ -68,9 +68,17 @@ export async function putDefinition(
   };
 }
 
-export async function listSessions(ctx: TenantContext, agentId: string | null) {
+/** `owner`, when the request acts for a subject, limits the list to that subject's sessions. */
+export async function listSessions(
+  ctx: TenantContext,
+  agentId: string | null,
+  owner?: string
+) {
   const sessions = await ctx.store.tx((t) =>
-    t.listSessions<Session>(agentId === null ? {} : { agentId })
+    t.listSessions<Session>({
+      ...(agentId === null ? {} : { agentId }),
+      ...(owner === undefined ? {} : { ownerUserId: owner }),
+    })
   );
   return {
     sessions: sessions.map((s) => ({
@@ -83,16 +91,27 @@ export async function listSessions(ctx: TenantContext, agentId: string | null) {
   };
 }
 
-/** Create a session from its definition, or re-attach vaults to an identical one. */
+/**
+ * Create a session from its definition, or re-attach vaults to an identical one. `owner`, when
+ * the request acts for a subject, must be the session's owner: another owner's session id is
+ * the 404 of a missing one (not the 409 of a mismatch), and so are another owner's vaults and
+ * sandboxes.
+ */
 export function putSession(
   ctx: TenantContext,
   id: string,
-  body: PutSessionRequest
+  body: PutSessionRequest,
+  owner?: string
 ): Promise<Session> {
   const vaultIds = body.vaultIds ?? [];
   const credentialSelections = body.credentialSelections ?? [];
+  const opaque = owner !== undefined;
+  if (opaque && body.ownerUserId !== owner)
+    fail(403, "ownerUserId must be the subject");
   return ctx.store.tx(async (t) => {
     const prior = await t.lockSession<Session>(id);
+    if (opaque && prior && prior.ownerUserId !== owner)
+      fail(404, "Session not found");
     const definition =
       prior === undefined || body.sandbox
         ? (await t.get<Definition>("definitions", body.agentId)) ??
@@ -102,14 +121,16 @@ export function putSession(
       ? validateSandboxAttach(
           body,
           (definition ?? prior)!.manifest as never,
-          await sandboxLookup(t, body.sandbox.session)
+          await sandboxLookup(t, body.sandbox.session),
+          { opaque }
         )
       : undefined;
     await ctx.vault.assertAttachment(
       t,
       body.ownerUserId,
       vaultIds,
-      credentialSelections
+      credentialSelections,
+      { opaque }
     );
     if (prior) {
       if (sessionIdentity(prior.creation) !== sessionIdentity(body))

@@ -14,6 +14,7 @@
  * createVault(body: CreateVaultRequest): Promise<VaultInfo>
  * listVaults(ownerUserId: string): Promise<VaultInfo[]>
  * getVault(id: string): Promise<VaultInfo>
+ * assertOwner(id: string, ownerUserId: string): Promise<void>
  * deleteVault(id: string): Promise<{ id: string }>
  * createCredential(vaultId: string, body: CreateCredentialRequest): Promise<CredentialInfo>
  * listCredentials(vaultId: string): Promise<CredentialInfo[]>
@@ -22,7 +23,7 @@
  * deleteCredential(vaultId: string, id: string): Promise<{ id: string }>
  *
  * // Attachment: run inside the caller's session PUT transaction.
- * assertAttachment(t: Tx, ownerUserId: string, vaultIds: readonly string[], selections: readonly CredentialSelection[]): Promise<void>
+ * assertAttachment(t: Tx, ownerUserId: string, vaultIds: readonly string[], selections: readonly CredentialSelection[], options?: { opaque?: boolean }): Promise<void>
  * recordAttachment(t: Tx, sessionId: string, vaultIds: readonly string[]): Promise<void>
  *
  * // Use: opens its own transactions; never call it inside one.
@@ -204,6 +205,15 @@ export class VaultService {
     return this.store.tx((t) => this.vaultInfo(t, id));
   }
 
+  /** Another owner's vault, or the host vault, is the same 404 as a missing one. */
+  async assertOwner(id: string, ownerUserId: string): Promise<void> {
+    await this.store.tx(async (t) => {
+      const row = await t.getVault(id);
+      if (!row || row.scope !== "user" || row.ownerUserId !== ownerUserId)
+        throw new VaultError(404, "Vault not found");
+    });
+  }
+
   async deleteVault(id: string): Promise<{ id: string }> {
     return this.store.tx(async (t) => {
       await this.vaultInfo(t, id);
@@ -350,12 +360,16 @@ export class VaultService {
 
   // --- attachment (caller's transaction) --------------------------------------
 
-  /** Checks a session's vaults and selections. Run in the session PUT transaction. */
+  /**
+   * Checks a session's vaults and selections. Run in the session PUT transaction. `opaque`
+   * (a request acting for a subject) reports another owner's vault as the 404 of a missing one.
+   */
   async assertAttachment(
     t: Tx,
     ownerUserId: string,
     vaultIds: readonly string[],
     selections: readonly CredentialSelection[],
+    options: { opaque?: boolean } = {},
   ): Promise<void> {
     if (new Set(vaultIds).size !== vaultIds.length)
       throw new VaultError(400, "Duplicate vault id");
@@ -367,7 +381,9 @@ export class VaultService {
       if (vault.scope === "host")
         throw new VaultError(400, "Host vault cannot be attached to a session");
       if (vault.ownerUserId !== ownerUserId)
-        throw new VaultError(403, "Vault belongs to another user");
+        throw options.opaque
+          ? new VaultError(404, "Vault not found")
+          : new VaultError(403, "Vault belongs to another user");
     }
     for (const selection of selections) {
       const row = await t.getCredential(selection.credentialId);
