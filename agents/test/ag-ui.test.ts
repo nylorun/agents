@@ -49,6 +49,8 @@ function fakeClient(
   } = {}
 ) {
   const requests: { method: string; path: string }[] = [];
+  /** What each request sent besides method and path, in the same order. */
+  const sent: { subject: string | null; scopes: string | null; body?: unknown }[] = [];
   const client = new AgentsClient({
     url: RUNTIME,
     key: KEY,
@@ -57,13 +59,19 @@ function fakeClient(
       const url = new URL(String(input));
       if (url.pathname === "/health") return health(options.features);
       requests.push({ method: init?.method ?? "GET", path: url.pathname });
+      const headers = new Headers(init?.headers);
+      sent.push({
+        subject: headers.get("nylorun-subject"),
+        scopes: headers.get("nylorun-scopes"),
+        ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) } : {}),
+      });
       return (
         options.respond?.(url, init) ??
         Response.json({ status: "rejected", message: "no" }, { status: 404 })
       );
     },
   });
-  return { client, requests };
+  return { client, requests, sent };
 }
 
 const runBody = (extra: Record<string, unknown> = {}) =>
@@ -77,7 +85,7 @@ const runBody = (extra: Record<string, unknown> = {}) =>
   });
 
 describe("createAgUiHandler routing", () => {
-  const { client, requests } = fakeClient();
+  const { client, requests, sent } = fakeClient();
   const handler = createAgUiHandler({
     basePath: "/api/agui/",
     agents: ["bot", { id: "helper" } as never],
@@ -142,6 +150,7 @@ describe("createAgUiHandler routing", () => {
   });
 
   it("answers an empty history for a thread that never ran, from a per-subject session", async () => {
+    sent.splice(0);
     const response = await call("/api/agui/bot/threads/t1/messages");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([]);
@@ -155,6 +164,61 @@ describe("createAgUiHandler routing", () => {
     expect(paths).toHaveLength(2);
     expect(paths[0]).toMatch(/^\/v1\/sessions\/[0-9a-f]{32}\/items$/);
     expect(paths[0]).not.toBe(paths[1]);
+    // Each call acts for its subject, so the Runtime enforces the separation too.
+    expect(sent.splice(0).map(({ subject, scopes }) => ({ subject, scopes }))).toEqual([
+      { subject: "ada", scopes: "sessions:own" },
+      { subject: "bob", scopes: "sessions:own" },
+    ]);
+  });
+});
+
+describe("createAgUiHandler acting for subjects", () => {
+  it("keeps the session's identity over the host's session parameters", async () => {
+    const { client, requests, sent } = fakeClient({
+      respond: (url, init) =>
+        init?.method === "PUT" && url.pathname.startsWith("/v1/sessions/")
+          ? Response.json({ id: "x" })
+          : undefined,
+    });
+    const handler = createAgUiHandler({
+      agents: ["bot"],
+      client,
+      scopes: ["sessions:own", "vaults:own"],
+      subject: () => "ada",
+      session: () =>
+        ({ id: "chosen", ownerUserId: "eve", agentId: "other", info: { a: 1 } }) as never,
+    });
+    await handler.fetch(new Request("http://app.test/bot", { method: "POST", body: runBody() }));
+    const put = requests.findIndex((r) => r.method === "PUT");
+    expect(requests[put]!.path).toMatch(/^\/v1\/sessions\/[0-9a-f]{32}$/);
+    expect(sent[put]).toMatchObject({
+      subject: "ada",
+      scopes: "sessions:own vaults:own",
+      body: { agentId: "bot", ownerUserId: "ada", info: { a: 1 } },
+    });
+  });
+
+  it("refuses unknown scopes when it is created", () => {
+    const { client } = fakeClient();
+    expect(() =>
+      createAgUiHandler({
+        agents: ["bot"],
+        client,
+        scopes: ["sessions:all" as never],
+        subject: () => "ada",
+      })
+    ).toThrow(/Unknown scope/);
+  });
+
+  it("answers 500 when the host names a subject the Runtime cannot", async () => {
+    const { client, requests } = fakeClient();
+    const handler = createAgUiHandler({ agents: ["bot"], client, subject: () => "host" });
+    const response = await handler.fetch(
+      new Request("http://app.test/bot/threads/t1/messages")
+    );
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ code: "subject_invalid" });
+    expect(requests).toEqual([]);
   });
 });
 
@@ -173,6 +237,22 @@ describe("createAgUiHandler against an older Runtime", () => {
     expect(await response.json()).toMatchObject({
       code: "runtime_feature_missing",
     });
+    expect(requests).toEqual([]);
+  });
+
+  it("requires subject-headers as well as transcript-events", async () => {
+    const { client, requests } = fakeClient({
+      features: HOST_PROTOCOL.features.filter((f) => f !== "subject-headers"),
+    });
+    const handler = createAgUiHandler({ agents: ["bot"], client, subject: () => "ada" });
+    const response = await handler.fetch(
+      new Request("http://app.test/bot", { method: "POST", body: runBody() })
+    );
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.code).toBe("runtime_feature_missing");
+    expect(body.error).toContain("subject-headers");
+    expect(body.error).not.toContain("transcript-events");
     expect(requests).toEqual([]);
   });
 });

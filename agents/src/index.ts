@@ -7,6 +7,8 @@ export {
   DEFINITION_SCHEMA_VERSION,
   TENANT_HEADER,
   PROTOCOL_HEADER,
+  SUBJECT_HEADER,
+  SCOPES_HEADER,
   TENANT_ID_PATTERN,
   isTenantId,
   newTenantId,
@@ -78,9 +80,12 @@ export type {
   CredentialInfo,
   CredentialSelection,
   VaultInfo,
+  SubjectScope,
 } from "@nylorun/core/contracts";
+export { SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";
 export type {
+  ActAsOptions,
   AgentSource,
   SessionView,
   CommandOptions,

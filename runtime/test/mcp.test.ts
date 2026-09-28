@@ -85,10 +85,14 @@ async function probe(options: {
           description: `Tool ${name}.`,
           inputSchema: { number: z.number().int() },
         },
-        async ({ number }) => ({
-          content: [{ type: "text", text: String(number) }],
-          structuredContent: { number, title: name },
-        }),
+        async ({ number }) => {
+          // A negative number is a tool error, which the server reports with `isError`.
+          if (number < 0) throw new Error(`no issue ${number}`);
+          return {
+            content: [{ type: "text", text: String(number) }],
+            structuredContent: { number, title: name },
+          };
+        },
       );
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await mcp.connect(transport);
@@ -300,6 +304,66 @@ it("discovers a remote MCP server with a bearer and calls it without an executor
     expect(history.items.some((item: { type: string }) => item.type === "action.pending")).toBe(
       false,
     );
+  } finally {
+    await runtime.close();
+    await remote.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("writes tool.completed with the output or the tool error of each MCP call", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mcp-transcript-"));
+  const remote = await probe({ name: "github", tool: "get_issue" });
+  const runtime = await boot(directory, async (effect: { input: unknown }) => {
+    const call = effect.input as { prompt?: { kind?: string }[] };
+    const results = (call.prompt ?? []).filter((item) => item.kind === "tool-result").length;
+    if (results >= 2) return { output: [{ type: "text", text: "done" }] };
+    return {
+      output: [
+        {
+          type: "tool-call",
+          id: `call-${results + 1}`,
+          name: "github__get_issue",
+          args: { number: results === 0 ? 7 : -1 },
+        },
+      ],
+    };
+  });
+  try {
+    const agent = Agent({ id: "bot", name: "Bot" })
+      .use({
+        id: "issue-management",
+        mcpServers: {
+          github: { name: "github", type: "streamable-http", url: remote.url },
+        },
+      })
+      .build();
+    await register(runtime, agent.manifest);
+    await openSession(runtime, "s1");
+    await say(runtime, "s1", "read two issues");
+    expect((await until(runtime, "s1", ["completed", "failed", "uncertain"])).status).toBe(
+      "completed",
+    );
+    const history = await (
+      await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })
+    ).json();
+    const completed = history.items
+      .filter((item: { type: string }) => item.type === "tool.completed")
+      .map((item: { payload: unknown }) => item.payload);
+    expect(completed).toEqual([
+      expect.objectContaining({
+        callId: "call-1",
+        capabilityId: "issue-management",
+        toolName: "github__get_issue",
+        output: { number: 7, title: "get_issue" },
+      }),
+      expect.objectContaining({
+        callId: "call-2",
+        toolName: "github__get_issue",
+        error: { code: "mcp.tool", message: expect.stringContaining("no issue -1") },
+      }),
+    ]);
+    expect(completed[1]).not.toHaveProperty("output");
   } finally {
     await runtime.close();
     await remote.close();

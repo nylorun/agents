@@ -78,14 +78,21 @@ function parseProtocolRange(value: unknown): ProtocolRange | undefined {
   };
 }
 
+/** The Host compatibility result, shared by a transport and its `withHeaders` copies. */
+interface HostCheck {
+  compatible: boolean;
+  /** Features the Host advertised at the last compatibility check. */
+  features: readonly string[];
+}
+
 export class Transport {
   readonly url: string;
   readonly key: string;
   readonly tenant: string;
   readonly fetcher: typeof fetch;
-  private compatible = false;
-  /** Features the Host advertised at the last compatibility check. */
-  private features: readonly string[] = [];
+  /** Sent on every request, e.g. `Nylorun-Subject` and `Nylorun-Scopes` (`withHeaders`). */
+  readonly headers: Readonly<Record<string, string>> = {};
+  private readonly check: HostCheck = { compatible: false, features: [] };
 
   constructor(
     options: Destination = {},
@@ -111,13 +118,24 @@ export class Transport {
     this.fetcher = options.fetch ?? globalThis.fetch;
   }
 
+  /**
+   * The same destination with `headers` added to every request. The copy shares this
+   * transport's compatibility check, so a copy made per request does not repeat `/health`.
+   */
+  withHeaders(headers: Readonly<Record<string, string>>): Transport {
+    const copy = Object.create(Transport.prototype) as Transport;
+    return Object.assign(copy, this, {
+      headers: Object.freeze({ ...this.headers, ...headers }),
+    });
+  }
+
   /** Clears the cached Host compatibility result (used after a 426). */
   clearCompatibilityCache(): void {
-    this.compatible = false;
+    this.check.compatible = false;
   }
 
   private async ensureCompatible(signal?: AbortSignal): Promise<void> {
-    if (this.compatible) return;
+    if (this.check.compatible) return;
     const response = await this.fetcher(`${this.url}/health`, {
       method: "GET",
       redirect: "error",
@@ -149,18 +167,20 @@ export class Transport {
       protocol,
     );
     if (!result.ok) throw new IncompatibleRuntimeError(result);
-    this.features = [...protocol.features];
-    this.compatible = true;
+    this.check.features = [...protocol.features];
+    this.check.compatible = true;
   }
 
   /** The Host's protocol features, including optional ones, from its `/health`. */
   async hostFeatures(signal?: AbortSignal): Promise<readonly string[]> {
     await this.ensureCompatible(signal);
-    return this.features;
+    return this.check.features;
   }
 
   private authHeaders(init: RequestInit = {}): Headers {
     const headers = new Headers(init.headers);
+    for (const [name, value] of Object.entries(this.headers))
+      headers.set(name, value);
     headers.set("Authorization", `Bearer ${this.key}`);
     headers.set(TENANT_HEADER, this.tenant);
     headers.set(PROTOCOL_HEADER, String(PROTOCOL_VERSION));

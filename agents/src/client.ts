@@ -12,9 +12,12 @@ import {
   isBuiltWorkflow,
   isSandboxToolName,
 } from "@nylorun/core/define";
+import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import {
   LiveEventSchema,
   SessionItemsResponseSchema,
+  parseSubjectHeaders,
+  type SubjectScope,
   type AcceptedResponse,
   type CredentialInfo,
   type CredentialSelection,
@@ -106,10 +109,39 @@ export interface SessionView {
   waits?: unknown;
   [key: string]: unknown;
 }
+export interface ActAsOptions {
+  /** What the subject may do; the Runtime grants nothing else. Default `["sessions:own"]`. */
+  scopes?: readonly SubjectScope[];
+}
+
 export class AgentsClient {
   readonly transport: Transport;
+  /** The subject this client acts for (`as`), or `undefined` for the principal itself. */
+  readonly subject: string | undefined;
   constructor(destination: Destination = {}) {
     this.transport = new Transport(destination);
+    this.subject = undefined;
+  }
+  /**
+   * A client that acts for `subject`: every call sends `Nylorun-Subject` and
+   * `Nylorun-Scopes`, and the Runtime limits it to the scopes and to the subject's own sessions
+   * and vaults (Host feature `subject-headers`). For app servers, which authenticate the person
+   * themselves and hold the key; nothing is minted, cached or refreshed.
+   */
+  as(subject: string, options: ActAsOptions = {}): AgentsClient {
+    if (this.subject !== undefined)
+      throw new Error(`This client already acts for ${this.subject}`);
+    const scopes = [...(options.scopes ?? ["sessions:own"])].join(" ");
+    const parsed = parseSubjectHeaders(subject, scopes);
+    if (!parsed.ok) throw new TypeError(parsed.message);
+    const client = Object.create(AgentsClient.prototype) as AgentsClient;
+    return Object.assign(client, {
+      transport: this.transport.withHeaders({
+        [SUBJECT_HEADER]: subject,
+        [SCOPES_HEADER]: [...parsed.scopes].join(" "),
+      }),
+      subject,
+    });
   }
   /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
