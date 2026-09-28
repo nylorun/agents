@@ -42,9 +42,10 @@ To put agents in front of people, run your own **app server** (vocabulary in
 [CONTEXT.md](./runtime/src/CONTEXT.md)): it signs people in, holds the Tenant
 key, and calls the Runtime for each person with
 `client.as(subject, { scopes })` or the AG-UI handler
-([agents/README.md](./agents/README.md#acting-for-a-person-app-servers)). The
-Runtime enforces the scopes and each subject's ownership of sessions and vaults
-itself.
+([agents/README.md](./agents/README.md#acting-for-a-person-app-servers); a
+complete web backend is in
+[examples](./examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
+enforces the scopes and each subject's ownership of sessions and vaults itself.
 
 - Keep the Runtime off the network. An app server on the same machine calls
   `http://localhost:<port>` (the URL `nylorun up` prints). An app server

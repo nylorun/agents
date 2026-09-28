@@ -198,6 +198,20 @@ describe("createAgUiHandler acting for subjects", () => {
     });
   });
 
+  it("answers 400 when the Runtime refuses what the client sent", async () => {
+    const { client } = fakeClient({
+      respond: () =>
+        Response.json({ status: "rejected", message: "Invalid cursor" }, { status: 400 }),
+    });
+    const handler = createAgUiHandler({ agents: ["bot"], client, subject: () => "ada" });
+    const response = await handler.fetch(new Request("http://app.test/bot/threads/t1/messages"));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "The request was rejected",
+      code: "invalid_request",
+    });
+  });
+
   it("refuses unknown scopes when it is created", () => {
     const { client } = fakeClient();
     expect(() =>

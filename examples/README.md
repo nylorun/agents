@@ -32,6 +32,70 @@ The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed
 - `Create sales.csv with three regions and numbers, then use Python to total them.`
 - `Download https://example.com with curl.` The request is blocked: the default `dev` network preset allows only package registries and code hosts.
 
+## An agent in your web app (AG-UI)
+
+[`src/ag-ui/`](./src/ag-ui/) is a web backend that puts the
+[support agent](./agents/ag-ui/support.ts) in front of its signed-in users. The
+browser speaks [AG-UI](https://docs.ag-ui.com) to the backend; the backend signs
+people in, hosts the handler and runs the agent's tools. The whole integration
+is [`app.ts`](./src/ag-ui/app.ts):
+
+```ts
+const connection = connectAgents({ agents: [support] }); // the tools run here
+const agui = createAgUiHandler({
+  basePath: "/api/agui",
+  agents: [support], // nothing else is reachable
+  subject: (request) => userFromCookie(request)?.id, // your sign-in; undefined → 401
+});
+createServer(toNodeListener(agui)).listen(3000);
+```
+
+Run it with the stack and the examples Tenant from `npm run dev`:
+
+```sh
+npm run ag-ui
+curl -N -H 'cookie: demo_user=ada' -H 'content-type: application/json' \
+  -d '{"threadId":"t1","runId":"r1","messages":[{"id":"m1","role":"user","content":"Where is demo-123?"}],"tools":[],"context":[],"state":{},"forwardedProps":{}}' \
+  http://localhost:3000/api/agui/support
+```
+
+The run ends with an approval interrupt for `lookup_order`; resume it with a
+second run that carries `resume: [{ interruptId, status: "resolved", payload: { approved: true } }]`.
+For a UI, point CopilotKit or `@ag-ui/client`'s `HttpAgent` at
+`/api/agui/support`. [`test/ag-ui.test.ts`](./test/ag-ui.test.ts) drives the same
+flow for two people against an in-memory Runtime.
+
+The handler is a web-standard `fetch` function, so it mounts anywhere:
+
+```ts
+// Next.js: app/api/agui/[...path]/route.ts
+export const GET = agui.fetch, POST = agui.fetch;
+
+// Hono
+app.all("/api/agui/*", (c) => agui.fetch(c.req.raw));
+```
+
+On a serverless platform, run `connectAgents` as its own long-lived process; the
+handler itself holds no state between requests.
+
+Rules for a web backend:
+
+- One Tenant per environment (`prod`, `staging`). Your users are subjects, not
+  Tenants.
+- The subject is your user id, namespaced and stable (`app:<id>`), never an
+  email address. [`demo-auth.ts`](./src/ag-ui/demo-auth.ts) is a stand-in:
+  replace it with your session lookup.
+- The application key and the Runtime URL stay on the server. The browser gets
+  AG-UI events and nothing else; the handler calls the Runtime as each person
+  (`client.as`), so people only reach their own threads, and any `Nylorun-*`
+  header a browser sends is ignored.
+- Per-user credentials (a user's GitHub, their Drive): run the provider's OAuth
+  yourself, store the grant in the user's vault with
+  `app.as(subject, { scopes: ["vaults:own"] })`, and attach it with the
+  handler's `session` option, adding `"vaults:own"` to its `scopes`.
+- The Runtime stays off the network: see
+  [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
+
 ## Generated shell and authored examples
 
 The creator owns the shell files listed in `.scaffold-manifest.json`, including `src/index.ts`, `tsconfig.json`, and `package.json`. Change their source in `create-agent/starter/` or `create-agent/examples.recipe.json`, then run `npm run examples:sync` from the repository root. Sync never changes the authored `agents/` tree, tests, other scripts, credentials, model selection, or application data. CI rejects shell drift and incompatible integrations.
