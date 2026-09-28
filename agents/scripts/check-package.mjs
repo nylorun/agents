@@ -20,7 +20,21 @@ try {
   );
   if (execution.length)
     throw new Error(`SDK loaded execution modules: ${execution.join(", ")}`);
-  console.log("SDK entry point imports; no engine or host modules loaded.");
+  // Only `@nylorun/agents/ag-ui` loads the AG-UI protocol package.
+  const agUi = loaded.filter((url) => /[/\\]@ag-ui[/\\]/.test(url));
+  if (agUi.length)
+    throw new Error(`SDK entry point loaded AG-UI modules: ${agUi.join(", ")}`);
+  const { createAgUiHandler, toNodeListener } = await import(
+    "@nylorun/agents/ag-ui"
+  );
+  if (
+    typeof createAgUiHandler !== "function" ||
+    typeof toNodeListener !== "function"
+  )
+    throw new Error("Missing @nylorun/agents/ag-ui exports");
+  console.log(
+    "SDK entry point imports; no engine, host or AG-UI modules loaded."
+  );
 } finally {
   hooks.deregister();
 }
