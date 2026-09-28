@@ -46,9 +46,12 @@ try {
       import { Agent } from '@nylorun/agents/define';
       import { createClient } from '@nylorun/agents/client';
       import { connectAgents } from '@nylorun/agents/executor';
+      import { createAgUiHandler, toNodeListener } from '@nylorun/agents/ag-ui';
       assert.equal(Agent({id:'isolated',name:'Isolated'}).manifest.id, 'isolated');
       assert.equal(typeof createClient, 'function');
       assert.equal(typeof connectAgents, 'function');
+      assert.equal(typeof createAgUiHandler, 'function');
+      assert.equal(typeof toNodeListener, 'function');
     `
         : `
       // The Host entry needs Postgres (and the rest of the stack), so here it

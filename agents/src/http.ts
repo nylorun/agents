@@ -84,6 +84,8 @@ export class Transport {
   readonly tenant: string;
   readonly fetcher: typeof fetch;
   private compatible = false;
+  /** Features the Host advertised at the last compatibility check. */
+  private features: readonly string[] = [];
 
   constructor(
     options: Destination = {},
@@ -147,7 +149,14 @@ export class Transport {
       protocol,
     );
     if (!result.ok) throw new IncompatibleRuntimeError(result);
+    this.features = [...protocol.features];
     this.compatible = true;
+  }
+
+  /** The Host's protocol features, including optional ones, from its `/health`. */
+  async hostFeatures(signal?: AbortSignal): Promise<readonly string[]> {
+    await this.ensureCompatible(signal);
+    return this.features;
   }
 
   private authHeaders(init: RequestInit = {}): Headers {

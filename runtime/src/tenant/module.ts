@@ -227,6 +227,9 @@ export function createTenantModule(
         ...(input.studioCredentialHash
           ? { studioCredentialHash: input.studioCredentialHash }
           : {}),
+        ...(input.derivedPrincipals?.length
+          ? { derivedPrincipals: input.derivedPrincipals }
+          : {}),
       };
       // The store records its own schema version.
       const envelope = envelopeNow({

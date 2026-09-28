@@ -16,6 +16,7 @@ import { canonical } from "./utils/canonical.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
+import { DERIVED_PRINCIPAL_ID_PATTERN } from "./compatibility.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
@@ -749,6 +750,144 @@ export const ActionSchema = z.union([
   verifyActionSchema,
 ]);
 export type Action = z.infer<typeof ActionSchema>;
+
+/**
+ * Transcript events (Host feature `transcript-events`): the log entries a chat UI
+ * renders. `LiveEvent.payload` stays `unknown` on the wire; `parseTranscriptEvent`
+ * types the ones a client reads. Objects pass unknown fields through, so a newer
+ * Host can add fields without breaking older clients.
+ */
+const eventAgent = { agent: AgentRefSchema.passthrough().optional() };
+const toolIds = {
+  /** The model's tool call id. */
+  callId: z.string().min(1),
+  /** The harness invocation of the call; interactions refer to it. */
+  invocationId: z.string().min(1),
+};
+/** `message.assistant`: one completed model step. `invocationId` is the model call's. */
+export const AssistantMessagePayloadSchema = z
+  .object({
+    invocationId: z.string().min(1),
+    text: z.string(),
+    toolCalls: z.array(
+      z
+        .object({
+          callId: z.string().min(1),
+          name: z.string().min(1),
+          input: z.unknown(),
+        })
+        .passthrough()
+    ),
+    ...eventAgent,
+  })
+  .passthrough();
+/** `tool.completed`: an MCP or sandbox tool the Runtime ran. `error` for a tool error. */
+export const ToolCompletedPayloadSchema = z
+  .object({
+    ...toolIds,
+    capabilityId: z.string().min(1),
+    toolName: z.string().min(1),
+    output: z.unknown().optional(),
+    error: z.object({ code: z.string(), message: z.string() }).passthrough().optional(),
+    ...eventAgent,
+  })
+  .passthrough();
+/** `action.pending` and `action.completed`; tool actions carry `callId` and `invocationId`. */
+const actionEventBase = {
+  actionId: z.string().min(1),
+  kind: z.string(),
+  toolName: z.string().optional(),
+  callId: z.string().optional(),
+  invocationId: z.string().optional(),
+  ...eventAgent,
+};
+export const ActionPendingPayloadSchema = z
+  .object({ ...actionEventBase, input: z.unknown() })
+  .passthrough();
+export const ActionCompletedPayloadSchema = z
+  .object({ ...actionEventBase, result: z.unknown() })
+  .passthrough();
+export const ActionUncertainPayloadSchema = z
+  .object({ actionId: z.string().min(1), ...eventAgent })
+  .passthrough();
+export const EffectUncertainPayloadSchema = z
+  .object({ effectId: z.string().min(1), message: z.string().optional() })
+  .passthrough();
+export const TurnCompletedPayloadSchema = z
+  .object({ output: z.unknown() })
+  .passthrough();
+export const TurnPausedPayloadSchema = z
+  .object({
+    interactions: z.array(
+      z
+        .object({
+          invocationId: z.string().min(1),
+          interaction: z
+            .object({ id: z.string().min(1), kind: z.string() })
+            .passthrough(),
+          status: z.string().optional(),
+        })
+        .passthrough()
+    ),
+  })
+  .passthrough();
+/** Either `{ error: { code, message } }` or, when a segment threw, `{ message }`. */
+export const TurnFailedPayloadSchema = z
+  .object({
+    error: z
+      .object({ code: z.string().optional(), message: z.string().optional() })
+      .passthrough()
+      .optional(),
+    message: z.string().optional(),
+  })
+  .passthrough();
+export const TurnCancelledPayloadSchema = z
+  .object({ reason: z.string().optional() })
+  .passthrough();
+/** Lifecycle of an agent used as a tool. `agent.delegationId` is the parent call's invocation. */
+export const DelegationPayloadSchema = z
+  .object({
+    agent: AgentRefSchema.passthrough(),
+    callId: z.string().optional(),
+  })
+  .passthrough();
+const TRANSCRIPT_PAYLOADS = {
+  "message.assistant": AssistantMessagePayloadSchema,
+  "tool.completed": ToolCompletedPayloadSchema,
+  "action.pending": ActionPendingPayloadSchema,
+  "action.completed": ActionCompletedPayloadSchema,
+  "action.uncertain": ActionUncertainPayloadSchema,
+  "effect.uncertain": EffectUncertainPayloadSchema,
+  "turn.completed": TurnCompletedPayloadSchema,
+  "turn.paused": TurnPausedPayloadSchema,
+  "turn.failed": TurnFailedPayloadSchema,
+  "turn.cancelled": TurnCancelledPayloadSchema,
+  "delegation.started": DelegationPayloadSchema,
+  "delegation.completed": DelegationPayloadSchema,
+} as const;
+export type TranscriptEventType = keyof typeof TRANSCRIPT_PAYLOADS;
+export const TRANSCRIPT_EVENT_TYPES = Object.keys(
+  TRANSCRIPT_PAYLOADS
+) as readonly TranscriptEventType[];
+export type TranscriptEvent = {
+  [K in TranscriptEventType]: Omit<LiveEvent, "type" | "payload"> & {
+    type: K;
+    payload: z.infer<(typeof TRANSCRIPT_PAYLOADS)[K]>;
+  };
+}[TranscriptEventType];
+/** Types a transcript event's payload; `undefined` for other types or a malformed payload. */
+export function parseTranscriptEvent(
+  event: LiveEvent
+): TranscriptEvent | undefined {
+  if (!Object.hasOwn(TRANSCRIPT_PAYLOADS, event.type)) return undefined;
+  const parsed =
+    TRANSCRIPT_PAYLOADS[event.type as TranscriptEventType].safeParse(
+      event.payload
+    );
+  return parsed.success
+    ? ({ ...event, payload: parsed.data } as TranscriptEvent)
+    : undefined;
+}
 export const ActionClaimRequestSchema = z
   .object({
     requestId: RequestIdSchema,
@@ -880,8 +1019,47 @@ export const CreateTenantRequestSchema = z
       .string()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
+    /**
+     * SHA-256 of each derived principal's key (feature `derived-principals`): application
+     * principals whose keys the admin key derives, so their clients store no key.
+     */
+    derivedPrincipals: z
+      .array(
+        z
+          .object({
+            id: z
+              .string()
+              .regex(DERIVED_PRINCIPAL_ID_PATTERN)
+              .refine((id) => id !== "studio", "principal id `studio` is reserved"),
+            credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
+          })
+          .strict()
+      )
+      .max(16)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((body, ctx) => {
+    const ids = new Set([body.principalId]);
+    const hashes = new Set([body.credentialHash]);
+    if (body.studioCredentialHash) hashes.add(body.studioCredentialHash);
+    for (const [index, principal] of (body.derivedPrincipals ?? []).entries()) {
+      if (ids.has(principal.id))
+        ctx.addIssue({
+          code: "custom",
+          path: ["derivedPrincipals", index, "id"],
+          message: `Principal id ${principal.id} is used twice`,
+        });
+      if (hashes.has(principal.credentialHash))
+        ctx.addIssue({
+          code: "custom",
+          path: ["derivedPrincipals", index, "credentialHash"],
+          message: "Every principal needs its own credential",
+        });
+      ids.add(principal.id);
+      hashes.add(principal.credentialHash);
+    }
+  });
 export type CreateTenantRequest = z.infer<typeof CreateTenantRequestSchema>;
 
 export const AdminTenantSchema = z

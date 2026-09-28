@@ -22,8 +22,16 @@ export interface DelegationHost {
     delegate: Delegate,
     ref: AgentRef,
   ): { readonly definition: AgentDefinition; readonly onModelCall: ModelAdapter };
-  /** Journal a lifecycle point exactly once. Local runs have nothing to journal. */
-  announce?(phase: "started" | "settled", ref: AgentRef, payload: JsonObject): Promise<void>;
+  /**
+   * Journal a lifecycle point exactly once. Local runs have nothing to journal. `callId` is
+   * the parent model's tool call id, for display only; it is not part of the point's identity.
+   */
+  announce?(
+    phase: "started" | "settled",
+    ref: AgentRef,
+    payload: JsonObject,
+    ids?: { readonly callId: string },
+  ): Promise<void>;
 }
 
 /** Engine-internal options for execute(); not part of the public RunOptions. */
@@ -87,7 +95,7 @@ export async function runDelegation(
   };
   const task = (call.args as { task: string }).task;
   const host = invocation.delegation ?? localDelegation(options.onModelCall);
-  await host.announce?.("started", ref, { task });
+  await host.announce?.("started", ref, { task }, { callId: call.callId });
   invocation.observe({ type: "delegation.started", ...ids, attributes: { task } });
   let outcome: ToolOutcome;
   let status: RunResult<JsonValue>["status"] = "failed";
@@ -123,10 +131,12 @@ export async function runDelegation(
       outcome = { kind: "failed", code: "delegation.failed", message: cause.message };
     else outcome = { kind: "failed", code: "delegation.failed", message: String(cause) };
   }
-  await host.announce?.("settled", ref, {
-    status,
-    outcome: outcome as unknown as JsonValue,
-  });
+  await host.announce?.(
+    "settled",
+    ref,
+    { status, outcome: outcome as unknown as JsonValue },
+    { callId: call.callId },
+  );
   invocation.observe({
     type: "delegation.completed",
     ...ids,

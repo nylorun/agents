@@ -111,6 +111,10 @@ export class AgentsClient {
   constructor(destination: Destination = {}) {
     this.transport = new Transport(destination);
   }
+  /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
+  hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
+    return this.transport.hostFeatures(options.signal);
+  }
   listAgents(
     options: { signal?: AbortSignal } = {}
   ): Promise<{ agents: { manifest: AgentManifest }[] }> {

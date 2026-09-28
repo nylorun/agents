@@ -163,6 +163,38 @@ describe.skipIf(!STACK_ENABLED)("Postgres Tenant catalog", () => {
       ).rejects.toBeInstanceOf(TenantConflictError);
   });
 
+  it("stores derived principals and compares them on a retried create", async () => {
+    const c = catalog();
+    const derived = [
+      { id: "babai", credentialHash: hex("e") },
+      { id: "smoke", credentialHash: hex("f") },
+    ];
+    const id = await create(c, bootstrap({ derivedPrincipals: derived }));
+    const rows = await sql()`
+      SELECT id, token_hash, idempotency_key FROM ${sql()(`${tenantSchemaName(id)}.principals`)}
+      WHERE id IN ('babai', 'smoke') ORDER BY id`;
+    expect(rows.map((row) => ({ ...row }))).toEqual([
+      { id: "babai", token_hash: hex("e"), idempotency_key: null },
+      { id: "smoke", token_hash: hex("f"), idempotency_key: null },
+    ]);
+    await expect(
+      c.createTenant({
+        envelope: envelope(id),
+        principals: bootstrap({ derivedPrincipals: derived }),
+      }),
+    ).resolves.toMatchObject({ status: "exists" });
+    for (const different of [
+      [{ id: "babai", credentialHash: hex("9") }],
+      [{ id: "other", credentialHash: hex("e") }],
+    ])
+      await expect(
+        c.createTenant({
+          envelope: envelope(id),
+          principals: bootstrap({ derivedPrincipals: different }),
+        }),
+      ).rejects.toBeInstanceOf(TenantConflictError);
+  });
+
   it("creates a Tenant once under concurrent creates", async () => {
     const c = catalog();
     const id = newTenantId();

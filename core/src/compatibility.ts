@@ -11,8 +11,15 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * Host features no client requires: a client that uses one checks the Host's `/health`
  * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
  * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
+ * `transcript-events`: the log carries `message.assistant` and `tool.completed`, and
+ * tool `action.*` events carry `callId` and `invocationId`. `derived-principals`:
+ * `POST /v1/admin/tenants` accepts `derivedPrincipals`.
  */
-export const OPTIONAL_HOST_FEATURES = ["tenant-fixture-model"] as const;
+export const OPTIONAL_HOST_FEATURES = [
+  "tenant-fixture-model",
+  "transcript-events",
+  "derived-principals",
+] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
   min: number;
@@ -46,6 +53,8 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 const CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz";
 export const TENANT_ID_PATTERN = /^tn_[0-9a-hjkmnp-tv-z]{26}$/;
 export const PRINCIPAL_ID_PATTERN = /^pr_[0-9a-hjkmnp-tv-z]{26}$/;
+/** A derived principal's id names its client, e.g. `babai`; `studio` is reserved. */
+export const DERIVED_PRINCIPAL_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
 export function isTenantId(value: unknown): value is string {
   return typeof value === "string" && TENANT_ID_PATTERN.test(value);

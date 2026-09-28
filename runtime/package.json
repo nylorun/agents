@@ -66,6 +66,7 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@ag-ui/client": "1.0.0",
     "@types/node": "^26.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "hono": "^4.13.8",

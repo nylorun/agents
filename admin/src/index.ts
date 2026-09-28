@@ -11,13 +11,13 @@ import {
   type ErrorCode,
 } from "@nylorun/core/compatibility";
 import { AdminClient, resolveAdminConnection } from "./client.js";
-import { deriveStudioToken } from "./derived-credentials.js";
+import { deriveStudioToken, deriveTenantKey } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
-export { deriveStudioToken };
+export { deriveStudioToken, deriveTenantKey };
 
 export interface Admin {
   readonly url: string;
@@ -29,9 +29,17 @@ export interface Admin {
     id: string,
     options?: { activeWork?: "refuse" | "drain" | "cancel" },
   ): Promise<void>;
+  /**
+   * Creates a Tenant. `principals` names derived principals (e.g. `["babai"]`): their keys
+   * come from `deriveTenantKey`, so their clients store none. Needs Host feature
+   * `derived-principals`.
+   */
   createTenant(options: {
     name: string;
+    principals?: readonly string[];
   }): Promise<{ tenant: TenantEnvelope; applicationKey: string }>;
+  /** The key of a derived principal on a Tenant, from this client's admin key. */
+  deriveTenantKey(tenantId: string, principalId: string): string;
 }
 
 export function createAdmin(options?: {
