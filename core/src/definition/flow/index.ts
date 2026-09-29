@@ -3,6 +3,23 @@ import type { Flow } from "./types.js";
 
 export { FlowBuilder, isFlowBuilder } from "./spec.js";
 export { compileAgentFlow } from "./compile.js";
+export type { FlowImplementations } from "./from.js";
+export {
+  ROOT_POSITION,
+  childPosition,
+  embeddedAgent,
+  forEachFlowNode,
+  functionKey,
+  indexSuffix,
+  isLeafNode,
+  isWorkflowManifestV2,
+  leafPart,
+  leafPath,
+  stageKey,
+  stripIndices,
+  type FlowFunctionRole,
+  type FlowNodeVisit,
+} from "./paths.js";
 export type * from "./types.js";
 
 /**

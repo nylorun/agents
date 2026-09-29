@@ -19,6 +19,7 @@ import type {
 } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue } from "@nylorun/core/define";
+import { embeddedAgent, hashManifest, isWorkflowManifestV2 } from "@nylorun/core/define";
 import {
   countActiveFlowWork,
   deriveAgentEffectSessionId,
@@ -479,6 +480,8 @@ export async function resolveNewFlowEffect(
     agentId: string;
     input: JsonValue;
     path: string;
+    /** v2: the nested flow agents, outermost first, whose `agents` hold this leaf. */
+    flow?: readonly string[];
     manifest?: AgentManifest;
   };
   const path = body.path ?? request.path!;
@@ -510,9 +513,7 @@ export async function resolveNewFlowEffect(
     const exists = await t.lockSession(agentSessionId);
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
-    const definition =
-      (await t.get("definitions", body.agentId)) ??
-      fail(404, "Definition not found");
+    const definition = await leafDefinition(t, workflow, body);
     const sandboxOwnerId =
       sandboxSpecOf(workflow.manifest) || workflow.sandboxOwnerId
         ? owningSandboxSessionId(
@@ -572,13 +573,15 @@ export async function resolveNewFlowEffect(
   return store.tx(async (t): Promise<EffectResolution> => {
     const s = await ownedSession(t, lease, request.sessionId);
     const agent = await sessionOf(t, agentSessionId);
-    await t.event(s.id, s.activeTurnId, "loop.iteration", {
-      path: String(request.context.loopPath ?? path.split("/")[0]),
-      n,
-      sessionId: agentSessionId,
-      turnId: accepted.turnId ?? undefined,
-      manifestHash: agent.checkpoint?.manifestHash,
-    });
+    // Only a Loop's own agent turns are iterations; a step elsewhere in the flow is not.
+    if (typeof request.context.loopPath === "string")
+      await t.event(s.id, s.activeTurnId, "loop.iteration", {
+        path: request.context.loopPath,
+        n,
+        sessionId: agentSessionId,
+        turnId: accepted.turnId ?? undefined,
+        manifestHash: agent.checkpoint?.manifestHash,
+      });
     await t.event(s.id, s.activeTurnId, "node.agent", {
       path,
       iterations,
@@ -726,4 +729,53 @@ export async function authorize(
     ]);
   }
   return result;
+}
+
+/**
+ * The definition a flow leaf's session runs. A v2 workflow embeds its leaves, so they
+ * come from the workflow's own manifest and can't drift from it; v1 leaves come from the
+ * registry by id.
+ */
+async function leafDefinition(
+  t: Tx,
+  workflow: Session,
+  body: { readonly agentId: string; readonly flow?: readonly string[] }
+): Promise<{
+  manifest: AgentManifest;
+  manifestHash: string;
+  implementationVersion: string;
+  pluginRoots?: Readonly<Record<string, string>>;
+}> {
+  if (isWorkflowManifestV2(workflow.manifest)) {
+    const leaf = embeddedAgent(workflow.manifest, body.flow ?? [], body.agentId);
+    if (!leaf || isWorkflowManifestV2(leaf as { kind?: unknown; workflowSchemaVersion?: unknown }))
+      fail(404, `Agent '${body.agentId}' is not embedded in workflow '${workflow.manifest.id}'`);
+    const manifest = leaf as AgentManifest;
+    return {
+      manifest,
+      manifestHash: hashManifest(manifest),
+      implementationVersion: workflow.implementationVersion,
+      pluginRoots: leafPluginRoots(workflow.pluginRoots, body.agentId),
+    };
+  }
+  const definition = await t.get("definitions", body.agentId);
+  if (!definition) fail(404, "Definition not found");
+  return definition as {
+    manifest: AgentManifest;
+    manifestHash: string;
+    implementationVersion: string;
+    pluginRoots?: Readonly<Record<string, string>>;
+  };
+}
+
+/** A v2 workflow keys its leaves' plugin roots `<agentId>/<capability>`. */
+function leafPluginRoots(
+  roots: Readonly<Record<string, string>> | undefined,
+  agentId: string
+): Record<string, string> {
+  const own: Record<string, string> = {};
+  const prefix = `${agentId}/`;
+  for (const [key, root] of Object.entries(roots ?? {}))
+    if (key.startsWith(prefix)) own[key.slice(prefix.length)] = root;
+  return own;
 }

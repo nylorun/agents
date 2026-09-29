@@ -176,10 +176,11 @@ Delegate when the parent should keep the answer. When a specialist should own th
 An agent's body is either a ReAct loop (the model decides) or a flow (your code
 decides). A flow agent is built from stages, each shaped `.stage(whatRuns, { how })`,
 and is registered, saved and opened as a session like any agent: put it in
-`export const agents`, `saveAgent(flowAgent)` (the agents it uses are saved first),
-then `createSession({ agentId })` and `session.input(value)`. `input` sends string
-values as `content` and other JSON as `data`. On the wire a flow agent is a
-workflow (`kind: "workflow"`).
+`export const agents`, `saveAgent(flowAgent)`, then `createSession({ agentId })`
+and `session.input(value)`. `input` sends string values as `content` and other JSON
+as `data`. On the wire a flow agent is a workflow manifest v2 (`kind: "workflow"`,
+`workflowSchemaVersion: 2`) that embeds the agents it runs, so one document and one
+manifest hash cover the whole flow; its agents are not listed on their own.
 
 ```ts
 import { Agent, tool } from "@nylorun/agents";
@@ -231,12 +232,22 @@ the `id` option names a step. `flow()` builds a sequence with no id for a case,
 branch, map item or loop body that is more than one step. Types flow from each
 step's `.output()` schema to the next stage's `input`.
 
-`Chain`, `Switch`, `Parallel`, `Map` and `Loop` still build the same workflows
-directly; flow agents compile to them.
+Agents inside a flow keep their own sessions, linked from the flow's session and
+named by the agent: a step's id (the agent's id, or `{ id }`), with `[i]` for each
+Map item and a nested flow agent's id in front of its own agents'. Control stages
+add nothing, so wrapping a step in `.loop()` or moving it between cases keeps its
+session. An agent may appear once per flow; use it again under a new id with
+`.step(writer, { id: "final-writer" })` or `writer.withId("…")`
+(`flow.duplicate-leaf`). Functions are bound under stage keys: a stage's `id`, or
+its position such as `@1.default.1`, plus `:input`, `:on`, `:verify` or `:decide`.
+Name the stages you may reorder.
 
-Agents inside a flow keep their own sessions (linked from the flow's session)
-and share one sandbox: declare it with `.sandbox(spec)` on the flow agent and give
-every agent in it that uses a sandbox the same spec, attach with `createSession({ …, sandbox: { session } })`, call
+`Chain`, `Switch`, `Parallel`, `Map` and `Loop` still build workflow manifest v1
+directly and run as before; a flow agent can't be a child of them.
+
+The agents in a flow share one sandbox: declare it with `.sandbox(spec)` on the
+flow agent and give the agents that use it `.sandbox()` with no options (an agent
+that declares its own spec must match), attach with `createSession({ …, sandbox: { session } })`, call
 built-ins via `session.sandbox` (application) or `ctx.sandbox` (executor).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and

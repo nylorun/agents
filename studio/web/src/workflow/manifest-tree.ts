@@ -1,8 +1,14 @@
 import {
+  ROOT_POSITION,
+  childPosition,
   joinPath,
+  leafPart,
   nodeKeyOf,
+  stageKey,
   type WorkflowManifest,
+  type WorkflowManifestV2,
   type WorkflowNode,
+  type WorkflowNodeV2,
   type WorkflowTreeNode,
 } from "./types.ts";
 
@@ -160,7 +166,112 @@ function walk(
  * Chain → row, Switch → fork, Parallel → lanes, Map → one lane, Loop → iteration badge host.
  */
 export function treeFromManifest(manifest: WorkflowManifest): WorkflowTreeNode {
+  if (manifest.workflowSchemaVersion === 2) return walkV2(manifest, manifest.root, ROOT_POSITION, "");
   return walk(manifest.root, "");
+}
+
+/**
+ * v2: leaves are drawn at their session paths (the paths `node.agent` and tool
+ * `action.*` events carry); control stages at their stage keys (`route`, `@1`), which
+ * Loop events carry. A nested flow agent is drawn inline under its own id.
+ */
+function walkV2(
+  flow: WorkflowManifestV2,
+  node: WorkflowNodeV2,
+  position: string,
+  prefix: string,
+): WorkflowTreeNode {
+  const key = stageKey(node, position, prefix);
+  const part = leafPart(node);
+  if ("agent" in node) {
+    const embedded = flow.agents[node.agent] as
+      | (WorkflowManifestV2 & { readonly kind?: string })
+      | undefined;
+    if (embedded?.kind === "workflow" && embedded.workflowSchemaVersion === 2)
+      return {
+        path: key,
+        key,
+        kind: "flow",
+        layout: "row",
+        label: part!,
+        agentId: node.agent,
+        children: [walkV2(embedded, embedded.root, ROOT_POSITION, key)],
+      };
+    return leaf(key, "agent", part!, { agentId: node.agent });
+  }
+  if ("tool" in node) return leaf(key, "tool", part!);
+  const label = node.id ?? position;
+  const wrap = (kind: "case" | "branch", name: string, child: WorkflowNodeV2) => {
+    const at = childPosition(position, name);
+    const path = prefix ? `${prefix}/${at}` : at;
+    return {
+      path,
+      key: path,
+      kind,
+      layout: "leaf" as const,
+      label: name,
+      children: [walkV2(flow, child, at, prefix)],
+    };
+  };
+  if ("chain" in node)
+    return {
+      path: key,
+      key,
+      kind: "chain",
+      layout: "row",
+      label,
+      children: node.chain.map((step, index) =>
+        walkV2(flow, step, childPosition(position, index), prefix),
+      ),
+    };
+  if ("switch" in node)
+    return {
+      path: key,
+      key,
+      kind: "switch",
+      layout: "fork",
+      label,
+      children: [
+        ...Object.entries(node.switch.cases).map(([name, child]) => wrap("case", name, child)),
+        ...(node.switch.default ? [wrap("case", "default", node.switch.default)] : []),
+      ],
+    };
+  if ("parallel" in node)
+    return {
+      path: key,
+      key,
+      kind: "parallel",
+      layout: "lanes",
+      label,
+      children: Object.entries(node.parallel).map(([name, child]) => wrap("branch", name, child)),
+    };
+  if ("map" in node)
+    return {
+      path: key,
+      key,
+      kind: "map",
+      layout: "map",
+      label,
+      children: [walkV2(flow, node.map.each, childPosition(position, "each"), prefix)],
+    };
+  if ("loop" in node) {
+    const verify = node.loop.verify;
+    return {
+      path: key,
+      key,
+      kind: "loop",
+      layout: "loop",
+      label: node.loop.max === undefined ? label : `${label} · max ${node.loop.max}`,
+      children: [
+        walkV2(flow, node.loop.run, childPosition(position, "run"), prefix),
+        "agent" in verify
+          ? walkV2(flow, verify, childPosition(position, "verify"), prefix)
+          : leaf(`${key}:verify`, "fn", "verify"),
+        ...(node.loop.decide ? [leaf(`${key}:decide`, "fn", "decide")] : []),
+      ],
+    };
+  }
+  throw new Error("Unknown workflow node");
 }
 
 /** Expand a Map node into indexed item lanes for drill-down. */

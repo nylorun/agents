@@ -55,13 +55,20 @@ array in item order.
 **Loop**: Workflow primitive: run → verify → decide, repeating until decide returns
 an output. Distinct from the **Turn loop** above.
 
-**Slot**: `{ run, id?, input? }` — the only way to rename a child or reshape data
-between nodes.
+**Slot** (manifest v1): `{ run, id?, input? }` — the only way to rename a child or
+reshape data between nodes. Manifest v2 has no slots: any node carries `id` and `input`.
 
-**Path**: Address of a node in the tree (`parent/child`; Map items append `[index]`).
+**Path**: Address of a node in the tree. v1: `parent/child`, Map items append
+`[index]`. v2 (**leaf path**): an agent's or tool's id, `[index]` per enclosing Map
+item, under the ids of nested flow agents; control stages add nothing.
 
-**Key**: The path without Map indices. The executor routes `tool`, `fn`, and
-`verify` actions by `(workflowId, key)`.
+**Key**: What the executor routes `tool`, `fn`, and `verify` actions by, with the
+workflow id. v1: the path without Map indices. v2 (**stage key**): a leaf's id, a
+control stage's `id`, or its position from the flow root (`@1.default.1`), plus
+`:input`, `:on`, `:verify` or `:decide` for functions.
+
+**Flow agent**: An `Agent` whose body is a flow; compiles to workflow manifest v2,
+which embeds its agents. A nested flow agent runs inline with its own `flowInput`.
 
 **Iteration vector**: Enclosing Loop iteration numbers, outermost first. Not part
 of the path.

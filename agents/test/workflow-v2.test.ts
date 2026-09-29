@@ -1,0 +1,219 @@
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
+import type { Action } from "@nylorun/core/contracts";
+import { Agent, hashManifest, tool } from "../src/index.js";
+import { AgentsClient } from "../src/client.js";
+import { connectAgents } from "../src/executor.js";
+import { executeAction } from "../src/execute-action.js";
+
+/**
+ * Flow Agents Phase 2 in the SDK: a flow agent is saved as one workflow manifest v2
+ * document, and its executor serves flow actions only for the manifest it runs.
+ */
+
+const TENANT = "tn_00000000000000000000000001";
+const KEY = "a".repeat(64);
+const URL = "http://127.0.0.1:8787";
+
+function healthOk() {
+  return Response.json({
+    status: "ok",
+    service: "nylorun-runtime",
+    version: "0.9.0-beta",
+    protocol: { ...HOST_PROTOCOL },
+    coreVersion: "0.4.0-beta",
+    hostId: "host_00000000000000000000000001",
+    pid: 1,
+  });
+}
+
+function pluginFolder(): string {
+  const directory = mkdtempSync(join(tmpdir(), "nylorun-v2-plugin-"));
+  const write = (path: string, contents: string) => {
+    mkdirSync(dirname(join(directory, path)), { recursive: true });
+    writeFileSync(join(directory, path), contents);
+  };
+  write(
+    "plugin.json",
+    JSON.stringify({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: "github",
+      version: "1.0.0",
+      description: "GitHub helpers.",
+    })
+  );
+  write("skills/open-pr/SKILL.md", "---\nname: open-pr\ndescription: Open a PR.\n---\nSteps.\n");
+  return directory;
+}
+
+const shout = tool({
+  name: "shout",
+  input: z.object({ word: z.string() }),
+  async run({ word }) {
+    return word.toUpperCase();
+  },
+});
+
+function deskWith(pluginRoot: string) {
+  const writer = Agent({ id: "writer" }).instructions("Write.").plugin(pluginRoot);
+  return Agent({ id: "desk" })
+    .step(writer)
+    .step(shout, { input: ({ input }) => ({ word: String(input) }) })
+    .build();
+}
+
+describe("saveAgent with a v2 flow agent", () => {
+  it("PUTs one document, carrying its agents' plugin roots", async () => {
+    const root = pluginFolder();
+    const desk = deskWith(root);
+    const puts: { path: string; body: any }[] = [];
+    const client = new AgentsClient({
+      url: URL,
+      key: KEY,
+      tenant: TENANT,
+      fetch: async (url, init) => {
+        if (String(url).endsWith("/health")) return healthOk();
+        if (init?.method === "PUT") {
+          puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init.body)) });
+          return Response.json({ ok: true });
+        }
+        throw new Error(`unexpected ${url}`);
+      },
+    });
+    await client.saveAgent(desk, { implementationVersion: "test" });
+    expect(puts.map((p) => p.path)).toEqual(["desk"]);
+    expect(puts[0]!.body.manifest.workflowSchemaVersion).toBe(2);
+    expect(puts[0]!.body.pluginRoots).toEqual({ "writer/github": realpathSync(root) });
+  });
+});
+
+describe("connectAgents with a v2 flow agent", () => {
+  it("saves only the flow agent, and registers its executor with the manifest hash", async () => {
+    const desk = deskWith(pluginFolder());
+    const saved: string[] = [];
+    let registrations: { agentId: string; manifestHash?: string }[] = [];
+    const application = new AgentsClient({
+      url: URL,
+      key: KEY,
+      tenant: TENANT,
+      fetch: async (url, init) => {
+        const path = String(url);
+        if (path.endsWith("/health")) return healthOk();
+        if (path.includes("/v1/agents/") && init?.method === "PUT") {
+          saved.push(decodeURIComponent(path.split("/").pop()!));
+          return Response.json({ ok: true });
+        }
+        if (path.endsWith("/v1/executors") && init?.method === "PUT") {
+          registrations = JSON.parse(String(init.body)).executors;
+          return Response.json({
+            executors: registrations.map((e) => ({ agentId: e.agentId, implementationVersion: "test", rotated: false })),
+          });
+        }
+        if (path.endsWith("/v1/executors/connect"))
+          return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+        if (path.endsWith("/v1/actions")) return Response.json({ actions: [] });
+        throw new Error(`unexpected ${path}`);
+      },
+    });
+    const connection = connectAgents({ agents: [desk], application, implementationVersion: "test", onError: () => {} });
+    await connection.ready;
+    await connection.close();
+    expect(saved).toEqual(["desk"]);
+    expect(registrations.map((r) => [r.agentId, r.manifestHash])).toEqual([
+      ["desk", hashManifest(desk.manifest)],
+      ["writer", undefined],
+    ]);
+  });
+
+  it("leaves flow actions for another manifest hash unclaimed", async () => {
+    const desk = deskWith(pluginFolder());
+    const action = (id: string, manifestHash: string) => ({
+      actionId: id,
+      sessionId: "s1",
+      turnId: "t1",
+      agentId: "desk",
+      manifestHash,
+      implementationVersion: "test",
+      kind: "fn",
+      path: "shout:input",
+      key: "shout:input",
+      input: { input: "hi", results: {}, flowInput: "go" },
+      context: {},
+      status: "pending",
+      generation: 0,
+      claimId: null,
+      leaseExpiresAt: null,
+    });
+    const claims: string[] = [];
+    const errors: string[] = [];
+    const connection = connectAgents({
+      agents: [desk],
+      implementationVersion: "test",
+      runtime: {
+        url: URL,
+        key: "e".repeat(64),
+        tenant: TENANT,
+        fetch: async (url, init) => {
+          const path = String(url);
+          if (path.endsWith("/health")) return healthOk();
+          if (path.endsWith("/v1/executors/connect"))
+            return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+          if (path.endsWith("/v1/actions"))
+            return Response.json({ actions: [action("old", "sha256:old"), action("current", hashManifest(desk.manifest))] });
+          if (path.includes("/claim")) {
+            claims.push(path.split("/").at(-2)!);
+            return new Response("gone", { status: 409 });
+          }
+          return Response.json({});
+        },
+      },
+      onError: (error) => errors.push(String((error as Error).message)),
+    });
+    await connection.ready;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await connection.close();
+    expect(claims).toEqual(["current"]);
+    expect(errors.some((e) => e.includes("Skipped action old"))).toBe(true);
+  });
+});
+
+describe("executeAction on a v2 flow agent", () => {
+  it("routes fn and tool actions by stage key", async () => {
+    const desk = deskWith(pluginFolder());
+    const base = {
+      sessionId: "s1",
+      turnId: "t1",
+      agentId: "desk",
+      manifestHash: hashManifest(desk.manifest),
+      implementationVersion: "test",
+      context: {},
+      status: "claimed" as const,
+      generation: 1,
+      claimId: "claim",
+      leaseExpiresAt: null,
+    };
+    const input = await executeAction(
+      {
+        ...base,
+        actionId: "a1",
+        kind: "fn",
+        path: "shout:input",
+        key: "shout:input",
+        input: { input: "hello", results: {}, flowInput: "go" },
+      } as Action,
+      desk,
+      new AbortController().signal
+    );
+    expect(input).toEqual({ value: { word: "hello" } });
+    const loud = await executeAction(
+      { ...base, actionId: "a2", kind: "tool", path: "shout", key: "shout", input: { word: "hello" } } as Action,
+      desk,
+      new AbortController().signal
+    );
+    expect(loud).toMatchObject({ value: { kind: "completed", output: "HELLO" } });
+  });
+});

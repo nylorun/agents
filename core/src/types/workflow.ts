@@ -1,7 +1,7 @@
 import type { AgentBinding } from "../definition/binding.js";
 import type { BoundToolDefinition } from "../definition/bound.js";
 import type { JsonObject, JsonValue } from "./shared.js";
-import type { SandboxManifest } from "./manifest.js";
+import type { AgentManifest, SandboxManifest } from "./manifest.js";
 
 /** Loop verify outcome: pass, or fail with required feedback. */
 export type Verdict =
@@ -87,14 +87,101 @@ export type WorkflowNode =
   | WorkflowLoopNode
   | WorkflowSlotNode;
 
-/** Wire document for a workflow definition. Missing `kind` is never a workflow. */
-export interface WorkflowManifest {
+/** Workflow manifest v1: control nodes carry ids, and agents are resolved from the registry. */
+export interface WorkflowManifestV1 {
   readonly kind: "workflow";
   readonly workflowSchemaVersion: 1;
   readonly id: string;
   readonly root: WorkflowNode;
   readonly sandbox?: SandboxManifest;
 }
+
+// ── Workflow manifest v2 (Flow Agents) ──────────────────────────────────────
+
+/**
+ * Fields every v2 node may carry. `id` names the stage: for an agent or tool it
+ * replaces the leaf's path part, for a control node it is the stage key and the
+ * `results` key. `input` marks a function that reshapes what the node receives.
+ */
+export interface WorkflowNodeOptionsV2 {
+  readonly id?: string;
+  readonly input?: WorkflowFnRef;
+}
+
+/** Agent leaf, or a nested flow agent: a key of the enclosing manifest's `agents`. */
+export interface WorkflowAgentNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly agent: string;
+}
+
+export interface WorkflowToolNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly tool: WorkflowToolNode["tool"];
+}
+
+export interface WorkflowChainNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly chain: readonly WorkflowNodeV2[];
+}
+
+export interface WorkflowSwitchNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly switch: {
+    readonly on: WorkflowFnRef;
+    readonly cases: Readonly<Record<string, WorkflowNodeV2>>;
+    readonly default?: WorkflowNodeV2;
+  };
+}
+
+export interface WorkflowParallelNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly parallel: Readonly<Record<string, WorkflowNodeV2>>;
+}
+
+/** Runs `each` once per item of its input, which must be an array. */
+export interface WorkflowMapNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly map: { readonly each: WorkflowNodeV2 };
+}
+
+/**
+ * Runs `run`, judges it with `verify`, then retries or stops. Without `decide`, a pass
+ * returns the output and a fail retries with the feedback, up to `max` attempts.
+ */
+export interface WorkflowLoopNodeV2 extends WorkflowNodeOptionsV2 {
+  readonly loop: {
+    readonly run: WorkflowNodeV2;
+    readonly verify: WorkflowFnRef | WorkflowAgentNodeV2;
+    readonly max?: number;
+    readonly decide?: WorkflowFnRef;
+  };
+}
+
+export type WorkflowNodeV2 =
+  | WorkflowAgentNodeV2
+  | WorkflowToolNodeV2
+  | WorkflowChainNodeV2
+  | WorkflowSwitchNodeV2
+  | WorkflowParallelNodeV2
+  | WorkflowMapNodeV2
+  | WorkflowLoopNodeV2;
+
+/**
+ * Workflow manifest v2: a flow agent. Its leaf agents are embedded in `agents`, so one
+ * manifest hash covers the whole agent, and session paths come from the leaves.
+ */
+export interface WorkflowManifestV2 {
+  readonly kind: "workflow";
+  readonly workflowSchemaVersion: 2;
+  readonly id: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly metadata?: JsonObject;
+  readonly inputSchema?: JsonObject;
+  readonly outputSchema?: JsonObject;
+  /** The sandbox every leaf that declares one shares. */
+  readonly sandbox?: SandboxManifest;
+  readonly root: WorkflowNodeV2;
+  /** Every agent the flow runs, by id: ReAct agents (v4) and nested flow agents (v2). */
+  readonly agents: Readonly<Record<string, AgentManifest | WorkflowManifestV2>>;
+}
+
+/** Wire document for a workflow definition. Missing `kind` is never a workflow. */
+export type WorkflowManifest = WorkflowManifestV1 | WorkflowManifestV2;
 
 /**
  * Local implementation for a node key: a tool node, a pure `fn`, or a Loop `verify` function.

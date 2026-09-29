@@ -1,49 +1,75 @@
 /**
- * Compile a flow agent's stages to today's workflow primitives (WorkflowManifest v1).
+ * Compile a flow agent's stages to workflow manifest v2.
  *
- * Phase 1 of Flow Agents: the new syntax changes, the wire does not. Stages become
- * `Chain`, `Switch`, `Parallel`, `Map` and `Loop` nodes plus slots; user functions
- * receive `{ input, results, flowInput }` and are adapted to the shapes the flow
- * engine passes today.
+ * Each stage becomes one node with optional `id` and `input`; leaf agents are
+ * embedded in `agents`; user functions are bound under stage keys (`route:on`,
+ * `@1.default.1:input`) and receive `{ input, results, flowInput }` from the engine
+ * as written. Paths and keys follow `./paths.ts`.
  */
-import type { JsonValue, JsonObject, BuildDiagnostic } from "../../types/shared.js";
+import type { JsonObject, BuildDiagnostic } from "../../types/shared.js";
 import type { ToolSchemaSource } from "../../types/tool.js";
-import type { SandboxManifest } from "../../types/manifest.js";
-import type { WorkflowManifest } from "../../types/workflow.js";
+import type { AgentManifest, SandboxManifest } from "../../types/manifest.js";
+import type { BuiltAgent } from "../../types/agent.js";
+import type {
+  WorkflowAgentNodeV2,
+  WorkflowBinding,
+  WorkflowManifestV2,
+  WorkflowNodeImplementation,
+  WorkflowNodeV2,
+} from "../../types/workflow.js";
+import type { AgentBinding } from "../binding.js";
+import { bindingFromAgent } from "../binding.js";
+import type { BoundToolDefinition } from "../bound.js";
+import { bindOutputContract } from "../output-contract.js";
+import { copyJsonObject } from "../../utils/immutable.js";
 import { canonical } from "../../utils/canonical.js";
-import { Chain } from "../workflow/chain.js";
-import { Switch } from "../workflow/switch.js";
-import { Parallel } from "../workflow/parallel.js";
-import { Map as MapNode } from "../workflow/map.js";
-import { Loop } from "../workflow/loop.js";
-import { isSlot, type ChildRef, type Slot } from "../workflow/slot.js";
 import { diagnostic, fail } from "../workflow/diagnostics.js";
-import type { BuiltWorkflow } from "../workflow/types.js";
+import { isBuiltWorkflow, type BuiltWorkflow } from "../workflow/types.js";
 import {
-  isFlowBuilder,
-  isNamedChild,
-  type FlowFn,
-  type FlowStage,
-} from "./spec.js";
-
-/** The value a Switch envelope carries between its `input` slot and its cases. */
-const ENVELOPE = "__nylorunSwitch";
-
-type Ctx = { readonly nested: boolean };
-
-type SlotArgs = {
-  readonly value: JsonValue;
-  readonly input: JsonValue;
-  readonly results: Readonly<Record<string, JsonValue>>;
-};
+  bindToolNode,
+  builtAgentOf,
+  isToolDefinition,
+  sandboxSpecsOf,
+  toolManifestNode,
+} from "../workflow/runnable.js";
+import { isFlowBuilder, isNamedChild, type FlowFn, type FlowStage } from "./spec.js";
+import {
+  forEachFlowNode,
+  functionKey,
+  isWorkflowManifestV2,
+  leafPart,
+} from "./paths.js";
 
 export interface CompileFlowOptions {
   readonly id: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly metadata?: JsonObject;
   readonly stages: readonly FlowStage[];
   readonly inputSchema?: ToolSchemaSource;
   readonly outputSchema?: ToolSchemaSource;
   readonly sandbox?: SandboxManifest;
 }
+
+/** What a node binds locally; attached to node objects while compiling. */
+type NodeCode = {
+  input?: FlowFn;
+  on?: FlowFn;
+  verify?: FlowFn;
+  decide?: FlowFn;
+  tool?: BoundToolDefinition;
+  /** A nested flow agent: its bindings move under this node's key. */
+  nested?: WorkflowBinding;
+};
+
+type Build = {
+  readonly id: string;
+  readonly code: WeakMap<object, NodeCode>;
+  readonly agents: Record<string, AgentManifest | WorkflowManifestV2>;
+  readonly bindings: Record<string, AgentBinding>;
+  readonly sandboxSpecs: JsonObject[];
+  readonly diagnostics: BuildDiagnostic[];
+};
 
 /** Compile a flow agent. Throws `WorkflowBuildError` with diagnostics. */
 export function compileAgentFlow(options: CompileFlowOptions): BuiltWorkflow {
@@ -55,25 +81,50 @@ export function compileAgentFlow(options: CompileFlowOptions): BuiltWorkflow {
         `Flow agent '${options.id}' has no stages. Add .step(), .switch(), .parallel(), .map() or .loop().`
       ),
     ]);
-  const schemas = {
+  const build: Build = {
+    id: options.id,
+    code: new WeakMap(),
+    agents: {},
+    bindings: {},
+    sandboxSpecs: [],
+    diagnostics: [],
+  };
+  const root: WorkflowNodeV2 = { chain: stages.map((stage) => compileStage(stage, build)) };
+  const nodes = bindNodes(root, build);
+  const sandbox = flowSandbox(options.id, options.sandbox, build);
+  if (build.diagnostics.length) fail(build.diagnostics);
+
+  const manifest: WorkflowManifestV2 = {
+    kind: "workflow",
+    workflowSchemaVersion: 2,
+    id: options.id,
+    ...(options.name === undefined ? {} : { name: options.name }),
+    ...(options.description === undefined ? {} : { description: options.description }),
+    ...(options.metadata === undefined
+      ? {}
+      : { metadata: copyJsonObject(options.metadata, "metadata") }),
+    ...(options.inputSchema === undefined ? {} : { inputSchema: jsonSchemaOf(options.inputSchema) }),
+    ...(options.outputSchema === undefined
+      ? {}
+      : { outputSchema: jsonSchemaOf(options.outputSchema) }),
+    ...(sandbox === undefined ? {} : { sandbox }),
+    root,
+    agents: build.agents,
+  };
+  const binding: WorkflowBinding = Object.freeze({
+    manifest,
+    nodes: Object.freeze(nodes),
+    agents: Object.freeze({ ...build.bindings }),
+  });
+  const built = {
+    id: options.id,
+    manifest,
+    toJSON: () => manifest,
     ...(options.inputSchema === undefined ? {} : { inputSchema: options.inputSchema }),
     ...(options.outputSchema === undefined ? {} : { outputSchema: options.outputSchema }),
-  };
-  const root: Ctx = { nested: false };
-  const only = stages.length === 1 ? stages[0]! : undefined;
-  // One unnamed control stage is the whole agent: it compiles to that node, with the
-  // agent's id, exactly like today's `Loop({ id, … })`.
-  const built =
-    only && only.kind !== "step" && only.kind !== "switch" && only.id === undefined && only.input === undefined
-      ? compileControl(only, options.id, root, schemas)
-      : only && only.kind === "switch" && only.id === undefined && only.input === undefined
-        ? (compileSwitch(only, options.id, true, root, schemas) as BuiltWorkflow)
-        : Chain({
-            id: options.id,
-            steps: stages.map((stage, index) => compileStage(stage, index + 1, root)) as never,
-            ...schemas,
-          } as never);
-  return options.sandbox === undefined ? built : withFlowSandbox(built, options.id, options.sandbox);
+  } as BuiltWorkflow;
+  Object.defineProperty(built, "getBinding", { value: () => binding, enumerable: false });
+  return built;
 }
 
 /** Inline `.step(flow())` sequences that have no id or input into their parent. */
@@ -92,206 +143,267 @@ function expand(stages: readonly FlowStage[]): FlowStage[] {
   return out;
 }
 
-function compileStage(stage: FlowStage, position: number, ctx: Ctx): ChildRef {
-  if (stage.kind === "step") {
-    let ref = childRef(stage.child, stage.id ?? `flow-${position}`, ctx);
-    if (stage.id !== undefined) ref = rename(ref, stage.id);
-    if (stage.input) ref = withInput(ref, adaptInput(stage.input, ctx), stage.id ?? `step-${position}`);
-    return ref;
-  }
-  const id = stage.id ?? `${stage.kind}-${position}`;
-  if (stage.kind === "switch") return compileSwitch(stage, id, position === 1, ctx);
-  const node = compileControl(stage, id, ctx);
-  return stage.input ? withInput(node, adaptInput(stage.input, ctx), id) : node;
-}
-
-function compileControl(
-  stage: Exclude<FlowStage, { kind: "step" } | { kind: "switch" }>,
-  id: string,
-  ctx: Ctx,
-  schemas: { inputSchema?: ToolSchemaSource; outputSchema?: ToolSchemaSource } = {}
-): BuiltWorkflow {
+function compileStage(stage: FlowStage, build: Build): WorkflowNodeV2 {
+  const options = { id: stage.id, input: stage.input };
   switch (stage.kind) {
+    case "step":
+      return withOptions(childNode(stage.child, build), options, build);
+    case "switch": {
+      const { default: fallback, ...cases } = stage.cases;
+      const node: WorkflowNodeV2 = {
+        switch: {
+          on: { fn: true },
+          cases: mapValues(cases, (child) => childNode(child, build)),
+          ...(fallback === undefined ? {} : { default: childNode(fallback, build) }),
+        },
+      };
+      attach(build, node, { on: stage.on });
+      return withOptions(node, options, build);
+    }
     case "parallel":
-      return Parallel({
-        id,
-        branches: mapValues(stage.branches, (child, key) => childRef(child, key, ctx)),
-        ...schemas,
-      } as never);
+      return withOptions(
+        { parallel: mapValues(stage.branches, (child) => childNode(child, build)) },
+        options,
+        build
+      );
     case "map":
-      // A Map runs over its input: the list comes from the stage's `input`, or is
-      // the previous step's output. A non-array fails with `map.not-a-list`.
-      return MapNode({
-        id,
-        over: (value: JsonValue) => value as never,
-        each: childRef(stage.each, "each", ctx),
-        ...schemas,
-      } as never);
+      return withOptions({ map: { each: childNode(stage.each, build) } }, options, build);
     case "loop":
-      return compileLoop(stage, id, ctx, schemas);
+      return withOptions(compileLoop(stage, build), options, build);
   }
 }
 
-function compileLoop(
-  stage: Extract<FlowStage, { kind: "loop" }>,
-  id: string,
-  ctx: Ctx,
-  schemas: { inputSchema?: ToolSchemaSource; outputSchema?: ToolSchemaSource }
-): BuiltWorkflow {
-  const problems: BuildDiagnostic[] = [];
+function compileLoop(stage: Extract<FlowStage, { kind: "loop" }>, build: Build): WorkflowNodeV2 {
+  const label = stage.id ?? "loop";
   if (stage.max !== undefined && (!Number.isInteger(stage.max) || stage.max < 1))
-    problems.push(diagnostic("loop.invalid-max", `Loop '${id}' max must be a positive integer`));
+    build.diagnostics.push(
+      diagnostic("loop.invalid-max", `Loop '${label}' max must be a positive integer`)
+    );
   if (stage.max === undefined && stage.decide === undefined)
-    problems.push(
+    build.diagnostics.push(
+      diagnostic("loop.max-required", `Loop '${label}' needs { max } or { decide } so it cannot run forever`)
+    );
+  // The body first, so agents are embedded in the order they run.
+  const run = childNode(stage.body, build);
+  let verify: { readonly fn: true } | WorkflowAgentNodeV2 = { fn: true };
+  const code: NodeCode = {};
+  if (typeof stage.verify === "function") code.verify = stage.verify as FlowFn;
+  else {
+    const judge = childNode(stage.verify, build);
+    if (!("agent" in judge)) {
+      build.diagnostics.push(
+        diagnostic(
+          "loop.invalid-verify",
+          `Loop '${label}' verify must be a function or an agent, not a tool or flow()`
+        )
+      );
+    } else verify = judge;
+  }
+  if (stage.decide) code.decide = stage.decide;
+  const node: WorkflowNodeV2 = {
+    loop: {
+      run,
+      verify,
+      ...(Number.isInteger(stage.max) && (stage.max as number) > 0 ? { max: stage.max } : {}),
+      ...(stage.decide === undefined ? {} : { decide: { fn: true as const } }),
+    },
+  };
+  attach(build, node, code);
+  return node;
+}
+
+/** A stage child: an agent, tool, nested flow agent, `flow()` or `.withId()` child. */
+function childNode(child: unknown, build: Build): WorkflowNodeV2 {
+  if (isNamedChild(child))
+    return withOptions(childNode(child.run, build), { id: child.id }, build);
+  if (isFlowBuilder(child)) {
+    const stages = expand(child.stages);
+    if (stages.length === 0) {
+      build.diagnostics.push(diagnostic("flow.empty", "A flow() has no stages"));
+      return { chain: [] };
+    }
+    if (stages.length === 1) return compileStage(stages[0]!, build);
+    return { chain: stages.map((stage) => compileStage(stage, build)) };
+  }
+  if (isToolDefinition(child)) {
+    const tool = bindToolNode(child);
+    const node: WorkflowNodeV2 = toolManifestNode(tool);
+    attach(build, node, { tool });
+    return node;
+  }
+  if (child && typeof child === "object") {
+    const built = builtOf(child);
+    if (built && isBuiltWorkflow(built)) return nestedFlow(built, build);
+    if (built) return agentLeaf(built as BuiltAgent, build);
+  }
+  build.diagnostics.push(
+    diagnostic("workflow.invalid-runnable", "A flow stage needs an agent, a tool or a flow()")
+  );
+  return { chain: [] };
+}
+
+function builtOf(child: object): BuiltAgent | BuiltWorkflow | undefined {
+  if (isBuiltWorkflow(child)) return child;
+  if ("getBinding" in child && "manifest" in child) return child as BuiltAgent;
+  if ("build" in child && typeof (child as { build: unknown }).build === "function")
+    return (child as { build(): BuiltAgent | BuiltWorkflow }).build();
+  return undefined;
+}
+
+function agentLeaf(agent: BuiltAgent, build: Build): WorkflowNodeV2 {
+  const resolved = builtAgentOf(agent);
+  embed(build, resolved.id, resolved.manifest);
+  addBinding(build, resolved.id, bindingFromAgent(resolved));
+  build.sandboxSpecs.push(...sandboxSpecsOf(resolved));
+  return { agent: resolved.id };
+}
+
+function nestedFlow(built: BuiltWorkflow, build: Build): WorkflowNodeV2 {
+  if (!isWorkflowManifestV2(built.manifest)) {
+    build.diagnostics.push(
       diagnostic(
-        "loop.max-required",
-        `Loop '${id}' needs { max } or { decide } so it cannot run forever`
+        "flow.v1-workflow",
+        `Workflow '${built.id}' was built with Chain, Switch, Parallel, Map or Loop, so it can't be a step of flow agent '${build.id}'. Write it as a flow agent: Agent({ id: "${built.id}" }).step(…).`
       )
     );
-  if (problems.length) fail(problems);
-  const max = stage.max;
-  const decide = stage.decide;
-  const wrapped = (args: {
-    readonly output: JsonValue;
-    readonly verdict: { readonly pass: boolean; readonly feedback?: string };
-    readonly iteration: number;
-  }) => {
-    const choice = (decide
-      ? decide(args)
-      : args.verdict.pass
-        ? { output: args.output }
-        : { retry: args.verdict.feedback ?? "" }) as Record<string, unknown> | undefined;
-    if (!choice || typeof choice !== "object")
-      throw new Error(`Loop '${id}' decide must return { output } or { retry }`);
-    if ("output" in choice) return { output: choice.output };
-    if (max !== undefined && args.iteration >= max)
-      throw new Error(
-        `Loop '${id}' stopped after ${max} attempt${max === 1 ? "" : "s"}` +
-          (args.verdict.pass ? "" : `: ${args.verdict.feedback ?? ""}`)
-      );
-    if ("retry" in choice)
-      return {
-        input: choice.retry,
-        ...(choice.agent === undefined ? {} : { agent: choice.agent }),
-      };
-    return choice; // `{ input, agent? }` from code written against today's Loop
-  };
-  const verify = typeof stage.verify === "function" ? stage.verify : childRef(stage.verify, "verify", ctx);
-  return Loop({
-    id,
-    run: childRef(stage.body, "body", ctx),
-    verify,
-    decide: wrapped,
-    ...schemas,
-  } as never);
-}
-
-function compileSwitch(
-  stage: Extract<FlowStage, { kind: "switch" }>,
-  id: string,
-  first: boolean,
-  ctx: Ctx,
-  schemas: { inputSchema?: ToolSchemaSource; outputSchema?: ToolSchemaSource } = {}
-): ChildRef {
-  const { default: fallback, ...cases } = stage.cases;
-  // Today's engine passes `on` only the Switch's input. That is enough on the first
-  // stage (no earlier results, and the flow input is the input) unless an `input`
-  // function reshaped it at the root. Otherwise an envelope carries the key.
-  const direct = first && (ctx.nested || !stage.input);
-  if (direct) {
-    const node = Switch({
-      id,
-      on: (raw: JsonValue) => stage.on(stageArgs(raw, {}, raw, ctx)),
-      cases: mapValues(cases, (child, key) => childRef(child, key, ctx)),
-      ...(fallback === undefined ? {} : { default: childRef(fallback, "default", ctx) }),
-      ...schemas,
-    } as never);
-    return stage.input ? withInput(node, adaptInput(stage.input, ctx), id) : node;
+    return { chain: [] };
   }
-  const envelope = (args: SlotArgs) => {
-    const value = stage.input
-      ? (stage.input(stageArgs(args.value, args.results, args.input, ctx)) as JsonValue)
-      : args.value;
-    const key = stage.on(stageArgs(value, args.results, args.input, ctx));
-    return { [ENVELOPE]: { key, value } };
-  };
-  const unwrap = (args: SlotArgs) => (args.value as JsonObject)[ENVELOPE] &&
-    ((args.value as JsonObject)[ENVELOPE] as JsonObject).value;
-  const caseRef = (child: unknown, key: string) => withInput(childRef(child, key, ctx), unwrap, key);
-  const node = Switch({
-    id,
-    on: (env: JsonObject) => (env[ENVELOPE] as JsonObject).key,
-    cases: mapValues(cases, caseRef),
-    ...(fallback === undefined ? {} : { default: caseRef(fallback, "default") }),
-    ...schemas,
-  } as never);
-  return { run: node, input: envelope } as Slot;
+  const binding = built.getBinding();
+  embed(build, built.id, built.manifest);
+  for (const [id, agent] of Object.entries(binding.agents)) addBinding(build, id, agent);
+  if (built.manifest.sandbox !== undefined)
+    build.sandboxSpecs.push(built.manifest.sandbox as JsonObject);
+  const node: WorkflowNodeV2 = { agent: built.id };
+  attach(build, node, { nested: binding });
+  return node;
 }
 
-/** Resolve a stage child: an agent, tool, flow agent, `flow()` or `.withId()` child. */
-function childRef(child: unknown, role: string, ctx: Ctx): ChildRef {
-  if (isNamedChild(child)) return rename(childRef(child.run, child.id, ctx), child.id);
-  if (isFlowBuilder(child)) return compileNested(child.stages, role);
-  if (child === null || child === undefined || (typeof child !== "object" && typeof child !== "function"))
-    fail([diagnostic("workflow.invalid-runnable", `Unsupported flow child for '${role}'`)]);
-  void ctx;
-  return child as ChildRef;
-}
-
-/** A `flow()`: one stage compiles to that stage, several to a Chain named by its role. */
-function compileNested(stages: readonly FlowStage[], role: string): ChildRef {
-  const expanded = expand(stages);
-  if (expanded.length === 0)
-    fail([diagnostic("flow.empty", `flow() for '${role}' has no stages`)]);
-  const nested: Ctx = { nested: true };
-  if (expanded.length === 1) return compileStage(expanded[0]!, 1, nested);
-  return Chain({
-    id: role,
-    steps: expanded.map((stage, index) => compileStage(stage, index + 1, nested)) as never,
-  } as never);
-}
-
-function rename(ref: ChildRef, id: string): ChildRef {
-  return isSlot(ref) ? { ...ref, id } : ({ run: ref, id } as Slot);
-}
-
-/** Add an input function to a child, wrapping in a one-step Chain when it already has one. */
-function withInput(ref: ChildRef, input: (args: SlotArgs) => unknown, idHint: string): ChildRef {
-  if (isSlot(ref)) {
-    if (ref.input)
-      return {
-        run: Chain({ id: ref.id ?? idHint, steps: [ref] as never } as never),
-        input: input as never,
-      } as Slot;
-    return { ...ref, input: input as never };
+function embed(build: Build, id: string, manifest: AgentManifest | WorkflowManifestV2): void {
+  const existing = build.agents[id];
+  if (existing === undefined) {
+    build.agents[id] = manifest;
+    return;
   }
-  return { run: ref, input: input as never } as Slot;
+  if (canonical(existing) !== canonical(manifest))
+    build.diagnostics.push(
+      diagnostic(
+        "flow.agent-conflict",
+        `Flow agent '${build.id}' uses two different agents with the id '${id}'. Give each agent its own id.`
+      )
+    );
 }
 
-function adaptInput(fn: FlowFn, ctx: Ctx): (args: SlotArgs) => unknown {
-  return (args) => fn(stageArgs(args.value, args.results, args.input, ctx));
+function addBinding(build: Build, id: string, binding: AgentBinding): void {
+  const existing = build.bindings[id];
+  if (existing === undefined) build.bindings[id] = binding;
+  else if (canonical(existing.manifest) !== canonical(binding.manifest))
+    build.diagnostics.push(
+      diagnostic(
+        "flow.agent-conflict",
+        `Flow agent '${build.id}' uses two different agents with the id '${id}'. Give each agent its own id.`
+      )
+    );
 }
 
-/** `{ input, results, flowInput }` for a user function. */
-function stageArgs(
-  input: JsonValue,
-  results: Readonly<Record<string, JsonValue>>,
-  owner: JsonValue,
-  ctx: Ctx
-): Record<string, unknown> {
-  const args: Record<string, unknown> = { input, results };
-  if (!ctx.nested) args.flowInput = owner;
-  else
-    Object.defineProperty(args, "flowInput", {
-      enumerable: false,
-      get() {
-        throw new Error(
-          "flow.flow-input-nested: flowInput is not available inside a nested flow() yet. " +
-            "Read it in a top-level stage of the agent and pass it along."
+/** Put a stage's `id` and `input` on its node, wrapping it in a chain when it has its own. */
+function withOptions(
+  node: WorkflowNodeV2,
+  options: { readonly id?: string; readonly input?: FlowFn },
+  build: Build
+): WorkflowNodeV2 {
+  if (options.id === undefined && options.input === undefined) return node;
+  const clash =
+    (options.id !== undefined && node.id !== undefined) ||
+    (options.input !== undefined && node.input !== undefined);
+  const target: WorkflowNodeV2 = clash ? { chain: [node] } : node;
+  const next = {
+    ...target,
+    ...(options.id === undefined ? {} : { id: options.id }),
+    ...(options.input === undefined ? {} : { input: { fn: true as const } }),
+  } as WorkflowNodeV2;
+  const code = { ...(clash ? {} : build.code.get(node)) };
+  if (options.input) code.input = options.input;
+  attach(build, next, code);
+  return next;
+}
+
+function attach(build: Build, node: object, code: NodeCode): void {
+  const existing = build.code.get(node) ?? {};
+  build.code.set(node, { ...existing, ...code });
+}
+
+/**
+ * Walk the finished tree: check that leaves and stage ids are unique, and bind each
+ * node's code under its stage key.
+ */
+function bindNodes(root: WorkflowNodeV2, build: Build): Record<string, WorkflowNodeImplementation> {
+  const nodes: Record<string, WorkflowNodeImplementation> = {};
+  const leaves = new Set<string>();
+  const ids = new Set<string>();
+  forEachFlowNode(root, ({ node, key }) => {
+    const part = leafPart(node);
+    if (part !== undefined) {
+      if (leaves.has(part) || ids.has(part))
+        build.diagnostics.push(
+          diagnostic(
+            "flow.duplicate-leaf",
+            `'${part}' runs twice in flow agent '${build.id}'. Give one a new id: .step(x, { id: "${part}-2" }) or x.withId("${part}-2").`
+          )
         );
-      },
-    });
-  return args;
+      leaves.add(part);
+    } else if (node.id !== undefined) {
+      if (ids.has(node.id) || leaves.has(node.id))
+        build.diagnostics.push(
+          diagnostic(
+            "flow.duplicate-id",
+            `Two stages of flow agent '${build.id}' are named '${node.id}'. Stage ids must be unique.`
+          )
+        );
+      ids.add(node.id);
+    }
+    const code = build.code.get(node);
+    if (!code) return;
+    if (code.input) nodes[functionKey(key, "input")] = { kind: "fn", fn: code.input as never };
+    if (code.on) nodes[functionKey(key, "on")] = { kind: "fn", fn: code.on as never };
+    if (code.verify) nodes[functionKey(key, "verify")] = { kind: "verify", fn: code.verify as never };
+    if (code.decide) nodes[functionKey(key, "decide")] = { kind: "fn", fn: code.decide as never };
+    if (code.tool) nodes[key] = { kind: "tool", tool: code.tool };
+    if (code.nested)
+      for (const [inner, impl] of Object.entries(code.nested.nodes)) nodes[`${key}/${inner}`] = impl;
+  });
+  return nodes;
+}
+
+/**
+ * The flow's sandbox. Agents that declare a sandbox with options must all declare the
+ * same one, and match the flow's own when it declares one; `.sandbox()` with no options
+ * uses the flow's.
+ */
+function flowSandbox(
+  id: string,
+  declared: SandboxManifest | undefined,
+  build: Build
+): SandboxManifest | undefined {
+  const specific = build.sandboxSpecs.filter((spec) => Object.keys(spec).length > 0);
+  const kinds = new Set(specific.map((spec) => canonical(spec)));
+  if (declared !== undefined && Object.keys(declared).length > 0) kinds.add(canonical(declared));
+  if (kinds.size > 1) {
+    build.diagnostics.push(
+      diagnostic(
+        "workflow.sandbox-mismatch",
+        `The agents in flow agent '${id}' declare different sandboxes. Declare the sandbox once on the flow with .sandbox({ … }) and give the agents .sandbox() with no options.`
+      )
+    );
+    return undefined;
+  }
+  if (declared !== undefined && Object.keys(declared).length > 0) return declared;
+  if (specific.length > 0) return specific[0] as SandboxManifest;
+  if (declared !== undefined || build.sandboxSpecs.length > 0) return {} as SandboxManifest;
+  return undefined;
+}
+
+function jsonSchemaOf(source: ToolSchemaSource): JsonObject {
+  return bindOutputContract(source).schema.jsonSchema as JsonObject;
 }
 
 function mapValues<T, U>(
@@ -301,28 +413,4 @@ function mapValues<T, U>(
   const out: Record<string, U> = {};
   for (const [key, value] of Object.entries(record)) out[key] = fn(value, key);
   return out;
-}
-
-/**
- * Declare the flow's sandbox. Until workflow manifest v2, every agent in the flow that
- * declares a sandbox must declare this same spec.
- */
-function withFlowSandbox(built: BuiltWorkflow, id: string, spec: SandboxManifest): BuiltWorkflow {
-  const inferred = built.manifest.sandbox;
-  if (inferred !== undefined && canonical(inferred) !== canonical(spec))
-    fail([
-      diagnostic(
-        "workflow.sandbox-mismatch",
-        `Flow agent '${id}' declares a sandbox its agents do not match. Until workflow manifest v2, give each agent's .sandbox() the same spec as the flow.`
-      ),
-    ]);
-  const manifest: WorkflowManifest = { ...built.manifest, sandbox: spec };
-  const binding = Object.freeze({ ...built.getBinding(), manifest });
-  const next = {
-    ...built,
-    manifest,
-    toJSON: () => manifest,
-  } as BuiltWorkflow;
-  Object.defineProperty(next, "getBinding", { value: () => binding, enumerable: false });
-  return next;
 }

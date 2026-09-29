@@ -34,7 +34,7 @@ export function agentTurnValue(output: JsonValue, agent: AgentManifest): AgentTu
   return { [AGENT_TURN_MARKER]: 1, output, agent };
 }
 
-function readAgentTurn(value: unknown): {
+export function readAgentTurn(value: unknown): {
   output: JsonValue;
   agent?: AgentManifest;
 } {
@@ -69,6 +69,8 @@ export async function runLoop(options: {
   readonly limits?: Partial<FlowOperatorLimits> | null;
 }): Promise<FlowDurableResult> {
   const { manifest, checkpoint, host } = options;
+  if (manifest.workflowSchemaVersion !== 1)
+    throw new HarnessError("execution.invalid-state", "runLoop expects a workflow manifest v1");
   const root = manifest.root;
   if (!("loop" in root))
     throw new HarnessError("execution.invalid-state", "runLoop expects a loop root");

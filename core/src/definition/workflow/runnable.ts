@@ -35,7 +35,7 @@ export type ResolvedChild = {
   readonly isReshapingSlot: boolean;
 };
 
-function isToolDefinition(value: unknown): value is ToolDefinition {
+export function isToolDefinition(value: unknown): value is ToolDefinition {
   if (!value || typeof value !== "object") return false;
   if (!("name" in value) || typeof (value as { name: unknown }).name !== "string") return false;
   const v = value as ToolDefinition;
@@ -47,7 +47,7 @@ function isToolDefinition(value: unknown): value is ToolDefinition {
   );
 }
 
-function isAgentLike(value: unknown): value is BuiltAgent | AgentTool {
+export function isAgentLike(value: unknown): value is BuiltAgent | AgentTool {
   if (!value || typeof value !== "object") return false;
   if (isBuiltWorkflow(value)) return false;
   return (
@@ -58,7 +58,7 @@ function isAgentLike(value: unknown): value is BuiltAgent | AgentTool {
   );
 }
 
-function builtAgentOf(run: BuiltAgent | AgentTool | { build(): BuiltAgent }): BuiltAgent {
+export function builtAgentOf(run: BuiltAgent | AgentTool | { build(): BuiltAgent }): BuiltAgent {
   if (
     run &&
     typeof run === "object" &&
@@ -95,7 +95,7 @@ export function sandboxSpecsOf(agent: BuiltAgent | AgentTool): JsonObject[] {
  * Unlike agent tools, workflow tool nodes may take any JSON Schema root type (workflows.md §9).
  * Built without `bindTool` so we skip the agent-only object-input rule in `normalizeSchema`.
  */
-function bindToolNode(tool: ToolDefinition): BoundToolDefinition {
+export function bindToolNode(tool: ToolDefinition): BoundToolDefinition {
   const normalized = normalizeToolDefinition(tool);
   if (!normalized.name)
     throw new HarnessError("tool.invalid-name", "Tool name must not be empty");
@@ -146,7 +146,7 @@ function schemaForNode(
   return normalizeSchema(source, role === "input" ? "output" : role);
 }
 
-function toolManifestNode(bound: BoundToolDefinition): WorkflowToolNode {
+export function toolManifestNode(bound: BoundToolDefinition): WorkflowToolNode {
   return {
     tool: {
       name: bound.name,
@@ -175,10 +175,16 @@ function agentNode(agent: BuiltAgent): {
 function resolveRunnable(run: WorkflowRunnable, rename?: string): ResolvedChild {
   if (isBuiltWorkflow(run)) {
     const binding = run.getBinding();
+    if (binding.manifest.workflowSchemaVersion !== 1)
+      failOne(
+        "workflow.flow-agent-child",
+        `Flow agent '${run.id}' can't be a child of Chain, Switch, Parallel, Map or Loop. Use it as a step of another flow agent: Agent({ id }).step(${run.id}).`
+      );
+    const manifest = binding.manifest;
     const id = rename ?? run.id;
     return {
       id,
-      node: binding.manifest.root,
+      node: manifest.root,
       agents: { ...binding.agents },
       // A rename moves the whole subtree: the harness path uses the new part, not run.id.
       nodes: remapNodeKeys({ ...binding.nodes }, run.id, id),

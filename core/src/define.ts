@@ -29,7 +29,23 @@ export type {
 export { mcp, McpError, normalizeMcpServers } from "./definition/mcp.js";
 export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
 export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";
-export { flow, FlowBuilder, isFlowBuilder } from "./definition/flow/index.js";
+export {
+  flow,
+  FlowBuilder,
+  isFlowBuilder,
+  ROOT_POSITION,
+  childPosition,
+  embeddedAgent,
+  forEachFlowNode,
+  functionKey,
+  indexSuffix,
+  isLeafNode,
+  isWorkflowManifestV2,
+  leafPart,
+  leafPath,
+  stageKey,
+  stripIndices,
+} from "./definition/flow/index.js";
 export type {
   FlowAgentBuilder,
   Flow,
@@ -40,6 +56,9 @@ export type {
   LoopChoice,
   LoopDecideArgs as FlowLoopDecideArgs,
   LoopVerifyFn as FlowLoopVerifyFn,
+  FlowFunctionRole,
+  FlowNodeVisit,
+  FlowImplementations,
 } from "./definition/flow/index.js";
 export type { McpCapability, McpOptions, McpServerSpec } from "./definition/mcp.js";
 export { ToolError, isToolError } from "./definition/tool-error.js";
@@ -235,7 +254,14 @@ export type {
   WorkflowRunnable,
 } from "./definition/workflow/index.js";
 export { isVariantOf } from "./definition/variant.js";
-export type { Verdict, WorkflowBinding, WorkflowManifest } from "./types/workflow.js";
+export type {
+  Verdict,
+  WorkflowBinding,
+  WorkflowManifest,
+  WorkflowManifestV1,
+  WorkflowManifestV2,
+  WorkflowNodeV2,
+} from "./types/workflow.js";
 export type {
   BoundMiddleware,
   BoundToolDefinition,

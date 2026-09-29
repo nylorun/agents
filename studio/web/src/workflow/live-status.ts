@@ -1,4 +1,5 @@
 import {
+  nodeKeyOf,
   payloadOf,
   type EventLike,
   type NodeLiveState,
@@ -14,6 +15,9 @@ function set(
 ): void {
   const prior = map.get(path) ?? idle;
   map.set(path, { ...prior, ...patch });
+  // A Map item's path (`writer[1]`) also lights the node the tree draws (`writer`).
+  const template = nodeKeyOf(path);
+  if (template !== path) map.set(template, { ...(map.get(template) ?? idle), ...patch });
 }
 
 /**

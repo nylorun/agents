@@ -3,17 +3,19 @@ import { WorkflowManifestSchema, type WorkflowManifest } from "@nylorun/core/con
 import { hashManifest } from "@nylorun/core/define";
 import type { DurableHost } from "../run/durable.js";
 import { HostSuspension } from "../loop/host-suspension.js";
-import { CHECKPOINT_VERSION, FLOW_ENGINE_VERSION } from "../compatibility.js";
+import { CHECKPOINT_VERSION, flowEngineVersionOf } from "../compatibility.js";
 import type { FlowCheckpoint } from "./checkpoint.js";
 import { createFlowContext, failureOf, settleInFlight } from "./context.js";
 import type { FlowOperatorLimits } from "./limits.js";
 import { runNode, unwrapSlot } from "./node.js";
 import { runLoop } from "./loop.js";
+import { runFlowV2 } from "./v2.js";
 import { FlowNodeError, type FlowDurableResult } from "./types.js";
 
 /**
- * Deterministic flow interpreter for workflow manifests.
- * One module per primitive; returns effects only (SD-I1).
+ * Deterministic flow interpreter for workflow manifests. v2 manifests run on the
+ * `flow-2` engine (`./v2.ts`); v1 manifests on `flow-1`, one module per primitive.
+ * Returns effects only (SD-I1).
  */
 export async function runFlowDurable(options: {
   manifest: WorkflowManifest;
@@ -27,10 +29,13 @@ export async function runFlowDurable(options: {
   WorkflowManifestSchema.parse(manifest);
   if (
     checkpoint.version !== CHECKPOINT_VERSION ||
-    checkpoint.engineVersion !== FLOW_ENGINE_VERSION ||
+    checkpoint.engineVersion !== flowEngineVersionOf(manifest) ||
     checkpoint.manifestHash !== hashManifest(manifest)
   )
     throw new HarnessError("execution.incompatible", "Incompatible flow checkpoint");
+
+  if (manifest.workflowSchemaVersion === 2)
+    return runFlowV2({ manifest, checkpoint, host, signal, limits });
 
   const root = manifest.root;
 

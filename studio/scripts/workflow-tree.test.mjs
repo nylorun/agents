@@ -125,3 +125,86 @@ test("slot id renames the child path part", () => {
   assert.equal(tree.children[0]?.path, "draft-twice/draft");
   assert.equal(tree.children[0]?.agentId, "writer");
 });
+
+/** Flow Agents: the design's issue-desk as workflow manifest v2 (abridged agents). */
+const issueDesk = {
+  kind: "workflow",
+  workflowSchemaVersion: 2,
+  id: "issue-desk",
+  root: {
+    chain: [
+      { agent: "triage" },
+      {
+        switch: {
+          on: { fn: true },
+          cases: {
+            bug: { loop: { run: { agent: "fixer" }, verify: { agent: "tester" }, max: 3 } },
+            docs: { agent: "docs-writer" },
+          },
+          default: {
+            chain: [
+              { agent: "planner" },
+              { map: { each: { agent: "implementer" } }, input: { fn: true } },
+              { agent: "docs-writer", id: "feature-docs" },
+            ],
+          },
+        },
+        id: "route",
+      },
+      { parallel: { security: { agent: "security-reviewer" } }, id: "reviews" },
+      { agent: "review" },
+      { tool: { name: "open_pr" }, input: { fn: true } },
+    ],
+  },
+  agents: {
+    triage: { id: "triage" },
+    fixer: { id: "fixer" },
+    tester: { id: "tester" },
+    "docs-writer": { id: "docs-writer" },
+    planner: { id: "planner" },
+    implementer: { id: "implementer" },
+    "security-reviewer": { id: "security-reviewer" },
+    review: {
+      kind: "workflow",
+      workflowSchemaVersion: 2,
+      id: "review",
+      root: { chain: [{ agent: "reader" }, { loop: { run: { agent: "fixer" }, verify: { fn: true }, decide: { fn: true } } }] },
+      agents: { reader: { id: "reader" }, fixer: { id: "fixer" } },
+    },
+  },
+};
+
+test("Flow Agents v2: leaves at their session paths, control stages at their keys", () => {
+  const tree = treeFromManifest(issueDesk);
+  assert.equal(tree.path, "@");
+  const [triage, route, reviews, review, openPr] = tree.children;
+  assert.equal(triage?.path, "triage");
+  assert.equal(route?.kind, "switch");
+  assert.equal(route?.path, "route");
+  const [bug, docs, fallback] = route.children;
+  assert.equal(bug?.path, "@1.bug");
+  const loop = bug.children[0];
+  assert.equal(loop?.path, "@1.bug");
+  assert.equal(loop?.label, "@1.bug · max 3");
+  assert.deepEqual(loop.children.map((c) => c.path), ["fixer", "tester"]);
+  assert.equal(docs?.children[0]?.path, "docs-writer");
+  assert.equal(fallback?.label, "default");
+  const steps = fallback.children[0].children;
+  assert.deepEqual(steps.map((s) => s.path), ["planner", "@1.default.1", "feature-docs"]);
+  assert.equal(steps[1]?.kind, "map");
+  assert.equal(steps[1]?.children[0]?.path, "implementer");
+  assert.equal(steps[2]?.agentId, "docs-writer");
+  assert.equal(reviews?.path, "reviews");
+  assert.equal(reviews?.children[0]?.children[0]?.path, "security-reviewer");
+  assert.equal(review?.kind, "flow");
+  assert.deepEqual(
+    review.children[0].children.map((c) => c.path),
+    ["review/reader", "review/@1"],
+  );
+  assert.deepEqual(
+    review.children[0].children[1].children.map((c) => c.path),
+    ["review/fixer", "review/@1:verify", "review/@1:decide"],
+  );
+  assert.equal(openPr?.kind, "tool");
+  assert.equal(openPr?.path, "open_pr");
+});
