@@ -34,6 +34,16 @@ try {
   const agUi = loaded.filter((url) => /[/\\]@ag-ui[/\\]/.test(url));
   if (agUi.length)
     throw new Error(`SDK entry point loaded AG-UI modules: ${agUi.join(", ")}`);
+  // `@nylorun/agents/a2a` forwards to the Runtime: it loads no A2A or AG-UI package.
+  const a2a = await import("@nylorun/agents/a2a");
+  if (
+    typeof a2a.createA2aHandler !== "function" ||
+    typeof a2a.toNodeListener !== "function"
+  )
+    throw new Error("Missing @nylorun/agents/a2a exports");
+  const protocols = loaded.filter((url) => /[/\\]@(?:ag-ui|a2a-js)[/\\]/.test(url));
+  if (protocols.length)
+    throw new Error(`A2A entry loaded protocol packages: ${protocols.join(", ")}`);
   const { createAgUiHandler, toNodeListener } = await import(
     "@nylorun/agents/ag-ui"
   );
@@ -43,7 +53,7 @@ try {
   )
     throw new Error("Missing @nylorun/agents/ag-ui exports");
   console.log(
-    "SDK entry point imports; no engine, host or AG-UI modules loaded; the browser entry loads no Node-only module."
+    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the browser entry loads no Node-only module."
   );
 } finally {
   hooks.deregister();
