@@ -521,6 +521,7 @@ export async function resolveNewFlowEffect(
     });
   });
 
+  const backend = (await ctx.sandbox.ready).backend?.name;
   await store.tx(async (t) => {
     // The linked agent (child) session is locked before the workflow (parent).
     const exists = await t.lockSession(agentSessionId);
@@ -535,7 +536,8 @@ export async function resolveNewFlowEffect(
     // A sandbox chosen when the tree was opened reaches every agent in it, with its tools.
     const inherited = inheritedSandbox(
       sandboxOwnerId === undefined ? undefined : lookup(sandboxOwnerId) ?? workflow,
-      definition
+      definition,
+      backend
     );
     const created: Session = {
       id: agentSessionId,
@@ -706,14 +708,15 @@ async function callMcpTool(
  */
 function inheritedSandbox(
   owner: Session | undefined,
-  definition: { manifest: any; manifestHash: string }
+  definition: { manifest: any; manifestHash: string },
+  backend: string | undefined
 ):
   | { spec: SandboxManifest; manifest?: AgentManifest; manifestHash?: string }
   | undefined {
   const spec = owner?.sandbox;
   if (!spec || sandboxSpecOf(definition.manifest)) return undefined;
   if (isWorkflowManifest(definition.manifest)) return { spec };
-  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
+  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec, backend);
   if (!sandboxed.ok) throw new Error(sandboxed.message);
   return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }

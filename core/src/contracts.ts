@@ -1500,7 +1500,7 @@ export const SeedTenantConfigRequestSchema = z
     requestId: RequestIdSchema,
     sandbox: z
       .object({
-        backend: z.enum(["auto", "virtual"]).optional(),
+        backend: z.enum(["auto", "virtual", "openshell"]).optional(),
         /** Seeds Tenant setting `sandbox.config` when it is absent. */
         config: TenantSandboxConfigSchema.optional(),
       })

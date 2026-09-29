@@ -15,7 +15,8 @@ export interface ConformanceOptions {
   readonly fetch: (url: string) => string;
   /** Run tests that need real internet access. */
   readonly network: boolean;
-  readonly image?: string;
+  /** Image for every sandbox; `null` means the backend's default. Default `python:3.13-slim`. */
+  readonly image?: string | null;
 }
 
 const HOST_SECRET = "NYLORUN_CONFORMANCE_HOST_SECRET";
@@ -29,7 +30,7 @@ export function conformance(name: string, options: ConformanceOptions) {
       created.push(key);
       return {
         key,
-        image: options.image ?? "python:3.13-slim",
+        ...(options.image === null ? {} : { image: options.image ?? "python:3.13-slim" }),
         cpus: 1,
         memoryMiB: 512,
         network: resolveNetwork(sandbox),
@@ -46,10 +47,13 @@ export function conformance(name: string, options: ConformanceOptions) {
       return (outcome as { output: unknown }).output;
     };
     let shared: SandboxHandle;
+    /** The backend's workspace: `/workspace`, or `/sandbox` on OpenShell. */
+    let ws = "/workspace";
 
     beforeAll(async () => {
       process.env[HOST_SECRET] = "host-secret-value";
       shared = await backend.open(spec({ network: { preset: "none" } }));
+      ws = shared.workspace ?? "/workspace";
     }, 300_000);
 
     afterAll(async () => {
@@ -57,11 +61,13 @@ export function conformance(name: string, options: ConformanceOptions) {
       for (const key of created) await backend.remove(key).catch(() => undefined);
     }, 120_000);
 
-    it("runs commands in /workspace and resolves relative paths there", async () => {
-      expect(output(await tool(shared, "bash", { command: "pwd" })).stdout.trim()).toBe("/workspace");
+    it("runs commands in the workspace and resolves relative paths there", async () => {
+      expect(output(await tool(shared, "bash", { command: "pwd" })).stdout.trim()).toBe(ws);
       output(await tool(shared, "write", { path: "notes/today.txt", content: "alpha\nbeta\n" }));
-      const cat = output(await tool(shared, "bash", { command: "cat /workspace/notes/today.txt" }));
+      const cat = output(await tool(shared, "bash", { command: `cat ${ws}/notes/today.txt` }));
       expect(cat.stdout).toBe("alpha\nbeta\n");
+      expect(output(await tool(shared, "read", { path: `${ws}/notes/today.txt` }))).toBe("1\talpha\n2\tbeta");
+      // `/workspace/…` in a tool path names the workspace on every backend.
       expect(output(await tool(shared, "read", { path: "/workspace/notes/today.txt" }))).toBe("1\talpha\n2\tbeta");
     });
 
@@ -106,8 +112,8 @@ export function conformance(name: string, options: ConformanceOptions) {
       expect(grep).not.toContain("b.txt");
       expect(output(await tool(shared, "grep", { pattern: "nothing-here" }))).toBe("No matches.");
       const glob = output(await tool(shared, "glob", { pattern: "**/*.py" }));
-      expect(glob).toBe("/workspace/src/a.py");
-      expect(output(await tool(shared, "glob", { pattern: "*.txt", path: "src" }))).toBe("/workspace/src/b.txt");
+      expect(glob).toBe(`${ws}/src/a.py`);
+      expect(output(await tool(shared, "glob", { pattern: "*.txt", path: "src" }))).toBe(`${ws}/src/b.txt`);
     });
 
     it("kills a command on timeout and on cancellation", async () => {
@@ -116,7 +122,7 @@ export function conformance(name: string, options: ConformanceOptions) {
       const controller = new AbortController();
       const started = Date.now();
       setTimeout(() => controller.abort(), 300);
-      const cancelled = await shared.exec({ command: "sleep 30", cwd: "/workspace", timeoutMs: 60_000 }, controller.signal);
+      const cancelled = await shared.exec({ command: "sleep 30", cwd: ws, timeoutMs: 60_000 }, controller.signal);
       expect(cancelled.killed).toBe(true);
       expect(Date.now() - started).toBeLessThan(10_000);
     }, 30_000);
@@ -127,7 +133,10 @@ export function conformance(name: string, options: ConformanceOptions) {
     }, 30_000);
 
     it("blocks metadata and private ranges even under the open preset", async () => {
-      const open = await backend.open(spec({ network: { preset: "open" } }));
+      const openSpec = spec({ network: { preset: "open" } });
+      // A backend that cannot open all egress says so; the Runtime then refuses such a sandbox.
+      if (backend.unmet(openSpec)) return;
+      const open = await backend.open(openSpec);
       try {
         for (const url of ["http://169.254.169.254/", "http://10.0.0.1/", "http://127.0.0.1:9/"]) {
           const result = output(await tool(open, "bash", { command: options.fetch(url), timeout: 20 }));

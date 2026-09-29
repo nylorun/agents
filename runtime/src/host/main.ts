@@ -110,6 +110,9 @@ export async function main(): Promise<void> {
     hostConfig: config,
     logger,
     baseline,
+    ...(stack.endpoints.openshellGateway
+      ? { openshellGateway: stack.endpoints.openshellGateway }
+      : {}),
   });
 
   // One Durable Session Execution for every Tenant this process opens: Restate

@@ -75,7 +75,7 @@ export interface SandboxManagerOptions {
   readonly scope: string;
   readonly store: SessionStore;
   readonly backends: readonly SandboxBackend[];
-  /** `auto` or `virtual`. Undefined means an invalid NYLORUN_SANDBOX value. */
+  /** `auto`, `virtual` or `openshell`. Undefined means an invalid NYLORUN_SANDBOX value. */
   readonly preference: string | undefined;
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
@@ -164,7 +164,7 @@ export class SandboxManager {
         ? selectSandboxBackend(this.options.backends, preference)
         : Promise.resolve({
             preference: "auto",
-            reason: `NYLORUN_SANDBOX='${this.options.preference}' is not valid; use auto or virtual`,
+            reason: `NYLORUN_SANDBOX='${this.options.preference}' is not valid; use auto, virtual or openshell`,
             probes: [],
           });
     }
@@ -202,7 +202,9 @@ export class SandboxManager {
     const key = this.keyOf(session.id);
     const spec: SandboxSpec = {
       key,
-      image: capability.sandbox?.image ?? DEFAULT_SANDBOX_IMAGE,
+      // The virtual backend reports the Runtime's default; others use their own (OpenShell's gateway).
+      image:
+        capability.sandbox?.image ?? (backend.name === "virtual" ? DEFAULT_SANDBOX_IMAGE : undefined),
       cpus: capability.sandbox?.resources?.cpus ?? DEFAULT_SANDBOX_CPUS,
       memoryMiB: memoryMiBOf(capability.sandbox),
       network: resolveNetwork(capability.sandbox),
@@ -274,7 +276,7 @@ export class SandboxManager {
         return {
           kind: "failed",
           code: "sandbox.start_failed",
-          message: `The sandbox could not start on ${live.backend.name} (image ${spec.image}): ${message}`,
+          message: `The sandbox could not start on ${live.backend.name} (image ${spec.image ?? "the backend's default"}): ${message}`,
         };
       }
     }
@@ -329,7 +331,13 @@ export class SandboxManager {
     });
     const handle = await live.backend.open(spec);
     await this.record(spec.key, session.id, live.backend.name, spec.image, "running", existing);
-    await this.options.emit(session.id, session.activeTurnId, "sandbox.state", { state: "running", ...payload });
+    await this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
+      state: "running",
+      ...payload,
+      ...(existing && handle.created
+        ? { lost: true, note: "The sandbox was gone and was created again; its earlier files are lost." }
+        : {}),
+    });
     return handle;
   }
 

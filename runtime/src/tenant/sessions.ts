@@ -128,9 +128,7 @@ export async function putSession(
   if (opaque && body.ownerUserId !== owner)
     fail(403, "ownerUserId must be the subject");
   const backend =
-    body.sandbox === false || isShare(body.sandbox)
-      ? undefined
-      : (await ctx.sandbox.ready).backend?.name;
+    body.sandbox === false ? undefined : (await ctx.sandbox.ready).backend?.name;
   return ctx.store.tx(async (t) => {
     const prior = await t.lockSession<Session>(id);
     if (opaque && prior && prior.ownerUserId !== owner)
@@ -217,7 +215,7 @@ async function sessionSandbox(
     });
     if (declared || sandboxOwnerId === undefined) return { sandboxOwnerId };
     const spec = sessionSandboxSpec(lookup(request.session)!)!;
-    return { ...(await pin(definition, spec, "shared")), sandboxOwnerId };
+    return { ...(await pin(definition, spec, "shared", options.backend)), sandboxOwnerId };
   }
   if (declared) {
     if (request !== undefined)
@@ -235,17 +233,18 @@ async function sessionSandbox(
   });
   if (resolved.kind === "none") return {};
   if (resolved.kind === "error") return fail(resolved.status, resolved.errors.join(" "));
-  return pin(definition, resolved.spec, resolved.source);
+  return pin(definition, resolved.spec, resolved.source, options.backend);
 }
 
 async function pin(
   definition: Definition,
   spec: SandboxManifest,
-  source: NonNullable<Session["sandboxSource"]>
+  source: NonNullable<Session["sandboxSource"]>,
+  backend: string | undefined
 ): Promise<SessionSandbox> {
   // A workflow's manifest stays as registered: executors match workflow actions by its hash.
   if (isWorkflowManifest(definition.manifest)) return { spec, source };
-  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
+  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec, backend);
   if (!sandboxed.ok) return fail(400, sandboxed.message);
   return {
     spec,
