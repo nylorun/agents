@@ -260,7 +260,7 @@ test("a session ends when the admin key changes, and cannot be forged", async ()
     const [version, issuedAt, nonce, signature] = value.split(".");
     const forged = [
       `${name}=${version}.${Number(issuedAt) + 1}.${nonce}.${signature}`,
-      `${name}=${version}.${issuedAt}.${nonce}.${signature!.slice(0, -1)}A`,
+      `${name}=${version}.${issuedAt}.${nonce}.${signature!.slice(0, -1)}${signature!.endsWith("A") ? "B" : "A"}`,
       `${name}=v2.${issuedAt}.${nonce}.${signature}`,
       `${name}=${version}.${clock.now + 10 * 60 * 1000}.${nonce}.${signature}`,
     ];
