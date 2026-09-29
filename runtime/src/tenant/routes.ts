@@ -59,6 +59,7 @@ import {
   streamSessionEvents,
 } from "./live.js";
 import { dispatchTenant, dispatchVault } from "./routes-tenant.js";
+import { dispatchA2a } from "./a2a.js";
 
 export async function handle(
   ctx: TenantContext,
@@ -156,6 +157,10 @@ export async function handle(
       return fail(403, "Application credential required");
     if (path[1] === "ag-ui")
       return await dispatchAgUi(ctx, scope, method, path, url, request, response, json);
+    if (path[1] === "a2a")
+      return json(
+        await dispatchA2a(ctx, scope, method, path, url, request, response)
+      );
     if (path[1] === "executors" && path.length === 2 && method === "GET")
       return json(listExecutors(ctx));
     // The length guard matters: the connect branch above only matches GET, so without it a

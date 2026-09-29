@@ -144,6 +144,12 @@ export function routeAccess(
       if (n === 2 && method === "GET") return ["agents:read", "agents:write"];
       if (n === 3 && method === "PUT") return ["agents:write"];
       return undefined;
+    case "a2a":
+      if (id !== "agents" || !sub) return undefined;
+      if (n === 4 && method === "POST") return SESSIONS;
+      if (n === 5 && path[4] === "card" && method === "GET")
+        return ["agents:read", "sessions:own"];
+      return undefined;
     case "sessions":
       if (n === 2 && method === "GET") return SESSIONS;
       if (n === 3 && (method === "GET" || method === "PUT")) return SESSIONS;

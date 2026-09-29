@@ -349,6 +349,69 @@ shows only its result; frontend tools in `RunAgentInput.tools` are rejected
 regenerated. A browser reaches the Runtime only with a subject token and a
 publishable key, never with a Tenant key.
 
+## A2A
+
+`@nylorun/agents/a2a` serves the Tenant's agents to other agents over
+[A2A](https://a2a-protocol.org) 1.0 (JSON-RPC) from your own server: the
+gateway. Your server authenticates each partner and names the subject its tasks
+belong to. The handler forwards each request to the Runtime, which speaks A2A,
+so the handler loads no A2A package and parses no message.
+
+```ts
+import { createServer } from "node:http";
+import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
+import support from "./agents/support.js";
+
+const a2a = createA2aHandler({
+  basePath: "/a2a",
+  agents: [support], // nothing else is reachable
+  // undefined → 401; return { subject, agents } to give a partner fewer agents
+  subject: (request) => partnerFor(request.headers.get("x-partner-key"))?.subject,
+  publicUrl: "https://api.example.com/a2a", // for the card; default: the request's origin
+  card: {
+    provider: { organization: "Example Inc.", url: "https://example.com" },
+    securitySchemes: {
+      partnerKey: { apiKeySecurityScheme: { location: "header", name: "X-Partner-Key" } },
+    },
+    securityRequirements: [{ schemes: { partnerKey: { list: [] } } }],
+  },
+});
+
+createServer(toNodeListener(a2a)).listen(3000);
+```
+
+| Method and path under `basePath` | Operation |
+| --- | --- |
+| `GET /{agentId}/.well-known/agent-card.json` | The Agent Card: name, description and one skill from the manifest, with this endpoint's URL and your provider and security schemes. Public; `subject` is not called |
+| `POST /{agentId}` | One A2A JSON-RPC request, answered by the Runtime |
+
+What the Runtime answers (Host feature `a2a-endpoint`):
+
+- `SendMessage` waits until the task completes, fails, is canceled or asks
+  for input, for at most 5 minutes (then it returns `WORKING`); with
+  `configuration.returnImmediately` it returns at once and the partner polls
+  `GetTask`. `CancelTask` works on a running task.
+- A `contextId` is one session per partner, agent and context; a task is one
+  turn. A message without `taskId` starts a task (one at a time per context).
+  A question from the agent pauses the task as `TASK_STATE_INPUT_REQUIRED`
+  with the question as the status message; the partner answers with a message
+  on the same `taskId`.
+- The `messageId` is the idempotency key: a retried message returns the same
+  task.
+- Text parts, or a single data part, in; the turn's output as the artifact
+  `output` (text, or JSON as a data part). Files are
+  `ContentTypeNotSupportedError`.
+- Clients must send `A2A-Version: 1.0` (header or `?A2A-Version=`).
+- Not yet: `ListTasks`, streaming and `SubscribeToTask`
+  (`UnsupportedOperationError`; the card says `streaming: false`), push
+  notifications, the extended card, and approvals. An agent that pauses for an
+  approval shows `INPUT_REQUIRED`, refuses a reply, and can be canceled, so do
+  not publish agents with approval-gated tools yet.
+- The handler calls the Runtime as the partner's subject with the scope
+  `sessions:own` only, so one partner never reaches another's tasks. It sends
+  no header the partner chose except `A2A-Version` and `A2A-Extensions`. Without
+  `a2a-endpoint` on the Runtime it answers `502` (`runtime_feature_missing`).
+
 ## Acting for a person (app servers)
 
 A server that signs people in and calls the Runtime for them (an "app server")
@@ -495,4 +558,4 @@ reconnect from their last event with a new token. Create a publishable key per
 app with the origins that serve it (`http://localhost:*` for development);
 requests from other origins get the opaque `404`.
 
-The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI package. Use `/define`, `/client`, `/executor`, `/ag-ui` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI or A2A package. Use `/define`, `/client`, `/executor`, `/ag-ui`, `/a2a` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).

@@ -22,7 +22,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * (`Nylorun-Key`, `/v1/access/publishable-keys`) name the Tenant and an origin allowlist, and
  * browser requests from listed origins reach the Tenant routes with CORS. `ag-ui-endpoint`:
  * the Runtime serves AG-UI at `/v1/ag-ui/agents/:agent` for a person named by a subject token
- * or by subject headers.
+ * or by subject headers. `a2a-endpoint`:
+ * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
+ * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -32,6 +34,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "subject-tokens",
   "browser-access",
   "ag-ui-endpoint",
+  "a2a-endpoint",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

@@ -62,13 +62,19 @@ export function requestAborted(request: IncomingMessage): AbortSignal {
   return controller.signal;
 }
 
-/** Read a JSON request body, capped at 1 MiB. */
-export async function readBody(request: IncomingMessage): Promise<unknown> {
+/** Read a request body as text, capped at 1 MiB. */
+export async function readText(request: IncomingMessage): Promise<string> {
   let data = "";
   for await (const chunk of request) {
     data += chunk;
     if (Buffer.byteLength(data) > 1024 * 1024) fail(413, "Request too large");
   }
+  return data;
+}
+
+/** Read a JSON request body, capped at 1 MiB. */
+export async function readBody(request: IncomingMessage): Promise<unknown> {
+  const data = await readText(request);
   try {
     return JSON.parse(data);
   } catch {

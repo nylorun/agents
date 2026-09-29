@@ -203,8 +203,8 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
 `admin-status` and `studio-principal`; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
-`subject-headers`, `subject-tokens`, `browser-access` and
-`ag-ui-endpoint`).
+`subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint` and
+`a2a-endpoint`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
@@ -236,6 +236,24 @@ The Runtime's AG-UI endpoint turns them into AG-UI events
 (`runtime/src/ag-ui/`).
 _Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
 formats.
+
+**A2A endpoint**: The Tenant routes `POST /v1/a2a/agents/:agent` (A2A 1.0
+JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,
+`tenant/a2a.ts`, protocol in `a2a/`). A request acts for a subject with
+`sessions:own`; an application key without one is `400 subject_required`. An
+A2A **context** is one session per subject, agent and `contextId`; an A2A
+**task** is one turn, named `t1.<base64url context>.<turnId>` and always
+resolved within the caller's own sessions. `SendMessage`, `GetTask` and
+`CancelTask` work; the rest answer with the A2A error for them.
+_Avoid_: calling the task id a session id; trusting a task id to select a
+session.
+
+**Gateway mode**: A2A through the app server: `createA2aHandler`
+(`@nylorun/agents/a2a`) authenticates partners, names each one's subject, and
+forwards the JSON-RPC body to the A2A endpoint with the application key. It
+publishes the Agent Card with its own URL and security schemes. The Runtime
+stays private.
+_Avoid_: "A2A proxy"; parsing A2A messages in the app server.
 
 ## Runtime architecture
 
