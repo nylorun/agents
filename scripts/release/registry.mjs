@@ -1,4 +1,7 @@
 import semver from "semver";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { npm, packageName } from "../lib/repo.mjs";
 
@@ -34,6 +37,23 @@ async function document(name, { install = false } = {}) {
   }
 }
 
+/** Environment for a public registry probe: no publishing credentials or warm caches. */
+function publicProbeEnvironment(temporary, npmrc) {
+  const clean = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        !/token|secret|password|credential|api.?key/i.test(key) &&
+        !/^npm_config_(?:userconfig|globalconfig|cache|.*auth.*)$/i.test(key),
+    ),
+  );
+  return {
+    ...clean,
+    NPM_CONFIG_USERCONFIG: npmrc,
+    NPM_CONFIG_GLOBALCONFIG: npmrc + ".global",
+    NPM_CONFIG_CACHE: join(temporary, "npm-cache"),
+  };
+}
+
 export const registry = {
   async checkTag(name, version, channel) {
     const tags = (await document(name))?.["dist-tags"] ?? {};
@@ -50,6 +70,33 @@ export const registry = {
     return Boolean(
       (await document(name, { install: true }))?.versions?.[version],
     );
+  },
+  /**
+   * True when a clean-cache `npm pack` resolves the version — the same client
+   * path the public smoke uses. The abbreviated CDN document can list a
+   * version a few seconds before `npm exec`/`npm pack` stop returning ETARGET.
+   */
+  async fetchable(name, version) {
+    const temporary = await mkdtemp(join(tmpdir(), "nylorun-npm-probe-"));
+    const npmrc = join(temporary, ".npmrc");
+    try {
+      await writeFile(npmrc, "");
+      await writeFile(npmrc + ".global", "");
+      await npm(
+        ["pack", `${packageName(name)}@${version}`, "--ignore-scripts"],
+        {
+          cwd: temporary,
+          capture: true,
+          env: publicProbeEnvironment(temporary, npmrc),
+          timeout: 120_000,
+        },
+      );
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
   },
   async publish(_name, path, channel) {
     await npm([
@@ -76,9 +123,15 @@ export const registry = {
   },
   // `npm install` from a clean cache can miss a version waitFor already saw:
   // the CDN served create-agent's older document a minute after publication.
+  // After the abbreviated document lists the version, still require a real
+  // `npm pack` (run 36580313832: document ready, smoke got ETARGET seconds later).
   async waitForInstall(name, version, { sleep: pause = sleep } = {}) {
     for (let attempt = 0; attempt < 120; attempt++) {
-      if (await this.installable(name, version)) return;
+      if (
+        (await this.installable(name, version)) &&
+        (await this.fetchable(name, version))
+      )
+        return;
       await pause(5000);
     }
     throw new Error(
