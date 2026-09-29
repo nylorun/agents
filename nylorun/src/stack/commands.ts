@@ -303,7 +303,7 @@ async function tryStudioLogin(
 
 /** Printed by `start` while the Host has no Tenant: nylorun never creates one. */
 export const TENANT_HINT =
-  "No Tenant yet. Create one in Studio, or run `npx @nylorun/cli tenant create` in your project.";
+  "No Tenant yet. In your project, run `npx @nylorun/cli tenant create`.";
 
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(args, { booleans: ["--no-studio"] }, "nylorun start [--no-studio]");
