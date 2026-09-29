@@ -186,8 +186,8 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
     return (
       <StatusScreen title="Sign in to Studio">
         <p>
-          Run <code className={code}>nylorun studio</code> in a terminal to
-          open a fresh login link.
+          Run <code className={code}>npx nylorun studio</code> in a terminal.
+          It opens Studio here, signed in for 30 days.
         </p>
       </StatusScreen>
     );

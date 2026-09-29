@@ -20,6 +20,7 @@ import { deriveStudioToken } from "@nylorun/admin";
 import {
   LOGIN_TOKEN_TTL_MS,
   SESSION_COOKIE,
+  SESSION_TTL_MS,
   parseRuntimeUrl,
   readAdminKeyFile,
   safeNextPath,
@@ -132,18 +133,18 @@ async function withStudio(
     runtime: Awaited<ReturnType<typeof startFakeRuntime>>;
     clock: { now: number };
   }) => Promise<void>,
-  extra: { publicPort?: number } = {},
+  extra: { publicPort?: number; adminKey?: string; clock?: { now: number } } = {},
 ) {
   const runtime = await startFakeRuntime();
   const root = await webRoot();
-  const clock = { now: 1_000_000 };
+  const { clock = { now: 1_000_000 }, ...options } = extra;
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: ADMIN_KEY,
     port: 0,
     webRoot: root,
     now: () => clock.now,
-    ...extra,
+    ...options,
   });
   try {
     await run({ port: studio.port, runtime, clock });
@@ -202,10 +203,11 @@ test("login tokens need the admin key and are 256-bit, single-use", async () => 
     assert.equal(first.status, 303);
     assert.equal(first.headers.location, "/");
     const cookie = String(first.headers["set-cookie"]?.[0]);
-    assert.match(cookie, new RegExp(`^${SESSION_COOKIE}=[A-Za-z0-9_-]{43};`));
+    assert.match(cookie, new RegExp(`^${SESSION_COOKIE}=v1\\.\\d+\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43};`));
     assert.match(cookie, /; HttpOnly/);
     assert.match(cookie, /; SameSite=Strict/);
     assert.match(cookie, /; Path=\//);
+    assert.match(cookie, new RegExp(`; Max-Age=${SESSION_TTL_MS / 1000}$`));
 
     const again = await send(port, { path: `/login?token=${token}` });
     assert.equal(again.status, 401);
@@ -227,6 +229,45 @@ test("login tokens expire after two minutes", async () => {
     assert.equal(reply.status, 401);
     assert.equal(reply.headers["set-cookie"], undefined);
   });
+});
+
+test("a session survives a Studio restart and lasts 30 days", async () => {
+  const clock = { now: 1_000_000 };
+  let cookie = "";
+  await withStudio(async ({ port }) => {
+    cookie = await session(port);
+  }, { clock });
+  // A new Studio process with the same admin key accepts the cookie.
+  await withStudio(async ({ port }) => {
+    clock.now += SESSION_TTL_MS - 1;
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 200);
+    clock.now += 1;
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 401);
+  }, { clock });
+});
+
+test("a session ends when the admin key changes, and cannot be forged", async () => {
+  const clock = { now: 1_000_000 };
+  let cookie = "";
+  await withStudio(async ({ port }) => {
+    cookie = await session(port);
+  }, { clock });
+  await withStudio(async ({ port }) => {
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 401);
+  }, { clock, adminKey: "b".repeat(64) });
+  await withStudio(async ({ port }) => {
+    const [name, value] = cookie.split("=") as [string, string];
+    const [version, issuedAt, nonce, signature] = value.split(".");
+    const forged = [
+      `${name}=${version}.${Number(issuedAt) + 1}.${nonce}.${signature}`,
+      `${name}=${version}.${issuedAt}.${nonce}.${signature!.slice(0, -1)}${signature!.endsWith("A") ? "B" : "A"}`,
+      `${name}=v2.${issuedAt}.${nonce}.${signature}`,
+      `${name}=${version}.${clock.now + 10 * 60 * 1000}.${nonce}.${signature}`,
+    ];
+    for (const attempt of forged)
+      assert.equal((await send(port, { path: "/", headers: { cookie: attempt } })).status, 401, attempt);
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 200);
+  }, { clock });
 });
 
 test("login redirects only to same-origin paths", async () => {

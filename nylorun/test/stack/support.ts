@@ -107,6 +107,7 @@ export function testDeps(
     err: (line) => errors.push(line),
     openBrowser: async (url) => {
       opened.push(url);
+      return true;
     },
     pidAlive: () => false,
     pollMs: 1,

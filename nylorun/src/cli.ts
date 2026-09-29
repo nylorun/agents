@@ -15,7 +15,7 @@ const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|doctor>
 
 Local stack (Docker Compose):
 ${stackUsage}
-  doctor [--json]                   check Node, Docker and Compose v2, and the stack's health
+  doctor [--json]                     check Node, Docker and Compose v2, and the stack's health
 
 nylorun sets up and runs the local stack. Tenants, Project links and model
 providers belong to the Runtime client: npx @nylorun/cli --help`;

@@ -31,7 +31,8 @@ npm run dev
 ```
 
 `nylorun up` sets up the stack under `~/.nylorun` on the first run and just
-starts it after that. It prints the Runtime URL and a Studio login URL. The
+starts it after that. It prints the Runtime and Studio URLs and opens Studio,
+signed in, in your browser. The
 stack keeps running after you stop `npm run dev`, so sessions survive a source
 change; `npx nylorun down` stops it (volumes are kept), `npx nylorun status`
 shows its health, and `npx nylorun logs runtime -f` its logs.
@@ -45,8 +46,8 @@ Without them, set the provider in Studio's Model provider screen, or with
 incur its usual charges.
 
 `npm run dev` runs `src/main.ts` with `tsx watch`; `connectAgents` finds the
-Runtime through the Project link. `npx nylorun studio` opens a fresh Studio
-login on this project's Tenant (a login URL works once, for two minutes). In
+Runtime through the Project link. `npx nylorun studio` opens Studio on this
+project's Tenant, and signs in a browser that is not signed in yet. In
 Studio, ask **Look up order demo-123**. The local tool returns `shipped`;
 Studio shows the tool call and assistant response. The Runtime listens on
 `http://localhost:8787` and Studio on `http://localhost:4161`, or on free ports
