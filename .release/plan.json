@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "channel": "beta",
+  "channel": "latest",
   "packages": {
     "core": "0.8.0-beta",
     "harness": "0.20.0-beta",
