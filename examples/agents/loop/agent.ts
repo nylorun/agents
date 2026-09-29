@@ -1,32 +1,26 @@
-import { Agent, Loop } from "@nylorun/agents/define";
+import { Agent } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * Loop: run, verify, decide whether to go again.
- * Design: docs/design/workflows/loops.md
+ * Loop: run, verify, and run again with the feedback until it passes or `max` is reached.
+ * Design: docs/design/agent/flow-agents.md
  */
 const coder = Agent({
   id: "coder",
   name: "Coder",
   description: "Produces a short answer that should satisfy a check.",
-  instructions: "Answer the task. Prefer one clear sentence.",
-  outputSchema: z.object({ answer: z.string() }),
-}).build();
+})
+  .instructions("Answer the task. Prefer one clear sentence.")
+  .output(z.object({ answer: z.string() }));
 
-export const polish = Loop({
+export const polish = Agent({
   id: "polish",
-  run: coder,
-  verify: ({ output }) => {
-    const text = (output as { answer?: string } | undefined)?.answer ?? "";
-    if (text.trim().length >= 8) return { pass: true as const };
-    return {
-      pass: false as const,
-      feedback: "Answer must be at least eight characters. Try again.",
-    };
-  },
-  decide: ({ output, verdict, iteration }) => {
-    if (verdict.pass) return { output };
-    if (iteration >= 3) throw new Error("Still too short after 3 tries");
-    return { input: verdict.feedback };
-  },
+  name: "Polish",
+  description: "Asks the coder again until the answer is long enough.",
+}).loop(coder, {
+  verify: ({ output }) =>
+    output.answer.trim().length >= 8
+      ? { pass: true }
+      : { pass: false, feedback: "Answer must be at least eight characters. Try again." },
+  max: 3,
 });

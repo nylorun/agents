@@ -1,3 +1,41 @@
+# One `Agent` builder: named methods and flow agents (deprecations)
+
+Every capability now has its own method on `Agent`, and deterministic workflows
+are written as flow agents on the same builder. The old forms keep working for one
+minor release and warn once each (`DeprecationWarning`, codes below). Manifests are
+unchanged: the new syntax compiles to exactly what the old syntax produced.
+
+| Before | After | Warning code |
+| --- | --- | --- |
+| `Agent({ id, instructions, tools, outputSchema })` | `Agent({ id }).instructions(…).tools(…).output(schema)` | `NYLORUN_DEP_AGENT_OPTIONS` |
+| agents inside `tools: [...]` | `.subagents(agent)` | — |
+| `.use(mcp({ gh: { name: "gh", … } }))` | `.mcp({ gh: { … } })`; `name` defaults to the key | `NYLORUN_DEP_USE` |
+| `.use(skills(dir))` / `.use(plugin(dir))` | `.skills(dir)` / `.plugin(dir)` | `NYLORUN_DEP_USE` |
+| `.use(sandbox(spec))` | `.sandbox(spec)` | `NYLORUN_DEP_USE` |
+| `.use(capability({ id, instructions, tools }))` | `.capability(capability({ id }).instructions(…).tools(…))` | `NYLORUN_DEP_USE`, `NYLORUN_DEP_CAPABILITY_OPTIONS` |
+| `.before("turn", fn)` / `.before("step", fn)` | `.beforeTurn(fn)` / `.beforeModel(fn)` | `NYLORUN_DEP_HOOKS` |
+| `.after("step", fn)` / `.after("turn", fn)` | `.afterModel(fn)` / `.afterTurn(fn)` | `NYLORUN_DEP_HOOKS` |
+
+`.use(middlewareFunction)` has no replacement yet and does not warn.
+`.skills()` and `.plugin()` read files, so they are on the `Agent` exported from
+`@nylorun/agents`; `@nylorun/agents/define` exports the portable builder without them.
+
+Workflows become flow agents. `Chain`, `Switch`, `Parallel`, `Map` and `Loop` still
+work and produce the same manifests.
+
+| Before | After |
+| --- | --- |
+| `Chain({ id, steps: [a, b] })` | `Agent({ id }).step(a).step(b)` |
+| slot `{ run, id, input: ({ value, results }) => … }` | `.step(x, { id, input: ({ input, results, flowInput }) => … })` |
+| `Switch({ id, on: (input) => key, cases, default })` | `.switch({ ...cases, default }, { on: ({ input }) => key, id })` |
+| `Parallel({ id, branches })` | `.parallel(branches, { id })` |
+| `Map({ id, over: (input) => list, each })` | `.map(each, { id, input: ({ input }) => list })`; a Map runs over its input |
+| `Loop({ id, run, verify, decide })` | `.loop(body, { verify, max })`, or `{ verify, decide }` returning `{ output }` or `{ retry, agent? }` |
+
+A loop needs `max` or `decide` (`loop.max-required`). Inside a nested `flow()`,
+`flowInput` is not available yet (`flow.flow-input-nested`). A flow agent's
+`.sandbox(spec)` must equal the spec of every agent in it that declares one.
+
 # `nylorun` and `nylo`: setup and the Runtime client (breaking beta)
 
 The `nylorun` command moves to a new unscoped package, `nylorun`, which only

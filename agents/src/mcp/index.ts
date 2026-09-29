@@ -1,2 +1,2 @@
-export { mcp, McpError } from "./mcp.js";
-export type { McpCapability, McpOptions } from "./mcp.js";
+export { mcp, McpError, normalizeMcpServers } from "@nylorun/core/define";
+export type { McpCapability, McpOptions, McpServerSpec } from "@nylorun/core/define";

@@ -1,19 +1,15 @@
 import {
   SANDBOX_DEFERRED_FIELDS,
   SANDBOX_FIELDS,
-  SANDBOX_INSTRUCTIONS,
   SANDBOX_NETWORK_PRESETS,
-  createSandboxTools,
   isSandboxHostPattern,
   parseSandboxDuration,
   parseSandboxSize,
-} from "@nylorun/core/define";
-import type {
-  CapabilityDeclaration,
-  SandboxManifest,
-  SandboxNetworkPreset,
-  ToolDefinition,
-} from "@nylorun/core/define";
+} from "../utils/sandbox.js";
+import { SANDBOX_INSTRUCTIONS, createSandboxTools } from "./sandbox-tools.js";
+import type { CapabilityDeclaration } from "../types/middleware.js";
+import type { SandboxManifest, SandboxNetworkPreset } from "../types/manifest.js";
+import type { ToolDefinition } from "../types/tool.js";
 
 /** What computer the agent needs. The Runtime decides where it runs. */
 export type SandboxOptions = SandboxManifest;
@@ -45,8 +41,8 @@ export class SandboxError extends Error {
  * Nylorun Runtime, which picks the backend. Agent code declares requirements only.
  *
  * ```ts
- * Agent({ id: "analyst", instructions: "..." }).use(sandbox())
- * Agent({ ... }).use(sandbox({ image: "node:24", network: { allow: ["api.github.com"] } }))
+ * Agent({ id: "analyst" }).instructions("...").sandbox()
+ * Agent({ id: "analyst" }).sandbox({ image: "node:24", network: { allow: ["api.github.com"] } })
  * ```
  */
 export function sandbox(

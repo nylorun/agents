@@ -1,9 +1,9 @@
-export { sandbox, SandboxError } from "./sandbox.js";
+export { sandbox, SandboxError } from "@nylorun/core/define";
 export type {
   SandboxCapability,
   SandboxCapabilityOptions,
   SandboxOptions,
-} from "./sandbox.js";
+} from "@nylorun/core/define";
 export {
   createActionSandbox,
   definitionDeclaresSandbox,

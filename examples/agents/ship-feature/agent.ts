@@ -1,25 +1,25 @@
-import { Agent, Chain, Loop, Map, tool } from "@nylorun/agents/define";
+import { Agent, tool } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * Composed workflow from Workflows §1: Chain → Map → Loop → tool.
- * Design: docs/design/workflows/workflows.md
+ * A flow agent that uses a step, a map, a loop and a tool: plan, implement each task, open a PR.
+ * Design: docs/design/agent/flow-agents.md
  */
 const planner = Agent({
   id: "planner",
   name: "Feature planner",
   description: "Breaks a feature request into implementable tasks.",
-  instructions: "Plan the feature as a list of short tasks. Return { tasks: string[] }.",
-  outputSchema: z.object({ tasks: z.array(z.string()) }),
-}).build();
+})
+  .instructions("Plan the feature as a list of short tasks. Return { tasks: string[] }.")
+  .output(z.object({ tasks: z.array(z.string()) }));
 
 const coder = Agent({
   id: "coder",
   name: "Feature coder",
   description: "Implements one task and returns a summary.",
-  instructions: "Implement the given task. Return a one-line summary of what you did.",
-  outputSchema: z.object({ summary: z.string() }),
-}).build();
+})
+  .instructions("Implement the given task. Return a one-line summary of what you did.")
+  .output(z.object({ summary: z.string() }));
 
 const openPr = tool({
   name: "open-pr",
@@ -32,25 +32,20 @@ const openPr = tool({
   },
 });
 
-export const shipFeature = Chain({
+export const shipFeature = Agent({
   id: "ship-feature",
-  steps: [
-    planner,
-    Map({
-      id: "implement",
-      over: (plan) => (plan as { tasks: string[] }).tasks,
-      each: Loop({
-        id: "code",
-        run: coder,
-        verify: () => ({ pass: true as const }),
-        decide: ({ output }) => ({ output }),
-      }),
+  name: "Ship feature",
+  description: "Plans a feature, implements each task, and opens a pull request.",
+})
+  .step(planner)
+  .map(
+    Agent({ id: "code" }).loop(coder, {
+      verify: ({ output }) =>
+        output.summary ? { pass: true } : { pass: false, feedback: "Say what you changed." },
+      max: 2,
     }),
-    {
-      run: openPr,
-      input: ({ value }) => ({
-        summaries: (value as { summary: string }[]).map((item) => item.summary),
-      }),
-    },
-  ],
-});
+    { id: "implement", input: ({ input }) => input.tasks },
+  )
+  .step(openPr, {
+    input: ({ input }) => ({ summaries: input.map((item) => item.summary) }),
+  });
