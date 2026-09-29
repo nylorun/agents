@@ -1,3 +1,11 @@
+# Flow agents as subagents
+
+`.subagents(flowAgent)` now works: the flow agent's workflow manifest v2 is inlined in
+the delegating tool (`tools[].agent` may be a workflow manifest), and the Runtime runs
+it in a linked session per call. `delegation.flow-unsupported` now only reports a
+workflow built with `Chain`, `Switch`, `Parallel`, `Map` or `Loop`. A Runtime older than
+this release rejects a manifest with a flow subagent at registration.
+
 # Flow agents on workflow manifest v2
 
 Flow agents now compile to workflow manifest v2 and run on the `flow-2` engine.

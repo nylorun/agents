@@ -19,12 +19,19 @@ import type {
 } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue } from "@nylorun/core/define";
-import { embeddedAgent, hashManifest, isWorkflowManifestV2 } from "@nylorun/core/define";
+import {
+  embeddedAgent,
+  flowDelegateManifest,
+  hashManifest,
+  isWorkflowManifestV2,
+  type WorkflowManifestV2,
+} from "@nylorun/core/define";
 import {
   countActiveFlowWork,
   deriveAgentEffectSessionId,
   isFlowEffect,
   isFlowToolEffect,
+  isWorkflowManifest,
   linkedMessageKey,
   linkedTurnEnd,
 } from "../core/flow-host.js";
@@ -55,6 +62,7 @@ import {
   manifestFor,
   mcpToolOf,
   pinnedTool,
+  turnManifestOf,
 } from "./session.js";
 import { command } from "./commands.js";
 import { assistantMessage, toolCompleted, toolIds } from "./transcript.js";
@@ -513,7 +521,7 @@ export async function resolveNewFlowEffect(
     const exists = await t.lockSession(agentSessionId);
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
-    const definition = await leafDefinition(t, workflow, body);
+    const definition = await leafDefinition(t, workflow, body, request);
     const sandboxOwnerId =
       sandboxSpecOf(workflow.manifest) || workflow.sandboxOwnerId
         ? owningSandboxSessionId(
@@ -739,13 +747,25 @@ export async function authorize(
 async function leafDefinition(
   t: Tx,
   workflow: Session,
-  body: { readonly agentId: string; readonly flow?: readonly string[] }
+  body: { readonly agentId: string; readonly flow?: readonly string[] },
+  request: HostEffect
 ): Promise<{
-  manifest: AgentManifest;
+  manifest: AgentManifest | WorkflowManifestV2;
   manifestHash: string;
   implementationVersion: string;
   pluginRoots?: Readonly<Record<string, string>>;
 }> {
+  // A flow agent used as a tool: its manifest is inlined in the parent's pinned tool.
+  if (request.context.role === "delegate" && !isWorkflowManifest(workflow.manifest)) {
+    const flow = flowDelegateManifest(turnManifestOf(workflow), body.agentId);
+    if (!flow) return fail(404, `Agent '${body.agentId}' is not a flow agent used as a tool`);
+    return {
+      manifest: flow,
+      manifestHash: hashManifest(flow),
+      implementationVersion: workflow.implementationVersion,
+      pluginRoots: leafPluginRoots(workflow.pluginRoots, body.agentId),
+    };
+  }
   if (isWorkflowManifestV2(workflow.manifest)) {
     const leaf = embeddedAgent(workflow.manifest, body.flow ?? [], body.agentId);
     if (!leaf || isWorkflowManifestV2(leaf as { kind?: unknown; workflowSchemaVersion?: unknown }))
@@ -768,7 +788,10 @@ async function leafDefinition(
   };
 }
 
-/** A v2 workflow keys its leaves' plugin roots `<agentId>/<capability>`. */
+/**
+ * A v2 workflow keys its leaves' plugin roots `<agentId>/<capability>`, and an agent keys
+ * a flow agent it uses as a tool the same way (`<flowId>/<leafId>/<capability>`).
+ */
 function leafPluginRoots(
   roots: Readonly<Record<string, string>> | undefined,
   agentId: string

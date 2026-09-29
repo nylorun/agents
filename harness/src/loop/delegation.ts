@@ -1,4 +1,4 @@
-import { HarnessError, isHarnessError } from "@nylorun/core/define";
+import { HarnessError, isFlowDelegate, isHarnessError } from "@nylorun/core/define";
 import type {
   AgentRef,
   Delegate,
@@ -22,6 +22,12 @@ export interface DelegationHost {
     delegate: Delegate,
     ref: AgentRef,
   ): { readonly definition: AgentDefinition; readonly onModelCall: ModelAdapter };
+  /**
+   * Run a flow agent used as a tool: the host starts it in its own linked session and
+   * returns the settled value (the flow's output, or a `{ kind: "failed" }` value). Only
+   * durable hosts can; local runs have no flow engine.
+   */
+  flow?(delegate: Delegate, ref: AgentRef, task: string): Promise<JsonValue>;
   /**
    * Journal a lifecycle point exactly once. Local runs have nothing to journal. `callId` is
    * the parent model's tool call id, for display only; it is not part of the point's identity.
@@ -100,26 +106,36 @@ export async function runDelegation(
   let outcome: ToolOutcome;
   let status: RunResult<JsonValue>["status"] = "failed";
   try {
-    const child = host.child(delegate, ref);
-    const listener = options.onEvent;
-    const result = await withNestedIds(call.invocationId, () =>
-      execute(
-        child.definition,
-        {
-          input: task,
-          onModelCall: child.onModelCall,
-          signal,
-          ...(options.info === undefined ? {} : { info: options.info }),
-          state: initializeExecutionState(child.definition, {
-            executionId: `${invocation.state.executionId}/${call.invocationId}`,
-          }),
-          ...(listener ? { onEvent: (event) => listener({ ...event, agent: ref }) } : {}),
-        },
-        { delegated: ref },
-      ),
-    );
-    status = result.status;
-    outcome = settle(result);
+    if (isFlowDelegate(delegate)) {
+      if (!host.flow)
+        throw new HarnessError(
+          "execution.invalid-input",
+          `Agent '${ref.id}' is a flow agent; flow agents used as tools run on the Runtime`,
+        );
+      outcome = settleFlow(await host.flow(delegate, ref, task));
+      status = outcome.kind === "completed" ? "completed" : "failed";
+    } else {
+      const child = host.child(delegate, ref);
+      const listener = options.onEvent;
+      const result = await withNestedIds(call.invocationId, () =>
+        execute(
+          child.definition,
+          {
+            input: task,
+            onModelCall: child.onModelCall,
+            signal,
+            ...(options.info === undefined ? {} : { info: options.info }),
+            state: initializeExecutionState(child.definition, {
+              executionId: `${invocation.state.executionId}/${call.invocationId}`,
+            }),
+            ...(listener ? { onEvent: (event) => listener({ ...event, agent: ref }) } : {}),
+          },
+          { delegated: ref },
+        ),
+      );
+      status = result.status;
+      outcome = settle(result);
+    }
   } catch (cause) {
     // Durable hosts suspend children mid-flight; that must escape to the parent journal.
     if (cause instanceof HostSuspension) throw cause;
@@ -200,4 +216,18 @@ function lastText(result: RunResult<JsonValue>): string | undefined {
     if (text) return text.length > PARTIAL_LIMIT ? `${text.slice(0, PARTIAL_LIMIT)}…` : text;
   }
   return undefined;
+}
+
+/** A flow's settled value: its output, or the `{ kind: "failed" }` value the host records. */
+function settleFlow(value: JsonValue): ToolOutcome {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, JsonValue>;
+    if (record.kind === "failed" && typeof record.code === "string")
+      return {
+        kind: "failed",
+        code: "delegation.failed",
+        message: `The agent failed (${record.code}: ${typeof record.message === "string" ? record.message : record.code}).`,
+      };
+  }
+  return settle({ status: "completed", output: value } as RunResult<JsonValue>);
 }

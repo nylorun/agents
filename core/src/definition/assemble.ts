@@ -196,7 +196,13 @@ function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnost
             extra
           )
         );
-      const nested = delegatesOf(child)[0];
+      if ((child as { kind?: unknown }).kind === "workflow") {
+        // A flow agent runs in its own linked session; its agents may delegate in turn.
+        const spec = (child as { sandbox?: object }).sandbox;
+        if (spec && Object.keys(spec).length > 0) sandboxes.add(canonical(spec));
+        continue;
+      }
+      const nested = delegatesOf(child as AgentManifest)[0];
       if (nested)
         found.push(
           diagnostic(
@@ -214,7 +220,7 @@ function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnost
               extra
             )
           );
-      for (const capability of child.capabilities)
+      for (const capability of (child as AgentManifest).capabilities)
         if (capability.sandbox) sandboxes.add(canonical(capability.sandbox));
     }
   if (sandboxes.size > 1)

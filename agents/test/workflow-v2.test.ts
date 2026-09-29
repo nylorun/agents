@@ -217,3 +217,62 @@ describe("executeAction on a v2 flow agent", () => {
     expect(loud).toMatchObject({ value: { kind: "completed", output: "HELLO" } });
   });
 });
+
+describe("a flow agent used as a tool (Phase 3)", () => {
+  const root = pluginFolder();
+  const research = Agent({ id: "research", description: "Researches a question." })
+    .step(Agent({ id: "searcher" }).instructions("Search.").plugin(root))
+    .step(shout, { input: ({ input }) => ({ word: String(input) }) });
+  const lead = Agent({ id: "lead" }).instructions("Delegate.").subagents(research);
+
+  it("is saved inside its parent, with its agents' plugin roots under its id", async () => {
+    const puts: { path: string; body: any }[] = [];
+    const client = new AgentsClient({
+      url: URL,
+      key: KEY,
+      tenant: TENANT,
+      fetch: async (url, init) => {
+        if (String(url).endsWith("/health")) return healthOk();
+        puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init!.body)) });
+        return Response.json({ ok: true });
+      },
+    });
+    await client.saveAgent(lead, { implementationVersion: "test" });
+    expect(puts.map((p) => p.path)).toEqual(["lead"]);
+    expect(puts[0]!.body.pluginRoots).toEqual({ "research/searcher/github": realpathSync(root) });
+  });
+
+  it("is served by the parent's executor, with its agents", async () => {
+    const saved: string[] = [];
+    let registrations: { agentId: string; manifestHash?: string }[] = [];
+    const application = new AgentsClient({
+      url: URL,
+      key: KEY,
+      tenant: TENANT,
+      fetch: async (url, init) => {
+        const path = String(url);
+        if (path.endsWith("/health")) return healthOk();
+        if (path.includes("/v1/agents/") && init?.method === "PUT") {
+          saved.push(decodeURIComponent(path.split("/").pop()!));
+          return Response.json({ ok: true });
+        }
+        if (path.endsWith("/v1/executors") && init?.method === "PUT") {
+          registrations = JSON.parse(String(init.body)).executors;
+          return Response.json({
+            executors: registrations.map((e) => ({ agentId: e.agentId, implementationVersion: "test", rotated: false })),
+          });
+        }
+        if (path.endsWith("/v1/executors/connect"))
+          return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+        if (path.endsWith("/v1/actions")) return Response.json({ actions: [] });
+        throw new Error(`unexpected ${path}`);
+      },
+    });
+    const connection = connectAgents({ agents: [lead], application, implementationVersion: "test", onError: () => {} });
+    await connection.ready;
+    await connection.close();
+    expect(saved).toEqual(["lead"]);
+    expect(registrations.map((r) => r.agentId)).toEqual(["lead", "research", "searcher"]);
+    expect(registrations[1]!.manifestHash).toBe(hashManifest(research.manifest));
+  });
+});

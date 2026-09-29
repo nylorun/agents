@@ -1,7 +1,7 @@
 import { HarnessError } from "@nylorun/core/define";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { ExecutionInput, ExecutionState, RunResult } from "../types/execution.js";
-import type { JsonObject } from "@nylorun/core/define";
+import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Implementations } from "@nylorun/core/define";
 import type { ActionOutcome } from "@nylorun/core/contracts";
 import type { AgentRef, HookAt, HookScope, ModelAdapter } from "@nylorun/core/define";
@@ -303,9 +303,21 @@ export async function runDurable(options: {
       ).value as any;
   const delegation: DelegationHost = {
     child: (delegate, ref) => ({
-      definition: hostedDefinition(delegate.manifest, ref),
+      definition: hostedDefinition(delegate.manifest as AgentManifest, ref),
       onModelCall: modelCall(ref),
     }),
+    // A flow agent used as a tool runs in its own linked session, like a flow's agent
+    // step: the host starts it, and the effect settles when its turn ends.
+    async flow(_delegate, ref, task) {
+      const outcome = await effect(
+        "agent",
+        { agentId: ref.id, input: task, path: ref.path },
+        { role: "delegate", delegationId: ref.delegationId },
+        `${ref.delegationId}:flow`,
+        { agent: ref },
+      );
+      return outcome.value as JsonValue;
+    },
     async announce(phase, ref, payload, ids) {
       await effect("delegation", payload, { ...ids }, `${ref.delegationId}:${phase}`, {
         agent: ref,

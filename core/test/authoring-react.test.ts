@@ -164,9 +164,9 @@ describe("build diagnostics", () => {
     expect(diagnosticsOf(() => Agent({ id: "a" }).mcp(server).mcp(server).build())).toEqual(["mcp.duplicate-server"]);
   });
 
-  it("delegation.flow-unsupported for a flow agent as a subagent", () => {
-    const desk = Agent({ id: "desk" }).step(sub);
-    expect(diagnosticsOf(() => Agent({ id: "a" }).subagents(desk as never).build())).toEqual([
+  it("delegation.flow-unsupported for a workflow built with the v1 primitives", () => {
+    const old = Loop({ id: "old", run: sub, verify: () => ({ pass: true }), decide: ({ output }) => ({ output }) });
+    expect(diagnosticsOf(() => Agent({ id: "a" }).subagents(old as never).build())).toEqual([
       "delegation.flow-unsupported",
     ]);
   });

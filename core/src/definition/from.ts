@@ -504,6 +504,11 @@ function normalizeTool(tool: ToolManifest): ToolManifest {
       : { outputSchema: tool.outputSchema }),
     ...(tool.agent === undefined
       ? {}
-      : { agent: normalizeManifest(tool.agent as unknown as JsonObject) }),
+      : {
+          agent:
+            "kind" in tool.agent
+              ? deepFreeze(JSON.parse(JSON.stringify(tool.agent)))
+              : normalizeManifest(tool.agent as unknown as JsonObject),
+        }),
   });
 }
