@@ -8,6 +8,7 @@ import { runSwitch } from "./switch.js";
 import { runParallel } from "./parallel.js";
 import { runMap } from "./map.js";
 import { runLoopNode } from "./loop.js";
+import { FlowNodeError } from "./types.js";
 
 /** Path part / id for a node among its siblings. */
 export function nodePart(node: WorkflowNode): string {
@@ -79,7 +80,7 @@ export async function runNode(
       childInput = (await ctx.effect(
         "fn",
         fnArgs,
-        { path, key: nodeKeyOf(path) },
+        { path, key: `${nodeKeyOf(path)}/input`, role: "slot-input" },
         { role: "slot-input" },
       )) as JsonValue;
     }
@@ -124,12 +125,26 @@ async function runTool(
   path: string,
   input: JsonValue,
 ): Promise<JsonValue> {
-  return (await ctx.effect(
-    "tool",
-    input,
-    { path, key: nodeKeyOf(path) },
-    { toolName: name },
-  )) as JsonValue;
+  const value = await ctx.effect("tool", input, { path, key: nodeKeyOf(path) }, { toolName: name });
+  return toolNodeOutput(value as JsonValue, path);
+}
+
+/**
+ * The executor settles a tool node like any tool: `{ kind: "completed", output }` or
+ * `{ kind: "denied", reason }`. The flow passes on the output only. Failed values are
+ * already raised by `ctx.effect`.
+ */
+function toolNodeOutput(value: JsonValue, path: string): JsonValue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const outcome = value as Readonly<Record<string, JsonValue>>;
+  if (outcome.kind === "completed" && "output" in outcome) return outcome.output ?? null;
+  if (outcome.kind === "denied")
+    throw new FlowNodeError({
+      code: "tool.denied",
+      message: typeof outcome.reason === "string" ? outcome.reason : "Tool call denied",
+      path,
+    });
+  return value;
 }
 
 export { joinPath, mapItemPath, nodeKeyOf };

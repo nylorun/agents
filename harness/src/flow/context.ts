@@ -26,7 +26,7 @@ export type FlowContext = {
   effect(
     kind: FlowEffectKind,
     input: unknown,
-    identity: { path: string; key: string; iterations?: string },
+    identity: { path: string; key: string; iterations?: string; role?: string },
     context?: Record<string, unknown>,
   ): Promise<unknown>;
   nearestResults(): Record<string, JsonValue>;
@@ -72,6 +72,7 @@ export function createFlowContext(options: {
         path: identity.path,
         kind,
         iterations,
+        ...(identity.role === undefined ? {} : { role: identity.role }),
       });
       if (cancelEffectIds.has(effectId))
         throw new FlowNodeError({

@@ -145,10 +145,10 @@ export function Loop<In = JsonValue, Out = JsonValue>(
       id: agentEntry.manifest.id,
       getBinding: () => agentEntry,
     });
-    // Verifier agent sessions are derived separately; local fn keys (slot input) sit under verify.
+    // Keys follow the harness path for the verifier, `<loop>/<part>` (workflows.md §6).
     mergeChild(acc, {
       agents: verifyChild.agents,
-      nodes: remapNodeKeys(verifyChild.nodes, verifyChild.id, `${id}/verify`),
+      nodes: remapNodeKeys(verifyChild.nodes, verifyChild.id, `${id}/${verifyChild.id}`),
       sandboxSpecs: verifyChild.sandboxSpecs,
     });
     const node = verifyChild.node;

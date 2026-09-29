@@ -17,7 +17,12 @@ export async function runMap(
   path: string,
   input: JsonValue,
 ): Promise<JsonValue> {
-  const over = await ctx.effect("fn", input, { path, key: nodeKeyOf(path) }, { role: "map-over" });
+  const over = await ctx.effect(
+    "fn",
+    input,
+    { path, key: `${nodeKeyOf(path)}/over` },
+    { role: "map-over" },
+  );
 
   if (!Array.isArray(over)) {
     throw new FlowNodeError({

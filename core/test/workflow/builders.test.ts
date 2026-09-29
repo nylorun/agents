@@ -212,6 +212,44 @@ describe("Map", () => {
     expect(m.getBinding().nodes["write/over"]?.kind).toBe("fn");
   });
 
+  it("WF-R19: a slot id renames a nested workflow's node keys to the slot path", () => {
+    const shout = tool({
+      name: "shout",
+      input: z.object({ word: z.string() }),
+      run: async ({ word }) => word.toUpperCase(),
+    });
+    const wrapped = Chain({
+      id: "wrapped",
+      steps: [
+        {
+          id: "loud",
+          run: Map({ id: "each", over: (v: string[]) => v, each: shout }),
+          input: ({ value }) => value,
+        },
+      ],
+    });
+    expect(Object.keys(wrapped.getBinding().nodes).sort()).toEqual([
+      "wrapped/loud/input",
+      "wrapped/loud/over",
+      "wrapped/loud/shout",
+    ]);
+  });
+
+  it("LOOP-R5: a verifier slot input is keyed under the verifier's path", () => {
+    const judge = Agent({
+      id: "judge",
+      instructions: "Judge.",
+      outputSchema: Verdict,
+    }).build();
+    const essay = Loop({
+      id: "essay",
+      run: agent("writer"),
+      verify: { run: judge, input: ({ value }) => value },
+      decide: ({ output }) => ({ output }),
+    });
+    expect(essay.getBinding().nodes["essay/judge/input"]?.kind).toBe("fn");
+  });
+
   it("MAP-B1: missing over or each fails", () => {
     expect(() =>
       Map({ id: "x", over: undefined as never, each: agent("a") }),

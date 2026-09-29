@@ -22,13 +22,19 @@ export function iterationsOf(vector: readonly number[]): string {
   return vector.length === 0 ? "-" : vector.join(".");
 }
 
-/** Effect id for a flow effect (workflows.md §10). */
+/**
+ * Effect id for a flow effect (workflows.md §10).
+ * `role` separates two effects of one kind on one path, e.g. a slot `input`
+ * and the Map `over` or Switch `on` it wraps.
+ */
 export function flowEffectId(input: {
   readonly turnId: string;
   readonly segment: number;
   readonly path: string;
   readonly kind: string;
   readonly iterations: string;
+  readonly role?: string;
 }): string {
-  return `${input.turnId}:${input.segment}:flow:${input.path}:${input.kind}:${input.iterations}`;
+  const kind = input.role === undefined ? input.kind : `${input.kind}.${input.role}`;
+  return `${input.turnId}:${input.segment}:flow:${input.path}:${kind}:${input.iterations}`;
 }
