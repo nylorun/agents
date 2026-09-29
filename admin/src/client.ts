@@ -29,7 +29,13 @@ import { AdminError } from "./errors.js";
 export type AdminSource = "options" | "environment" | "local-host";
 
 export interface ResolvedAdmin {
+  /** The Host's Tenant API URL (what a Project link names). */
   url: string;
+  /**
+   * Where the Admin API answers when the Host serves it on its own operator listener
+   * (`adminPort` in host.json). Defaults to `url`.
+   */
+  adminUrl?: string;
   key: string;
   source: AdminSource;
   home: string;
@@ -80,7 +86,9 @@ function assertCredentialsSafe(path: string): void {
   }
 }
 
-function readLocalHost(home: string): { url: string; key: string } | undefined {
+function readLocalHost(
+  home: string,
+): { url: string; adminUrl: string; key: string } | undefined {
   const configPath = join(home, "host.json");
   const credentialsPath = join(home, "host-credentials.json");
   let config: unknown;
@@ -109,12 +117,18 @@ function readLocalHost(home: string): { url: string; key: string } | undefined {
   }
   const host = (config as { host?: unknown }).host;
   const port = (config as { port?: unknown }).port;
+  const adminPort = (config as { adminPort?: unknown }).adminPort;
   const adminKey = (credentials as { adminKey?: unknown }).adminKey;
   if (typeof host !== "string" || typeof port !== "number") return undefined;
   if (typeof adminKey !== "string" || !/^[0-9a-f]{64}$/.test(adminKey)) {
     return undefined;
   }
-  return { url: `http://${host}:${port}`, key: adminKey };
+  return {
+    url: `http://${host}:${port}`,
+    // An older Host serves the Admin API on its only port.
+    adminUrl: `http://${host}:${typeof adminPort === "number" ? adminPort : port}`,
+    key: adminKey,
+  };
 }
 
 /**
@@ -162,6 +176,7 @@ export function resolveAdminConnection(options?: {
   if (local) {
     return {
       url: local.url.replace(/\/$/, ""),
+      adminUrl: local.adminUrl.replace(/\/$/, ""),
       key: local.key,
       source: "local-host",
       home,
@@ -239,7 +254,10 @@ async function readBody(response: Response): Promise<unknown> {
 }
 
 export class AdminClient {
+  /** The Host's Tenant API URL. */
   readonly url: string;
+  /** Where Admin API requests go: the operator listener, or `url` on a single-port Host. */
+  readonly adminUrl: string;
   readonly source: AdminSource;
   private readonly key: string;
   private compatible = false;
@@ -248,6 +266,7 @@ export class AdminClient {
 
   constructor(resolved: ResolvedAdmin) {
     this.url = resolved.url;
+    this.adminUrl = resolved.adminUrl ?? resolved.url;
     this.source = resolved.source;
     this.key = resolved.key;
   }
@@ -267,7 +286,7 @@ export class AdminClient {
 
   private async ensureCompatible(signal?: AbortSignal): Promise<void> {
     if (this.compatible) return;
-    const response = await fetch(`${this.url}/health`, {
+    const response = await fetch(`${this.adminUrl}/health`, {
       method: "GET",
       redirect: "error",
       signal,
@@ -314,7 +333,7 @@ export class AdminClient {
     await this.ensureCompatible(
       init.signal === null ? undefined : init.signal,
     );
-    const response = await fetch(this.url + path, {
+    const response = await fetch(this.adminUrl + path, {
       ...init,
       headers: this.adminHeaders(init),
       redirect: "error",

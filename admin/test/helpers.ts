@@ -89,6 +89,7 @@ export async function writeLocalHost(options: {
   format?: 0 | 1;
   adminKey?: string;
   credentialsMode?: number;
+  adminPort?: number;
 }): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "nylorun-admin-"));
   const hostJson: Record<string, unknown> = {
@@ -97,6 +98,7 @@ export async function writeLocalHost(options: {
     port: options.port,
   };
   if (options.format !== undefined) hostJson.format = options.format;
+  if (options.adminPort !== undefined) hostJson.adminPort = options.adminPort;
   await writeFile(join(home, "host.json"), `${JSON.stringify(hostJson)}\n`, {
     mode: 0o600,
   });

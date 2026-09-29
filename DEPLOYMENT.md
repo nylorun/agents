@@ -104,8 +104,9 @@ way in. Nothing in the Runtime changes.
 | --- | --- |
 | Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun up` prints) | The Tenant key travels on every request and controls the whole Tenant |
 | Rewrite `Host` to `localhost:<port>` | The stack answers `421` to any other `Host` |
-| Answer `/v1/admin/*` with `403` | The Admin API shares the Runtime's port; the admin key never leaves the machine |
-| Forward only `/health`, `/ready` and `/v1/*`; never proxy Studio or Restate | The operator tools stay on the machine |
+| Forward to the Runtime port only (`NYLORUN_PORT`); never the operator port (`NYLORUN_ADMIN_PORT`), Studio or Restate | The Admin API is on its own port and stays on the machine |
+| Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
+| Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
 | Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Tenant`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
 | Don't buffer responses; allow idle streams | Event streams and the executor's connection are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
@@ -120,7 +121,7 @@ runtime.example.com {
 	# first: a bare `respond` would run after the proxy, not before it.
 	@admin path /v1/admin /v1/admin/*
 	handle @admin {
-		# The Admin API shares the Runtime's port; it stays on this machine.
+		# The Admin API is on its own port (never proxied); block it here too.
 		respond "Blocked by the reverse proxy" 403
 	}
 

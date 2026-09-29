@@ -23,6 +23,8 @@ _Avoid_: "SDK API" or "application API" as the surface name.
 
 **Admin API**: The `/v1/admin/tenants` and `/v1/admin/status` routes, called
 with an admin key. Shared by OSS and Cloud. Client package: `@nylorun/admin`.
+Served on the **operator listener** when the Host has one, otherwise on its
+only listener.
 `POST /v1/admin/host/shutdown` is Host-private on OSS and is not part of
 this surface.
 _Avoid_: treating Host shutdown as a shared Admin API method.
@@ -43,7 +45,18 @@ prerequisite is an error naming what to install.
 _Avoid_: "bootstrap" for installing the Runtime.
 
 **Local Host settings**: `host.json` and `host-credentials.json` in the Host
-root. `@nylorun/admin` reads them for local connection resolution.
+root. `@nylorun/admin` reads them for local connection resolution: `port` is
+the Tenant API, `adminPort` (when present) the operator listener.
+
+**Public listener** / **Operator listener**: With an operator listener
+(`adminPort` in host.json, or `NYLORUN_ADMIN_LISTEN_PORT` in a container; the
+stack's is container port 4001, published on loopback as `NYLORUN_ADMIN_PORT`),
+the Host serves two ports (`ListenerRole` in `host/create-host.ts`). The public
+listener serves the Tenant API, with browser access when enabled, and answers
+admin routes with the opaque `404`. The operator listener serves the Admin API,
+Host shutdown and the Tenant API, never to browsers. Without one, a single
+`combined` listener serves everything. Studio uses the operator listener.
+_Avoid_: proxying the operator port.
 
 **Runtime Host** (or **Host**): The code in every Runtime process that listens,
 validates `Nylorun-Protocol` and `Nylorun-Tenant`, serves admin routes, and
@@ -172,8 +185,10 @@ libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
 
 **Reverse proxy**: Infrastructure on the Runtime's machine, needed only when the
-app server is on another machine: TLS, `Host` rewrite, admin routes and Studio
-blocked. Configured by the developer (Caddy, nginx, Tailscale).
+Runtime is reached from another machine: TLS, `Host` rewrite, only the public
+port proxied (admin routes blocked as well), Studio and the operator port never
+proxied, `OPTIONS`, `Origin` and `Nylorun-Key` passed through, no CORS headers
+of its own. Configured by the developer (Caddy, nginx, Tailscale).
 
 **Executor principal**: Bearer credential hashed in the Tenant `executors`
 table, scoped to an `agentId`. Never equal to an application principal hash.

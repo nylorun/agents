@@ -336,6 +336,8 @@ export interface StackStatus {
   state: "running" | "stopped" | "absent";
   runtime: {
     url?: string;
+    /** The Admin API (operator listener), when the stack publishes one. */
+    adminUrl?: string;
     healthy: boolean;
     version?: string;
     hostId?: string;
@@ -391,9 +393,13 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
   const host = await readHostConfig(ctx.paths);
   const healthy =
     health?.status === "ok" && (host === undefined || health.hostId === host.hostId);
+  // The Admin API answers on the operator port; an older stack has only the Runtime port.
+  const adminUrl = persisted.adminPort
+    ? `http://${STACK_CLIENT_HOST}:${persisted.adminPort}`
+    : runtimeUrl;
   const tenants =
-    healthy && runtimeUrl
-      ? await adminTenantCount(ctx.deps, runtimeUrl, await readAdminKey(ctx.paths))
+    healthy && adminUrl
+      ? await adminTenantCount(ctx.deps, adminUrl, await readAdminKey(ctx.paths))
       : undefined;
   const studio = services.find((s) => s.service === "studio");
   return {
@@ -401,6 +407,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     state: services.some((s) => s.state === "running") ? "running" : "stopped",
     runtime: {
       ...(runtimeUrl ? { url: runtimeUrl } : {}),
+      ...(persisted.adminPort && adminUrl ? { adminUrl } : {}),
       healthy,
       ...(health?.version ? { version: health.version } : {}),
       ...(health?.hostId ? { hostId: health.hostId } : {}),
@@ -439,6 +446,8 @@ async function status(ctx: Context, args: readonly string[]): Promise<number> {
         }`
       : "not answering";
     out(`Runtime     ${result.runtime.url ?? "?"}  ${runtimeDetail}`);
+    if (result.runtime.adminUrl)
+      out(`Admin API   ${result.runtime.adminUrl}  (operators only, never proxied)`);
     out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun studio")`);
     if (result.restate.url) out(`Restate UI  ${result.restate.url}`);
     out(
