@@ -52,17 +52,18 @@ export function defaultStackDeps(
           },
         }
       : {}),
+    interactive,
     openBrowser: async (url) => {
       const command = browserCommand(env);
-      await new Promise<void>((resolve) => {
+      return await new Promise<boolean>((resolve) => {
         const child = spawn(command, [url], { detached: true, stdio: "ignore" });
         child.once("error", () => {
-          console.error(`Could not start ${command} to open a browser; open the Studio URL above.`);
-          resolve();
+          console.error(`Could not start ${command} to open a browser.`);
+          resolve(false);
         });
         child.once("spawn", () => {
           child.unref();
-          resolve();
+          resolve(true);
         });
       });
     },

@@ -14,7 +14,7 @@ npm start
 ```
 
 `nylorun up` starts the stack, or leaves it running when it already is, and
-prints the Runtime URL and a Studio login URL. `npm start` runs
+prints the Runtime and Studio URLs. `npm start` runs
 `node dist/src/main.js`, which connects the application's executor to the
 Runtime with three variables: `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` and
 `NYLORUN_SERVER_KEY`, or through the Project link. `nylo env`

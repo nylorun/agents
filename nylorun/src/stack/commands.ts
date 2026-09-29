@@ -20,12 +20,12 @@ export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"]
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  up|start [--no-studio]            set up the stack on first run, then start it; print the Runtime URL and a Studio login URL
-  down|stop                         stop the stack's containers; keep volumes
-  status [--json] [--env]           services, endpoints and Runtime health (--env: the linked Project's variables)
-  logs [service] [-f] [--tail <n>]  stack logs (${STACK_SERVICES.join(", ")})
-  studio [--no-open]                open a fresh Studio login (on the linked Project's Tenant); start the stack if it is stopped
-  reset [--yes]                     delete the stack's volumes and Tenant directories`;
+export const stackUsage = `  up|start [--no-studio] [--no-open]  set up the stack on first run, then start it; print the Runtime and Studio URLs and open Studio signed in (in a terminal)
+  down|stop                           stop the stack's containers; keep volumes
+  status [--json] [--env]             services, endpoints and Runtime health (--env: the linked Project's variables)
+  logs [service] [-f] [--tail <n>]    stack logs (${STACK_SERVICES.join(", ")})
+  studio [--no-open]                  sign a browser in to Studio (on the linked Project's Tenant); --no-open prints the login URL; start the stack if it is stopped
+  reset [--yes]                       delete the stack's volumes and Tenant directories`;
 
 export interface StackDeps {
   /** Environment snapshot (NYLORUN_HOME, image overrides, NYLORUN_STACK_PROJECT). */
@@ -41,7 +41,10 @@ export interface StackDeps {
   err(line: string): void;
   /** Ask a yes/no question on the terminal; undefined when not interactive. */
   confirm?(question: string): Promise<boolean>;
-  openBrowser(url: string): Promise<void>;
+  /** A developer is at a terminal: `start` may open a browser. */
+  interactive?: boolean;
+  /** Open `url` in a browser; false when no browser could be started. */
+  openBrowser(url: string): Promise<boolean>;
   /** Is this process id alive? (launcher-managed Runtime detection) */
   pidAlive(pid: number): boolean;
   /** Delay between health polls; tests shorten it. */
@@ -301,19 +304,40 @@ async function tryStudioLogin(
   return undefined;
 }
 
+/** Printed by `start` when it does not open Studio itself. */
+export const STUDIO_SIGN_IN_HINT =
+  'To sign a browser in to Studio, run "npx nylorun studio".';
+
+/** `start` opens Studio only for a developer at a terminal, outside CI. */
+function opensBrowser(deps: StackDeps, flags: Flags): boolean {
+  return Boolean(deps.interactive) && !deps.env.CI && !flags.booleans.has("--no-open");
+}
+
+/**
+ * Open a Studio login in the browser, or print it when no browser starts.
+ * The login URL carries a single-use token, so it is printed only as a fallback.
+ */
+async function openLogin(ctx: Context, login: string): Promise<void> {
+  if (!(await ctx.deps.openBrowser(login))) ctx.deps.out(`Sign in   ${login}`);
+}
+
 /** Printed by `start` while the Host has no Tenant: nylorun never creates one. */
 export const TENANT_HINT =
   "No Tenant yet. In your project, run `npx @nylorun/cli tenant create`.";
 
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
-  const flags = parseStackFlags(args, { booleans: ["--no-studio"] }, "nylorun start [--no-studio]");
-  if (flags.rest.length) throw usageError("Usage: nylorun start [--no-studio]");
+  const usage = "nylorun start [--no-studio] [--no-open]";
+  const flags = parseStackFlags(args, { booleans: ["--no-studio", "--no-open"] }, usage);
+  if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   await dockerPreflight(ctx.deps.docker);
   const started = await bringUp(ctx, { studio: !flags.booleans.has("--no-studio") });
   ctx.deps.out(`Runtime   ${started.runtimeUrl}`);
   if (started.studioStarted) {
-    const login = await tryStudioLogin(ctx, started.studioPort, started.adminKey);
-    if (login) ctx.deps.out(`Studio    ${login}`);
+    ctx.deps.out(`Studio    ${studioOrigin(started.studioPort)}`);
+    if (opensBrowser(ctx.deps, flags)) {
+      const login = await tryStudioLogin(ctx, started.studioPort, started.adminKey);
+      if (login) await openLogin(ctx, login);
+    } else ctx.deps.err(STUDIO_SIGN_IN_HINT);
   }
   if ((await adminTenantCount(ctx.deps, started.runtimeUrl, started.adminKey)) === 0)
     ctx.deps.err(TENANT_HINT);
@@ -623,8 +647,13 @@ async function studio(
     throw new CliError(`Studio did not start. See "nylorun logs studio".`, 7);
   const login = await studioLoginUrl(ctx.deps, stack, options.next);
   if (!login) return 1;
-  ctx.deps.out(`Studio    ${login}`);
-  if (!flags.booleans.has("--no-open")) await ctx.deps.openBrowser(login);
+  if (flags.booleans.has("--no-open")) {
+    ctx.deps.out(`Studio    ${login}`);
+    return 0;
+  }
+  const origin = studioOrigin(stack.studioPort);
+  ctx.deps.out(`Studio    ${options.next ? new URL(options.next, origin).toString() : origin}`);
+  await openLogin(ctx, login);
   return 0;
 }
 

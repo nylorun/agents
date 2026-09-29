@@ -29,11 +29,11 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the stack
 ## Commands
 
 ```sh
-nylorun up|start [--no-studio]     # set up (first run) and start the stack; print the Runtime URL and a Studio login URL
+nylorun up|start [--no-studio] [--no-open]  # set up (first run) and start the stack; print the Runtime and Studio URLs; open Studio signed in
 nylorun down|stop                  # stop the containers; keep volumes
 nylorun status [--json]            # services, endpoints, Runtime health
 nylorun logs [service] [-f] [--tail <n>]   # postgres, restate, s2, runtime, studio
-nylorun studio [--no-open]         # fresh Studio login (on the linked Project's Tenant); starts the stack if needed
+nylorun studio [--no-open]         # sign a browser in to Studio (on the linked Project's Tenant); starts the stack if needed
 nylorun reset [--yes]              # delete the stack's volumes and every Tenant
 nylorun doctor [--json]            # prerequisites and stack health
 ```
@@ -57,12 +57,16 @@ CI). Ports publish on loopback only: the Runtime on `8787`, Studio on `4161`
 and the Restate UI on `9070`, or free ports chosen on the first start and kept
 in `.env`. While the Host has no Tenant, `up` says how to create one.
 
-Studio has no password: nylorun asks the Studio container for a single-use
-login token with the admin key (`POST /_studio/login-tokens`) and opens
-`http://localhost:<port>/login?token=…`, which sets a session cookie. The
-token expires after two minutes; `nylorun studio` mints a fresh one. Inside a
-linked project, `nylorun studio` reads `.nylorun/link.json` (never writes it)
-and lands on that project's Tenant.
+`up` prints Studio as `http://localhost:<port>`. Studio has no password: in a
+terminal (not in CI, and not with `--no-open`), `up` asks the Studio container
+for a single-use login token with the admin key (`POST /_studio/login-tokens`)
+and opens `http://localhost:<port>/login?token=…` in the browser. That sets a
+session cookie for 30 days, which survives Studio restarts, so the printed URL
+keeps working in that browser. The token itself is never printed unless no
+browser starts. Otherwise `up` says to run `nylorun studio`, which signs a
+browser in the same way; `nylorun studio --no-open` prints the login URL (it
+works once, for two minutes) instead. Inside a linked project, `nylorun studio`
+reads `.nylorun/link.json` (never writes it) and lands on that project's Tenant.
 
 ## Host root
 
