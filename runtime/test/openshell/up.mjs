@@ -27,11 +27,24 @@ function docker(args, options = {}) {
 
 if (process.argv[2] === "down") {
   docker(["compose", "-f", compose, "down", "--remove-orphans"], { allowFailure: true });
-  // Sandbox containers belong to the gateway, not to the compose project.
-  const listed = spawnSync("docker", ["ps", "-aq", "--filter", "name=openshell-default--"], { encoding: "utf8" });
-  const ids = listed.stdout.split("\n").filter(Boolean);
+  // Sandbox containers and volumes belong to the gateway, not to the compose
+  // project; the driver labels them with gateway.toml's sandbox_label.
+  const namespace = "label=openshell.ai/sandbox-namespace=nylorun-test";
+  const list = (args) =>
+    spawnSync("docker", [...args, "--filter", namespace], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);
+  const ids = list(["ps", "-aq"]);
   if (ids.length > 0) docker(["rm", "-f", ...ids], { allowFailure: true });
-  rmSync(root, { recursive: true, force: true });
+  const volumes = list(["volume", "ls", "-q"]);
+  if (volumes.length > 0) docker(["volume", "rm", "-f", ...volumes], { allowFailure: true });
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch {
+    // On Linux the gateway (user 0) writes its state as root (EACCES here): delete it as root.
+    // The gateway image has no shell; the sandboxes' workload image does.
+    const image = "nvcr.io/nvidia/base/ubuntu:24.04";
+    docker(["run", "--rm", "-v", `${root}:/state`, image, "rm", "-rf", "/state/data", "/state/jwt"]);
+    rmSync(root, { recursive: true, force: true });
+  }
   process.exit(0);
 }
 
