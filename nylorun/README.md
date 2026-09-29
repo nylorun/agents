@@ -29,10 +29,11 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the stack
 ## Commands
 
 ```sh
-nylorun up|start [--no-studio]     # set up (first run) and start the stack; print the Runtime URL and a Studio login URL
+nylorun up|start [--no-studio] [--sandbox virtual|openshell] [--openshell-telemetry on|off]
+                                   # set up (first run) and start the stack; print the Runtime URL and a Studio login URL
 nylorun down|stop                  # stop the containers; keep volumes
 nylorun status [--json]            # services, endpoints, Runtime health
-nylorun logs [service] [-f] [--tail <n>]   # postgres, restate, s2, runtime, studio
+nylorun logs [service] [-f] [--tail <n>]   # postgres, restate, s2, runtime, studio, openshell-gateway
 nylorun studio [--no-open]         # fresh Studio login (on the linked Project's Tenant); starts the stack if needed
 nylorun reset [--yes]              # delete the stack's volumes and every Tenant
 nylorun doctor [--json]            # prerequisites and stack health
@@ -63,6 +64,32 @@ login token with the admin key (`POST /_studio/login-tokens`) and opens
 token expires after two minutes; `nylorun studio` mints a fresh one. Inside a
 linked project, `nylorun studio` reads `.nylorun/link.json` (never writes it)
 and lands on that project's Tenant.
+
+## Sandboxes
+
+A session gets a sandbox when it is opened with one, or when the Tenant's
+default names one (`PUT /v1/tenant/sandbox`). By default the stack runs them on
+the Runtime's **virtual** backend: an in-process shell, with no extra
+containers.
+
+`nylorun start --sandbox openshell` adds the
+[OpenShell](https://github.com/NVIDIA/OpenShell) gateway (`openshell-gateway`,
+image `ghcr.io/nvidia/openshell/gateway:0.1.2`) and points the Runtime at it
+(`NYLORUN_OPENSHELL_GATEWAY`). Each sandbox is then two containers created on
+first use: a host-networked supervisor, and the workload with no network of its
+own. Egress goes only to the hosts the session's sandbox allows. The workspace
+is `/sandbox`. Six containers run at rest, and two more per live sandbox. The
+gateway mounts the Docker socket, and publishes its gRPC and health ports on
+loopback (`18080` and `18081`, or free ports kept in `.env`). The choice is
+kept in `.env`: `nylorun start --sandbox virtual` stops the gateway again.
+
+The gateway sends anonymous usage counts to NVIDIA. `nylorun start` says so
+each time it starts the gateway; `--openshell-telemetry off` turns the counts
+off (kept in `.env`). `nylorun reset` also deletes the stack's sandbox
+containers and volumes. They are labelled
+`openshell.ai/sandbox-namespace=<project>`. On Linux the gateway's state under
+`<Host root>/openshell` belongs to root; `reset` prints the `sudo rm`
+command if it cannot delete it.
 
 ## Host root
 

@@ -336,7 +336,9 @@ describe("reset", () => {
     const confirming = { ...deps, confirm: async (q: string) => ((asked = q), true) };
     expect(await runStackCommand("reset", [], confirming)).toBe(0);
     expect(asked).toMatch(/Delete the stack's volumes/);
-    expect(docker.streamed).toEqual([[...compose(home), "down", "--volumes", "--remove-orphans"]]);
+    expect(docker.streamed).toEqual([
+      [...compose(home), "--profile", "openshell", "down", "--volumes", "--remove-orphans"],
+    ]);
     expect(existsSync(join(paths.tenants, "tn_x"))).toBe(false);
     expect(existsSync(paths.tenants)).toBe(true);
     expect(await readFile(paths.env, "utf8")).toBe(env);

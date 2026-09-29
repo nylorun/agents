@@ -15,6 +15,11 @@ export type SandboxReport = {
     version?: string;
   }[];
   defaultImage?: string;
+  /** The Tenant's sandbox configuration (Runtimes with Sandboxes v3). */
+  config?: {
+    default: "none" | "virtual" | Record<string, unknown>;
+    limits?: { network?: readonly string[] };
+  };
 };
 
 function platformLine(): string {
@@ -76,6 +81,15 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
       ? "auto (seed Tenant sandbox.backend via nylo tenant create / .env NYLORUN_SANDBOX)"
       : report.preference,
   ]);
+  if (report.config)
+    rows.push([
+      "default",
+      report.config.default === "none"
+        ? "none: sessions get a sandbox only when opened with one (set a default with PUT /v1/tenant/sandbox)"
+        : report.config.default === "virtual"
+          ? "virtual: sessions that name no sandbox get one"
+          : "a Tenant sandbox: sessions that name no sandbox get it",
+    ]);
   rows.push([
     "selected",
     report.backend
@@ -88,5 +102,9 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
   if (report.backend === "virtual")
     console.log(
       "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.",
+    );
+  if (report.backend === "openshell")
+    console.log(
+      "\n  OpenShell runs each sandbox in a container; its supervisor enforces the network policy outside it.",
     );
 }

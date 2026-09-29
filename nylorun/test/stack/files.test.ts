@@ -25,6 +25,10 @@ const env: StackEnv = {
   hostRoot: "/Users/dev/.nylorun",
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
+  sandbox: "virtual",
+  openshellPort: 18080,
+  openshellHealthPort: 18081,
+  openshellTelemetry: true,
 };
 
 /** Fixed vector: Restate 1.7.12 logs `kid: <FIXED_KEY>` when it loads this PEM. */
@@ -47,13 +51,17 @@ describe("compose.yaml", () => {
     expect(compose).toMatchSnapshot();
   });
 
-  it("publishes only the Runtime, Studio and Restate UI, all on loopback", () => {
-    const published = [...compose.matchAll(/^\s+- "([^"]+):(\d+)"/gm)].map((m) => `${m[1]}:${m[2]}`);
+  it("publishes the Runtime, Studio, Restate UI and the optional OpenShell gateway, all on loopback", () => {
+    const published = [...compose.matchAll(/^\s+- "([^"]+):([^":]+)"/gm)].map((m) => `${m[1]}:${m[2]}`);
     expect(published).toEqual([
       "127.0.0.1:${NYLORUN_RESTATE_PORT:?run nylorun start}:9070",
       "127.0.0.1:${NYLORUN_PORT:?run nylorun start}:4000",
+      "127.0.0.1:${NYLORUN_OPENSHELL_PORT:-18080}:${NYLORUN_OPENSHELL_PORT:-18080}",
+      "127.0.0.1:${NYLORUN_OPENSHELL_HEALTH_PORT:-18081}:8081",
       "127.0.0.1:${NYLORUN_STUDIO_PORT:?run nylorun start}:3000",
     ]);
+    // The gateway runs only with the openshell profile.
+    expect(compose).toContain('profiles: ["openshell"]');
   });
 
   it("pins Postgres, Restate and s2 and takes the Runtime and Studio images from .env", () => {
@@ -109,6 +117,10 @@ describe(".env", () => {
       studioPort: 4161,
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
+      sandbox: "virtual",
+      openshellPort: 18080,
+      openshellHealthPort: 18081,
+      openshellTelemetry: true,
     });
   });
 
@@ -158,6 +170,7 @@ describe("prepareStack", () => {
       gid: 20,
       runtimeVersion: "0.10.0-beta",
       ports,
+      project: "nylorun",
     });
 
   it("writes host.json, credentials, compose.yaml and .env with the right modes", async () => {

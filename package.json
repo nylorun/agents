@@ -36,6 +36,7 @@
     "test:acceptance:access": "node scripts/acceptance/access.mjs",
     "test:remote": "node scripts/acceptance/remote.mjs",
     "test:stack": "node scripts/smoke-stack.mjs",
+    "test:stack:openshell": "node scripts/smoke-openshell.mjs",
     "test:failure": "node scripts/smoke-failure.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
