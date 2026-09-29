@@ -11,6 +11,16 @@ try {
     "../../scripts/check-boundaries.mjs"
   );
   checkBoundaries("agents");
+  // First, before anything else is cached: the browser entry loads no Node-only module.
+  const start = loaded.length;
+  const browser = await import("@nylorun/agents/browser");
+  if (typeof browser.createBrowserClient !== "function")
+    throw new Error("Missing @nylorun/agents/browser exports");
+  const nodeOnly = loaded.slice(start).filter(
+    (url) => url.startsWith("node:") || /[/\\]connection\.js$/.test(url)
+  );
+  if (nodeOnly.length)
+    throw new Error(`Browser entry loaded Node-only modules: ${nodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
   for (const name of ["Agent", "createClient", "connectAgents"])
     if (typeof sdk[name] !== "function")
@@ -33,7 +43,7 @@ try {
   )
     throw new Error("Missing @nylorun/agents/ag-ui exports");
   console.log(
-    "SDK entry point imports; no engine, host or AG-UI modules loaded."
+    "SDK entry point imports; no engine, host or AG-UI modules loaded; the browser entry loads no Node-only module."
   );
 } finally {
   hooks.deregister();

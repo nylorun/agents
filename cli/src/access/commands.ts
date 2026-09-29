@@ -11,7 +11,7 @@ import {
 } from "@nylorun/agents";
 import { CliError } from "../errors.js";
 
-export const accessUsage = `nylo access <policy|signing-keys|revoke|token>
+export const accessUsage = `nylo access <policy|keys|signing-keys|revoke|token>
 
   policy get                         print the access policy
   policy set <file>                  replace it with a JSON file
@@ -20,6 +20,12 @@ export const accessUsage = `nylo access <policy|signing-keys|revoke|token>
   signing-keys list                  list the signing keys
   signing-keys rotate [--force]      rotate; --force signs outstanding tokens out
   signing-keys revoke <kid>          revoke a previous or standby key
+  keys list                          list the publishable keys
+  keys create --name <n> [--origin <o>]…
+                                     a publishable key for a web page or an app
+                                     (origins: https://app.example.com or http://localhost:*)
+  keys set-origins <id> [<o>…]       replace a key's origins ([] for native apps only)
+  keys revoke <id>                   revoke a publishable key
   revoke <subject>                   end a subject's tokens and open streams
   token --subject <s> --role <r> [--ttl <seconds>]
                                      mint a subject token (for trying the API with curl)`;
@@ -107,6 +113,25 @@ export async function accessCommand(
       const force = args[0] === "--force";
       if (args.length > (force ? 1 : 0)) throw usageError();
       return print(await (await keys()).rotate({ force }));
+    }
+    if (action === "revoke" && args.length === 1)
+      return print(await (await keys()).revoke(args[0]!));
+    throw usageError();
+  }
+  if (topic === "keys") {
+    const keys = async () => (await client()).access.publishableKeys;
+    if (action === "list" && args.length === 0) return print(await (await keys()).list());
+    if (action === "create") {
+      const name = option(args, "--name");
+      const origins: string[] = [];
+      for (let origin = option(args, "--origin"); origin; origin = option(args, "--origin"))
+        origins.push(origin);
+      if (!name || args.length > 0) throw usageError();
+      return print(await (await keys()).create({ name, origins }));
+    }
+    if (action === "set-origins" && args.length >= 1) {
+      const [keyId, ...origins] = args;
+      return print(await (await keys()).update(keyId!, { origins }));
     }
     if (action === "revoke" && args.length === 1)
       return print(await (await keys()).revoke(args[0]!));

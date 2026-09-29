@@ -17,6 +17,7 @@ import { quoteIdentifier, tenantIdFromSchema } from "../names.js";
 import { initial } from "./001_initial.js";
 import { sessionOwner } from "./002_session_owner.js";
 import { subjectTokens } from "./003_subject_tokens.js";
+import { publishableKeys } from "./004_publishable_keys.js";
 
 export interface Migration {
   /** 1, 2, 3, … without gaps. */
@@ -30,6 +31,7 @@ export const MIGRATIONS: readonly Migration[] = [
   initial,
   sessionOwner,
   subjectTokens,
+  publishableKeys,
 ];
 
 /** The schema version this Runtime writes and expects. */

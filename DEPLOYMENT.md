@@ -56,13 +56,41 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
   Studio for operators (loopback or an SSH tunnel).
 - The app server drops every `Nylorun-*` header its own clients send, never
-  forwards `Origin` (the Runtime refuses browser requests), and terminates TLS
-  for its clients.
+  forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
+  terminates TLS for its clients.
 - The admin key and any application keys stay on the server; clients get
   nothing. A server that holds the admin key can derive its Tenant key instead
   of storing one (`admin.deriveTenantKey`, derived principals).
 - Removing a person is the app server's decision: it stops acting for them and
-  closes their open streams. There is no per-person credential to revoke.
+  closes their open streams. If it also minted subject tokens for them, it
+  revokes them too (`app.access.revokeSubject`).
+
+## Calling the Runtime from browsers and apps
+
+A browser or a mobile app can call the Runtime itself, without carrying its
+requests through your app server (optional features `subject-tokens` and
+`browser-access`). Your app server keeps signing people in and mints a
+short-lived subject token for each; the page ships a publishable key.
+
+1. Write the access policy once: which roles exist, which agents each may use,
+   and their limits (`npx @nylorun/cli access policy init`, then
+   `access policy set <file>`).
+2. Create a publishable key per app, listing the origins that serve it:
+   `npx @nylorun/cli access keys create --name web --origin https://app.example.com`.
+   Use `--origin http://localhost:*` for development; an app with no web
+   origin gets none.
+3. Add a token route to your app server (`createTokenEndpoint` from
+   `@nylorun/agents`): same-origin `POST`, behind your sign-in, no CORS.
+4. In the page, `createBrowserClient` from `@nylorun/agents/browser` takes the
+   Runtime URL, the publishable key and a function that calls the token route.
+
+The local stack allows browser requests (`NYLORUN_BROWSER_ACCESS`, on by
+default in the stack; `off` refuses every `Origin`). A Host started from
+`host.json` allows them only with `"browserAccess": true`. With no publishable
+key, every request with an `Origin` is still refused. CORS headers come from the
+Runtime after it checks the key and its origins; a reverse proxy passes
+`OPTIONS`, `Origin` and `Nylorun-Key` through and never adds its own. A page
+served over HTTPS can only call a Runtime served over HTTPS.
 
 ## Reaching the Runtime from another machine
 
@@ -78,7 +106,7 @@ way in. Nothing in the Runtime changes.
 | Rewrite `Host` to `localhost:<port>` | The stack answers `421` to any other `Host` |
 | Answer `/v1/admin/*` with `403` | The Admin API shares the Runtime's port; the admin key never leaves the machine |
 | Forward only `/health`, `/ready` and `/v1/*`; never proxy Studio or Restate | The operator tools stay on the machine |
-| Pass every other header through: `Authorization`, `Nylorun-Tenant`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers; the Runtime refuses any request with an `Origin`, so browsers stay out |
+| Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Tenant`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
 | Don't buffer responses; allow idle streams | Event streams and the executor's connection are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 

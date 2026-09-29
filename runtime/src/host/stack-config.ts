@@ -60,6 +60,11 @@ export interface StackConfig {
    * means nothing outside the container.
    */
   publicUrl?: string;
+  /**
+   * `NYLORUN_BROWSER_ACCESS` (`on` or `off`): whether browser requests may reach Tenant
+   * routes. Absent means the Host's default (on in container mode).
+   */
+  browserAccess?: boolean;
 }
 
 export class StackConfigError extends Error {
@@ -247,11 +252,17 @@ export function parseStackConfig(
   const restateIdentityKeys = parseIdentityKeys(env);
   if (restateIdentityKeys) endpoints.restateIdentityKeys = restateIdentityKeys;
   const publicUrl = parseUrl(env, "NYLORUN_PUBLIC_URL", http)?.replace(/\/+$/, "");
+  const rawBrowser = read(env, "NYLORUN_BROWSER_ACCESS");
+  if (rawBrowser !== undefined && rawBrowser !== "on" && rawBrowser !== "off")
+    throw new StackConfigError(
+      `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
+    );
   return {
     role,
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
+    ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
   };
 }
 

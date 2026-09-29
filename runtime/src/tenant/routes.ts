@@ -32,6 +32,7 @@ import {
   requirePrincipal,
 } from "./auth.js";
 import { dispatchAccess } from "./routes-access.js";
+import { identifyClient } from "./browser.js";
 import { command } from "./commands.js";
 import {
   actionSandboxTool,
@@ -84,9 +85,21 @@ export async function handle(
       .filter(Boolean)
       .map(decodeURIComponent);
     const method = request.method;
-    const scope = await authenticate(ctx, request);
+    // The client app first: a browser's origin is checked, and CORS headers set, before the
+    // bearer is looked at, so every answer from here on is readable by an allowed page.
+    const client = await identifyClient(ctx, request, response);
+    const scope = await authenticate(ctx, request, client);
     if (path[0] !== "v1") fail(404, "Route not found");
     authorize(scope, method, path);
+    if (scope.kind === "publishable") {
+      if (path[1] === "agents" && path.length === 2 && method === "GET")
+        return json(await listAgentsPublic(ctx, scope.agents));
+      if (path[1] === "access")
+        return json(await dispatchAccess(ctx, scope, method, path, request));
+      return fail(403, "A publishable key alone reaches only the agent list", {
+        code: "scope_required",
+      });
+    }
     // Set when the request acts for a person: only their own sessions (of the agents a token
     // allows) are reachable.
     const access = accessOf(scope);

@@ -18,7 +18,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * enforces the scopes and the subject's ownership of sessions and vaults.
  * `subject-tokens`: `POST /v1/tokens` mints ES256 subject tokens for the roles of the Tenant's
  * access policy, and the Tenant API accepts them as bearers (`/v1/access/**` manages the
- * policy, signing keys and revocations).
+ * policy, signing keys and revocations). `browser-access`: publishable keys
+ * (`Nylorun-Key`, `/v1/access/publishable-keys`) name the Tenant and an origin allowlist, and
+ * browser requests from listed origins reach the Tenant routes with CORS.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -26,6 +28,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "derived-principals",
   "subject-headers",
   "subject-tokens",
+  "browser-access",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -46,6 +49,8 @@ export const PROTOCOL_HEADER = "Nylorun-Protocol";
 export const SUBJECT_HEADER = "Nylorun-Subject";
 /** The space-separated scopes of that subject; required with `Nylorun-Subject`. */
 export const SCOPES_HEADER = "Nylorun-Scopes";
+/** A publishable key: names the Tenant and the client app (Host feature `browser-access`). */
+export const PUBLISHABLE_KEY_HEADER = "Nylorun-Key";
 
 export const ERROR_CODES = [
   "not_found",
@@ -70,6 +75,17 @@ export const TENANT_ID_PATTERN = /^tn_[0-9a-hjkmnp-tv-z]{26}$/;
 export const PRINCIPAL_ID_PATTERN = /^pr_[0-9a-hjkmnp-tv-z]{26}$/;
 /** A Tenant signing key's id, the `kid` of the subject tokens it signs. */
 export const SIGNING_KEY_ID_PATTERN = /^sk_[0-9a-hjkmnp-tv-z]{26}$/;
+/** A publishable key's id (not the key). */
+export const PUBLISHABLE_KEY_ID_PATTERN = /^pk_[0-9a-hjkmnp-tv-z]{26}$/;
+/** A publishable key: `nr_pub_<tenantId>_<32 Crockford characters>`. */
+export const PUBLISHABLE_KEY_PATTERN =
+  /^nr_pub_(tn_[0-9a-hjkmnp-tv-z]{26})_([0-9a-hjkmnp-tv-z]{32})$/;
+
+/** The Tenant a publishable key names, or undefined when it is not one. */
+export function tenantOfPublishableKey(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return PUBLISHABLE_KEY_PATTERN.exec(value)?.[1];
+}
 /** A derived principal's id names its client, e.g. `babai`; `studio` is reserved. */
 export const DERIVED_PRINCIPAL_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -115,7 +131,10 @@ function encodeRandom(): string {
 let lastTime = -1;
 let lastRandom = "";
 
-function newPrefixedId(prefix: "tn_" | "pr_" | "sk_", now?: number): string {
+function newPrefixedId(
+  prefix: "tn_" | "pr_" | "sk_" | "pk_",
+  now?: number,
+): string {
   const ms = now ?? Date.now();
   const time = encodeTime(ms);
   let random = encodeRandom();
@@ -144,6 +163,19 @@ export function newPrincipalId(now?: number): string {
 /** Signing key id: `sk_` + lowercase Crockford ULID (same generator as tenants). */
 export function newSigningKeyId(now?: number): string {
   return newPrefixedId("sk_", now);
+}
+
+/** Publishable key id: `pk_` + lowercase Crockford ULID. */
+export function newPublishableKeyId(now?: number): string {
+  return newPrefixedId("pk_", now);
+}
+
+/** A new publishable key for `tenantId`: 160 random bits after the Tenant id. */
+export function newPublishableKey(tenantId: string): string {
+  if (!isTenantId(tenantId)) throw new Error(`Invalid Tenant id ${tenantId}`);
+  let random = "";
+  while (random.length < 32) random += encodeRandom();
+  return `nr_pub_${tenantId}_${random.slice(0, 32)}`;
 }
 
 type SemVerParts = {

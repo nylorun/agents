@@ -105,7 +105,17 @@ export type AuthScope =
       subject: string;
       scopes: ReadonlySet<SubjectScope>;
     }
-  | { kind: "executor"; executor: ExecutorRecord };
+  | { kind: "executor"; executor: ExecutorRecord }
+  /**
+   * A publishable key with no bearer (Host feature `browser-access`): what the policy grants
+   * `anon`, at most `agents:read`. It owns no session or vault.
+   */
+  | {
+      kind: "publishable";
+      keyId: string;
+      scopes: ReadonlySet<SubjectScope>;
+      agents: ReadonlySet<string> | "*";
+    };
 
 export interface TenantContext {
   readonly config: TenantConfig;

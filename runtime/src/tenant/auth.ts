@@ -19,6 +19,8 @@ import { hashToken } from "../core/executors.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
 import { looksLikeToken, verifySubjectToken } from "./tokens.js";
+import { readPolicy } from "./access-policy.js";
+import type { BrowserClient } from "./browser.js";
 
 const SUBJECT_INVALID = { code: "subject_invalid" } as const;
 
@@ -35,11 +37,22 @@ function singleHeader(request: IncomingMessage, name: string): string | undefine
 
 export async function authenticate(
   ctx: TenantContext,
-  request: IncomingMessage
+  request: IncomingMessage,
+  client?: BrowserClient
 ): Promise<AuthScope> {
   const header = request.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token || !header?.startsWith("Bearer ")) {
+    // A publishable key alone: what the policy grants `anon` (nothing by default).
+    if (client && header === undefined) {
+      const { anon } = await ctx.store.tx((t) => readPolicy(t));
+      return {
+        kind: "publishable",
+        keyId: client.keyId,
+        scopes: new Set(anon.scopes),
+        agents: anon.agents === "*" ? "*" : new Set(anon.agents),
+      };
+    }
     ctx.config.logger.warn("credential rejected", {
       reason: "missing_bearer",
     });
@@ -55,6 +68,16 @@ export async function authenticate(
       fail(403, "A subject token cannot act for another subject");
     return scope;
   }
+  // Application and executor keys never come from a browser or a shipped app: refused before
+  // they are even looked up.
+  if (request.headers.origin !== undefined)
+    fail(403, "Application and executor keys are not accepted from browsers", {
+      code: "origin_rejected",
+    });
+  if (client)
+    fail(400, "Nylorun-Key is for browser and mobile clients, not with a Tenant key", {
+      code: "invalid_request",
+    });
   const tokenHash = hashToken(token);
   const principal = await ctx.store.tx((t) => t.principalByTokenHash(tokenHash));
   const executor = principal ? undefined : ctx.registry.find(tokenHash);
@@ -87,8 +110,11 @@ export async function authenticate(
   };
 }
 
-/** What a subject needs for a route: any one of the scopes, or nothing grants it. */
-export type RouteAccess = readonly SubjectScope[] | "never";
+/**
+ * What a subject needs for a route: any one of the scopes, nothing grants it (`never`), or
+ * any caller may (`any`, public data such as the JWKS).
+ */
+export type RouteAccess = readonly SubjectScope[] | "never" | "any";
 
 const SESSIONS: RouteAccess = ["sessions:own"];
 const VAULTS: RouteAccess = ["vaults:own"];
@@ -111,8 +137,9 @@ export function routeAccess(
     case "actions":
     // Minting and access management belong to the application key alone.
     case "tokens":
-    case "access":
       return "never";
+    case "access":
+      return n === 3 && id === "jwks" && method === "GET" ? "any" : "never";
     case "agents":
       if (n === 2 && method === "GET") return ["agents:read", "agents:write"];
       if (n === 3 && method === "PUT") return ["agents:write"];
@@ -164,9 +191,15 @@ export function authorize(
   method: string | undefined,
   path: readonly string[]
 ): void {
-  if (scope.kind !== "subject" && scope.kind !== "token") return;
+  if (
+    scope.kind !== "subject" &&
+    scope.kind !== "token" &&
+    scope.kind !== "publishable"
+  )
+    return;
   const access = routeAccess(method, path);
   if (access === undefined) fail(404, "Route not found");
+  if (access === "any") return;
   if (access === "never")
     fail(403, "This route is not available when acting for a subject", {
       code: "scope_required",
@@ -196,6 +229,9 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
         owner: scope.subject,
         ...(scope.agents === "*" ? {} : { agents: scope.agents }),
       };
+    // A publishable key alone owns nothing: no session or vault is ever reachable.
+    case "publishable":
+      return fail(404, "Not found");
     default: {
       const unknown: never = scope;
       return fail(404, `Unknown credential ${String((unknown as AuthScope).kind)}`);

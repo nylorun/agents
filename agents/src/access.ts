@@ -8,6 +8,7 @@ import type {
   AccessPolicy,
   CreateTokenResponse,
   Jwks,
+  PublishableKey,
   SigningKeyView,
   TokenScope,
 } from "@nylorun/core/contracts";
@@ -97,11 +98,78 @@ export class SigningKeysClient {
   }
 }
 
+/**
+ * Publishable keys (Host feature `browser-access`): shipped in a web page or an app, they name
+ * the Tenant and the app, and list the origins a browser may use them from.
+ */
+export class PublishableKeysClient {
+  constructor(private readonly transport: Transport) {}
+
+  async list(options: { signal?: AbortSignal } = {}): Promise<PublishableKey[]> {
+    await this.transport.requireFeature("browser-access", options.signal);
+    const reply = await this.transport.json<{ keys: PublishableKey[] }>(
+      "/v1/access/publishable-keys",
+      "GET",
+      undefined,
+      options.signal
+    );
+    return reply.keys;
+  }
+
+  /**
+   * A new key. `origins` are exact origins (`https://app.example.com`) or
+   * `http://localhost:*`; `[]` allows native apps only.
+   */
+  async create(options: {
+    name: string;
+    origins: readonly string[];
+    signal?: AbortSignal;
+  }): Promise<PublishableKey> {
+    await this.transport.requireFeature("browser-access", options.signal);
+    return this.transport.json(
+      "/v1/access/publishable-keys",
+      "POST",
+      { requestId: id(), name: options.name, origins: [...options.origins] },
+      options.signal
+    );
+  }
+
+  /** Replaces the key's origins. */
+  async update(
+    keyId: string,
+    options: { origins: readonly string[]; signal?: AbortSignal }
+  ): Promise<PublishableKey> {
+    await this.transport.requireFeature("browser-access", options.signal);
+    return this.transport.json(
+      `/v1/access/publishable-keys/${segment(keyId)}`,
+      "PUT",
+      { requestId: id(), origins: [...options.origins] },
+      options.signal
+    );
+  }
+
+  /** Revokes the key: every request that sends it gets the opaque 404. */
+  async revoke(
+    keyId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<PublishableKey> {
+    await this.transport.requireFeature("browser-access", options.signal);
+    return this.transport.json(
+      `/v1/access/publishable-keys/${segment(keyId)}`,
+      "DELETE",
+      undefined,
+      options.signal
+    );
+  }
+}
+
 export class AccessClient {
   readonly signingKeys: SigningKeysClient;
+  readonly publishableKeys: PublishableKeysClient;
 
   constructor(private readonly transport: Transport) {
     this.signingKeys = new SigningKeysClient(transport);
+    this.publishableKeys = new PublishableKeysClient(transport);
   }
 
   async getPolicy(options: { signal?: AbortSignal } = {}): Promise<AccessPolicy> {

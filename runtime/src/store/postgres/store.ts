@@ -67,6 +67,7 @@ import type {
   StoreCounts,
   StoreHealth,
   SigningKeyRow,
+  PublishableKeyRow,
   SubjectUsageRow,
   StoredSession,
   TakeOwnership,
@@ -263,6 +264,17 @@ function signingKeyRow(row: Row): SigningKeyRow {
     nonce: fromBytes(row.nonce),
     ciphertext: fromBytes(row.ciphertext),
     wrappedDek: fromBytes(row.wrapped_dek),
+  };
+}
+
+function publishableKeyRow(row: Row): PublishableKeyRow {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    originsJson: row.origins_json,
+    createdAt: row.created_at,
+    revokedAt: row.revoked_at,
   };
 }
 
@@ -1122,6 +1134,54 @@ class PostgresTx implements Tx {
       SELECT count(*)::int AS n FROM ${this.t("sessions")}
       WHERE owner_user_id = ${ownerUserId} AND status = ANY(${statuses as string[]})`;
     return row!.n as number;
+  }
+
+  // --- publishable keys ----------------------------------------------------
+
+  async insertPublishableKey(row: PublishableKeyRow): Promise<void> {
+    this.check();
+    await this.sql`
+      INSERT INTO ${this.t("publishable_keys")} (id, key, name, origins_json, created_at, revoked_at)
+      VALUES (${row.id}, ${row.key}, ${row.name}, ${row.originsJson}, ${row.createdAt}, ${row.revokedAt})`;
+  }
+
+  async publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT * FROM ${this.t("publishable_keys")} WHERE key = ${key}`;
+    return row && publishableKeyRow(row);
+  }
+
+  async publishableKey(id: string): Promise<PublishableKeyRow | undefined> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT * FROM ${this.t("publishable_keys")} WHERE id = ${id}`;
+    return row && publishableKeyRow(row);
+  }
+
+  async publishableKeys(): Promise<PublishableKeyRow[]> {
+    this.check();
+    const rows = await this.sql`
+      SELECT * FROM ${this.t("publishable_keys")} ORDER BY created_at, id`;
+    return rows.map(publishableKeyRow);
+  }
+
+  async updatePublishableKey(
+    id: string,
+    patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
+  ): Promise<boolean> {
+    this.check();
+    const sql = this.sql;
+    const sets = [
+      ...(patch.originsJson === undefined ? [] : [sql`origins_json = ${patch.originsJson}`]),
+      ...(patch.revokedAt === undefined ? [] : [sql`revoked_at = ${patch.revokedAt}`]),
+    ];
+    if (sets.length === 0) return (await this.publishableKey(id)) !== undefined;
+    const rows = await sql`
+      UPDATE ${this.t("publishable_keys")}
+      SET ${sets.reduce((all, next) => sql`${all}, ${next}`)}
+      WHERE id = ${id} RETURNING id`;
+    return rows.length === 1;
   }
 
   // --- settings ------------------------------------------------------------

@@ -3,7 +3,8 @@ import type { Migration } from "./index.js";
 /**
  * Subject tokens (Host feature `subject-tokens`): the Tenant's signing keys (private halves
  * sealed with the vault KEK, like credentials), each subject's revocation epoch, each
- * subject's turn bucket, and an index for counting a subject's sessions by status.
+ * subject's turn bucket. Counting a subject's sessions by status uses the owner index of
+ * migration 2; a second index on status would be written on every session transition.
  */
 export const subjectTokens: Migration = {
   version: 3,
@@ -39,6 +40,5 @@ export const subjectTokens: Migration = {
       refilled_at text NOT NULL
     );
 
-    CREATE INDEX sessions_owner_status ON ${s}.sessions (owner_user_id, status);
   `,
 };

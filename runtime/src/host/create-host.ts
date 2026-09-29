@@ -11,7 +11,10 @@ import {
   isTenantId,
   PROTOCOL_HEADER,
   TENANT_HEADER,
+  PUBLISHABLE_KEY_HEADER,
+  tenantOfPublishableKey,
 } from "@nylorun/core/compatibility";
+import { answerPreflight } from "./cors.js";
 import {
   AdminStatusSchema,
   CreateTenantRequestSchema,
@@ -67,6 +70,13 @@ export interface CreateHostOptions {
    * mode is `http://0.0.0.0:4000`.
    */
   publicUrl?: string;
+  /**
+   * Browser access (Host feature `browser-access`): requests with an `Origin` may reach Tenant
+   * routes, where the publishable key's origin allowlist decides. Off by default: every
+   * `Origin` is `403 origin_rejected`, as before. Admin routes, `/health` and `/ready` refuse
+   * `Origin` either way.
+   */
+  browserAccess?: boolean;
   /**
    * Infrastructure readiness (`infra/readiness.ts`). `/ready` adds its checks
    * and answers 503 while it reports not ok. Default: listener and discovery
@@ -343,15 +353,26 @@ export function createHost(options: CreateHostOptions): HostServer {
         return;
       }
 
-      if (headerValue(request.headers, "origin") !== undefined) {
-        sendRejected(
-          response,
-          403,
-          "origin_rejected",
-          "Browser Origin headers are not accepted",
-        );
-        statusCode = 403;
-        return;
+      const origin = headerValue(request.headers, "origin");
+      if (origin !== undefined) {
+        const route = pathname.split("/").filter(Boolean);
+        // Only Tenant routes, and only when the operator allows browsers; the Tenant then
+        // checks the publishable key and its origins before adding any CORS header.
+        const tenantRoute = route[0] === "v1" && route[1] !== "admin";
+        if (!options.browserAccess || !tenantRoute) {
+          sendRejected(
+            response,
+            403,
+            "origin_rejected",
+            "Browser Origin headers are not accepted",
+          );
+          statusCode = 403;
+          return;
+        }
+        if (request.method === "OPTIONS") {
+          statusCode = answerPreflight(request, response, route);
+          return;
+        }
       }
 
       if (
@@ -424,27 +445,36 @@ export function createHost(options: CreateHostOptions): HostServer {
         return;
       }
 
-      // Tenant-scoped routes: header pattern → protocol → resolve → Tenant handle.
+      // Tenant-scoped routes: header pattern → protocol → resolve → Tenant handle. The Tenant
+      // is named by `Nylorun-Tenant`, by the publishable key in `Nylorun-Key`, or by both
+      // when they agree.
+      const invalid = (message: string) => {
+        sendJson(response, 400, {
+          status: "rejected",
+          code: "invalid_request",
+          message,
+        });
+        statusCode = 400;
+      };
+      const keyHeader = headerValue(request.headers, PUBLISHABLE_KEY_HEADER);
+      const keyTenant =
+        keyHeader === undefined ? undefined : tenantOfPublishableKey(keyHeader);
+      if (keyHeader !== undefined && keyTenant === undefined)
+        return invalid(`${PUBLISHABLE_KEY_HEADER} header is malformed`);
       const tenantHeader = headerValue(request.headers, TENANT_HEADER);
-      if (tenantHeader === undefined || tenantHeader.trim() === "") {
-        sendJson(response, 400, {
-          status: "rejected",
-          code: "invalid_request",
-          message: `${TENANT_HEADER} header is required`,
-        });
-        statusCode = 400;
-        return;
-      }
-      if (!isTenantId(tenantHeader)) {
-        sendJson(response, 400, {
-          status: "rejected",
-          code: "invalid_request",
-          message: `${TENANT_HEADER} header is malformed`,
-        });
-        statusCode = 400;
-        return;
-      }
-      tenantId = tenantHeader;
+      const named =
+        tenantHeader === undefined || tenantHeader.trim() === ""
+          ? undefined
+          : tenantHeader;
+      if (named === undefined && keyTenant === undefined)
+        return invalid(`${TENANT_HEADER} header is required`);
+      if (named !== undefined && !isTenantId(named))
+        return invalid(`${TENANT_HEADER} header is malformed`);
+      if (named !== undefined && keyTenant !== undefined && named !== keyTenant)
+        return invalid(
+          `${PUBLISHABLE_KEY_HEADER} and ${TENANT_HEADER} name different Tenants`,
+        );
+      tenantId = (named ?? keyTenant)!;
 
       const protocolHeader = headerValue(request.headers, PROTOCOL_HEADER);
       if (!protocolAccepted(protocolHeader)) {

@@ -425,4 +425,44 @@ role allows answers `429` with `code: "limit_exceeded"` and `Retry-After`.
 Keep tokens in memory on the client, never in `localStorage`, and serve the
 minting route without CORS. `nylo access …` does the same from the terminal.
 
-The SDK depends only on core within the Nylorun packages; installing it does not install harness. `/ag-ui` adds `@ag-ui/core`; nothing else imports it. Use `/define`, `/client`, `/executor` or `/ag-ui` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+`createTokenEndpoint` is that route, ready to mount (Next.js, Hono or any
+`Request` → `Response` handler):
+
+```ts
+import { createTokenEndpoint } from "@nylorun/agents";
+
+export const POST = createTokenEndpoint({
+  client: app,
+  role: "user",
+  subject: (request) => userFromCookie(request)?.id,
+});
+```
+
+## In the browser
+
+`@nylorun/agents/browser` calls the Runtime from a web page or an app with a
+publishable key and the token route above (optional feature `browser-access`).
+It loads no Node module.
+
+```ts
+import { createBrowserClient } from "@nylorun/agents/browser";
+
+const nylo = createBrowserClient({
+  url: "https://runtime.example.com",
+  publishableKey: "nr_pub_tn_…", // app.access.publishableKeys.create({ name, origins })
+  token: () => fetch("/api/nylorun/token", { method: "POST" }).then((r) => r.json()),
+});
+
+const session = await nylo.createSession({ agentId: "support" }); // owned by the token's subject
+await session.input("Where is my order?", { idempotencyKey: crypto.randomUUID() });
+for await (const event of session.observe()) console.log(event.type);
+```
+
+The client keeps the token in memory, fetches a new one a minute before it
+expires or when the Runtime answers `401 token_expired`, and never asks for two
+at once. Event streams that the Runtime ends at token expiry or revocation
+reconnect from their last event with a new token. Create a publishable key per
+app with the origins that serve it (`http://localhost:*` for development);
+requests from other origins get the opaque `404`.
+
+The SDK depends only on core within the Nylorun packages; installing it does not install harness. `/ag-ui` adds `@ag-ui/core`; nothing else imports it. Use `/define`, `/client`, `/executor`, `/ag-ui` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).

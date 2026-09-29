@@ -31,6 +31,10 @@
     "./ag-ui": {
       "types": "./dist/ag-ui/index.d.ts",
       "import": "./dist/ag-ui/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
     }
   },
   "scripts": {

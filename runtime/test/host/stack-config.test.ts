@@ -220,3 +220,17 @@ describe("isAllowedRequestHost with an explicit allowlist", () => {
     expect(isAllowedRequestHost("runtime:4000", { port: 4000, host: "127.0.0.1" })).toBe(false);
   });
 });
+
+describe("NYLORUN_BROWSER_ACCESS", () => {
+  it("is absent by default and on or off when set", () => {
+    expect(parseStackConfig({}, []).browserAccess).toBeUndefined();
+    expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: "on" }, []).browserAccess).toBe(true);
+    expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: "off" }, []).browserAccess).toBe(false);
+  });
+
+  it("rejects anything else", () => {
+    expect(() => parseStackConfig({ NYLORUN_BROWSER_ACCESS: "yes" }, [])).toThrow(
+      StackConfigError
+    );
+  });
+});

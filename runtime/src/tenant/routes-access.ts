@@ -4,7 +4,8 @@
  * - `POST /v1/tokens`: mint a subject token;
  * - `GET`/`PUT /v1/access/policy`: the access policy;
  * - `GET /v1/access/signing-keys`, `POST …/rotate`, `POST …/:kid/revoke`: signing keys;
- * - `GET /v1/access/jwks`: the public keys;
+ * - `GET`/`POST /v1/access/publishable-keys`, `PUT`/`DELETE …/:id`: publishable keys;
+ * - `GET /v1/access/jwks`: the public keys (any caller that reached the Tenant);
  * - `POST /v1/access/revocations`: end a subject's tokens and open streams.
  *
  * `routeAccess` refuses every one of these to subjects and tokens before this runs; the
@@ -13,7 +14,14 @@
  */
 import type { IncomingMessage } from "node:http";
 import {
+  newPublishableKey,
+  newPublishableKeyId,
+} from "@nylorun/core/compatibility";
+import {
+  CreatePublishableKeyRequestSchema,
   CreateTokenRequestSchema,
+  UpdatePublishableKeyRequestSchema,
+  type PublishableKey,
   PutAccessPolicyRequestSchema,
   RevokeSigningKeyRequestSchema,
   RevokeSubjectRequestSchema,
@@ -22,6 +30,7 @@ import {
 import { signalSubjectRevoked } from "../streams/relay.js";
 import { readPolicy, writePolicy } from "./access-policy.js";
 import { requireApplication } from "./auth.js";
+import type { PublishableKeyRow } from "../store/types.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { fail, readBody } from "./http.js";
 import { endSubjectStreams } from "./live.js";
@@ -35,8 +44,17 @@ export async function dispatchAccess(
   path: readonly string[],
   request: IncomingMessage
 ): Promise<unknown> {
-  requireApplication(scope);
   const keys = ctx.signingKeys;
+  // The public keys are public: any caller that reached the Tenant may read them.
+  if (path[1] === "access" && path[2] === "jwks" && path.length === 3 && method === "GET") {
+    const kek = keys.kek();
+    const rows = await ctx.store.tx(async (t) => {
+      await keys.ensure(t, kek);
+      return t.signingKeys(["standby", "current", "previous"]);
+    });
+    return { keys: rows.map(publicJwk) };
+  }
+  requireApplication(scope);
   if (path[1] === "tokens" && path.length === 2 && method === "POST")
     return mintToken(ctx, CreateTokenRequestSchema.parse(await readBody(request)));
   if (path[1] !== "access") return fail(404, "Route not found");
@@ -83,13 +101,51 @@ export async function dispatchAccess(
       return signingKeyView(row);
     }
   }
-  if (resource === "jwks" && n === 3 && method === "GET") {
-    const kek = keys.kek();
-    const rows = await ctx.store.tx(async (t) => {
-      await keys.ensure(t, kek);
-      return t.signingKeys(["standby", "current", "previous"]);
-    });
-    return { keys: rows.map(publicJwk) };
+  if (resource === "publishable-keys") {
+    if (n === 3 && method === "GET")
+      return {
+        keys: (await ctx.store.tx((t) => t.publishableKeys())).map(publishableKeyView),
+      };
+    if (n === 3 && method === "POST") {
+      const body = CreatePublishableKeyRequestSchema.parse(await readBody(request));
+      const row = {
+        id: newPublishableKeyId(),
+        key: newPublishableKey(ctx.config.tenantId),
+        name: body.name,
+        originsJson: JSON.stringify(body.origins),
+        createdAt: new Date().toISOString(),
+        revokedAt: null,
+      };
+      await ctx.store.tx(async (t) => {
+        if ((await t.publishableKeys()).some((other) => other.name === body.name))
+          fail(409, `A publishable key named ${body.name} exists`);
+        await t.insertPublishableKey(row);
+      });
+      ctx.config.logger.info("publishable key created", { keyId: row.id });
+      return publishableKeyView(row);
+    }
+    if (n === 4 && (method === "PUT" || method === "DELETE")) {
+      const patch =
+        method === "PUT"
+          ? {
+              originsJson: JSON.stringify(
+                UpdatePublishableKeyRequestSchema.parse(await readBody(request)).origins
+              ),
+            }
+          : { revokedAt: new Date().toISOString() };
+      const row = await ctx.store.tx(async (t) => {
+        const existing = (await t.publishableKey(id!)) ?? fail(404, "Publishable key not found");
+        // Revoking twice keeps the first time.
+        if (method === "DELETE" && existing.revokedAt !== null) return existing;
+        await t.updatePublishableKey(id!, patch);
+        return { ...existing, ...patch };
+      });
+      ctx.config.logger.info(
+        method === "PUT" ? "publishable key updated" : "publishable key revoked",
+        { keyId: row.id }
+      );
+      return publishableKeyView(row);
+    }
   }
   if (resource === "revocations" && n === 3 && method === "POST") {
     const body = RevokeSubjectRequestSchema.parse(await readBody(request));
@@ -102,6 +158,17 @@ export async function dispatchAccess(
  * Ends every token of `subject` minted so far: bumps its epoch, then ends its open streams
  * here and, through `tenant/control`, on every other process. Running turns continue.
  */
+function publishableKeyView(row: PublishableKeyRow): PublishableKey {
+  return {
+    id: row.id,
+    name: row.name,
+    key: row.key,
+    origins: JSON.parse(row.originsJson) as string[],
+    createdAt: row.createdAt,
+    revokedAt: row.revokedAt,
+  };
+}
+
 export async function revokeSubject(
   ctx: TenantContext,
   subject: string

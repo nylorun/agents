@@ -260,6 +260,17 @@ export interface SigningKeyRow extends SealedSecret {
   revokedAt: string | null;
 }
 
+/** A publishable key (Host feature `browser-access`). Public by design. */
+export interface PublishableKeyRow {
+  id: string;
+  key: string;
+  name: string;
+  /** JSON array of allowed origins. */
+  originsJson: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
 /** A subject's turn bucket (subject limits): tokens left and when they were last refilled. */
 export interface SubjectUsageRow {
   subject: string;
@@ -650,6 +661,20 @@ export interface Tx {
     statuses: readonly string[],
   ): Promise<number>;
 
+  // --- publishable keys ----------------------------------------------------
+
+  /** Rejects on a duplicate id, key or name. */
+  insertPublishableKey(row: PublishableKeyRow): Promise<void>;
+  publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined>;
+  publishableKey(id: string): Promise<PublishableKeyRow | undefined>;
+  /** All keys, revoked ones included, ordered by `createdAt`, then id. */
+  publishableKeys(): Promise<PublishableKeyRow[]>;
+  /** Returns false when the key does not exist. */
+  updatePublishableKey(
+    id: string,
+    patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
+  ): Promise<boolean>;
+
   // --- tenant settings (non-secret) -----------------------------------------
 
   getSetting(key: string): Promise<string | undefined>;
@@ -663,7 +688,8 @@ export interface Tx {
    *   subject turn buckets;
    * - `sandboxes`: sandbox records;
    * - `all`: both, plus definitions, executors and user vaults with their
-   *   credentials. The host vault, principals, signing keys, subject epochs, settings,
+   *   credentials. The host vault, principals, signing keys, subject epochs, publishable
+   *   keys, settings,
    *   audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;

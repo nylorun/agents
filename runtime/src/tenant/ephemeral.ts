@@ -68,6 +68,8 @@ export interface StartEphemeralRuntimeOptions {
   sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
+  /** Allow browser requests (an `Origin` with a publishable key). Default off. */
+  browserAccess?: boolean;
   logger?: Logger;
   /**
    * A Postgres pool: Tenants become schemas in it (`store-pg.ts`) instead of living in memory.
@@ -271,6 +273,7 @@ export async function startEphemeralRuntime(
     credentials,
     logger,
     coreVersion: coreVersion(),
+    browserAccess: options.browserAccess === true,
   });
   await host.listen();
 

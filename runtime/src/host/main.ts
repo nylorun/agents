@@ -167,6 +167,10 @@ export async function main(): Promise<void> {
     coreVersion: coreVersion(),
     ...(stack.listen ? { listen: stack.listen } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
+    // Container mode (the local stack) allows browsers unless told not to; a Host started
+    // from host.json only when it says so. Without publishable keys nothing is reachable.
+    browserAccess:
+      stack.browserAccess ?? (stack.listen ? true : config.browserAccess === true),
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
     // SIGTERM and POST /v1/admin/host/shutdown both close the Host this way:
     // stop the Worker, close the Tenants, then end the infrastructure clients.

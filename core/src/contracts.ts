@@ -1720,3 +1720,77 @@ export interface SubjectTokenClaims {
   exp: number;
   jti: string;
 }
+
+// --- publishable keys (Host feature `browser-access`) --------------------------------------
+
+/** Loopback origins with any port, for development: `http://localhost:*`, `http://127.0.0.1:*`. */
+export const LOOPBACK_ORIGIN_WILDCARDS = ["http://localhost:*", "http://127.0.0.1:*"] as const;
+
+/** True for a serialized web origin: `scheme://host[:port]`, lowercase, no path. */
+export function isSerializedOrigin(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    (url.protocol === "https:" || url.protocol === "http:") &&
+    url.origin === value &&
+    // Host names only: no wildcards or other characters URL parsing lets through.
+    /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])$/.test(url.hostname)
+  );
+}
+
+/** An origin allowlist entry: an exact origin or a loopback wildcard. */
+export const OriginEntrySchema = z
+  .string()
+  .refine(
+    (value) =>
+      (LOOPBACK_ORIGIN_WILDCARDS as readonly string[]).includes(value) ||
+      isSerializedOrigin(value),
+    "must be an origin such as https://app.example.com, or http://localhost:*"
+  );
+
+/** True when `origin` (a request's `Origin`) is allowed by `origins`. */
+export function originAllowed(origins: readonly string[], origin: string): boolean {
+  if (!isSerializedOrigin(origin)) return false;
+  for (const entry of origins) {
+    if (entry === origin) return true;
+    if (entry.endsWith(":*")) {
+      const prefix = entry.slice(0, -1);
+      if (origin.startsWith(prefix) && /^\d{1,5}$/.test(origin.slice(prefix.length)))
+        return true;
+    }
+  }
+  return false;
+}
+
+export const PublishableKeySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    key: z.string(),
+    origins: z.array(z.string()),
+    createdAt: z.string(),
+    revokedAt: z.string().nullable(),
+  })
+  .strict();
+export type PublishableKey = z.infer<typeof PublishableKeySchema>;
+
+export const CreatePublishableKeyRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    name: z.string().min(1).max(100),
+    /** `[]` allows native apps only (no `Origin`). */
+    origins: z.array(OriginEntrySchema).max(100),
+  })
+  .strict();
+export type CreatePublishableKeyRequest = z.infer<typeof CreatePublishableKeyRequestSchema>;
+
+export const UpdatePublishableKeyRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    origins: z.array(OriginEntrySchema).max(100),
+  })
+  .strict();

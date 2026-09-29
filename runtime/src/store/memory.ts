@@ -19,6 +19,7 @@ import {
   type OutboxRow,
   type OutboxStats,
   type PrincipalRow,
+  type PublishableKeyRow,
   type ResetScope,
   type SandboxDoc,
   type SessionActionFilter,
@@ -64,6 +65,7 @@ interface State {
   signingKeys: Map<string, SigningKeyRow>;
   subjectEpochs: Map<string, number>;
   subjectUsage: Map<string, SubjectUsageRow>;
+  publishableKeys: Map<string, PublishableKeyRow>;
 }
 
 function emptyState(): State {
@@ -83,6 +85,7 @@ function emptyState(): State {
     signingKeys: new Map(),
     subjectEpochs: new Map(),
     subjectUsage: new Map(),
+    publishableKeys: new Map(),
   };
 }
 
@@ -937,6 +940,45 @@ class MemoryTx implements Tx {
         (s as { ownerUserId?: unknown }).ownerUserId === ownerUserId &&
         statuses.includes((s as { status?: string }).status ?? ""),
     ).length;
+  }
+
+  // --- publishable keys ----------------------------------------------------
+
+  async insertPublishableKey(row: PublishableKeyRow): Promise<void> {
+    this.check();
+    for (const other of this.s.publishableKeys.values())
+      if (other.id === row.id || other.key === row.key || other.name === row.name)
+        throw new Error("publishable_keys id, key and name must be unique");
+    this.s.publishableKeys.set(row.id, copy(row));
+  }
+
+  async publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined> {
+    this.check();
+    for (const row of this.s.publishableKeys.values())
+      if (row.key === key) return copy(row);
+    return undefined;
+  }
+
+  async publishableKey(id: string): Promise<PublishableKeyRow | undefined> {
+    this.check();
+    const row = this.s.publishableKeys.get(id);
+    return row && copy(row);
+  }
+
+  async publishableKeys(): Promise<PublishableKeyRow[]> {
+    this.check();
+    return [...this.s.publishableKeys.values()].sort(byCreated).map(copy);
+  }
+
+  async updatePublishableKey(
+    id: string,
+    patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
+  ): Promise<boolean> {
+    this.check();
+    const row = this.s.publishableKeys.get(id);
+    if (!row) return false;
+    this.s.publishableKeys.set(id, { ...row, ...copy(patch) });
+    return true;
   }
 
   // --- settings ------------------------------------------------------------

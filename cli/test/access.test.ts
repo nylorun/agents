@@ -15,6 +15,12 @@ function stub() {
       revokeSubject: async (subject: string) => (
         calls.push(["revokeSubject", subject]), { subject, epoch: 1 }
       ),
+      publishableKeys: {
+        create: async (options: unknown) => (calls.push(["createKey", options]), { key: "k" }),
+        update: async (id: string, options: unknown) => (calls.push(["updateKey", id, options]), {}),
+        revoke: async (id: string) => (calls.push(["revokeKey", id]), {}),
+        list: async () => (calls.push(["listKeys"]), []),
+      },
       signingKeys: {
         list: async () => (calls.push(["list"]), []),
         rotate: async (options: unknown) => (calls.push(["rotate", options]), []),
@@ -67,6 +73,23 @@ describe("nylo access", () => {
       ["revoke", "sk_x"],
       ["revokeSubject", "app:42"],
       ["create", { subject: "app:42", role: "user", ttlSeconds: 300 }],
+    ]);
+  });
+
+  it("manages publishable keys", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { calls, run } = stub();
+    await run(["keys", "create", "--name", "web", "--origin", "https://app.example.com", "--origin", "http://localhost:*"]);
+    await run(["keys", "set-origins", "pk_1", "https://other.example.com"]);
+    await run(["keys", "set-origins", "pk_1"]);
+    await run(["keys", "revoke", "pk_1"]);
+    await run(["keys", "list"]);
+    expect(calls).toEqual([
+      ["createKey", { name: "web", origins: ["https://app.example.com", "http://localhost:*"] }],
+      ["updateKey", "pk_1", { origins: ["https://other.example.com"] }],
+      ["updateKey", "pk_1", { origins: [] }],
+      ["revokeKey", "pk_1"],
+      ["listKeys"],
     ]);
   });
 

@@ -17,7 +17,7 @@ application, Studio, the CLI, a desktop app, an IDE extension or CI.
 _Avoid_: calling only the SDK or only the CLI "the client".
 
 **Tenant API**: Every route a Tenant principal calls, identified by the
-`Nylorun-Tenant` header. Agents, sessions, events, executors, vaults, Tenant
+`Nylorun-Tenant` header or a publishable key (`Nylorun-Key`). Agents, sessions, events, executors, vaults, Tenant
 settings and status. Client package: `@nylorun/agents`.
 _Avoid_: "SDK API" or "application API" as the surface name.
 
@@ -58,8 +58,9 @@ _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
 **Tenant**: One isolated unit of sessions, principals, vault, sandboxes, plugin
 data and logs: the Postgres schema `tenant_<id>` and the Tenant directory
-`<host root>/tenants/<tenantId>/`. Selected only by the
-`Nylorun-Tenant` header (never by a default, query string or body field). Ids
+`<host root>/tenants/<tenantId>/`. Selected by the `Nylorun-Tenant` header or
+by the Tenant a publishable key names (`Nylorun-Key`); both must agree when both
+are sent. Never by a default, query string or body field. Ids
 match `tn_` plus 26 Crockford characters. Quarantine leaves other Tenants
 running.
 _Avoid_: "scope" or "database" as the name for this unit.
@@ -134,6 +135,22 @@ alone (`anon`), and the longest token lifetime. Without roles nothing is minted
 subject's open streams end with `event: nylorun.closed` on every process
 (`subject.revoked` on `tenant/control`, `checkFeeds` as backstop).
 
+**Publishable key**: `nr_pub_<tenantId>_<32 Crockford characters>` in
+`Nylorun-Key` (feature `browser-access`, `tenant/browser.ts`): names the Tenant
+and one client app, with an **origin allowlist** (exact origins, or
+`http://localhost:*` and `http://127.0.0.1:*`; `[]` for native apps). Public by
+design and stored as it is; revocable. Alone it grants the **anon role**
+(`anon` in the access policy: at most `agents:read`, empty by default) and owns
+no session or vault.
+_Avoid_: calling it an API key or a secret; using it to authorize (tokens do).
+
+**Browser access**: Whether requests with an `Origin` may reach Tenant routes
+(`browserAccess`; `NYLORUN_BROWSER_ACCESS`, on in the stack). The Host answers
+preflights for browser routes from the route alone; the Tenant admits an
+`Origin` only with a publishable key that lists it, and only then sets CORS
+headers. `/health`, `/ready`, admin routes and Tenant or executor keys refuse
+`Origin` always.
+
 **Subject limits**: A role's `turnsPerHour` (a token bucket per subject) and
 `concurrentTurns` (sessions `runnable`, `running` or `waiting`), checked when a
 subject token starts a turn (`429 limit_exceeded`, `tenant/subject-limits.ts`).
@@ -161,7 +178,7 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
 `admin-status` and `studio-principal`; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
-`subject-headers` and `subject-tokens`).
+`subject-headers`, `subject-tokens` and `browser-access`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
