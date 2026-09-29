@@ -81,9 +81,15 @@ function declarationsOf(agent: AgentSource) {
   if (!binding || !("declarations" in binding)) return [];
   const found = (binding.declarations ?? []).map((item) => ({ key: item.id, item }));
   for (const tool of binding.tools ?? []) {
-    const child = delegateOf(tool)?.agent;
+    const delegate = delegateOf(tool);
+    const child = delegate?.agent;
     for (const item of child?.getBinding().declarations ?? [])
       found.push({ key: `${child!.id}/${item.id}`, item });
+    // A flow agent used as a tool: its agents' declarations, keyed `<flow>/<agent>/<capability>`.
+    const flow = delegate?.workflow;
+    for (const leaf of Object.values(flow?.getBinding().agents ?? {}))
+      for (const item of leaf.declarations ?? [])
+        found.push({ key: `${flow!.id}/${leaf.manifest.id}/${item.id}`, item });
   }
   return found;
 }

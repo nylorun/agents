@@ -586,7 +586,7 @@ export class AgentBuilder<
     const diagnostics = flows.map((item) =>
       Object.freeze({
         code: "delegation.flow-unsupported",
-        message: `'${(item as { id?: string }).id ?? "flow"}' is a flow agent and cannot be a subagent yet. Add it with .step() in a flow instead.`,
+        message: `'${(item as { id?: string }).id ?? "workflow"}' was built with Chain, Switch, Parallel, Map or Loop and cannot be a subagent. Write it as a flow agent, Agent({ id }).step(…), which can.`,
       })
     );
     const compiled = compileDeclaration({ id: "agent", ...part });
@@ -759,11 +759,13 @@ function replaceOrAppend(
   return Object.freeze([...entries.slice(0, index), bound, ...entries.slice(index + 1)]);
 }
 
-/** A flow agent or built workflow placed where a subagent is expected. */
+/**
+ * A workflow built with the v1 primitives, placed where a subagent is expected. Flow
+ * agents are subagents like any agent: they run in their own linked session.
+ */
 function isFlowItem(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  if (value instanceof AgentBuilder) return AgentBuilder.isFlowAgent(value);
-  return isBuiltWorkflow(value);
+  if (!value || typeof value !== "object" || value instanceof AgentBuilder) return false;
+  return isBuiltWorkflow(value) && value.manifest.workflowSchemaVersion === 1;
 }
 
 function nextMiddlewareId(entries: readonly BoundMiddleware[]): string {

@@ -80,6 +80,14 @@ export function deriveAgentEffectSessionId(
     readonly context?: Record<string, unknown>;
   }
 ): string {
+  // A flow agent used as a tool starts fresh on every call, like any agent used as a tool.
+  if (request.context?.role === "delegate")
+    return deriveSessionId(
+      workflowSessionId,
+      path,
+      "delegate",
+      String(request.context.delegationId ?? request.turnId)
+    );
   if (request.context?.role === "verify-agent") {
     const iterations = request.iterations ?? "-";
     const iterParts =

@@ -17,6 +17,9 @@ export {
   delegateManifest,
   delegateOf,
   delegatesOf,
+  flowDelegatesOf,
+  flowDelegateManifest,
+  isFlowDelegate,
 } from "./definition/delegate.js";
 export type { Delegate } from "./definition/delegate.js";
 export { capability, middleware, model, tool } from "./definition/helpers.js";

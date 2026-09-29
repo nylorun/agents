@@ -108,7 +108,9 @@ const toolManifestSchema = z
     description: z.string().optional(),
     inputSchema: jsonObject,
     outputSchema: jsonObject.optional(),
-    agent: z.lazy((): z.ZodType<AgentManifest> => AgentManifestSchema).optional(),
+    agent: z
+      .lazy(() => z.union([workflowV2ManifestSchema, AgentManifestSchema]))
+      .optional(),
   })
   .strict();
 const hookPointSchema = z
@@ -237,6 +239,20 @@ function delegationIssues(manifest: AgentManifest, issue: (message: string) => v
     for (const tool of capability.tools ?? []) {
       const child = tool.agent;
       if (!child) continue;
+      if ("kind" in child) {
+        // A flow agent runs in its own linked session; its leaves may delegate in turn.
+        if (tool.name !== child.id)
+          issue(`Tool '${tool.name}' must be named after the agent it runs ('${child.id}')`);
+        if (!child.description?.trim() || tool.description !== child.description)
+          issue(`Agent tool '${tool.name}' must carry the agent's non-empty description`);
+        if (canonical(tool.inputSchema) !== canonical(DELEGATE_INPUT_SCHEMA))
+          issue(`Agent tool '${tool.name}' must take the standard { task } input`);
+        if (tool.outputSchema !== undefined)
+          issue(`Agent tool '${tool.name}' must not declare outputSchema; the agent's outputSchema applies`);
+        if (child.sandbox !== undefined && Object.keys(child.sandbox).length > 0)
+          sandboxes.add(canonical(child.sandbox));
+        continue;
+      }
       if (tool.name !== child.id)
         issue(`Tool '${tool.name}' must be named after the agent it runs ('${child.id}')`);
       if (!child.description?.trim() || tool.description !== child.description)

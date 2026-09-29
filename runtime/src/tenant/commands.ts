@@ -250,13 +250,13 @@ export async function command(
     } else if (command.type === "cancel") {
       cancelledTurnId = s.activeTurnId;
       const workflowCancel = isWorkflowManifest(s.manifest);
-      const cascade = workflowCancel
-        ? await planCancelCascade({
-            t,
-            workflowSessionId: id,
-            turnId: cancelledTurnId,
-          })
-        : null;
+      // Linked sessions this one started: a workflow's agents, or flow agents an agent
+      // uses as tools.
+      const cascade = await planCancelCascade({
+        t,
+        workflowSessionId: id,
+        turnId: cancelledTurnId,
+      });
       s.status = "cancelled";
       if (workflowCancel) {
         await fenceWorkflowActions({
@@ -304,17 +304,15 @@ export async function command(
       s.error = undefined;
       // Cascade: cancel linked agent sessions deepest-first (after fencing this session), each
       // in its own transaction after this one commits (child sessions are never locked here).
-      if (cascade) {
-        for (const agentId of cascade.agentSessionIds) {
-          const agent = await t.get<Session>("sessions", agentId);
-          if (
-            !agent ||
-            !agent.activeTurnId ||
-            ["idle", "completed", "failed", "cancelled"].includes(agent.status)
-          )
-            continue;
-          cascadeCancelIds.push(agentId);
-        }
+      for (const agentId of cascade.agentSessionIds) {
+        const agent = await t.get<Session>("sessions", agentId);
+        if (
+          !agent ||
+          !agent.activeTurnId ||
+          ["idle", "completed", "failed", "cancelled"].includes(agent.status)
+        )
+          continue;
+        cascadeCancelIds.push(agentId);
       }
     } else {
       if (command.type === "message") {
