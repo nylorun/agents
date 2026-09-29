@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.2-beta
+
+### Patch Changes
+
+- Update the tested Harness, SDK, Runtime, and CLI compatibility combination.
+
 ## 0.10.1-beta
 
 ### Patch Changes

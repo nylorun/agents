@@ -117,15 +117,27 @@ export async function publicCreatorSmoke(versions, pins) {
             lines.push(line.replace(/^\[[^\]]+\] /, ""));
           },
         });
-        const npm = async (label, args, cwd) => {
-          const child = group.start(label, process.execPath, [npmCli(), ...args], {
-            cwd,
-            env: stack.env,
-          });
-          assert.equal(await child.exit, 0, `${label} failed`);
+        const npm = async (label, args, cwd, { attempts = 1 } = {}) => {
+          let last = 1;
+          for (let attempt = 1; attempt <= attempts; attempt++) {
+            const child = group.start(label, process.execPath, [npmCli(), ...args], {
+              cwd,
+              env: stack.env,
+            });
+            last = await child.exit;
+            if (last === 0) return;
+            // Fresh publish: CDN edges can still ETARGET after waitForInstall.
+            if (attempt < attempts) await new Promise((r) => setTimeout(r, 15_000));
+          }
+          assert.equal(last, 0, `${label} failed`);
         };
         try {
-          await npm("public-creator", publicCreatorArguments(versions.creator), temporary);
+          await npm(
+            "public-creator",
+            publicCreatorArguments(versions.creator),
+            temporary,
+            { attempts: 4 },
+          );
           await mkdir(tools);
           await writeFile(join(tools, "package.json"), JSON.stringify({ private: true }));
           await npm(
