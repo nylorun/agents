@@ -14,6 +14,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts",
+    "browser-direct": "tsx --env-file-if-exists=.env src/browser-direct/server.ts",
     "codex:preflight": "node scripts/codex-preflight.mjs"
   },
   "dependencies": {

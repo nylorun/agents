@@ -1,3 +1,22 @@
+# The Admin API on its own port
+
+The stack now serves the Admin API on a second port, `NYLORUN_ADMIN_PORT` (default
+8788, published on loopback only), and the Runtime port (`NYLORUN_PORT`) serves the
+Tenant API alone: admin routes there answer `404`. `nylorun start` picks the port,
+writes it to `stack/.env` and to `host.json` as `adminPort`, and Studio reaches the
+Runtime on the stack network at `runtime:4001`.
+
+- `@nylorun/admin` reads `adminPort` from `host.json` and sends Admin API requests
+  there; `admin.url` stays the Tenant API URL and `admin.adminUrl` is new. A
+  `host.json` without `adminPort` keeps working against one port.
+- Code that called `/v1/admin/*` on the Runtime port itself, or `NYLORUN_ADMIN_URL`
+  pointing at it, must use the admin port.
+- A Runtime you run yourself keeps one port unless you set `adminPort` in
+  `host.json`, or `NYLORUN_ADMIN_LISTEN_PORT` (with `NYLORUN_ADMIN_ALLOWED_HOSTS`
+  off loopback) in a container.
+- Reverse proxies forward the Runtime port only. Keep the `/v1/admin` block as
+  defense in depth.
+
 # Studio opens signed in
 
 `nylorun up` prints Studio as `http://localhost:<port>`, without a login token.

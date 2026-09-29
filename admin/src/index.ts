@@ -24,7 +24,10 @@ export { AdminError };
 export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey };
 
 export interface Admin {
+  /** The Host's Tenant API URL. */
   readonly url: string;
+  /** Where Admin API requests go: the operator listener, or `url` on a single-port Host. */
+  readonly adminUrl: string;
   readonly source: "options" | "environment" | "local-host";
   status(): Promise<AdminStatus>;
   listTenants(): Promise<AdminTenant[]>;

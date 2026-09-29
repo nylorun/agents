@@ -100,6 +100,15 @@ export type {
   CommandOptions,
   SessionSandbox,
 } from "./client.js";
+export {
+  AccessClient,
+  PublishableKeysClient,
+  SigningKeysClient,
+  TokensClient,
+} from "./access.js";
+export type { CreateTokenOptions } from "./access.js";
+export { createTokenEndpoint } from "./token-endpoint.js";
+export type { TokenEndpointOptions } from "./token-endpoint.js";
 export { connectAgents } from "./executor.js";
 export type { ConnectOptions, AgentConnection } from "./executor.js";
 export type {
@@ -110,7 +119,7 @@ export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
 export { deriveExecutorToken } from "./derived-credentials.js";
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
-export type { Destination, IncompatibleReason } from "./http.js";
+export type { Destination, IncompatibleReason, TokenSource } from "./http.js";
 export { plugin } from "./plugins/plugin.js";
 export type { PluginCapability } from "./plugins/plugin.js";
 export { loadPlugin, PluginError } from "./plugins/load.js";

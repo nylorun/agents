@@ -68,6 +68,10 @@ export interface StartEphemeralRuntimeOptions {
   sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
+  /** Allow browser requests (an `Origin` with a publishable key). Default off. */
+  browserAccess?: boolean;
+  /** Serve the Admin API on its own loopback listener (`adminUrl`). Default off. */
+  operatorListener?: boolean;
   logger?: Logger;
   /**
    * A Postgres pool: Tenants become schemas in it (`store-pg.ts`) instead of living in memory.
@@ -78,6 +82,8 @@ export interface StartEphemeralRuntimeOptions {
 
 export interface EphemeralRuntime {
   url: string;
+  /** Where the Admin API answers: `url`, or the operator listener when requested. */
+  adminUrl: string;
   tenantId: string;
   applicationKey: string;
   adminKey: string;
@@ -271,12 +277,17 @@ export async function startEphemeralRuntime(
     credentials,
     logger,
     coreVersion: coreVersion(),
+    browserAccess: options.browserAccess === true,
+    ...(options.operatorListener
+      ? { operator: { host: "127.0.0.1", port: 0 } }
+      : {}),
   });
   await host.listen();
 
   let closed = false;
   return {
     url: host.url,
+    adminUrl: host.adminUrl,
     tenantId,
     applicationKey,
     adminKey,

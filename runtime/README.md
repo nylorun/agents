@@ -37,7 +37,17 @@ sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_RESTATE_ADMIN_URL`, `NYLORUN_WORKER_URL` and
 `NYLORUN_RESTATE_IDENTITY_KEY` (Restate), `NYLORUN_S2_ENDPOINT` and
 `NYLORUN_S2_TOKEN`, and in container mode `NYLORUN_LISTEN_HOST`,
-`NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`.
+`NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`, plus
+`NYLORUN_BROWSER_ACCESS` (`on` or `off`) and the operator listener
+(`NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`,
+`NYLORUN_ADMIN_ALLOWED_HOSTS`).
+
+With an operator listener (the stack's default: container port 4001), the Host
+serves two ports. The public one serves the Tenant API, to browsers too when
+browser access is on, and answers admin routes with the opaque `404`. The
+operator one serves the Admin API, Host shutdown and the Tenant API, never to
+browsers; keep it on loopback or a private network and never proxy it. Outside
+a container, `adminPort` in `host.json` does the same on loopback.
 
 The Host root is `NYLORUN_HOME` or `~/.nylorun` (bind-mounted at `/nylorun` in
 the stack). What stays on the Host is under `tenants/<tenantId>/`.
@@ -46,7 +56,7 @@ the stack). What stays on the Host is under `tenants/<tenantId>/`.
 
 ```text
 <host root>/
-  host.json                 # format 1: hostId, host, port, runtimeVersion, …
+  host.json                 # format 1: hostId, host, port, adminPort?, runtimeVersion, …
   host-credentials.json     # adminKey (0600)
   stack/                    # compose.yaml, .env (0600), Restate identity key
   tenants/<tenantId>/       # vault-kek, plugin-data, logs, home, tmp, sandboxes
@@ -59,14 +69,20 @@ the stack). What stays on the Host is under `tenants/<tenantId>/`.
 | --- | --- | --- |
 | `GET /health` | none | `service: "nylorun-runtime"`, `hostId`, protocol `{min,max,features}`, pid |
 | `GET /ready` | none | Listener up, Tenants discovered, and Postgres, Restate and S2 answer (`checks`) |
-| `GET /v1/admin/status` | admin key | `AdminStatusSchema`; alias `GET /v1/admin/host` |
+| `GET /v1/admin/status` | admin key | `AdminStatusSchema`; alias `GET /v1/admin/host`. On the operator listener when there is one |
 | `/v1/admin/tenants*` | admin key | Create / list / get / delete Tenants |
 | `POST /v1/admin/host/shutdown` | admin key | Host-private; not in `@nylorun/admin` |
-| `/v1/*` Tenant routes | application or executor | Require `Nylorun-Tenant` + `Nylorun-Protocol` |
+| `/v1/*` Tenant routes | application, executor or subject token | Require `Nylorun-Tenant` (or `Nylorun-Key`) + `Nylorun-Protocol` |
 
-Every route checks `Host` first (`421 host_rejected`), rejects any `Origin`
-(`403 origin_rejected`, no CORS headers), and rejects non-JSON bodies with
-`415 unsupported_media_type`. Missing or unsupported protocol → `426` before
+Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
+with `415 unsupported_media_type`. An `Origin` is `403 origin_rejected` on
+`/health`, `/ready`, admin routes, and everywhere when browser access is off.
+With browser access on (feature `browser-access`: the stack's default, or
+`browserAccess` in `host.json`), the Host answers preflights for browser routes
+from the route alone, and the Tenant admits an `Origin` only with a publishable
+key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant and
+executor keys are refused from browsers before they are looked up. A
+publishable key also names the Tenant, so `Nylorun-Tenant` may be left out. Missing or unsupported protocol → `426` before
 authentication. Unknown, quarantined or rejected Tenant credentials → opaque
 `404` with identical body.
 
@@ -116,7 +132,7 @@ project's Tenant and writes its Project link; the project's `npm run dev` runs
 | `corrupt` / `migration-failed` / `envelope-invalid` / `open-failed` / `open-timeout` | Follow the `nylo tenant status` repair string |
 | `schema-too-new` | Run a Runtime at least as new as the one that migrated the schema |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
-| `421 host_rejected` / `403 origin_rejected` | Call from a server process, not a browser; in a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS` |
+| `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
 | Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun up` |
 | Logs | `nylorun logs runtime` |

@@ -78,6 +78,10 @@ services:
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
       NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
+      # The Admin API on its own listener, published on loopback only; Studio reaches it on
+      # the stack network. Port 4000 serves the Tenant API alone.
+      NYLORUN_ADMIN_LISTEN_PORT: "4001"
+      NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:\${NYLORUN_ADMIN_PORT},127.0.0.1:\${NYLORUN_ADMIN_PORT}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
       NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
@@ -90,7 +94,8 @@ services:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
       - workspaces:/workspaces
     ports:
-      - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, Admin API, SSE
+      - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
+      - "127.0.0.1:\${NYLORUN_ADMIN_PORT:?run nylorun start}:4001" # Admin API (operators only)
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
@@ -104,7 +109,7 @@ services:
     depends_on:
       runtime: { condition: service_healthy }
     environment:
-      NYLORUN_RUNTIME_URL: http://runtime:4000
+      NYLORUN_RUNTIME_URL: http://runtime:4001 # the operator listener: Admin and Tenant API
       NYLORUN_ADMIN_KEY_FILE: /run/nylorun/host-credentials.json
       PORT: "3000"
       # Studio's Host check accepts localhost/127.0.0.1 on the published port.

@@ -18,7 +18,7 @@ export function messagesFromEvents(items: readonly LiveEvent[]): Message[] {
         data?: unknown;
       };
       messages.push({
-        // The handler sends the client's message id as the idempotency key.
+        // The AG-UI endpoint sends the client's message id as the idempotency key.
         id: p.idempotencyKey ?? raw.eventId,
         role: "user",
         content:

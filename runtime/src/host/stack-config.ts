@@ -60,6 +60,16 @@ export interface StackConfig {
    * means nothing outside the container.
    */
   publicUrl?: string;
+  /**
+   * `NYLORUN_BROWSER_ACCESS` (`on` or `off`): whether browser requests may reach Tenant
+   * routes. Absent means the Host's default (on in container mode).
+   */
+  browserAccess?: boolean;
+  /**
+   * The operator listener in container mode (`NYLORUN_ADMIN_LISTEN_PORT`, `…_HOST`,
+   * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
+   */
+  operator?: ContainerListen;
 }
 
 export class StackConfigError extends Error {
@@ -196,6 +206,36 @@ function parseListen(env: EnvSnapshot): ContainerListen | undefined {
   return { host, port, allowedHosts };
 }
 
+function parseAdminListen(env: EnvSnapshot): ContainerListen | undefined {
+  const rawPort = read(env, "NYLORUN_ADMIN_LISTEN_PORT");
+  const rawHost = read(env, "NYLORUN_ADMIN_LISTEN_HOST");
+  const rawAllowed = read(env, "NYLORUN_ADMIN_ALLOWED_HOSTS");
+  if (rawPort === undefined) {
+    if (rawHost !== undefined || rawAllowed !== undefined)
+      throw new StackConfigError(
+        "NYLORUN_ADMIN_LISTEN_PORT is required with NYLORUN_ADMIN_LISTEN_HOST or NYLORUN_ADMIN_ALLOWED_HOSTS",
+      );
+    return undefined;
+  }
+  const host = rawHost ?? DEFAULT_CONTAINER_LISTEN_HOST;
+  if (/\s|\//.test(host))
+    throw new StackConfigError(`NYLORUN_ADMIN_LISTEN_HOST is not an address: ${host}`);
+  const port = parsePort("NYLORUN_ADMIN_LISTEN_PORT", rawPort);
+  const explicit =
+    rawAllowed === undefined
+      ? []
+      : rawAllowed
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry !== "")
+          .map((entry) => normalizeAllowedHost("NYLORUN_ADMIN_ALLOWED_HOSTS", entry));
+  if (explicit.length === 0 && !isLoopbackAddress(host))
+    throw new StackConfigError(
+      `NYLORUN_ADMIN_ALLOWED_HOSTS is required when NYLORUN_ADMIN_LISTEN_HOST is ${host}: list the Host headers operators send, e.g. runtime:${port},localhost:<published port>`,
+    );
+  return { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] };
+}
+
 const IDENTITY_KEY = /^publickeyv1_[1-9A-HJ-NP-Za-km-z]{32,64}$/;
 
 function parseIdentityKeys(env: EnvSnapshot): string[] | undefined {
@@ -220,6 +260,11 @@ export function parseStackConfig(
 ): StackConfig {
   const role = parseRole(argv);
   const listen = parseListen(env);
+  const operator = parseAdminListen(env);
+  if (operator && listen && operator.port === listen.port)
+    throw new StackConfigError(
+      "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
+    );
   const http = ["http:", "https:"] as const;
   const endpoints: StackEndpoints = {};
   const databaseUrl = parseUrl(env, "NYLORUN_DATABASE_URL", [
@@ -247,11 +292,18 @@ export function parseStackConfig(
   const restateIdentityKeys = parseIdentityKeys(env);
   if (restateIdentityKeys) endpoints.restateIdentityKeys = restateIdentityKeys;
   const publicUrl = parseUrl(env, "NYLORUN_PUBLIC_URL", http)?.replace(/\/+$/, "");
+  const rawBrowser = read(env, "NYLORUN_BROWSER_ACCESS");
+  if (rawBrowser !== undefined && rawBrowser !== "on" && rawBrowser !== "off")
+    throw new StackConfigError(
+      `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
+    );
   return {
     role,
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
+    ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
+    ...(operator ? { operator } : {}),
   };
 }
 
