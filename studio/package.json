@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/studio",
-  "version": "0.11.0-beta",
+  "version": "0.12.0-beta",
   "private": true,
   "description": "The Nylorun Studio server: the dashboard and trusted Runtime proxy that ghcr.io/nylorun/studio runs. Private; ships only as that image.",
   "type": "module",
