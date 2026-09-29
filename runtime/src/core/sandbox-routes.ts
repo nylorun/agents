@@ -15,6 +15,7 @@ import {
   owningSandboxSessionId,
   sandboxSpecOf,
   sandboxSpecsEqual,
+  sessionSandboxSpec,
   type SessionSandboxRef,
 } from "../sandbox/share.js";
 
@@ -49,7 +50,7 @@ export type SandboxRouteDeps = {
 function resolveSpec(session: SessionSandboxRef, lookup: SandboxRouteRead["lookup"]): SandboxManifest {
   const ownerId = owningSandboxSessionId(session, lookup);
   const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
-  const spec = sandboxSpecOf(owner.manifest) ?? sandboxSpecOf(session.manifest);
+  const spec = sessionSandboxSpec(owner) ?? sessionSandboxSpec(session);
   if (!spec)
     throw new SandboxRouteError(404, "Session has no sandbox");
   return spec;
@@ -148,15 +149,23 @@ export async function handleActionSandboxTool(
   return runTool(deps, read, tool, toolInput(body), signal);
 }
 
-/** Validate PutSession.sandbox attach: same owner, identical specs. */
+/**
+ * Validate PutSession.sandbox attach: same owner, and a sandbox to share. A session whose
+ * definition declares a sandbox must declare the owner's spec; one whose definition declares
+ * none inherits it (`inherit`).
+ */
 export function validateSandboxAttach(
-  body: { ownerUserId: string; sandbox?: { session: string } },
+  body: { ownerUserId: string; sandbox?: unknown },
   newManifest: SessionSandboxRef["manifest"],
   lookup: (id: string) => SessionSandboxRef | undefined,
   /** Acting for a subject: another owner's session is the 404 of a missing one. */
-  options: { opaque?: boolean } = {}
+  options: { opaque?: boolean; inherit?: boolean } = {}
 ): string | undefined {
-  const share = body.sandbox?.session;
+  const request = body.sandbox;
+  const share =
+    typeof request === "object" && request !== null && "session" in request
+      ? String((request as { session: unknown }).session)
+      : undefined;
   if (!share) return undefined;
   const owner = lookup(share);
   if (!owner || (options.opaque && owner.ownerUserId !== body.ownerUserId))
@@ -166,10 +175,11 @@ export function validateSandboxAttach(
       403,
       "Sandbox session must belong to the same owner"
     );
-  const ownerSpec = sandboxSpecOf(owner.manifest);
-  const newSpec = sandboxSpecOf(newManifest);
+  const ownerSpec = sessionSandboxSpec(owner);
   if (!ownerSpec)
     throw new SandboxRouteError(400, "Target session has no sandbox to share");
+  if (options.inherit) return owningSandboxSessionId(owner, lookup);
+  const newSpec = sandboxSpecOf(newManifest);
   if (!newSpec)
     throw new SandboxRouteError(
       400,

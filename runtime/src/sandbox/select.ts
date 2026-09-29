@@ -1,3 +1,4 @@
+import { openshellBackend } from "../adapters/sandbox/openshell/backend.js";
 import { virtualBackend } from "../adapters/sandbox/virtual.js";
 import type {
   SandboxBackend,
@@ -7,7 +8,7 @@ import type {
 } from "./types.js";
 
 export type SandboxPreference = "auto" | SandboxBackendName;
-const PREFERENCES: readonly SandboxPreference[] = ["auto", "virtual"];
+const PREFERENCES: readonly SandboxPreference[] = ["auto", "virtual", "openshell"];
 
 export interface SandboxSelection {
   readonly preference: SandboxPreference;
@@ -26,9 +27,18 @@ export interface SandboxSelectionReport {
   readonly probes: readonly SandboxProbe[];
 }
 
-/** The backends a Runtime probes, in order. `auto` picks the first available one. */
-export function defaultSandboxBackends(options: { readonly root: string }): SandboxBackend[] {
-  return [virtualBackend({ root: options.root })];
+/**
+ * The backends a Runtime probes, in order. `auto` picks the first available one: an OpenShell
+ * gateway when the Host has one, else the virtual backend.
+ */
+export function defaultSandboxBackends(options: {
+  readonly root: string;
+  readonly openshell?: { readonly gateway: string };
+}): SandboxBackend[] {
+  return [
+    ...(options.openshell ? [openshellBackend({ gateway: options.openshell.gateway })] : []),
+    virtualBackend({ root: options.root }),
+  ];
 }
 
 export function parseSandboxPreference(value: string | undefined): SandboxPreference | undefined {

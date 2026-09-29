@@ -1,0 +1,34 @@
+# An OpenShell 0.1.2 gateway for the sandbox integration tests. Started and stopped
+# by test/openshell/up.mjs, which sets OPENSHELL_DATA (a directory mounted at the
+# same path inside the container, as the Docker driver requires) and OPENSHELL_JWT.
+name: nylorun-openshell-test
+services:
+  gateway:
+    image: ghcr.io/nvidia/openshell/gateway:0.1.2
+    command: []
+    user: "0"
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "host.openshell.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${OPENSHELL_DATA:?run test/openshell/up.mjs}
+        target: ${OPENSHELL_DATA:?run test/openshell/up.mjs}
+      - type: bind
+        source: ./gateway.toml
+        target: /etc/openshell/gateway.toml
+        read_only: true
+      - type: bind
+        source: ${OPENSHELL_JWT:?run test/openshell/up.mjs}
+        target: /etc/openshell/jwt
+        read_only: true
+    environment:
+      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
+      OPENSHELL_DB_URL: "sqlite:${OPENSHELL_DATA}/gateway.db?mode=rwc"
+      OPENSHELL_TELEMETRY_ENABLED: "false"
+      XDG_DATA_HOME: ${OPENSHELL_DATA}
+      HOME: ${OPENSHELL_DATA}

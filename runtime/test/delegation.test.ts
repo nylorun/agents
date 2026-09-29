@@ -7,8 +7,6 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import {
   Agent,
-  SANDBOX_INSTRUCTIONS,
-  createSandboxTools,
   tool,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
@@ -103,7 +101,8 @@ async function boot(_directory: string, modelProvider: ModelProvider) {
 async function start(
   runtime: { url: string },
   manifest: unknown,
-  pluginRoots?: Record<string, string>
+  pluginRoots?: Record<string, string>,
+  sandbox?: Record<string, unknown>
 ) {
   const put = await fetch(`${runtime.url}/v1/agents/bot`, {
     method: "PUT",
@@ -123,6 +122,7 @@ async function start(
       requestId: "session",
       agentId: "bot",
       ownerUserId: "ada",
+      ...(sandbox ? { sandbox } : {}),
     }),
   });
   expect(session.ok).toBe(true);
@@ -300,12 +300,6 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
   });
   const runtime = await boot(directory, model);
   try {
-    const sandbox = () => ({
-      id: "sandbox",
-      instructions: [SANDBOX_INSTRUCTIONS],
-      tools: createSandboxTools(),
-      sandbox: {},
-    });
     const coder = Agent({ id: "coder", description: "Writes notes." })
       .use({
         id: "local",
@@ -316,12 +310,10 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
             command: "./stdio-env-server.mjs",
           },
         },
-      })
-      .use(sandbox());
-    const bot = Agent({ id: "bot", tools: [coder] })
-      .use(sandbox())
-      .build();
-    await start(runtime, bot.manifest, { "coder/local": fixtureDir });
+      });
+    const bot = Agent({ id: "bot", tools: [coder] }).build();
+    // The session is opened with a sandbox; the agent it uses as a tool shares it.
+    await start(runtime, bot.manifest, { "coder/local": fixtureDir }, {});
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
     expect(done.mcpSnapshot.mcpTools).toEqual([

@@ -1,6 +1,8 @@
 /**
- * Shared workflow sandbox: one sandbox per owning session, attached via
- * PutSession.sandbox = { session }. Specs must match; keys use the owner id.
+ * Shared sandboxes: one sandbox per owning session, attached via PutSession.sandbox =
+ * { session }; keys use the owner id. A sandbox is either declared by the definition (an agent
+ * capability or a workflow's `sandbox`) or chosen when the session was opened and pinned on the
+ * session record (`sandbox`).
  */
 import {
   canonical,
@@ -16,7 +18,14 @@ export type SessionSandboxRef = {
   readonly manifest: AgentManifest | WorkflowManifest | Record<string, unknown>;
   /** Session whose id keys the sandbox. Absent means this session owns its own. */
   readonly sandboxOwnerId?: string | null;
+  /** The sandbox chosen when the session was opened (or inherited from its owner), resolved. */
+  readonly sandbox?: SandboxManifest;
 };
+
+/** The session's sandbox spec: the one pinned at open, else the one its definition declares. */
+export function sessionSandboxSpec(session: SessionSandboxRef): SandboxManifest | undefined {
+  return session.sandbox ?? sandboxSpecOf(session.manifest);
+}
 
 /** Sandbox spec declared on an agent capability or a workflow manifest. */
 export function sandboxSpecOf(
@@ -30,6 +39,33 @@ export function sandboxSpecOf(
   for (const capability of capabilities)
     if (capability.sandbox) return capability.sandbox;
   return undefined;
+}
+
+/**
+ * Where a definition document declares a sandbox: agent capabilities, the agents inlined as
+ * tools or embedded in a flow agent, and a workflow's `sandbox`. Definitions no longer declare
+ * one (Sandboxes v3), so registration refuses any of these.
+ */
+export function declaredSandboxes(manifest: unknown, into: string[] = []): string[] {
+  if (!manifest || typeof manifest !== "object") return into;
+  const document = manifest as {
+    id?: string;
+    kind?: string;
+    sandbox?: unknown;
+    agents?: Record<string, unknown>;
+    capabilities?: { id: string; sandbox?: unknown; tools?: { agent?: unknown }[] }[];
+  };
+  if (document.kind === "workflow") {
+    if (document.sandbox !== undefined) into.push(`flow agent '${document.id}'`);
+    for (const agent of Object.values(document.agents ?? {})) declaredSandboxes(agent, into);
+    return into;
+  }
+  for (const capability of document.capabilities ?? []) {
+    if (capability.sandbox !== undefined)
+      into.push(`'${document.id}' (capability '${capability.id}')`);
+    for (const tool of capability.tools ?? []) declaredSandboxes(tool.agent, into);
+  }
+  return into;
 }
 
 export function sandboxSpecsEqual(
@@ -77,5 +113,5 @@ export function sessionHasSandbox(
 ): boolean {
   const ownerId = owningSandboxSessionId(session, lookup);
   const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
-  return sandboxSpecOf(owner.manifest) !== undefined || sandboxSpecOf(session.manifest) !== undefined;
+  return sessionSandboxSpec(owner) !== undefined || sessionSandboxSpec(session) !== undefined;
 }

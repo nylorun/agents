@@ -1,5 +1,4 @@
 import type { AgentTool, BuiltAgent } from "../../types/agent.js";
-import type { JsonObject } from "../../types/shared.js";
 import type { ToolDefinition } from "../../types/tool.js";
 import type {
   WorkflowAgentNode,
@@ -31,7 +30,6 @@ export type ResolvedChild = {
   /** Nested workflow implementations, keyed relative to the child root id. */
   readonly nodes: Record<string, import("../../types/workflow.js").WorkflowNodeImplementation>;
   readonly tool?: BoundToolDefinition;
-  readonly sandboxSpecs: readonly JsonObject[];
   readonly isReshapingSlot: boolean;
 };
 
@@ -71,23 +69,6 @@ export function builtAgentOf(run: BuiltAgent | AgentTool | { build(): BuiltAgent
   if (run && typeof run === "object" && "build" in run && typeof run.build === "function")
     return run.build();
   failOne("workflow.invalid-runnable", "Expected a built agent or Agent builder");
-}
-
-/** Collect sandbox specs declared on an agent (and its delegates, one level). */
-export function sandboxSpecsOf(agent: BuiltAgent | AgentTool): JsonObject[] {
-  const specs: JsonObject[] = [];
-  const binding = bindingFromAgent(agent as BuiltAgent);
-  for (const cap of binding.manifest.capabilities) {
-    if (cap.sandbox) specs.push(cap.sandbox as JsonObject);
-  }
-  for (const tool of binding.tools) {
-    const child = tool.delegate?.agent;
-    if (!child) continue;
-    for (const cap of child.manifest.capabilities) {
-      if (cap.sandbox) specs.push(cap.sandbox as JsonObject);
-    }
-  }
-  return specs;
 }
 
 /**
@@ -162,13 +143,11 @@ export function toolManifestNode(bound: BoundToolDefinition): WorkflowToolNode {
 function agentNode(agent: BuiltAgent): {
   node: WorkflowAgentNode;
   agents: Record<string, AgentBinding>;
-  sandboxSpecs: JsonObject[];
 } {
   const binding = bindingFromAgent(agent);
   return {
     node: { agent: agent.id },
     agents: { [agent.id]: binding },
-    sandboxSpecs: sandboxSpecsOf(agent),
   };
 }
 
@@ -188,7 +167,6 @@ function resolveRunnable(run: WorkflowRunnable, rename?: string): ResolvedChild 
       agents: { ...binding.agents },
       // A rename moves the whole subtree: the harness path uses the new part, not run.id.
       nodes: remapNodeKeys({ ...binding.nodes }, run.id, id),
-      sandboxSpecs: sandboxSpecsFromAgents(binding.agents),
       isReshapingSlot: false,
     };
   }
@@ -201,7 +179,6 @@ function resolveRunnable(run: WorkflowRunnable, rename?: string): ResolvedChild 
       agents: {},
       nodes: { [id]: { kind: "tool", tool: bound } },
       tool: bound,
-      sandboxSpecs: [],
       isReshapingSlot: false,
     };
   }
@@ -217,23 +194,10 @@ function resolveRunnable(run: WorkflowRunnable, rename?: string): ResolvedChild 
       node: resolved.node,
       agents: resolved.agents,
       nodes: {},
-      sandboxSpecs: resolved.sandboxSpecs,
       isReshapingSlot: false,
     };
   }
   failOne("workflow.invalid-runnable", "Unsupported workflow runnable");
-}
-
-function sandboxSpecsFromAgents(
-  agents: Readonly<Record<string, AgentBinding>>,
-): JsonObject[] {
-  const specs: JsonObject[] = [];
-  for (const binding of Object.values(agents)) {
-    for (const cap of binding.manifest.capabilities) {
-      if (cap.sandbox) specs.push(cap.sandbox as JsonObject);
-    }
-  }
-  return specs;
 }
 
 /**
@@ -269,7 +233,6 @@ export function resolveChild(child: ChildRef, defaultRename?: string): ResolvedC
       agents: resolved.agents,
       nodes: remapped,
       tool: resolved.tool,
-      sandboxSpecs: resolved.sandboxSpecs,
       isReshapingSlot: hasInput,
     };
   }

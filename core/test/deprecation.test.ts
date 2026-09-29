@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { Agent, capability, sandbox, tool } from "../src/define.js";
+import { Agent, capability, tool } from "../src/define.js";
 import { resetDeprecationWarnings } from "../src/utils/deprecate.js";
 
 /** Flow Agents Phase 1: the old authoring forms warn once each; the new ones never do. */
@@ -34,7 +34,7 @@ describe("deprecation warnings", () => {
   it("warn once per code for the old forms", () => {
     Agent({ id: "a", instructions: "x", tools: [look] });
     Agent({ id: "b", instructions: "y" });
-    Agent({ id: "c" }).use(sandbox());
+    Agent({ id: "c" }).use({ id: "cap-c", instructions: ["c"] });
     Agent({ id: "d" }).before("turn", () => ({}));
     Agent({ id: "e" }).after("step", () => ({}));
     capability({ id: "cap", instructions: "c" });
@@ -54,7 +54,6 @@ describe("deprecation warnings", () => {
       .subagents(helper)
       .capability(capability({ id: "cap" }).instructions("c"))
       .mcp({ gh: { type: "sse", url: "https://x.example/gh" } })
-      .sandbox()
       .beforeTurn(() => ({}))
       .afterModel(() => ({}))
       .output(z.string())

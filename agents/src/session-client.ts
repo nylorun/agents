@@ -27,6 +27,7 @@ import {
   type CredentialInfo,
   type CredentialSelection,
   type LiveEvent,
+  type SandboxRequest,
   type SessionCommand,
   type VaultInfo,
 } from "@nylorun/core/contracts";
@@ -241,8 +242,12 @@ export class AgentsClient {
     requestId?: string;
     vaultIds?: readonly string[];
     credentialSelections?: readonly CredentialSelection[];
-    /** Share another session's sandbox (public PutSession.sandbox). */
-    sandbox?: { session: string };
+    /**
+     * The session's sandbox: omit for the Tenant default, `false` for none, `{ session }` to share
+     * another session's, or an inline sandbox (`image`, `network.allow`, `resources`) checked
+     * against the Tenant's limits. Fixed once the session exists.
+     */
+    sandbox?: SandboxRequest;
   }): Promise<SessionClient> {
     const sessionId = options.id ?? id();
     await this.transport.json(`/v1/sessions/${segment(sessionId)}`, "PUT", {
@@ -254,7 +259,7 @@ export class AgentsClient {
       ...(options.credentialSelections
         ? { credentialSelections: options.credentialSelections }
         : {}),
-      ...(options.sandbox ? { sandbox: options.sandbox } : {}),
+      ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
     });
     return this.session(sessionId);
   }

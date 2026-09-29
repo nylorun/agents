@@ -52,7 +52,6 @@ export function Parallel<const Branches extends ParallelBranches, In = JsonValue
     mergeChild(acc, {
       agents: resolved.agents,
       nodes: remapNodeKeys(resolved.nodes, resolved.id, branchPath),
-      sandboxSpecs: resolved.sandboxSpecs,
     });
     branchNodes[name] = resolved.node;
   }

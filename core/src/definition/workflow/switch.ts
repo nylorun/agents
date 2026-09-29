@@ -79,7 +79,6 @@ export function Switch<
     mergeChild(acc, {
       agents: resolved.agents,
       nodes: remapNodeKeys(resolved.nodes, resolved.id, casePath),
-      sandboxSpecs: resolved.sandboxSpecs,
     });
     caseNodes[key] = resolved.node;
   }
@@ -91,7 +90,6 @@ export function Switch<
     mergeChild(acc, {
       agents: resolved.agents,
       nodes: remapNodeKeys(resolved.nodes, resolved.id, defaultPath),
-      sandboxSpecs: resolved.sandboxSpecs,
     });
     defaultNode = resolved.node;
   }

@@ -1,9 +1,5 @@
 import { expect, it } from "vitest";
-import {
-  Agent,
-  SANDBOX_INSTRUCTIONS,
-  createSandboxTools,
-} from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
@@ -17,15 +13,8 @@ const executorHeaders = {
   "content-type": "application/json",
 };
 
-const sandboxed = (id: string, image = "node:22") =>
-  Agent({ id, name: id })
-    .use({
-      id: "sandbox",
-      instructions: [SANDBOX_INSTRUCTIONS],
-      tools: createSandboxTools(),
-      sandbox: { image, idle: "15m" },
-    })
-    .build();
+/** Agents declare no sandbox; sessions are opened with one. */
+const sandboxed = (id: string) => Agent({ id, name: id }).instructions("Work.").build();
 
 async function boot(modelProvider?: ModelProvider) {
   return startTestTenant({
@@ -77,6 +66,7 @@ it("attaches PutSession.sandbox and keys the sandbox by the owning session", asy
         requestId: "sess-owner",
         agentId: "owner",
         ownerUserId: "ada",
+        sandbox: {},
       }),
     });
     expect(ownerSession.ok).toBe(true);
@@ -144,6 +134,7 @@ it("refuses session sandbox tools while an agent turn is active", async () => {
         requestId: "s1",
         agentId: "owner",
         ownerUserId: "ada",
+        sandbox: {},
       }),
     });
     const message = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
@@ -179,43 +170,28 @@ it("refuses session sandbox tools while an agent turn is active", async () => {
   }
 });
 
-it("rejects PutSession.sandbox when specs differ or owners differ", async () => {
+it("rejects PutSession.sandbox when the target has no sandbox or another owner", async () => {
   const runtime = await boot();
   try {
-    await putAgent(runtime, sandboxed("owner", "node:22"));
-    await putAgent(runtime, sandboxed("other", "node:24"));
-    await fetch(`${runtime.url}/v1/sessions/wf-1`, {
-      method: "PUT",
-      headers: serverHeaders,
-      body: JSON.stringify({
-        requestId: "owner",
-        agentId: "owner",
-        ownerUserId: "ada",
-      }),
-    });
+    await putAgent(runtime, sandboxed("owner"));
+    await putAgent(runtime, sandboxed("other"));
+    const put = (id: string, body: Record<string, unknown>) =>
+      fetch(`${runtime.url}/v1/sessions/${id}`, {
+        method: "PUT",
+        headers: serverHeaders,
+        body: JSON.stringify({ requestId: id, ...body }),
+      });
+    await put("wf-1", { agentId: "owner", ownerUserId: "ada", sandbox: {} });
+    await put("bare", { agentId: "owner", ownerUserId: "ada" });
 
-    const mismatch = await fetch(`${runtime.url}/v1/sessions/bad-spec`, {
-      method: "PUT",
-      headers: serverHeaders,
-      body: JSON.stringify({
-        requestId: "bad-spec",
-        agentId: "other",
-        ownerUserId: "ada",
-        sandbox: { session: "wf-1" },
-      }),
-    });
-    expect(mismatch.status).toBe(409);
+    const inherits = await put("joins", { agentId: "other", ownerUserId: "ada", sandbox: { session: "wf-1" } });
+    expect(inherits.ok, await inherits.clone().text()).toBe(true);
 
-    const foreign = await fetch(`${runtime.url}/v1/sessions/bad-owner`, {
-      method: "PUT",
-      headers: serverHeaders,
-      body: JSON.stringify({
-        requestId: "bad-owner",
-        agentId: "owner",
-        ownerUserId: "bob",
-        sandbox: { session: "wf-1" },
-      }),
-    });
+    const none = await put("no-box", { agentId: "other", ownerUserId: "ada", sandbox: { session: "bare" } });
+    expect(none.status).toBe(400);
+    expect(await none.text()).toContain("Target session has no sandbox to share");
+
+    const foreign = await put("bad-owner", { agentId: "owner", ownerUserId: "bob", sandbox: { session: "wf-1" } });
     expect(foreign.status).toBe(403);
   } finally {
     await runtime.close();
@@ -226,12 +202,6 @@ it("authorizes claim-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
   const { tool } = await import("@nylorun/core/define");
   const { z } = await import("zod");
   const agent = Agent({ id: "coder", name: "Coder" })
-    .use({
-      id: "sandbox",
-      instructions: [SANDBOX_INSTRUCTIONS],
-      tools: createSandboxTools(),
-      sandbox: { image: "node:22", idle: "15m" },
-    })
     .use({
       id: "work",
       tools: [
@@ -265,6 +235,7 @@ it("authorizes claim-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
         requestId: "s1",
         agentId: "coder",
         ownerUserId: "ada",
+        sandbox: {},
       }),
     });
     await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
@@ -300,7 +271,9 @@ it("authorizes claim-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
           implementationVersion: "dev",
         }),
       })
-    ).json()) as { claimId: string; generation: number };
+    ).json()) as { claimId: string; generation: number; sandbox?: boolean };
+    // The claim tells the executor that ctx.sandbox is available.
+    expect(claimed.sandbox).toBe(true);
 
     const write = await fetch(
       `${runtime.url}/v1/actions/${actionId}/sandbox/write`,

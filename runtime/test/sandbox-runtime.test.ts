@@ -3,11 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import {
-  Agent,
-  SANDBOX_INSTRUCTIONS,
-  createSandboxTools,
-} from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -22,15 +18,7 @@ const serverHeaders = {
 };
 const executorHeaders = { authorization: "Bearer executor-token-value" };
 
-const agent = (sandbox: Record<string, unknown> = {}) =>
-  Agent({ id: "bot", name: "Bot" })
-    .use({
-      id: "sandbox",
-      instructions: [SANDBOX_INSTRUCTIONS],
-      tools: createSandboxTools(),
-      sandbox,
-    })
-    .build();
+const agent = () => Agent({ id: "bot", name: "Bot" }).instructions("Use the sandbox.").build();
 
 async function boot(
   options: {
@@ -67,7 +55,7 @@ async function openSession(runtime: { url: string }, id: string) {
   const response = await fetch(`${runtime.url}/v1/sessions/${id}`, {
     method: "PUT",
     headers: serverHeaders,
-    body: JSON.stringify({ requestId: `session-${id}`, agentId: "bot", ownerUserId: "ada" }),
+    body: JSON.stringify({ requestId: `session-${id}`, agentId: "bot", ownerUserId: "ada", sandbox: {} }),
   });
   expect(response.ok).toBe(true);
 }

@@ -10,6 +10,7 @@ import { hooksFrom } from "./hooks.js";
 import type { ModelDirective } from "../types/model.js";
 import type { ToolDefinition } from "../types/tool.js";
 import type { AgentTool } from "../types/agent.js";
+import type { SandboxManifest } from "../types/manifest.js";
 import { delegateTool, isAgentItem } from "./delegate.js";
 
 export interface CompiledCapability {
@@ -71,9 +72,10 @@ export function compileDeclaration<State>(
       Object.keys(declaration.mcpServers).length === 0
         ? {}
         : { mcpServers: declaration.mcpServers }),
-      ...(declaration.sandbox === undefined
+      // Definitions declare no sandbox; carry one through so the build can refuse it by name.
+      ...(sandboxOf(declaration) === undefined
         ? {}
-        : { sandbox: declaration.sandbox }),
+        : { sandbox: sandboxOf(declaration) }),
       ...(declaration.pluginRoot === undefined
         ? {}
         : { pluginRoot: declaration.pluginRoot }),
@@ -154,4 +156,8 @@ function asTools(
       value.items.map((item) => (isAgentItem(item) ? delegateTool(item) : (item as ToolDefinition)))
     ),
   });
+}
+
+function sandboxOf(declaration: object): SandboxManifest | undefined {
+  return (declaration as { sandbox?: SandboxManifest }).sandbox;
 }

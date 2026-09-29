@@ -30,10 +30,14 @@ export function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-export function resolvePath(path: string): string {
-  return posix.normalize(
-    path.startsWith("/") ? path : posix.join(SANDBOX_WORKSPACE, path)
-  );
+/**
+ * An absolute path inside the sandbox. Relative paths are relative to the workspace; on a backend
+ * whose workspace is not `/workspace` (OpenShell uses `/sandbox`), `/workspace/…` still names it.
+ */
+export function resolveSandboxPath(path: string, workspace: string = SANDBOX_WORKSPACE): string {
+  if (workspace !== SANDBOX_WORKSPACE && (path === SANDBOX_WORKSPACE || path.startsWith(`${SANDBOX_WORKSPACE}/`)))
+    path = workspace + path.slice(SANDBOX_WORKSPACE.length);
+  return posix.normalize(path.startsWith("/") ? path : posix.join(workspace, path));
 }
 
 /** Keep the head and tail of long output so the model sees both the start and the error. */
@@ -60,8 +64,10 @@ export async function runSandboxTool(
   signal: AbortSignal,
   report: (value: SandboxToolReport) => void
 ): Promise<SandboxToolOutcome> {
+  const workspace = handle.workspace ?? SANDBOX_WORKSPACE;
+  const resolvePath = (path: string) => resolveSandboxPath(path, workspace);
   const exec = (command: string, timeoutMs = 60_000): Promise<ExecResult> =>
-    handle.exec({ command, cwd: SANDBOX_WORKSPACE, timeoutMs }, signal);
+    handle.exec({ command, cwd: workspace, timeoutMs }, signal);
   switch (name) {
     case "bash": {
       const command = String(input.command);

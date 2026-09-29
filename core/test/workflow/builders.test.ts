@@ -17,11 +17,7 @@ import {
   isSlot,
 } from "../../src/definition/workflow/index.js";
 
-const agent = (id: string, sandbox?: { image: string }) => {
-  const builder = Agent({ id, name: id });
-  if (sandbox) return builder.use({ id: "box", sandbox }).build();
-  return builder.build();
-};
+const agent = (id: string) => Agent({ id, name: id }).build();
 
 const echo = tool({
   name: "echo",
@@ -352,28 +348,9 @@ describe("slots", () => {
 });
 
 describe("sandbox", () => {
-  it("WF-R29/PAR-B3: mismatched sandbox specs fail the build", () => {
-    expect(() =>
-      Parallel({
-        id: "review",
-        branches: {
-          a: agent("a", { image: "node:22" }),
-          b: agent("b", { image: "python:3" }),
-        },
-      }),
-    ).toThrow(/identical spec/);
-  });
-
-  it("WF-R57: matching sandboxes are declared once on the document", () => {
-    const spec = { image: "node:22" };
-    const flow = Parallel({
-      id: "review",
-      branches: {
-        a: agent("a", spec),
-        b: agent("b", spec),
-      },
-    });
-    expect(flow.manifest.sandbox).toEqual(spec);
+  it("is not declared on the workflow document: the session is opened with one", () => {
+    const flow = Parallel({ id: "review", branches: { a: agent("a"), b: agent("b") } });
+    expect(flow.manifest).not.toHaveProperty("sandbox");
   });
 });
 

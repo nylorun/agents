@@ -4,8 +4,9 @@
  */
 import type { SandboxNetworkPreset } from "@nylorun/core/define";
 
-export type SandboxBackendName = "virtual";
-export type SandboxIsolation = "process";
+export type SandboxBackendName = "virtual" | "openshell";
+/** What separates a sandbox from its host: the Runtime process, or a container boundary. */
+export type SandboxIsolation = "process" | "container";
 
 export interface SandboxProbe {
   readonly name: SandboxBackendName;
@@ -28,7 +29,8 @@ export interface ResolvedNetwork {
 export interface SandboxSpec {
   /** Stable backend name for this sandbox; unique per Runtime scope and session. */
   readonly key: string;
-  readonly image: string;
+  /** OCI image reference; undefined means the backend's default. */
+  readonly image?: string;
   readonly cpus: number;
   readonly memoryMiB: number;
   readonly network: ResolvedNetwork;
@@ -50,6 +52,10 @@ export interface ExecResult {
 }
 
 export interface SandboxHandle {
+  /** The directory tools run in and resolve relative paths against. Default: `/workspace`. */
+  readonly workspace?: string;
+  /** The backend had to create the sandbox afresh, so files from an earlier run are gone. */
+  readonly created?: boolean;
   exec(request: ExecRequest, signal: AbortSignal): Promise<ExecResult>;
   /** Returns undefined when the file does not exist. */
   readFile(path: string): Promise<string | undefined>;

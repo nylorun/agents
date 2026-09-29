@@ -272,6 +272,7 @@ One line each; the module named is where the term lives in code.
 - **Engine host**: `resolveEffect`, which journals each effect's intent and outcome and dispatches it by kind (`tenant/effects.ts`).
 - **Outbox**: Session Store rows holding events committed but not yet in Durable Streams (`OutboxRow` in `store/types.ts`).
 - **Relay**: Appends outbox rows to their session's stream in order and deletes them once S2 has them; the only writer of events (`streams/relay.ts`).
+- **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`).
 - **Tenant sweep**: A per-Tenant durable timer that expires claims, re-wakes orphaned sessions, drains the outbox and stops idle sandboxes (`tenant/sweep.ts`).
 - **Stream incarnation**: The id in a session's stream name `sessions/<id>/<incarnation>`, new each time a session id is created (`streams/types.ts`, `tenant/streams.ts`).
 

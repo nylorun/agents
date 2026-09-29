@@ -12,10 +12,6 @@ import {
   type AgentConnection,
 } from "@nylorun/agents";
 import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
-import {
-  SANDBOX_INSTRUCTIONS,
-  createSandboxTools,
-} from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { sessionIdFor } from "../src/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
@@ -99,12 +95,6 @@ const shop = Agent({ id: "shop", name: "Shop" })
       }),
     ],
   })
-  .use({
-    id: "sandbox",
-    instructions: [SANDBOX_INSTRUCTIONS],
-    tools: createSandboxTools(),
-    sandbox: {},
-  })
   .build();
 const guarded = Agent({ id: "guarded", name: "Guarded" })
   .use({
@@ -154,6 +144,13 @@ beforeAll(async () => {
     sandbox: { backend: "virtual" },
     modelProvider: scriptedModel(),
   });
+  // The handler opens sessions without naming a sandbox, so they get the Tenant default.
+  const configured = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
+    method: "PUT",
+    headers: { ...runtime.headers(), "content-type": "application/json" },
+    body: JSON.stringify({ default: "virtual" }),
+  });
+  if (!configured.ok) throw new Error(await configured.text());
   const client = createClient({
     url: runtime.url,
     key: runtime.applicationKey,

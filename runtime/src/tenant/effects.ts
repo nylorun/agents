@@ -18,7 +18,7 @@ import type {
   SessionCommand,
 } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
-import type { AgentManifest, JsonValue } from "@nylorun/core/define";
+import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import {
   embeddedAgent,
   flowDelegateManifest,
@@ -45,7 +45,12 @@ import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import { serversOf } from "../mcp/pool.js";
 import { sandboxCapabilityOf } from "../sandbox/manager.js";
-import { owningSandboxSessionId, sandboxSpecOf } from "../sandbox/share.js";
+import {
+  owningSandboxSessionId,
+  sandboxSpecOf,
+  sessionSandboxSpec,
+} from "../sandbox/share.js";
+import { withSandboxCapability } from "../sandbox/session-sandbox.js";
 import {
   loadSession,
   ownedSession,
@@ -516,25 +521,30 @@ export async function resolveNewFlowEffect(
     });
   });
 
+  const backend = (await ctx.sandbox.ready).backend?.name;
   await store.tx(async (t) => {
     // The linked agent (child) session is locked before the workflow (parent).
     const exists = await t.lockSession(agentSessionId);
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
     const definition = await leafDefinition(t, workflow, body, request);
+    const lookup = await sandboxLookup(t, workflow.sandboxOwnerId);
     const sandboxOwnerId =
-      sandboxSpecOf(workflow.manifest) || workflow.sandboxOwnerId
-        ? owningSandboxSessionId(
-            workflow,
-            await sandboxLookup(t, workflow.sandboxOwnerId)
-          )
+      sessionSandboxSpec(workflow) || workflow.sandboxOwnerId
+        ? owningSandboxSessionId(workflow, lookup)
         : undefined;
+    // A sandbox chosen when the tree was opened reaches every agent in it, with its tools.
+    const inherited = inheritedSandbox(
+      sandboxOwnerId === undefined ? undefined : lookup(sandboxOwnerId) ?? workflow,
+      definition,
+      backend
+    );
     const created: Session = {
       id: agentSessionId,
       agentId: body.agentId,
       ownerUserId: workflow.ownerUserId,
-      manifest: definition.manifest,
-      manifestHash: definition.manifestHash,
+      manifest: inherited?.manifest ?? definition.manifest,
+      manifestHash: inherited?.manifestHash ?? definition.manifestHash,
       implementationVersion: definition.implementationVersion,
       status: "idle",
       activeTurnId: null,
@@ -548,6 +558,9 @@ export async function resolveNewFlowEffect(
       credentialSelections: workflow.credentialSelections,
       pluginRoots: definition.pluginRoots ?? {},
       ...(sandboxOwnerId ? { sandboxOwnerId } : {}),
+      ...(inherited
+        ? { sandbox: inherited.spec, sandboxSource: "shared" as const }
+        : {}),
       streamIncarnation: newStreamIncarnation(),
     };
     await t.put("sessions", agentSessionId, created);
@@ -687,6 +700,25 @@ async function callMcpTool(
     manifest: s.manifest,
     pluginRoots: s.pluginRoots ?? {},
   });
+}
+
+/**
+ * The sandbox a linked session inherits from its tree's owner when that sandbox was chosen at
+ * open (pinned on the owner). A definition that declares its own sandbox keeps it, as before.
+ */
+function inheritedSandbox(
+  owner: Session | undefined,
+  definition: { manifest: any; manifestHash: string },
+  backend: string | undefined
+):
+  | { spec: SandboxManifest; manifest?: AgentManifest; manifestHash?: string }
+  | undefined {
+  const spec = owner?.sandbox;
+  if (!spec || sandboxSpecOf(definition.manifest)) return undefined;
+  if (isWorkflowManifest(definition.manifest)) return { spec };
+  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec, backend);
+  if (!sandboxed.ok) throw new Error(sandboxed.message);
+  return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }
 
 async function callSandboxTool(

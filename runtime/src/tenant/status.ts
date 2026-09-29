@@ -12,6 +12,7 @@ import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type { StuckInvocation } from "../execution/types.js";
 import type { StreamsStatus } from "./streams.js";
 import { FIXTURE_MODEL_SETTING, seedFixtureModel } from "./model-setting.js";
+import { SANDBOX_CONFIG_SETTING, writeSandboxConfig } from "../sandbox/tenant-config.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
@@ -159,6 +160,16 @@ export async function seedTenantConfig(
       return true;
     });
     (inserted ? applied : kept).push("sandbox.backend");
+  }
+
+  const sandboxConfig = body.sandbox?.config;
+  if (sandboxConfig) {
+    const inserted = await ctx.store.tx(async (t) => {
+      if ((await t.getSetting(SANDBOX_CONFIG_SETTING)) !== undefined) return false;
+      await writeSandboxConfig(t, sandboxConfig);
+      return true;
+    });
+    (inserted ? applied : kept).push(SANDBOX_CONFIG_SETTING);
   }
 
   if (body.fixtureModel) {

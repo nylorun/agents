@@ -173,6 +173,19 @@ On the app server's machine:
 This is one Runtime on one server, operated by hand: no replicas, managed
 backups, Helm charts or upgrade automation.
 
+## Sandboxes on OpenShell
+
+A Runtime runs sessions' sandboxes on the in-process **virtual** backend
+unless `NYLORUN_OPENSHELL_GATEWAY` names an
+[OpenShell](https://github.com/NVIDIA/OpenShell) 0.1.2 gateway
+(`http://host:port`). Then each sandbox is a container on that gateway's
+Docker driver, and egress is limited to the hosts the session's sandbox allows.
+`nylorun start --sandbox openshell` runs one beside the local stack. The
+gateway must be reachable only by the Runtime. It holds the Docker socket, and
+the stack's configuration accepts unauthenticated callers on its network.
+Kubernetes gateways, mTLS to the gateway and several gateways per Host are
+deferred. `npx nylo doctor sandbox` reports the backend in use and why.
+
 ## Container images
 
 Each release publishes the Runtime and Studio as multi-arch images

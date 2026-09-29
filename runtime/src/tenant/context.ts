@@ -22,7 +22,7 @@ import type {
   DurableCheckpoint,
   FlowCheckpoint,
 } from "@nylorun/harness/run";
-import type { AgentManifest, JsonValue } from "@nylorun/core/define";
+import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import type { CredentialSelection } from "@nylorun/core/contracts";
 import type { SessionStore, StoredSession, Tx } from "../store/types.js";
 import type { ExecutorRecord, ExecutorRegistry } from "../core/executors.js";
@@ -73,6 +73,14 @@ export interface Session {
   mcpDiagnostics?: readonly McpDiagnostic[];
   /** Session id that keys the shared sandbox; absent means this session owns it. */
   sandboxOwnerId?: string;
+  /**
+   * The sandbox chosen when the session was opened, resolved against the Tenant's limits, or
+   * inherited from the session it shares with. Absent when the session has no sandbox or its
+   * definition declares one (`.sandbox()`).
+   */
+  sandbox?: SandboxManifest;
+  /** Where `sandbox` came from. */
+  sandboxSource?: "default" | "inline" | "shared";
   /**
    * The incarnation naming this session's event stream (`sessions/<id>/<incarnation>`), set at
    * creation and never changed. Absent only on sessions created before incarnations.

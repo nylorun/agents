@@ -198,7 +198,10 @@ export class TenantRuntime implements TenantHandle {
         store: opened,
         backends:
           config.sandbox.backends ??
-          defaultSandboxBackends({ root: paths.sandboxes }),
+          defaultSandboxBackends({
+            root: paths.sandboxes,
+            ...(config.sandbox.openshell ? { openshell: config.sandbox.openshell } : {}),
+          }),
         preference: seededBackend ?? config.sandbox.backend,
         ephemeral,
         emit: async (sessionId, turnId, type, payload) => {

@@ -325,6 +325,25 @@ describe("what a token reaches", () => {
     expect(refresh.status).toBe(403);
   });
 
+  it("cannot define a sandbox or share another subject's", async () => {
+    const token = await mint(tenant, "app:ivan");
+    const open = (id: string, extra: Record<string, unknown>) =>
+      as(tenant, token, "PUT", `/v1/sessions/${id}`, {
+        requestId: `open-${id}`,
+        agentId: "bot",
+        ownerUserId: "app:ivan",
+        ...extra,
+      });
+    const inline = await open("ivan-1", { sandbox: {} });
+    expect(inline.status).toBe(403);
+    expect(inline.text).toContain("Defining a sandbox needs an application key");
+    expect((await createSession(tenant, "judy-1", { subject: "app:judy", scopes: ["sessions:own"] })).status).toBe(200);
+    const shared = await open("ivan-2", { sandbox: { session: "judy-1" } });
+    expect(shared.status).toBe(404);
+    const none = await open("ivan-3", { sandbox: false });
+    expect(none.status, none.text).toBe(200);
+  });
+
   it("never reaches operator, executor or settings routes", async () => {
     const token = await mint(tenant, "app:hank");
     for (const [method, path, body] of [

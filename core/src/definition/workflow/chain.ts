@@ -122,7 +122,6 @@ export function Chain<
     mergeChild(acc, {
       agents: resolved.agents,
       nodes: remapNodeKeys(resolved.nodes, resolved.id, stepPath),
-      sandboxSpecs: resolved.sandboxSpecs,
     });
     stepNodes.push(resolved.node);
   }

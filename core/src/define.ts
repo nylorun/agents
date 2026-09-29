@@ -23,12 +23,10 @@ export {
 } from "./definition/delegate.js";
 export type { Delegate } from "./definition/delegate.js";
 export { capability, middleware, model, tool } from "./definition/helpers.js";
-export { sandbox, SandboxError } from "./definition/sandbox.js";
-export type {
-  SandboxCapability,
-  SandboxCapabilityOptions,
-  SandboxOptions,
-} from "./definition/sandbox.js";
+export {
+  SANDBOX_CAPABILITY_ID,
+  sandboxCapabilityManifest,
+} from "./definition/sandbox-capability.js";
 export { mcp, McpError, normalizeMcpServers } from "./definition/mcp.js";
 export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
 export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";
@@ -72,8 +70,6 @@ export {
   SANDBOX_INSTRUCTIONS,
 } from "./definition/sandbox-tools.js";
 export {
-  SANDBOX_DEFERRED_FIELDS,
-  SANDBOX_FIELDS,
   SANDBOX_NETWORK_PRESETS,
   SANDBOX_TOOL_NAMES,
   SANDBOX_WORKSPACE,

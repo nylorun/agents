@@ -11,7 +11,7 @@ import type {
   SchemaOutput,
 } from "../types/tool.js";
 import type { AgentTool, BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, McpServerManifest, SandboxManifest } from "../types/manifest.js";
+import type { AgentManifest, McpServerManifest } from "../types/manifest.js";
 import type { WorkflowBinding, WorkflowManifest } from "../types/workflow.js";
 import type {
   AfterHook,
@@ -25,7 +25,6 @@ import { compileDeclaration } from "./declaration.js";
 import { agentFrom } from "./from.js";
 import { hooksFrom } from "./hooks.js";
 import { isAgentItem } from "./delegate.js";
-import { sandbox as sandboxCapability } from "./sandbox.js";
 import { normalizeMcpServers, type McpServerSpec } from "./mcp.js";
 import { deprecate } from "../utils/deprecate.js";
 import { WorkflowBuildError } from "./workflow/diagnostics.js";
@@ -93,7 +92,6 @@ interface BuilderSnapshot {
     readonly tools?: readonly (ToolDefinition<any, any, any> | AgentTool)[];
   };
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
-  readonly sandbox?: SandboxManifest;
   readonly stages: readonly FlowStage[];
 }
 
@@ -289,29 +287,6 @@ export class AgentBuilder<
     return this.addDeclaration(declaration, "capability()");
   }
 
-  /**
-   * Give the agent a Runtime-owned sandbox. On a flow agent, declares the one sandbox
-   * every agent in the flow shares.
-   */
-  sandbox(spec: SandboxManifest = {}): this {
-    const snapshot = this.#snapshot;
-    const capability = sandboxCapability(spec);
-    if (snapshot.sandbox !== undefined)
-      return this.spawn({
-        ...snapshot,
-        diagnostics: addDiagnostics(snapshot.diagnostics, [singleValue(snapshot.id, "sandbox")]),
-      });
-    if (snapshot.body === "flow")
-      return this.spawn({ ...snapshot, sandbox: capability.sandbox });
-    const compiled = compileDeclaration(capability);
-    return this.spawn({
-      ...snapshot,
-      sandbox: capability.sandbox,
-      entries: Object.freeze([...snapshot.entries, compiled.bound]),
-      dynamics: withDynamics(snapshot.dynamics, compiled.bound.id, {}),
-    });
-  }
-
   /** Run `fn` before each turn. */
   beforeTurn(fn: BeforeHook<"turn", Info>): this {
     return this.addAgentHook("before", "turn", fn);
@@ -343,11 +318,11 @@ export class AgentBuilder<
     return this.spawn({ ...snapshot, outputSchema: schema }) as unknown as AgentBuilder<Info, S, Id>;
   }
 
-  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()`, `.plugin()` or `.sandbox()`. */
+  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()` or `.plugin()`. */
   use(middleware: StepMiddleware<Info>): this;
-  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()`, `.plugin()` or `.sandbox()`. */
+  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()` or `.plugin()`. */
   use(id: string, middleware: StepMiddleware<Info>): this;
-  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()`, `.plugin()` or `.sandbox()`. */
+  /** @deprecated Use `.capability()`, `.mcp()`, `.skills()` or `.plugin()`. */
   use(declaration: CapabilityInput<Info>): this;
   use(
     idOrMiddleware: string | StepMiddleware<Info> | CapabilityInput<Info>,
@@ -356,7 +331,7 @@ export class AgentBuilder<
     if (typeof idOrMiddleware === "object") {
       deprecate(
         "NYLORUN_DEP_USE",
-        ".use(capability) is deprecated. Use .capability(), .mcp(), .skills(), .plugin() or .sandbox()."
+        ".use(capability) is deprecated. Use .capability(), .mcp(), .skills() or .plugin()."
       );
       const declaration = isCapabilityBuilder(idOrMiddleware)
         ? (idOrMiddleware.toDeclaration() as CapabilityInput<Info>)
@@ -513,7 +488,6 @@ export class AgentBuilder<
           stages: snapshot.stages,
           ...(snapshot.inputSchema === undefined ? {} : { inputSchema: snapshot.inputSchema }),
           ...(snapshot.outputSchema === undefined ? {} : { outputSchema: snapshot.outputSchema }),
-          ...(snapshot.sandbox === undefined ? {} : { sandbox: snapshot.sandbox }),
         });
       } catch (error) {
         if (error instanceof WorkflowBuildError) {
@@ -727,7 +701,7 @@ function hookMethod(at: HookAt, scope: HookScope): string {
 function singleValue(id: string, what: string): BuildDiagnostic {
   return Object.freeze({
     code: "agent.single-value",
-    message: `'${id}' already has ${what === "sandbox" ? "a sandbox" : `an ${what}`}; set it once`,
+    message: `'${id}' already has an ${what}; set it once`,
   });
 }
 

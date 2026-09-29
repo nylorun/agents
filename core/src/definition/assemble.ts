@@ -10,7 +10,7 @@ import { bindAgent } from "./bind-agent.js";
 import { createManifest } from "./manifest.js";
 import { createSkillTools } from "./skill-tools.js";
 import { DELEGATE_NAME_PATTERN, delegateOf, delegatesOf } from "./delegate.js";
-import { canonical } from "../utils/canonical.js";
+import { SANDBOX_CAPABILITY_ID } from "./sandbox-capability.js";
 
 type BuildResult<Agent> =
   | {
@@ -137,16 +137,14 @@ export function assembleAgent(
         diagnostics.push(
           diagnostic(
             "tool.duplicate-name",
-            `Tool '${entry.name}' is declared by capabilities '${owner}' and '${item.id}'` +
-              (owner === "sandbox" || item.id === "sandbox"
-                ? "; sandbox() provides built-in bash, read, write, edit, grep and glob tools, so rename yours"
-                : "")
+            `Tool '${entry.name}' is declared by capabilities '${owner}' and '${item.id}'`
           )
         );
       else toolOwners.set(entry.name, item.id);
     }
 
   diagnostics.push(...delegationDiagnostics(skilled.items));
+  diagnostics.push(...sandboxDiagnostics(skilled.items));
 
   if (diagnostics.length)
     return Object.freeze({
@@ -172,8 +170,6 @@ export function assembleAgent(
 /** v1 delegation is one level deep and non-interactive; anything else fails the build by name. */
 function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnostic[] {
   const found: BuildDiagnostic[] = [];
-  const sandboxes = new Set<string>();
-  for (const item of items) if (item.sandbox) sandboxes.add(canonical(item.sandbox));
   for (const item of items)
     for (const tool of item.tools ?? []) {
       const delegate = delegateOf(tool);
@@ -196,12 +192,8 @@ function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnost
             extra
           )
         );
-      if ((child as { kind?: unknown }).kind === "workflow") {
-        // A flow agent runs in its own linked session; its agents may delegate in turn.
-        const spec = (child as { sandbox?: object }).sandbox;
-        if (spec && Object.keys(spec).length > 0) sandboxes.add(canonical(spec));
-        continue;
-      }
+      // A flow agent runs in its own linked session; its agents may delegate in turn.
+      if ((child as { kind?: unknown }).kind === "workflow") continue;
       const nested = delegatesOf(child as AgentManifest)[0];
       if (nested)
         found.push(
@@ -220,17 +212,24 @@ function delegationDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnost
               extra
             )
           );
-      for (const capability of (child as AgentManifest).capabilities)
-        if (capability.sandbox) sandboxes.add(canonical(capability.sandbox));
     }
-  if (sandboxes.size > 1)
-    found.push(
+  return found;
+}
+
+/**
+ * Definitions declare no sandbox: a session gets one when it is opened (Sandboxes v3). A
+ * capability that still carries `sandbox` fails the build instead of being silently dropped.
+ * The Runtime's own capability (`nylorun.sandbox`, in a session's pinned manifest) is exempt.
+ */
+function sandboxDiagnostics(items: readonly BoundMiddleware[]): BuildDiagnostic[] {
+  return items
+    .filter((item) => item.sandbox !== undefined && item.id !== SANDBOX_CAPABILITY_ID)
+    .map((item) =>
       diagnostic(
-        "sandbox.mismatch",
-        "An agent and the agents it uses as tools share one sandbox, so every sandbox they declare must be identical"
+        "sandbox.in-definition",
+        `Capability '${item.id}' declares a sandbox. Agents no longer declare one: open the session with it instead, createSession({ sandbox: { image, network: { allow }, resources } }), or set the Tenant's default sandbox.`
       )
     );
-  return found;
 }
 
 const SKILL_TOOL_NAMES = new Set(["load_skill", "read_skill_resource"]);

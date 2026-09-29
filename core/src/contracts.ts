@@ -535,6 +535,42 @@ export const CredentialSelectionSchema = z
   })
   .strict();
 export type CredentialSelection = z.infer<typeof CredentialSelectionSchema>;
+const sandboxHostSchema = z.string().refine(isSandboxHostPattern, {
+  message: "network.allow entries must be host names such as api.github.com or *.example.com",
+});
+const sandboxResourcesSchema = z
+  .object({
+    cpus: z.number().int().min(1).max(64).optional(),
+    memory: z
+      .string()
+      .refine((value) => parseSandboxSize(value) !== undefined, {
+        message: "resources.memory must be a size such as 512MiB or 2GiB",
+      })
+      .optional(),
+  })
+  .strict();
+/**
+ * A sandbox defined when a session is opened. No `network.allow` means no egress. The Runtime
+ * checks it against the Tenant's limits and pins the result on the session.
+ */
+export const SandboxInlineRequestSchema = z
+  .object({
+    image: z.string().min(1).optional(),
+    network: z.object({ allow: z.array(sandboxHostSchema).optional() }).strict().optional(),
+    resources: sandboxResourcesSchema.optional(),
+  })
+  .strict();
+export type SandboxInlineRequest = z.infer<typeof SandboxInlineRequestSchema>;
+/**
+ * `PutSessionRequest.sandbox`: `false` for none, `{ session }` to share another session's
+ * sandbox, or an inline sandbox. Omitted means the Tenant's default.
+ */
+export const SandboxRequestSchema = z.union([
+  z.literal(false),
+  z.object({ session: z.string().min(1) }).strict(),
+  SandboxInlineRequestSchema,
+]);
+export type SandboxRequest = z.infer<typeof SandboxRequestSchema>;
 export const PutSessionRequestSchema = z
   .object({
     requestId: RequestIdSchema,
@@ -543,10 +579,46 @@ export const PutSessionRequestSchema = z
     info: jsonObject.optional(),
     vaultIds: z.array(z.string().min(1)).optional(),
     credentialSelections: z.array(CredentialSelectionSchema).optional(),
-    /** Share another session's sandbox (same owner, Tenant, and identical specs). */
-    sandbox: z.object({ session: z.string().min(1) }).strict().optional(),
+    /** The session's sandbox; see `SandboxRequestSchema`. Fixed once the session exists. */
+    sandbox: SandboxRequestSchema.optional(),
   })
   .strict();
+/**
+ * A Tenant's sandbox configuration (Tenant setting `sandbox.config`): what a session gets when
+ * it names no sandbox, and the limits every session's sandbox must fit.
+ */
+export const TenantSandboxConfigSchema = z
+  .object({
+    /** `none` (the default when unset), `virtual`, or an inline sandbox. */
+    default: z
+      .union([z.literal("none"), z.literal("virtual"), SandboxInlineRequestSchema])
+      .optional(),
+    limits: z
+      .object({
+        /** Hosts a sandbox may allow. Default: package registries and code hosts. */
+        network: z.array(sandboxHostSchema).optional(),
+        /** The most a session may ask for. */
+        resources: sandboxResourcesSchema.optional(),
+        /** What a session gets when it asks for nothing. */
+        defaultResources: sandboxResourcesSchema.optional(),
+        /** Stop compute after this long without use. */
+        idle: z
+          .string()
+          .refine((value) => parseSandboxDuration(value) !== undefined, {
+            message: "idle must be a duration such as 30s, 15m or 1h",
+          })
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type TenantSandboxConfig = z.infer<typeof TenantSandboxConfigSchema>;
+/** `PUT /v1/tenant/sandbox`: replaces the Tenant's sandbox configuration. */
+export const PutTenantSandboxRequestSchema = TenantSandboxConfigSchema.extend({
+  requestId: RequestIdSchema.optional(),
+}).strict();
+export type PutTenantSandboxRequest = z.infer<typeof PutTenantSandboxRequestSchema>;
 export type PutSessionRequest = z.infer<typeof PutSessionRequestSchema>;
 const vaultWriteBase = {
   requestId: RequestIdSchema,
@@ -1053,6 +1125,11 @@ export const ActionClaimResponseSchema = z.object({
   claimId: z.string(),
   generation: z.number().int().positive(),
   leaseExpiresAt: z.string(),
+  /**
+   * The action's session has a sandbox (declared by its definition, chosen when it was opened,
+   * or shared), so `ctx.sandbox` is available. Absent from Runtimes before Sandboxes v3.
+   */
+  sandbox: z.boolean().optional(),
 });
 export type ActionClaim = z.infer<typeof ActionClaimResponseSchema>;
 export interface ExecutorScope {
@@ -1423,7 +1500,9 @@ export const SeedTenantConfigRequestSchema = z
     requestId: RequestIdSchema,
     sandbox: z
       .object({
-        backend: z.enum(["auto", "virtual"]),
+        backend: z.enum(["auto", "virtual", "openshell"]).optional(),
+        /** Seeds Tenant setting `sandbox.config` when it is absent. */
+        config: TenantSandboxConfigSchema.optional(),
       })
       .strict()
       .optional(),

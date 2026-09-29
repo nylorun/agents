@@ -41,8 +41,10 @@ export interface TenantConfig {
   mode: TenantMode;
   paths: TenantPaths;
   sandbox: {
-    backend: "auto" | "virtual";
+    backend: "auto" | "virtual" | "openshell";
     backends?: readonly SandboxBackend[];
+    /** The Host's OpenShell gateway; adds the `openshell` backend. */
+    openshell?: { readonly gateway: string };
   };
   model: TenantModelConfig;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR

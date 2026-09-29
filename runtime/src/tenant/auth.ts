@@ -186,7 +186,8 @@ export function routeAccess(
         return "never";
       if (n === 3 && method === "GET" && (id === "models" || id === "providers"))
         return ["tenant:settings", "agents:write"];
-      if (n === 3 && method === "GET" && id === "sandbox") return SETTINGS;
+      if (n === 3 && (method === "GET" || method === "PUT") && id === "sandbox")
+        return SETTINGS;
       if (n === 3 && id === "model" && (method === "GET" || method === "PUT"))
         return SETTINGS;
       if (n === 4 && id === "model" && sub === "selection" && method === "PUT")

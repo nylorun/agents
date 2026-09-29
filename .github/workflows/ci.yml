@@ -200,6 +200,40 @@ jobs:
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
+  # The sandbox conformance suite and a session end to end on a real OpenShell
+  # gateway (Docker driver), from runtime/test/openshell/ (Sandboxes v3).
+  openshell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      # Workspaces run in flag order: keep dependency order.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/harness --workspace @nylorun/runtime
+      - name: Start the OpenShell gateway
+        run: npm run test:openshell:up --workspace @nylorun/runtime
+      - name: OpenShell sandbox tests
+        env:
+          NYLORUN_TEST_OPENSHELL: "1"
+        run: npx vitest run --config vitest.integration.config.ts test/sandbox
+        working-directory: runtime
+      - name: Gateway logs
+        if: failure()
+        run: docker compose -f runtime/test/openshell/compose.yaml logs --no-color
+        env:
+          OPENSHELL_DATA: /tmp/nylorun-openshell-test/data
+          OPENSHELL_JWT: /tmp/nylorun-openshell-test/jwt
+      - name: Stop the OpenShell gateway
+        if: always()
+        run: npm run test:openshell:down --workspace @nylorun/runtime
   # `nylorun start` on Linux with the Runtime and Studio images built from this
   # PR, under a temporary Host root: status, /ready (Postgres, Restate, S2), a
   # Tenant through @nylorun/admin, a Studio login, the Restate identity key,
@@ -261,7 +295,7 @@ jobs:
       - run: npm run check --workspaces
   ci:
     if: always()
-    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack]
+    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack, openshell]
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI job to pass

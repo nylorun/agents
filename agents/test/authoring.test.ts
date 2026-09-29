@@ -7,7 +7,6 @@ import {
   Agent,
   AgentBuilder,
   McpError,
-  SandboxError,
   hashManifest,
   plugin,
   skills,
@@ -16,7 +15,6 @@ import {
 import {
   AgentBuilder as CoreAgentBuilder,
   McpError as CoreMcpError,
-  SandboxError as CoreSandboxError,
 } from "@nylorun/core/define";
 
 /** Flow Agents Phase 1: the agents package's Agent adds .skills() and .plugin(). */
@@ -88,6 +86,5 @@ describe("Agent from @nylorun/agents", () => {
 
   it("re-exports the same error classes as core", () => {
     expect(McpError).toBe(CoreMcpError);
-    expect(SandboxError).toBe(CoreSandboxError);
   });
 });
