@@ -283,7 +283,7 @@ function connectExecutorMode(
         }
       });
       const outcome = await executeAction(claim.action, agent, work.signal, {
-        sandbox: definitionDeclaresSandbox(agent.manifest)
+        sandbox: (claim.sandbox ?? definitionDeclaresSandbox(agent.manifest))
           ? createActionSandbox({
               transport,
               actionId: action.actionId,

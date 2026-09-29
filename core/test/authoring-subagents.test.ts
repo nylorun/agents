@@ -69,10 +69,4 @@ describe("flow agents as subagents", () => {
     expect(codesOf(() => Agent({ id: "lead" }).instructions("Lead.").subagents(deep).build())).toEqual([]);
   });
 
-  it("share the parent's sandbox spec", () => {
-    const boxed = Agent({ id: "boxed", description: "Boxed." }).sandbox({ image: "node:24" }).step(agent("a"));
-    expect(
-      codesOf(() => Agent({ id: "lead" }).instructions("Lead.").sandbox({ image: "node:22" }).subagents(boxed).build())
-    ).toEqual(["sandbox.mismatch"]);
-  });
 });

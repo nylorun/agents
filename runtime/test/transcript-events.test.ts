@@ -13,8 +13,7 @@ import {
   type LiveEvent,
 } from "@nylorun/core/contracts";
 import {
-  SANDBOX_INSTRUCTIONS,
-  createSandboxTools,
+  SANDBOX_CAPABILITY_ID,
 } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
@@ -95,19 +94,13 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
     tenant: runtime.tenantId,
   });
   try {
-    const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "sandbox",
-        instructions: [SANDBOX_INSTRUCTIONS],
-        tools: createSandboxTools(),
-        sandbox: {},
-      })
-      .build();
+    const agent = Agent({ id: "bot", name: "Bot" }).instructions("Write, then read.").build();
     await client.saveAgent(agent, { implementationVersion: "dev" });
     const session = await client.createSession({
       id: "s1",
       agentId: "bot",
       ownerUserId: "ada",
+      sandbox: {},
     });
     await session.input("write then read", { idempotencyKey: "m1" });
     expect((await settle(session, ["completed", "failed"])).status).toBe(
@@ -135,7 +128,7 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
     expect(tools).toHaveLength(2);
     expect(tools[0]).toMatchObject({
       callId: "call-0",
-      capabilityId: "sandbox",
+      capabilityId: SANDBOX_CAPABILITY_ID,
       toolName: "write",
     });
     expect(tools[0].invocationId).toEqual(expect.any(String));

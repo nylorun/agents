@@ -8,7 +8,7 @@
  */
 import type { JsonObject, BuildDiagnostic } from "../../types/shared.js";
 import type { ToolSchemaSource } from "../../types/tool.js";
-import type { AgentManifest, SandboxManifest } from "../../types/manifest.js";
+import type { AgentManifest } from "../../types/manifest.js";
 import type { BuiltAgent } from "../../types/agent.js";
 import type {
   WorkflowAgentNodeV2,
@@ -29,7 +29,6 @@ import {
   bindToolNode,
   builtAgentOf,
   isToolDefinition,
-  sandboxSpecsOf,
   toolManifestNode,
 } from "../workflow/runnable.js";
 import { isFlowBuilder, isNamedChild, type FlowFn, type FlowStage } from "./spec.js";
@@ -48,7 +47,6 @@ export interface CompileFlowOptions {
   readonly stages: readonly FlowStage[];
   readonly inputSchema?: ToolSchemaSource;
   readonly outputSchema?: ToolSchemaSource;
-  readonly sandbox?: SandboxManifest;
 }
 
 /** What a node binds locally; attached to node objects while compiling. */
@@ -67,7 +65,6 @@ type Build = {
   readonly code: WeakMap<object, NodeCode>;
   readonly agents: Record<string, AgentManifest | WorkflowManifestV2>;
   readonly bindings: Record<string, AgentBinding>;
-  readonly sandboxSpecs: JsonObject[];
   readonly diagnostics: BuildDiagnostic[];
 };
 
@@ -86,12 +83,10 @@ export function compileAgentFlow(options: CompileFlowOptions): BuiltWorkflow {
     code: new WeakMap(),
     agents: {},
     bindings: {},
-    sandboxSpecs: [],
     diagnostics: [],
   };
   const root: WorkflowNodeV2 = { chain: stages.map((stage) => compileStage(stage, build)) };
   const nodes = bindNodes(root, build);
-  const sandbox = flowSandbox(options.id, options.sandbox, build);
   if (build.diagnostics.length) fail(build.diagnostics);
 
   const manifest: WorkflowManifestV2 = {
@@ -107,7 +102,6 @@ export function compileAgentFlow(options: CompileFlowOptions): BuiltWorkflow {
     ...(options.outputSchema === undefined
       ? {}
       : { outputSchema: jsonSchemaOf(options.outputSchema) }),
-    ...(sandbox === undefined ? {} : { sandbox }),
     root,
     agents: build.agents,
   };
@@ -254,7 +248,6 @@ function agentLeaf(agent: BuiltAgent, build: Build): WorkflowNodeV2 {
   const resolved = builtAgentOf(agent);
   embed(build, resolved.id, resolved.manifest);
   addBinding(build, resolved.id, bindingFromAgent(resolved));
-  build.sandboxSpecs.push(...sandboxSpecsOf(resolved));
   return { agent: resolved.id };
 }
 
@@ -271,8 +264,6 @@ function nestedFlow(built: BuiltWorkflow, build: Build): WorkflowNodeV2 {
   const binding = built.getBinding();
   embed(build, built.id, built.manifest);
   for (const [id, agent] of Object.entries(binding.agents)) addBinding(build, id, agent);
-  if (built.manifest.sandbox !== undefined)
-    build.sandboxSpecs.push(built.manifest.sandbox as JsonObject);
   const node: WorkflowNodeV2 = { agent: built.id };
   attach(build, node, { nested: binding });
   return node;
@@ -372,34 +363,6 @@ function bindNodes(root: WorkflowNodeV2, build: Build): Record<string, WorkflowN
       for (const [inner, impl] of Object.entries(code.nested.nodes)) nodes[`${key}/${inner}`] = impl;
   });
   return nodes;
-}
-
-/**
- * The flow's sandbox. Agents that declare a sandbox with options must all declare the
- * same one, and match the flow's own when it declares one; `.sandbox()` with no options
- * uses the flow's.
- */
-function flowSandbox(
-  id: string,
-  declared: SandboxManifest | undefined,
-  build: Build
-): SandboxManifest | undefined {
-  const specific = build.sandboxSpecs.filter((spec) => Object.keys(spec).length > 0);
-  const kinds = new Set(specific.map((spec) => canonical(spec)));
-  if (declared !== undefined && Object.keys(declared).length > 0) kinds.add(canonical(declared));
-  if (kinds.size > 1) {
-    build.diagnostics.push(
-      diagnostic(
-        "workflow.sandbox-mismatch",
-        `The agents in flow agent '${id}' declare different sandboxes. Declare the sandbox once on the flow with .sandbox({ … }) and give the agents .sandbox() with no options.`
-      )
-    );
-    return undefined;
-  }
-  if (declared !== undefined && Object.keys(declared).length > 0) return declared;
-  if (specific.length > 0) return specific[0] as SandboxManifest;
-  if (declared !== undefined || build.sandboxSpecs.length > 0) return {} as SandboxManifest;
-  return undefined;
 }
 
 function jsonSchemaOf(source: ToolSchemaSource): JsonObject {

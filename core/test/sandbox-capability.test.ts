@@ -1,10 +1,9 @@
 import { expect, it } from "vitest";
 import { AgentManifestSchema } from "../src/contracts.js";
 import {
-  Agent,
   SANDBOX_CAPABILITY_ID,
+  SANDBOX_INSTRUCTIONS,
   SANDBOX_TOOL_NAMES,
-  canonical,
   sandboxCapabilityManifest,
 } from "../src/define.js";
 
@@ -15,13 +14,8 @@ it("builds the capability the Runtime adds to a session with a sandbox", () => {
   expect(capability.id).toBe(SANDBOX_CAPABILITY_ID);
   expect(capability.sandbox).toEqual(spec);
   expect(capability.tools?.map((tool) => tool.name)).toEqual([...SANDBOX_TOOL_NAMES]);
+  expect(capability.instructions).toEqual([SANDBOX_INSTRUCTIONS]);
+  expect(capability.tools?.every((tool) => tool.description && tool.inputSchema)).toBe(true);
   const manifest = { manifestSchemaVersion: 4, id: "bot", capabilities: [capability] };
   expect(AgentManifestSchema.safeParse(manifest).success).toBe(true);
-});
-
-it("carries the same tools and instructions a declared sandbox carries", () => {
-  const declared = Agent({ id: "bot" }).sandbox(spec).build().manifest.capabilities[0]!;
-  expect(canonical({ ...sandboxCapabilityManifest(spec), id: declared.id })).toBe(
-    canonical(declared)
-  );
 });

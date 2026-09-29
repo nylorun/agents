@@ -281,23 +281,10 @@ describe("flow()", () => {
 });
 
 describe("sandbox on a flow agent", () => {
-  it("declares the manifest's sandbox; agents with .sandbox() use it", () => {
-    const coder = Agent({ id: "coder" }).instructions("Code.").sandbox();
-    const desk = Agent({ id: "desk" }).sandbox({ image: "node:24" }).step(coder);
-    expect(desk.manifest).toMatchObject({ sandbox: { image: "node:24" } });
-  });
-
-  it("is inferred from agents that agree", () => {
-    const a = Agent({ id: "a" }).instructions("A.").sandbox({ image: "node:22" });
-    const b = Agent({ id: "b" }).instructions("B.").sandbox();
-    expect(Agent({ id: "desk" }).step(a).step(b).manifest).toMatchObject({ sandbox: { image: "node:22" } });
-  });
-
-  it("rejects agents that declare a different spec", () => {
-    const coder = Agent({ id: "coder" }).instructions("Code.").sandbox({ image: "node:22" });
-    expect(codesOf(() => Agent({ id: "desk" }).sandbox({ image: "node:24" }).step(coder).build())).toEqual([
-      "workflow.sandbox-mismatch",
-    ]);
+  it("is not part of the definition: the session is opened with one", () => {
+    const desk = Agent({ id: "desk" }).step(Agent({ id: "coder" }).instructions("Code."));
+    expect("sandbox" in (desk as object)).toBe(false);
+    expect(desk.manifest).not.toHaveProperty("sandbox");
   });
 });
 

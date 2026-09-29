@@ -14,23 +14,6 @@ export type SandboxToolName = (typeof SANDBOX_TOOL_NAMES)[number];
 export const SANDBOX_WORKSPACE = "/workspace";
 export const SANDBOX_NETWORK_PRESETS = Object.freeze(["none", "dev", "open"] as const);
 
-/** Manifest fields this version implements. Anything else is rejected with a teaching error. */
-export const SANDBOX_FIELDS = Object.freeze(["image", "network", "resources", "idle"] as const);
-/** Fields from the sandbox design that later versions will accept. */
-export const SANDBOX_DEFERRED_FIELDS = Object.freeze([
-  "setup",
-  "setupKey",
-  "files",
-  "secrets",
-  "mount",
-  "onStart",
-  "scope",
-  "isolation",
-  "own",
-  "tools",
-  "snapshot",
-] as const);
-
 export function isSandboxToolName(name: string): name is SandboxToolName {
   return (SANDBOX_TOOL_NAMES as readonly string[]).includes(name);
 }

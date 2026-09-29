@@ -1,3 +1,31 @@
+# Sandboxes are chosen when a session is opened
+
+Agent and flow agent definitions no longer declare a sandbox. A session gets one when
+it is opened, within limits its Tenant sets, so the same agent runs in any Tenant.
+
+| Before | After |
+| --- | --- |
+| `Agent(…).sandbox()` or `.use(sandbox())` | Remove it. Open the session with `createSession({ …, sandbox: {} })`, or set the Tenant's default |
+| `.sandbox({ image, network, resources })` | `createSession({ …, sandbox: { image, network: { allow }, resources } })`. `image` needs an OpenShell backend |
+| `.sandbox({ idle })` | The Tenant's `limits.idle` (`PUT /v1/tenant/sandbox`) |
+| `network.preset: "dev"` (the old default) | List the hosts in `network.allow`. The Tenant's ceiling defaults to the same package registries and code hosts; no `allow` means no egress |
+| `.sandbox(spec)` on a flow agent, `.sandbox()` on its agents | Open the flow's session with the sandbox; its agents, tool steps and `verify` inherit it |
+| Identical specs across a tree (`sandbox.mismatch`, `workflow.sandbox-mismatch`) | Gone: a tree shares the sandbox its session was opened with |
+| `sandbox`, `SandboxError`, `SandboxOptions` exports | Removed |
+
+- **Registration.** `PUT /v1/agents/:id` refuses a definition that declares a sandbox
+  with a `400` that names it. The builder fails with `sandbox.in-definition`.
+- **Tenant default.** Unset, it is `none`: sessions that name no sandbox get none, as
+  agents without `.sandbox()` did. Set it with `PUT /v1/tenant/sandbox`, for example
+  `{ "default": "virtual" }`, so Studio sessions and AG-UI threads get one.
+- **Callers acting for a user.** An inline sandbox from `app.as(…)` is a `403`; use the
+  Tenant's default or `false`.
+- **Already stored.** Definitions registered before the upgrade keep their declared
+  sandbox until they are saved again, and sessions keep the sandbox they were created
+  with.
+- **Executors.** `ctx.sandbox` follows the session (the action claim says whether it
+  has one), so tools and `verify` in a tree opened with a sandbox get it.
+
 # Flow agents as subagents
 
 `.subagents(flowAgent)` now works: the flow agent's workflow manifest v2 is inlined in

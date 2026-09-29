@@ -21,16 +21,17 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 
 ## Data analyst (sandbox)
 
-[`agents/release/analyst.ts`](./agents/release/analyst.ts) is one line on top of a plain agent:
+[`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the session, not the agent: open a session with `createSession({ agentId: "analyst", ownerUserId, sandbox: {} })`, or give every session in the Tenant one by setting its default (Studio opens sessions without naming a sandbox, so it uses the default):
 
-```ts
-Agent({ id: "analyst", instructions: "..." }).use(sandbox())
+```bash
+eval "$(npx @nylorun/cli env)"
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_SERVER_KEY" -H "nylorun-tenant: $NYLORUN_TENANT" -H "nylorun-protocol: 2" -H "content-type: application/json" -d '{"default":"virtual"}'
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. `npx nylo doctor sandbox` reports its backend and status. Try in Studio:
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. `npx nylo doctor sandbox` reports its backend and the Tenant's sandbox configuration. Try in Studio:
 
-- `Create sales.csv with three regions and numbers, then use Python to total them.`
-- `Download https://example.com with curl.` The request is blocked: the default `dev` network preset allows only package registries and code hosts.
+- `Create sales.csv with three regions and numbers, then total them with awk.`
+- `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts it asks for (`network.allow`), within the Tenant's ceiling.
 
 ## An agent in your web app (AG-UI)
 
@@ -189,7 +190,7 @@ Capability modules stay small:
 - [review](./agents/interactions/approval.ts) requires approval before a write candidate is accepted.
 - [guardrails](./agents/guardrails/capability.ts) maps OpenAI-style input, output, tool-input, and tool-output checks onto middleware timing.
 - [skills](./agents/skills/capability.ts) is one `.use(await skills())` call: a SKILL.md catalog plus `load_skill`.
-- [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, use `.use(sandbox())` as in [analyst](./agents/release/analyst.ts).
+- [codex](./agents/coding-agent/capability.ts) wraps a host runtime. For an isolated machine, open the session with a sandbox, as for [analyst](./agents/release/analyst.ts).
 - [subagents](./agents/subagents/agent.ts) puts three example agents in `tools`; each runs with a fresh context and returns only its answer.
 
 Add or remove skills on an agent with one capability. Author `name/SKILL.md` (frontmatter `name` + `description`) under [agents/skills/catalog](./agents/skills/catalog), then:

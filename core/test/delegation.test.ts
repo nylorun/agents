@@ -123,16 +123,14 @@ describe("agents used as tools", () => {
     ).toContain("tool.duplicate-name");
   });
 
-  it("requires identical sandboxes across the tree", () => {
-    const sandboxed = (image: string) =>
-      Agent({ id: "coder", description: "Codes." }).use({ id: "box", sandbox: { image } });
-    expect(
-      diagnostics(() =>
-        Agent({ id: "lead", tools: [sandboxed("a")] })
-          .use({ id: "box", sandbox: { image: "b" } })
-          .build()
-      )
-    ).toContain("sandbox.mismatch");
+  it("refuses a sandbox declared anywhere in the tree", () => {
+    const boxed = Agent({ id: "coder", description: "Codes." }).use({
+      id: "box",
+      sandbox: { image: "a" },
+    } as never);
+    expect(diagnostics(() => Agent({ id: "lead", tools: [boxed] }).build())).toContain(
+      "sandbox.in-definition"
+    );
   });
 
   it("rejects malformed agent tools on the wire", () => {

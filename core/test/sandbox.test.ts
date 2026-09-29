@@ -2,54 +2,36 @@ import { expect, it } from "vitest";
 import {
   Agent,
   SANDBOX_INSTRUCTIONS,
-  SANDBOX_TOOL_NAMES,
   createSandboxTools,
-  hashManifest,
   isSandboxHostPattern,
   parseSandboxDuration,
   parseSandboxSize,
-  tool,
+  sandboxCapabilityManifest,
 } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
-import { z } from "zod";
 
-const sandboxCapability = (sandbox: Record<string, unknown> = {}) => ({
-  id: "sandbox",
-  instructions: [SANDBOX_INSTRUCTIONS],
-  tools: createSandboxTools(),
-  sandbox,
+/** A session's pinned manifest: the definition plus the capability the Runtime adds. */
+const pinned = (sandbox: Record<string, unknown> = {}) => ({
+  manifestSchemaVersion: 4 as const,
+  id: "analyst",
+  capabilities: [sandboxCapabilityManifest(sandbox)],
 });
 
-it("projects the sandbox config and six built-in tools into the manifest", () => {
-  const built = Agent({ id: "analyst" })
-    .use(sandboxCapability({ image: "python:3.13-slim", network: { preset: "dev" } }))
-    .build();
-  const capability = built.manifest.capabilities[0]!;
-  expect(capability.sandbox).toEqual({ image: "python:3.13-slim", network: { preset: "dev" } });
-  expect(capability.tools?.map((item) => item.name)).toEqual([...SANDBOX_TOOL_NAMES]);
-  expect(AgentManifestSchema.safeParse(built.manifest).success).toBe(true);
-});
-
-it("keeps the hash stable across builds and round-trips through Agent.from", () => {
-  const build = () =>
-    Agent({ id: "analyst" }).use(sandboxCapability({ idle: "15m" })).build();
-  const first = build();
-  expect(hashManifest(first.manifest)).toBe(hashManifest(build().manifest));
-  const json = JSON.parse(JSON.stringify(first.manifest));
-  const tools = Object.fromEntries(createSandboxTools().map((item) => [item.name, item]));
-  const restored = Agent.from(json, { sandbox: { tools } });
-  expect(hashManifest(restored.manifest)).toBe(hashManifest(first.manifest));
-  expect(restored.manifest.capabilities[0]?.sandbox).toEqual({ idle: "15m" });
-});
-
-it("changes the hash when sandbox requirements change", () => {
-  const a = Agent({ id: "analyst" }).use(sandboxCapability()).build();
-  const b = Agent({ id: "analyst" }).use(sandboxCapability({ image: "node:24" })).build();
-  expect(hashManifest(a.manifest)).not.toBe(hashManifest(b.manifest));
+it("fails the build when a capability declares a sandbox", () => {
+  expect(() =>
+    Agent({ id: "analyst" })
+      .capability({
+        id: "sandbox",
+        instructions: [SANDBOX_INSTRUCTIONS],
+        tools: createSandboxTools(),
+        sandbox: { image: "node:24" },
+      } as never)
+      .build()
+  ).toThrow(/declares a sandbox\. Agents no longer declare one/);
 });
 
 it("rejects unknown fields, bad values and missing built-in tools on the wire", () => {
-  const base = Agent({ id: "analyst" }).use(sandboxCapability()).build().manifest;
+  const base = pinned();
   const withSandbox = (sandbox: unknown) =>
     AgentManifestSchema.safeParse({
       ...base,
@@ -74,28 +56,12 @@ it("rejects unknown fields, bad values and missing built-in tools on the wire", 
 });
 
 it("rejects two sandbox capabilities", () => {
-  const base = Agent({ id: "analyst" }).use(sandboxCapability()).build().manifest;
+  const base = pinned();
   const result = AgentManifestSchema.safeParse({
     ...base,
-    capabilities: [
-      base.capabilities[0],
-      { id: "second", type: "agent", sandbox: {} },
-    ],
+    capabilities: [base.capabilities[0], { id: "second", type: "agent", sandbox: {} }],
   });
   expect(result.success).toBe(false);
-});
-
-it("reports a collision when a developer tool reuses a built-in name", () => {
-  const bash = tool({
-    name: "bash",
-    inputSchema: z.object({ command: z.string() }),
-    async execute() {
-      return "local";
-    },
-  });
-  expect(() =>
-    Agent({ id: "analyst", tools: [bash] }).use(sandboxCapability()).build()
-  ).toThrow(/bash/);
 });
 
 it("fails the developer-process stub with a teaching error", async () => {

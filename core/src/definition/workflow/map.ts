@@ -50,7 +50,6 @@ export function Map<
   mergeChild(acc, {
     agents: resolved.agents,
     nodes: remapNodeKeys(resolved.nodes, resolved.id, eachPath),
-    sandboxSpecs: resolved.sandboxSpecs,
   });
   acc.nodes[`${id}/over`] = {
     kind: "fn",

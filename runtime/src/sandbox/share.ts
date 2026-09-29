@@ -41,6 +41,33 @@ export function sandboxSpecOf(
   return undefined;
 }
 
+/**
+ * Where a definition document declares a sandbox: agent capabilities, the agents inlined as
+ * tools or embedded in a flow agent, and a workflow's `sandbox`. Definitions no longer declare
+ * one (Sandboxes v3), so registration refuses any of these.
+ */
+export function declaredSandboxes(manifest: unknown, into: string[] = []): string[] {
+  if (!manifest || typeof manifest !== "object") return into;
+  const document = manifest as {
+    id?: string;
+    kind?: string;
+    sandbox?: unknown;
+    agents?: Record<string, unknown>;
+    capabilities?: { id: string; sandbox?: unknown; tools?: { agent?: unknown }[] }[];
+  };
+  if (document.kind === "workflow") {
+    if (document.sandbox !== undefined) into.push(`flow agent '${document.id}'`);
+    for (const agent of Object.values(document.agents ?? {})) declaredSandboxes(agent, into);
+    return into;
+  }
+  for (const capability of document.capabilities ?? []) {
+    if (capability.sandbox !== undefined)
+      into.push(`'${document.id}' (capability '${capability.id}')`);
+    for (const tool of capability.tools ?? []) declaredSandboxes(tool.agent, into);
+  }
+  return into;
+}
+
 export function sandboxSpecsEqual(
   a: SandboxManifest | undefined,
   b: SandboxManifest | undefined

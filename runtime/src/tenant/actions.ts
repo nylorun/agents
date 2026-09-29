@@ -26,6 +26,7 @@ import {
   handleActionSandboxTool,
   type SandboxRouteDeps,
 } from "../core/sandbox-routes.js";
+import { sessionHasSandbox } from "../sandbox/share.js";
 import {
   lockedSession,
   sandboxLookup,
@@ -134,6 +135,7 @@ export function updateAction(
         claimId: action.claimId,
         generation: action.generation,
         leaseExpiresAt: action.leaseExpiresAt,
+        sandbox: sessionHasSandbox(s, await sandboxLookup(t, s.sandboxOwnerId)),
       };
     }
     if (method === "POST" && operation === "heartbeat") {

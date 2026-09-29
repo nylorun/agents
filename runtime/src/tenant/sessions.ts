@@ -17,7 +17,11 @@ import { newStreamIncarnation } from "../streams/types.js";
 import { validateSandboxAttach } from "../core/sandbox-routes.js";
 import { resolveSandbox } from "../sandbox/resolve.js";
 import { withSandboxCapability } from "../sandbox/session-sandbox.js";
-import { sandboxSpecOf, sessionSandboxSpec } from "../sandbox/share.js";
+import {
+  declaredSandboxes,
+  sandboxSpecOf,
+  sessionSandboxSpec,
+} from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { sandboxLookup, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
@@ -61,6 +65,12 @@ export async function putDefinition(
 ) {
   if (body.manifest.id !== agentId) fail(400, "Agent id mismatch");
   DefinitionDocumentSchema.parse(body.manifest);
+  const declared = declaredSandboxes(body.manifest);
+  if (declared.length > 0)
+    fail(
+      400,
+      `${declared.join(", ")} declares a sandbox. Agents no longer declare one: remove .sandbox() and open the session with it, createSession({ sandbox: { image, network: { allow }, resources } }), or set the Tenant's default sandbox. See MIGRATION.md.`
+    );
   const definition = {
     ...body,
     manifestHash: hashManifest(body.manifest as any),

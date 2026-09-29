@@ -121,7 +121,6 @@ export function Loop<In = JsonValue, Out = JsonValue>(
   mergeChild(acc, {
     agents: runResolved.agents,
     nodes: remapNodeKeys(runResolved.nodes, runResolved.id, runPath),
-    sandboxSpecs: runResolved.sandboxSpecs,
   });
 
   let verifyField: WorkflowFnRef | WorkflowAgentNode | WorkflowSlotNode;
@@ -149,7 +148,6 @@ export function Loop<In = JsonValue, Out = JsonValue>(
     mergeChild(acc, {
       agents: verifyChild.agents,
       nodes: remapNodeKeys(verifyChild.nodes, verifyChild.id, `${id}/${verifyChild.id}`),
-      sandboxSpecs: verifyChild.sandboxSpecs,
     });
     const node = verifyChild.node;
     if (!("agent" in node) && !("slot" in node)) {

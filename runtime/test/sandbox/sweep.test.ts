@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
-  Agent,
-  SANDBOX_INSTRUCTIONS,
-  createSandboxTools,
+  SANDBOX_CAPABILITY_ID,
+  sandboxCapabilityManifest,
+  type AgentManifest,
 } from "@nylorun/core/define";
 import { virtualBackend } from "../../src/adapters/sandbox/virtual.js";
 import { SandboxManager, sandboxCapabilityOf } from "../../src/sandbox/manager.js";
@@ -21,14 +21,12 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-const manifest = Agent({ id: "bot", name: "Bot" })
-  .use({
-    id: "sandbox",
-    instructions: [SANDBOX_INSTRUCTIONS],
-    tools: createSandboxTools(),
-    sandbox: { idle: "1m" },
-  })
-  .build().manifest;
+/** A session's pinned manifest: the Runtime added its sandbox at open. */
+const manifest: AgentManifest = {
+  manifestSchemaVersion: 4,
+  id: "bot",
+  capabilities: [sandboxCapabilityManifest({ idle: "1m" })],
+};
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), "nylorun-sandbox-sweep-"));
@@ -45,7 +43,7 @@ async function setup() {
       events.push({ sessionId, type, state: (payload as { state?: string }).state });
     },
   });
-  const capability = sandboxCapabilityOf(manifest, "sandbox", "write")!;
+  const capability = sandboxCapabilityOf(manifest, SANDBOX_CAPABILITY_ID, "write")!;
   const run = (sessionId: string, path: string) =>
     manager.run(
       { id: sessionId, activeTurnId: "t1", manifest },

@@ -121,28 +121,22 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 
 Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Transports follow [Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers): `stdio`, `streamable-http`, and `sse`. Attach an Agent Plugin package with `.plugin(path)`.
 
-Give an agent an isolated computer with `.sandbox()`:
+Give a session an isolated computer when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
 
 ```ts
-import { Agent } from "@nylorun/agents";
-
-const analyst = Agent({ id: "analyst" })
-  .instructions("Analyse the data the user gives you. Use Python.")
-  .sandbox();
+const session = await client.createSession({
+  agentId: "analyst",
+  ownerUserId,
+  sandbox: {
+    network: { allow: ["pypi.org", "files.pythonhosted.org"] }, // no egress unless you list hosts
+    resources: { cpus: 2, memory: "2GiB" },
+  },
+});
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a Linux machine with a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no connected executor. The agent declares what it needs; the Runtime decides where it runs (today an emulated shell in the Runtime process). Every option is optional plain data:
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no connected executor. The Runtime decides where the sandbox runs (today an emulated shell in the Runtime process; `image` needs an OpenShell backend).
 
-```ts
-.sandbox({
-  image: "python:3.13",                           // any OCI image; default python:3.13-slim
-  network: { preset: "dev", allow: ["api.example.com"] }, // "none" | "dev" (default) | "open"
-  resources: { cpus: 2, memory: "2GiB" },
-  idle: "15m",                                    // stop compute when idle; files persist
-})
-```
-
-The `dev` preset allows package registries and code hosts. Private networks, loopback, the host and cloud metadata endpoints are always blocked. Options from the full design that are not in this version (`setup`, `files`, `secrets`, `mount`, `onStart`, …) throw a `SandboxError` that says so.
+`sandbox` takes `false` for none, `{ session }` to share another session's sandbox, or an inline sandbox as above; omit it for the Tenant's default. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
 
 Add an agent with `.subagents()` to let the model delegate to it:
 
@@ -247,9 +241,9 @@ Name the stages you may reorder.
 `Chain`, `Switch`, `Parallel`, `Map` and `Loop` still build workflow manifest v1
 directly and run as before; a flow agent can't be a child of them.
 
-The agents in a flow share one sandbox: declare it with `.sandbox(spec)` on the
-flow agent and give the agents that use it `.sandbox()` with no options (an agent
-that declares its own spec must match), attach with `createSession({ …, sandbox: { session } })`, call
+The agents in a flow share one sandbox: open the flow's session with it,
+`createSession({ …, sandbox: { … } })`, and every agent, tool step and `verify` in the
+flow uses it. Share it with another session with `sandbox: { session }`, and call
 built-ins via `session.sandbox` (application) or `ctx.sandbox` (executor).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and

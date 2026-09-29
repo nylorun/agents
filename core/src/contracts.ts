@@ -1125,6 +1125,11 @@ export const ActionClaimResponseSchema = z.object({
   claimId: z.string(),
   generation: z.number().int().positive(),
   leaseExpiresAt: z.string(),
+  /**
+   * The action's session has a sandbox (declared by its definition, chosen when it was opened,
+   * or shared), so `ctx.sandbox` is available. Absent from Runtimes before Sandboxes v3.
+   */
+  sandbox: z.boolean().optional(),
 });
 export type ActionClaim = z.infer<typeof ActionClaimResponseSchema>;
 export interface ExecutorScope {

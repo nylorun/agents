@@ -2,7 +2,7 @@
  * Types for flow agents: each stage's output types the next stage's `input`, and
  * `results` gains an entry for every step whose id is known at compile time.
  */
-import type { SandboxManifest, AgentManifest } from "../../types/manifest.js";
+import type { AgentManifest } from "../../types/manifest.js";
 import type { SchemaOutput, ToolSchemaSource } from "../../types/tool.js";
 import type { Verdict } from "../../types/workflow.js";
 import type { BuiltWorkflow } from "../workflow/types.js";
@@ -109,8 +109,6 @@ export interface FlowAgentBuilder<
   /** Give this flow agent a new step id where there is no options object. */
   withId(id: string): Named<this>;
   output<S extends ToolSchemaSource>(schema: S): FlowAgentBuilder<Info, In, Cur, Results, SchemaOutput<S>, Id>;
-  /** The one sandbox every agent in the flow shares. */
-  sandbox(spec?: SandboxManifest): FlowAgentBuilder<Info, In, Cur, Results, Out, Id>;
 
   step<C, const StepId extends string = IdOf<C>>(
     child: C,

@@ -3,8 +3,14 @@
  * Tenant's configuration, and pinned. The agent definition declares nothing.
  */
 import { expect, it } from "vitest";
-import { Agent, SANDBOX_CAPABILITY_ID, hashManifest } from "@nylorun/core/define";
+import {
+  Agent,
+  SANDBOX_CAPABILITY_ID,
+  hashManifest,
+  sandboxCapabilityManifest,
+} from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
+import { withTestSessionStore } from "./support/store.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -254,12 +260,47 @@ it("shares a pinned sandbox with a session whose agent declares none", async () 
   }
 });
 
-it("keeps a sandbox declared with .sandbox() and refuses a second one at open", async () => {
+/** A definition that declares a sandbox, as agents built with `.sandbox()` did before Sandboxes v3. */
+function declaredSandbox(id: string) {
+  const manifest = plain(id).manifest;
+  return {
+    ...manifest,
+    capabilities: [...manifest.capabilities, { ...sandboxCapabilityManifest({}), id: "sandbox" }],
+  };
+}
+
+it("refuses to register a definition that declares a sandbox", async () => {
   const runtime = await boot();
   try {
-    const declared = Agent({ id: "old", name: "old" }).instructions("x").sandbox().build();
-    await register(runtime, declared);
-    expect((await open(runtime, "legacy", { agentId: "old" })).ok).toBe(true);
+    const refused = await fetch(`${runtime.url}/v1/agents/old`, {
+      method: "PUT",
+      headers: serverHeaders,
+      body: JSON.stringify({ requestId: "put-old", manifest: declaredSandbox("old"), implementationVersion: "dev" }),
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("'old' (capability 'sandbox') declares a sandbox");
+  } finally {
+    await runtime.close();
+  }
+});
+
+it("keeps a sandbox declared by a definition stored before the upgrade", async () => {
+  const runtime = await boot();
+  try {
+    const manifest = declaredSandbox("old");
+    await withTestSessionStore({ root: runtime.root, tenantId: runtime.tenantId }, (store) =>
+      store.tx((t) =>
+        t.put("definitions", "old", {
+          manifest,
+          manifestHash: hashManifest(manifest),
+          implementationVersion: "dev",
+        })
+      )
+    );
+    const legacy = await open(runtime, "legacy", { agentId: "old" });
+    expect(legacy.ok, await legacy.clone().text()).toBe(true);
+    expect(((await legacy.json()) as { sandbox: unknown }).sandbox).toBeNull();
+    expect((await tool(runtime, "legacy", "bash", { command: "echo ok" })).ok).toBe(true);
     const refused = await open(runtime, "both", { agentId: "old", sandbox: {} });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("declares its own sandbox with .sandbox()");
