@@ -235,6 +235,110 @@ describe("start", () => {
   });
 });
 
+describe("start never downgrades the shared stack", () => {
+  const recorded = (home: string) =>
+    (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { runtimeVersion?: string })
+      .runtimeVersion;
+
+  /** A healthy stack whose Runtime reports `version`. */
+  const runningFetch = (home: string, version: string) =>
+    fakeFetch((url) => {
+      if (url.endsWith("/health")) return json({ status: "ok", version, hostId: hostId(home) });
+      if (url.endsWith("/v1/admin/status")) return json({ tenants: [{ id: "a" }] });
+      return undefined;
+    });
+
+  /** Start the stack once with an earlier nylorun pinning `version`. */
+  async function startedBy(version: string) {
+    const home = await temporaryHome();
+    const first = testDeps(home, { fetch: runningFetch(home, version), runtimeVersion: version });
+    expect(await runStackCommand("start", ["--no-studio"], first)).toBe(0);
+    return home;
+  }
+
+  it("records the pinned Runtime on the first run", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, { fetch: await healthyFetch(home) });
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    expect(recorded(home)).toBe("0.10.0-beta");
+    expect(deps.errors.some((line) => /downgrad/i.test(line))).toBe(false);
+  });
+
+  it("starts the same version again", async () => {
+    const home = await startedBy("0.10.0-beta");
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: runningFetch(home, "0.10.0-beta") });
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    expect(docker.streamed).toHaveLength(1);
+    expect(recorded(home)).toBe("0.10.0-beta");
+  });
+
+  it("upgrades a stack that ran, or is running, an older Runtime", async () => {
+    const home = await startedBy("0.9.0-beta");
+    expect(recorded(home)).toBe("0.9.0-beta");
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: runningFetch(home, "0.9.0-beta") });
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    expect(docker.streamed).toHaveLength(1);
+    expect(recorded(home)).toBe("0.10.0-beta");
+    expect(readFileSync(stackPaths(home).env, "utf8")).toContain("ghcr.io/nylorun/runtime:0.10.0-beta");
+  });
+
+  it("refuses a Runtime older than host.json records, before touching the stack", async () => {
+    const home = await startedBy("0.10.0");
+    const env = readFileSync(stackPaths(home).env, "utf8");
+    // 0.10.0-beta is a prerelease of 0.10.0, so it is older.
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: fakeFetch(() => undefined) });
+    const refused = runStackCommand("up", [], deps);
+    await expect(refused).rejects.toMatchObject({ exitCode: 5 });
+    await expect(refused).rejects.toThrow(
+      /pins Runtime 0\.10\.0-beta, but the Host last ran Runtime 0\.10\.0 .*npx nylorun@latest up.*--allow-downgrade/,
+    );
+    expect(docker.streamed).toEqual([]);
+    expect(recorded(home)).toBe("0.10.0");
+    expect(readFileSync(stackPaths(home).env, "utf8")).toBe(env);
+
+    // `nylorun studio` starts the stack through the same path.
+    await expect(runStudioCommand(["--no-open"], deps)).rejects.toMatchObject({ exitCode: 5 });
+    expect(docker.streamed).toEqual([]);
+  });
+
+  it("refuses a Runtime older than the running one", async () => {
+    const home = await startedBy("0.10.0-beta");
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: runningFetch(home, "0.11.0-beta") });
+    await expect(runStackCommand("start", [], deps)).rejects.toThrow(
+      /pins Runtime 0\.10\.0-beta, but Runtime 0\.11\.0-beta is running/,
+    );
+    expect(docker.streamed).toEqual([]);
+  });
+
+  it("downgrades with --allow-downgrade, warns, and records the older Runtime", async () => {
+    const home = await startedBy("0.11.0-beta");
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: runningFetch(home, "0.11.0-beta") });
+    expect(await runStackCommand("start", ["--no-studio", "--allow-downgrade"], deps)).toBe(0);
+    expect(docker.streamed).toHaveLength(1);
+    expect(deps.errors).toContain(
+      "Warning: downgrading to Runtime 0.10.0-beta: the Host last ran Runtime 0.11.0-beta " +
+        `(${stackPaths(home).config}). Tenants a newer Runtime migrated are quarantined.`,
+    );
+    expect(recorded(home)).toBe("0.10.0-beta");
+    expect(readFileSync(stackPaths(home).env, "utf8")).toContain("ghcr.io/nylorun/runtime:0.10.0-beta");
+  });
+
+  it("does not guard, or record a version for, an image named by NYLORUN_RUNTIME_IMAGE", async () => {
+    const home = await startedBy("0.11.0-beta");
+    const deps = testDeps(home, {
+      env: { NYLORUN_HOME: home, NYLORUN_RUNTIME_IMAGE: "nylorun-runtime:dev" },
+      fetch: runningFetch(home, "0.11.0-beta"),
+    });
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    expect(recorded(home)).toBe("0.11.0-beta");
+  });
+});
+
 describe("Docker preflight", () => {
   it("explains a missing docker command", async () => {
     const deps = testDeps(await temporaryHome(), {

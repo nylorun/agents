@@ -54,7 +54,8 @@ export async function prepareStack(input: {
   images: StackImages;
   uid: number;
   gid: number;
-  runtimeVersion: string;
+  /** Recorded in host.json; undefined keeps the recorded version. */
+  runtimeVersion: string | undefined;
   ports: PortProbe;
   /** The Compose project; namespaces the OpenShell gateway's sandboxes. */
   project: string;
