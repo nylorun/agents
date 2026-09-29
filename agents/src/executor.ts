@@ -6,6 +6,7 @@ import {
 } from "@nylorun/core/contracts";
 import {
   agentFrom,
+  hashManifest,
   isBuiltWorkflow,
   type BuiltAgent,
   type BuiltWorkflow,
@@ -56,8 +57,12 @@ function implementationVersionOf(options: ConnectOptions): string {
   );
 }
 
+/** Agents embedded in a v2 workflow: served here, but saved only as part of the workflow. */
+const embeddedAgents = new WeakMap<Map<string, ExecutableDefinition>, Set<string>>();
+
 function buildAgents(options: ConnectOptions): Map<string, ExecutableDefinition> {
   const agents = new Map<string, ExecutableDefinition>();
+  const embedded = new Set<string>();
   const addAgent = (built: BuiltAgent) => {
     assertNoMiddlewareClosures(built);
     AgentManifestSchema.parse(built.manifest);
@@ -65,28 +70,41 @@ function buildAgents(options: ConnectOptions): Map<string, ExecutableDefinition>
       throw new Error(`Duplicate connected agent ${built.id}`);
     agents.set(built.id, built);
   };
+  const addWorkflow = (workflow: BuiltWorkflow) => {
+    if (agents.has(workflow.id))
+      throw new Error(`Duplicate connected agent ${workflow.id}`);
+    agents.set(workflow.id, workflow);
+    for (const binding of Object.values(workflow.getBinding().agents)) {
+      addAgent(agentFrom(binding.manifest, binding.implementations));
+      if (workflow.manifest.workflowSchemaVersion === 2) embedded.add(binding.manifest.id);
+    }
+  };
   for (const source of options.agents) {
     if (isBuiltWorkflow(source)) {
-      if (agents.has(source.id))
-        throw new Error(`Duplicate connected agent ${source.id}`);
-      agents.set(source.id, source);
-      for (const binding of Object.values(source.getBinding().agents))
-        addAgent(agentFrom(binding.manifest, binding.implementations));
+      addWorkflow(source);
       continue;
     }
     const built = source.build?.() ?? (source as BuiltAgent);
     if (isBuiltWorkflow(built)) {
-      if (agents.has(built.id))
-        throw new Error(`Duplicate connected agent ${built.id}`);
-      agents.set(built.id, built);
-      for (const binding of Object.values(built.getBinding().agents))
-        addAgent(agentFrom(binding.manifest, binding.implementations));
+      addWorkflow(built);
       continue;
     }
     addAgent(built);
   }
   if (!agents.size) throw new Error("connectAgents requires at least one agent");
+  embeddedAgents.set(agents, embedded);
   return agents;
+}
+
+/**
+ * The manifest hash an executor serves for a workflow's flow actions. A run is pinned to
+ * one workflow manifest, and its stage keys may shift between deploys, so flow actions
+ * for another hash are left for the executor that serves it.
+ */
+function flowManifestHash(agent: ExecutableDefinition): string | undefined {
+  return isBuiltWorkflow(agent) && agent.manifest.workflowSchemaVersion === 2
+    ? hashManifest(agent.manifest)
+    : undefined;
 }
 
 function connectExecutorMode(
@@ -112,6 +130,7 @@ function connectExecutorMode(
       options.onError?.(error);
     } catch {}
   };
+  const skipped = new Set<string>();
   let discovering = false,
     dirty = false;
   const discover = async () => {
@@ -138,6 +157,18 @@ function connectExecutorMode(
           const agent = agents.get(action.agentId);
           if (!agent || action.status !== "pending" || active.has(action.actionId))
             continue;
+          const served = flowManifestHash(agent);
+          if (served !== undefined && "key" in action && action.manifestHash !== served) {
+            if (!skipped.has(action.actionId)) {
+              skipped.add(action.actionId);
+              report(
+                new Error(
+                  `Skipped action ${action.actionId}: it belongs to manifest ${action.manifestHash} of '${action.agentId}', and this executor serves ${served}`,
+                ),
+              );
+            }
+            continue;
+          }
           const work = new AbortController();
           active.set(action.actionId, work);
           let delivered = false;
@@ -343,18 +374,24 @@ function connectApplicationMode(
   void ready.catch(() => {});
 
   const boot = (async () => {
+    const embedded = embeddedAgents.get(agents) ?? new Set<string>();
     for (const agent of agents.values()) {
+      if (embedded.has(agent.id)) continue;
       await application.saveAgent(agent, { implementationVersion: version });
     }
-    const registrations = [...agents.values()].map((agent) => ({
-      agentId: agent.id,
-      token: deriveExecutorToken(
-        application.transport.key,
-        application.transport.tenant,
-        agent.id,
-      ),
-      implementationVersion: version,
-    }));
+    const registrations = [...agents.values()].map((agent) => {
+      const manifestHash = flowManifestHash(agent);
+      return {
+        agentId: agent.id,
+        token: deriveExecutorToken(
+          application.transport.key,
+          application.transport.tenant,
+          agent.id,
+        ),
+        implementationVersion: version,
+        ...(manifestHash === undefined ? {} : { manifestHash }),
+      };
+    });
     await application.transport.json("/v1/executors", "PUT", {
       executors: registrations,
     });

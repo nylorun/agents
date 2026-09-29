@@ -29,6 +29,7 @@ import { sandbox as sandboxCapability } from "./sandbox.js";
 import { normalizeMcpServers, type McpServerSpec } from "./mcp.js";
 import { deprecate } from "../utils/deprecate.js";
 import { WorkflowBuildError } from "./workflow/diagnostics.js";
+import { flowFrom, type FlowImplementations } from "./flow/from.js";
 import { isBuiltWorkflow, type BuiltWorkflow } from "./workflow/types.js";
 import { compileAgentFlow } from "./flow/compile.js";
 import {
@@ -122,11 +123,23 @@ export function Agent<
 }
 
 export namespace Agent {
+  /** Rebuild a flow agent from its workflow manifest v2 and the code its stage keys name. */
+  export function from(
+    json: import("../types/workflow.js").WorkflowManifestV2,
+    implementations?: FlowImplementations
+  ): BuiltWorkflow;
+  /** Rebuild an agent from its manifest and the code its capabilities name. */
   export function from<Info = unknown>(
     json: AgentManifest | import("../types/shared.js").JsonObject,
     implementations: Implementations<Info>
-  ): BuiltAgent<Info> {
-    return agentFrom(json, implementations);
+  ): BuiltAgent<Info>;
+  export function from(
+    json: unknown,
+    implementations: Implementations<any> | FlowImplementations = {}
+  ): BuiltAgent<any> | BuiltWorkflow {
+    if ((json as { kind?: unknown }).kind === "workflow")
+      return flowFrom(json, implementations as FlowImplementations);
+    return agentFrom(json as AgentManifest, implementations as Implementations);
   }
 }
 
@@ -494,6 +507,9 @@ export class AgentBuilder<
       try {
         this.#workflow = compileAgentFlow({
           id: snapshot.id,
+          ...(snapshot.name === undefined ? {} : { name: snapshot.name }),
+          ...(snapshot.description === undefined ? {} : { description: snapshot.description }),
+          ...(snapshot.metadata === undefined ? {} : { metadata: snapshot.metadata }),
           stages: snapshot.stages,
           ...(snapshot.inputSchema === undefined ? {} : { inputSchema: snapshot.inputSchema }),
           ...(snapshot.outputSchema === undefined ? {} : { outputSchema: snapshot.outputSchema }),

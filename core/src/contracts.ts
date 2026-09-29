@@ -2,7 +2,7 @@
 import { z } from "zod";
 import type { AgentManifest } from "./types/manifest.js";
 import type { JsonValue } from "./types/shared.js";
-import type { WorkflowManifest } from "./types/workflow.js";
+import type { WorkflowManifest, WorkflowNodeV2 } from "./types/workflow.js";
 import {
   SANDBOX_NETWORK_PRESETS,
   SANDBOX_TOOL_NAMES,
@@ -355,8 +355,7 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
       .strict(),
   ])
 );
-/** Workflow definition document. `kind: "workflow"`; a missing `kind` is never a workflow. */
-export const WorkflowManifestSchema = z
+const workflowV1ManifestSchema = z
   .object({
     kind: z.literal("workflow"),
     workflowSchemaVersion: z.literal(1),
@@ -364,7 +363,139 @@ export const WorkflowManifestSchema = z
     root: workflowNodeSchema,
     sandbox: sandboxManifestSchema.optional(),
   })
-  .strict() as z.ZodType<WorkflowManifest>;
+  .strict();
+// v2 (Flow Agents): `id` and `input` on any node, no slots, embedded agents.
+const workflowNodeOptionsV2 = {
+  id: z.string().min(1).optional(),
+  input: workflowFnRefSchema.optional(),
+};
+const workflowAgentNodeV2Schema = z
+  .object({ agent: z.string().min(1), ...workflowNodeOptionsV2 })
+  .strict();
+const workflowNodeV2Schema: z.ZodTypeAny = z.lazy(() =>
+  z.union([
+    workflowAgentNodeV2Schema,
+    z
+      .object({
+        tool: z
+          .object({
+            name: z.string().min(1),
+            description: z.string().optional(),
+            inputSchema: jsonObject.optional(),
+            outputSchema: jsonObject.optional(),
+          })
+          .strict(),
+        ...workflowNodeOptionsV2,
+      })
+      .strict(),
+    z.object({ chain: z.array(workflowNodeV2Schema).min(1), ...workflowNodeOptionsV2 }).strict(),
+    z
+      .object({
+        switch: z
+          .object({
+            on: workflowFnRefSchema,
+            cases: z.record(z.string(), workflowNodeV2Schema),
+            default: workflowNodeV2Schema.optional(),
+          })
+          .strict(),
+        ...workflowNodeOptionsV2,
+      })
+      .strict(),
+    z
+      .object({
+        parallel: z
+          .record(z.string(), workflowNodeV2Schema)
+          .refine((branches) => Object.keys(branches).length > 0, {
+            message: "parallel needs at least one branch",
+          }),
+        ...workflowNodeOptionsV2,
+      })
+      .strict(),
+    z
+      .object({
+        map: z.object({ each: workflowNodeV2Schema }).strict(),
+        ...workflowNodeOptionsV2,
+      })
+      .strict(),
+    z
+      .object({
+        loop: z
+          .object({
+            run: workflowNodeV2Schema,
+            verify: z.union([workflowFnRefSchema, workflowAgentNodeV2Schema]),
+            max: z.number().int().positive().optional(),
+            decide: workflowFnRefSchema.optional(),
+          })
+          .strict()
+          .refine((loop) => loop.max !== undefined || loop.decide !== undefined, {
+            message: "loop needs max or decide",
+          }),
+        ...workflowNodeOptionsV2,
+      })
+      .strict(),
+  ])
+);
+const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
+  z
+    .object({
+      kind: z.literal("workflow"),
+      workflowSchemaVersion: z.literal(2),
+      id: z.string().min(1),
+      name: z.string().min(1).optional(),
+      description: z.string().optional(),
+      metadata: jsonObject.optional(),
+      inputSchema: jsonObject.optional(),
+      outputSchema: jsonObject.optional(),
+      sandbox: sandboxManifestSchema.optional(),
+      root: workflowNodeV2Schema,
+      agents: z.record(
+        z.string().min(1),
+        z.union([workflowV2ManifestSchema, AgentManifestSchema])
+      ),
+    })
+    .strict()
+    .superRefine((manifest, ctx) => {
+      for (const agentId of referencedAgents(manifest.root as WorkflowNodeV2)) {
+        if (!(agentId in manifest.agents))
+          ctx.addIssue({
+            code: "custom",
+            path: ["agents"],
+            message: `Agent '${agentId}' is used in the flow but not embedded in agents`,
+          });
+      }
+      for (const [key, agent] of Object.entries(manifest.agents as Record<string, { id: string }>)) {
+        if (agent.id !== key)
+          ctx.addIssue({
+            code: "custom",
+            path: ["agents", key],
+            message: `Embedded agent '${agent.id}' must be keyed by its id`,
+          });
+      }
+    })
+);
+function referencedAgents(node: WorkflowNodeV2): string[] {
+  const out: string[] = [];
+  const visit = (child: WorkflowNodeV2): void => {
+    if ("agent" in child) out.push(child.agent);
+    else if ("chain" in child) child.chain.forEach(visit);
+    else if ("switch" in child) {
+      Object.values(child.switch.cases).forEach(visit);
+      if (child.switch.default) visit(child.switch.default);
+    } else if ("parallel" in child) Object.values(child.parallel).forEach(visit);
+    else if ("map" in child) visit(child.map.each);
+    else if ("loop" in child) {
+      visit(child.loop.run);
+      if ("agent" in child.loop.verify) visit(child.loop.verify);
+    }
+  };
+  visit(node);
+  return out;
+}
+/** Workflow definition document. `kind: "workflow"`; a missing `kind` is never a workflow. */
+export const WorkflowManifestSchema = z.union([
+  workflowV1ManifestSchema,
+  workflowV2ManifestSchema,
+]) as unknown as z.ZodType<WorkflowManifest>;
 /** Registry document: agent (no `kind`, or legacy) or workflow (`kind: "workflow"`). */
 export const DefinitionDocumentSchema = z.union([
   AgentManifestSchema,

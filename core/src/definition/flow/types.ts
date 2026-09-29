@@ -15,11 +15,12 @@ export type StageArgs<Cur = any, Results = Readonly<Record<string, any>>, In = a
   readonly flowInput: In;
 };
 
-/** What a function inside a nested `flow()` receives: no `flowInput` until workflow manifest v2. */
-export type NestedStageArgs<Cur = any, Results = Readonly<Record<string, any>>> = {
-  readonly input: Cur;
-  readonly results: Results;
-};
+/** What a function inside a nested `flow()` receives: the same as a top-level stage. */
+export type NestedStageArgs<Cur = any, Results = Readonly<Record<string, any>>> = StageArgs<
+  Cur,
+  Results,
+  any
+>;
 
 /** A child renamed with `.withId()`. */
 export interface Named<R = unknown> {
@@ -61,6 +62,8 @@ export type LoopVerifyFn<Cur, Out> = (args: {
   readonly input: Cur;
   readonly output: Out;
   readonly iteration: number;
+  readonly results: Readonly<Record<string, any>>;
+  readonly flowInput: any;
 }) => Verdict | Promise<Verdict>;
 
 export type LoopDecideArgs<Cur, Out> = {
@@ -75,6 +78,8 @@ export type LoopDecideArgs<Cur, Out> = {
   }[];
   /** The body agent's manifest, when the body is an agent: pass a variant back in `agent`. */
   readonly agent?: AgentManifest;
+  readonly results: Readonly<Record<string, any>>;
+  readonly flowInput: any;
 };
 
 export type LoopChoice<Out> =

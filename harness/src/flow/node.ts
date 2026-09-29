@@ -7,7 +7,7 @@ import { runChain } from "./chain.js";
 import { runSwitch } from "./switch.js";
 import { runParallel } from "./parallel.js";
 import { runMap } from "./map.js";
-import { runLoopNode } from "./loop.js";
+import { readAgentTurn, runLoopNode } from "./loop.js";
 import { FlowNodeError } from "./types.js";
 
 /** Path part / id for a node among its siblings. */
@@ -112,11 +112,11 @@ async function runAgent(
   path: string,
   input: JsonValue,
 ): Promise<JsonValue> {
-  return (await ctx.effect(
-    "agent",
-    { agentId, input, path },
-    { path, key: nodeKeyOf(path) },
-  )) as JsonValue;
+  // The host marks a linked agent's output with its turn manifest for Loops; a step
+  // passes on the output only.
+  return readAgentTurn(
+    await ctx.effect("agent", { agentId, input, path }, { path, key: nodeKeyOf(path) }),
+  ).output;
 }
 
 async function runTool(

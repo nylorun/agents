@@ -1,3 +1,30 @@
+# Flow agents on workflow manifest v2
+
+Flow agents now compile to workflow manifest v2 and run on the `flow-2` engine.
+Code written with the flow agent syntax needs no change; what changes is on the wire
+and in session ids.
+
+- **One document.** The manifest embeds every agent the flow runs (`agents`), and
+  `saveAgent(flowAgent)` PUTs that one document with the agents' plugin roots. The
+  flow's agents are no longer registered, or listed, on their own.
+- **Sessions follow the agents.** An agent's linked session is named by its id
+  (`fixer`, `implementer[0]`, `review/reader`), not by the control stages around it.
+  Runs started before the upgrade finish on `flow-1` with their old paths; new runs
+  of a redeployed flow open new linked sessions.
+- **Stage keys.** Functions are bound under a stage's `id`, or its position
+  (`@1.default.1`), plus `:input`, `:on`, `:verify` or `:decide`. A flow executor
+  only runs flow actions for the manifest hash it serves.
+- **Nested `flow()`** functions receive `flowInput` (the enclosing agent's input);
+  `flow.flow-input-nested` is gone.
+- **A Loop that runs out of attempts** fails with `loop.exhausted` (was `loop.stopped`).
+- **The same agent twice** in one flow needs a new id (`flow.duplicate-leaf`).
+- **Sandbox.** Declare the spec once with `.sandbox(spec)` on the flow agent; agents
+  in it use `.sandbox()` with no options, or the same spec.
+- **Nesting.** A flow agent can be a step of another flow agent. It can't be a child
+  of `Chain`, `Switch`, `Parallel`, `Map` or `Loop`, which keep building v1 workflows,
+  and a v1 workflow can't be a step of a flow agent.
+- `Agent.from(json, { nodes, agents })` rebuilds a flow agent from its v2 document.
+
 # One `Agent` builder: named methods and flow agents (deprecations)
 
 Every capability now has its own method on `Agent`, and deterministic workflows
@@ -21,7 +48,7 @@ unchanged: the new syntax compiles to exactly what the old syntax produced.
 `@nylorun/agents`; `@nylorun/agents/define` exports the portable builder without them.
 
 Workflows become flow agents. `Chain`, `Switch`, `Parallel`, `Map` and `Loop` still
-work and produce the same manifests.
+work and produce the same (v1) manifests.
 
 | Before | After |
 | --- | --- |
@@ -32,9 +59,7 @@ work and produce the same manifests.
 | `Map({ id, over: (input) => list, each })` | `.map(each, { id, input: ({ input }) => list })`; a Map runs over its input |
 | `Loop({ id, run, verify, decide })` | `.loop(body, { verify, max })`, or `{ verify, decide }` returning `{ output }` or `{ retry, agent? }` |
 
-A loop needs `max` or `decide` (`loop.max-required`). Inside a nested `flow()`,
-`flowInput` is not available yet (`flow.flow-input-nested`). A flow agent's
-`.sandbox(spec)` must equal the spec of every agent in it that declares one.
+A loop needs `max` or `decide` (`loop.max-required`).
 
 # `nylorun` and `nylo`: setup and the Runtime client (breaking beta)
 

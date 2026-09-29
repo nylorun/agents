@@ -75,3 +75,13 @@ test("statusColor maps each run status", () => {
   assert.match(statusColor("failed"), /#|var\(/);
   assert.match(statusColor("idle"), /#|var\(/);
 });
+
+test("Flow Agents v2: a Map item's session also lights the drawn leaf", async () => {
+  const { liveStatusFromEvents } = await import("../web/src/workflow/live-status.ts");
+  const live = liveStatusFromEvents([
+    { type: "node.agent", payload: { path: "implementer[0]", sessionId: "s0" } },
+    { type: "node.agent", payload: { path: "implementer[1]", sessionId: "s1" } },
+  ]);
+  assert.equal(live.get("implementer[1]")?.agentSessionId, "s1");
+  assert.equal(live.get("implementer")?.status, "running");
+});

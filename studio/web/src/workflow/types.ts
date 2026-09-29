@@ -59,13 +59,51 @@ export type WorkflowNode =
   | WorkflowLoopNode
   | WorkflowSlotNode;
 
-export type WorkflowManifest = {
+export type WorkflowManifestV1 = {
   readonly kind: "workflow";
   readonly workflowSchemaVersion: 1;
   readonly id: string;
   readonly root: WorkflowNode;
   readonly sandbox?: unknown;
 };
+
+/** v2 (Flow Agents): `id` and `input` on any node, no slots, embedded agents. */
+export type WorkflowNodeOptionsV2 = { readonly id?: string; readonly input?: WorkflowFnRef };
+export type WorkflowAgentNodeV2 = WorkflowNodeOptionsV2 & { readonly agent: string };
+export type WorkflowNodeV2 =
+  | WorkflowAgentNodeV2
+  | (WorkflowNodeOptionsV2 & { readonly tool: WorkflowToolNode["tool"] })
+  | (WorkflowNodeOptionsV2 & { readonly chain: readonly WorkflowNodeV2[] })
+  | (WorkflowNodeOptionsV2 & {
+      readonly switch: {
+        readonly on: WorkflowFnRef;
+        readonly cases: Readonly<Record<string, WorkflowNodeV2>>;
+        readonly default?: WorkflowNodeV2;
+      };
+    })
+  | (WorkflowNodeOptionsV2 & { readonly parallel: Readonly<Record<string, WorkflowNodeV2>> })
+  | (WorkflowNodeOptionsV2 & { readonly map: { readonly each: WorkflowNodeV2 } })
+  | (WorkflowNodeOptionsV2 & {
+      readonly loop: {
+        readonly run: WorkflowNodeV2;
+        readonly verify: WorkflowFnRef | WorkflowAgentNodeV2;
+        readonly max?: number;
+        readonly decide?: WorkflowFnRef;
+      };
+    });
+
+export type WorkflowManifestV2 = {
+  readonly kind: "workflow";
+  readonly workflowSchemaVersion: 2;
+  readonly id: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly root: WorkflowNodeV2;
+  readonly agents: Readonly<Record<string, { readonly id: string; readonly kind?: string }>>;
+  readonly sandbox?: unknown;
+};
+
+export type WorkflowManifest = WorkflowManifestV1 | WorkflowManifestV2;
 
 /** How Studio lays out a control node (workflows.md §11). */
 export type TreeLayout = "row" | "fork" | "lanes" | "map" | "loop" | "leaf" | "slot";
@@ -82,7 +120,8 @@ export type TreeNodeKind =
   | "case"
   | "branch"
   | "item"
-  | "fn";
+  | "fn"
+  | "flow";
 
 export type WorkflowTreeNode = {
   readonly path: string;
@@ -171,6 +210,29 @@ export function joinPath(parent: string, part: string): string {
 
 export function nodeKeyOf(path: string): string {
   return path.replace(/\[\d+]/g, "");
+}
+
+// v2 paths and keys. Studio's bundle can't import core, so these mirror
+// `core/src/definition/flow/paths.ts`; `scripts/workflow-tree.test.mjs` pins them.
+
+/** Position of a flow's root node. */
+export const ROOT_POSITION = "@";
+
+export function childPosition(parent: string, segment: string | number): string {
+  return parent === ROOT_POSITION ? `${ROOT_POSITION}${segment}` : `${parent}.${segment}`;
+}
+
+/** A leaf's path part: its `id`, else the agent id or tool name. */
+export function leafPart(node: WorkflowNodeV2): string | undefined {
+  if ("agent" in node) return node.id ?? node.agent;
+  if ("tool" in node) return node.id ?? node.tool.name;
+  return undefined;
+}
+
+/** A node's stage key: a leaf's path part, a control node's `id`, or its position. */
+export function stageKey(node: WorkflowNodeV2, position: string, prefix = ""): string {
+  const own = leafPart(node) ?? node.id ?? position;
+  return prefix ? `${prefix}/${own}` : own;
 }
 
 function record(value: unknown): Readonly<Record<string, unknown>> {

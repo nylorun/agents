@@ -105,12 +105,11 @@ Agent({ id: "fix" }).loop(planner, {
 // @ts-expect-error flow agents run no model
 Agent({ id: "flow" }).step(triage).instructions("x");
 
-// flow() sequences type their own stages; no flowInput inside them.
+// flow() sequences type their own stages, and see the nearest Agent's input as flowInput.
 flow()
   .step(triage)
   .step(openPr, {
     input: (args) => {
-      // @ts-expect-error nested flows have no flowInput
       void args.flowInput;
       return { title: args.input.summary };
     },

@@ -1,12 +1,16 @@
 import type { JsonValue } from "@nylorun/core/define";
 import { WorkflowManifestSchema, type WorkflowManifest } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/define";
-import { CHECKPOINT_VERSION, FLOW_ENGINE_VERSION } from "../compatibility.js";
+import {
+  CHECKPOINT_VERSION,
+  flowEngineVersionOf,
+  type FlowEngineVersion,
+} from "../compatibility.js";
 
 /** Private persistence contract for workflow sessions; not a session wire type. */
 export interface FlowCheckpoint {
   readonly version: 1;
-  readonly engineVersion: typeof FLOW_ENGINE_VERSION;
+  readonly engineVersion: FlowEngineVersion;
   readonly manifestHash: string;
   readonly sessionId: string;
   readonly turnId: string;
@@ -25,7 +29,7 @@ export function createFlowCheckpoint(input: {
   WorkflowManifestSchema.parse(input.manifest);
   return {
     version: CHECKPOINT_VERSION,
-    engineVersion: FLOW_ENGINE_VERSION,
+    engineVersion: flowEngineVersionOf(input.manifest),
     manifestHash: hashManifest(input.manifest),
     sessionId: input.sessionId,
     turnId: input.turnId,
