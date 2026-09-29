@@ -20,7 +20,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * access policy, and the Tenant API accepts them as bearers (`/v1/access/**` manages the
  * policy, signing keys and revocations). `browser-access`: publishable keys
  * (`Nylorun-Key`, `/v1/access/publishable-keys`) name the Tenant and an origin allowlist, and
- * browser requests from listed origins reach the Tenant routes with CORS.
+ * browser requests from listed origins reach the Tenant routes with CORS. `ag-ui-endpoint`:
+ * the Runtime serves AG-UI at `/v1/ag-ui/agents/:agent` for a person named by a subject token
+ * or by subject headers.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -29,6 +31,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "subject-headers",
   "subject-tokens",
   "browser-access",
+  "ag-ui-endpoint",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

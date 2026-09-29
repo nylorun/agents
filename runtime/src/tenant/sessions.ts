@@ -136,7 +136,14 @@ export function putSession(
   ctx: TenantContext,
   id: string,
   body: PutSessionRequest,
-  access?: SessionAccess
+  access?: SessionAccess,
+  options: {
+    /**
+     * Create the session if it is missing and otherwise leave it as it is (an AG-UI thread's
+     * session): an existing one must have the same owner and agent, or it is a 404.
+     */
+    createOnly?: boolean;
+  } = {}
 ): Promise<Session> {
   const vaultIds = body.vaultIds ?? [];
   const credentialSelections = body.credentialSelections ?? [];
@@ -155,6 +162,14 @@ export function putSession(
         (access.agents !== undefined && !access.agents.has(prior.agentId)))
     )
       fail(404, "Session not found");
+    if (prior && options.createOnly) {
+      if (
+        prior.ownerUserId !== body.ownerUserId ||
+        prior.agentId !== body.agentId
+      )
+        fail(404, "Session not found");
+      return prior;
+    }
     const definition =
       prior === undefined || body.sandbox
         ? (await t.get<Definition>("definitions", body.agentId)) ??

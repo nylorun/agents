@@ -33,6 +33,7 @@ import {
 } from "./auth.js";
 import { dispatchAccess } from "./routes-access.js";
 import { identifyClient } from "./browser.js";
+import { dispatchAgUi } from "./ag-ui.js";
 import { command } from "./commands.js";
 import {
   actionSandboxTool,
@@ -153,6 +154,8 @@ export async function handle(
     // Executors reach only their own routes above.
     if (scope.kind === "executor")
       return fail(403, "Application credential required");
+    if (path[1] === "ag-ui")
+      return await dispatchAgUi(ctx, scope, method, path, url, request, response, json);
     if (path[1] === "executors" && path.length === 2 && method === "GET")
       return json(listExecutors(ctx));
     // The length guard matters: the connect branch above only matches GET, so without it a

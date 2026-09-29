@@ -303,6 +303,19 @@ export class Transport {
     return response;
   }
 
+  /**
+   * Sends a request with this client's credentials and returns the Runtime's response as it
+   * is, errors included (an app server passing a response through, e.g. the AG-UI handler).
+   */
+  async forward(path: string, init: RequestInit = {}): Promise<Response> {
+    await this.ensureCompatible(init.signal === null ? undefined : init.signal);
+    return this.fetcher(this.url + path, {
+      ...init,
+      headers: await this.authHeaders(init),
+      redirect: "error",
+    });
+  }
+
   async json<T>(
     path: string,
     method = "GET",

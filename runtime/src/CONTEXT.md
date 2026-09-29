@@ -135,6 +135,15 @@ alone (`anon`), and the longest token lifetime. Without roles nothing is minted
 subject's open streams end with `event: nylorun.closed` on every process
 (`subject.revoked` on `tenant/control`, `checkFeeds` as backstop).
 
+**Runtime AG-UI endpoint**: `/v1/ag-ui/agents/:agent` (feature
+`ag-ui-endpoint`, `tenant/ag-ui.ts`): run, thread messages, reattach and
+cancel, for a person named by a subject token or by subject headers. The SDK's
+`createAgUiHandler` forwards here. A **thread session** is
+`sessionIdFor(subject, agent, thread)` (`ag-ui/session-id.ts`), the same on
+every path; it is created on the thread's first run with the options in
+`forwardedProps.nylorun.session` and never changed by a later run.
+_Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
+
 **Publishable key**: `nr_pub_<tenantId>_<32 Crockford characters>` in
 `Nylorun-Key` (feature `browser-access`, `tenant/browser.ts`): names the Tenant
 and one client app, with an **origin allowlist** (exact origins, or
@@ -156,8 +165,9 @@ headers. `/health`, `/ready`, admin routes and Tenant or executor keys refuse
 subject token starts a turn (`429 limit_exceeded`, `tenant/subject-limits.ts`).
 
 **App server**: The developer's own server: signs people in, names the subject
-and scopes on each Runtime call (`client.as`), hosts the AG-UI handler and the
-executor, and strips any `Nylorun-*` header its clients send. Nylorun ships
+and scopes on each Runtime call (`client.as`) or mints subject tokens for its
+pages, hosts the AG-UI handler (which forwards to the Runtime's AG-UI endpoint)
+and the executor, and strips any `Nylorun-*` header its clients send. Nylorun ships
 libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
 
@@ -178,7 +188,8 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
 `admin-status` and `studio-principal`; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
-`subject-headers`, `subject-tokens` and `browser-access`).
+`subject-headers`, `subject-tokens`, `browser-access` and
+`ag-ui-endpoint`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
@@ -205,7 +216,8 @@ and tool calls, keyed by the model's `invocationId` and each call's `callId`),
 `action.*` and `delegation.*` events. Written in the transaction that completes
 the effect, so a replay writes nothing (`tenant/transcript.ts`); payload
 schemas and `parseTranscriptEvent` are in `@nylorun/core/contracts`.
-`@nylorun/agents/ag-ui` turns them into AG-UI events.
+The Runtime's AG-UI endpoint turns them into AG-UI events
+(`runtime/src/ag-ui/`).
 _Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
 formats.
 

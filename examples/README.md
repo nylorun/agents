@@ -78,6 +78,27 @@ app.all("/api/agui/*", (c) => agui.fetch(c.req.raw));
 On a serverless platform, run `connectAgents` as its own long-lived process; the
 handler itself holds no state between requests.
 
+## Pages that call the Runtime directly
+
+[`src/browser-direct/`](./src/browser-direct/) serves the same support agent
+without carrying the chat: the page talks to the Runtime itself. The backend
+([`app.ts`](./src/browser-direct/app.ts)) signs people in, mints a subject token
+for each at `POST /api/nylorun/token`, tells the page the Runtime's URL and
+publishable key at `GET /api/nylorun/config`, and runs the agent's tools.
+[`setup.ts`](./src/browser-direct/setup.ts) writes the access policy and creates
+the publishable key once. The page's side is
+[`chat.ts`](./src/browser-direct/chat.ts): `createBrowserClient` from
+`@nylorun/agents/browser` and `HttpAgent`, with no DOM code, for any bundler.
+
+```sh
+npm run browser-direct
+```
+
+The stack allows browser requests from `http://localhost:*` with that key.
+[`test/browser-direct.test.ts`](./test/browser-direct.test.ts) runs a chat with
+an approval from the page against an in-memory Runtime, reloads it, and checks
+that the page never receives the application key.
+
 Rules for a web backend:
 
 - One Tenant per environment (`prod`, `staging`). Your users are subjects, not

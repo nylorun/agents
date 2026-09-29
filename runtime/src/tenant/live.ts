@@ -237,16 +237,113 @@ export async function streamSessionEvents(
   cursor: string | undefined,
   holder?: StreamHolder
 ): Promise<void> {
-  const from = startSeq(sessionId, cursor);
+  const observer: Observer = {
+    sink: sseSink(response),
+    next: startSeq(sessionId, cursor),
+    ...(holder ? { holder } : {}),
+  };
+  const joined = await join(ctx, sessionId, observer);
+  openSse(request, response, () => leave(ctx.live, joined, observer));
+  armDeadline(ctx.live, joined, observer);
+}
+
+/** Thrown by `observeSession` when the Runtime ended the stream for its token. */
+export class StreamClosed extends Error {
+  constructor(
+    readonly reason: StreamEndReason,
+    /** The cursor of the last event delivered, if any. */
+    readonly cursor: string | undefined
+  ) {
+    super(`The stream ended: ${reason}`);
+    this.name = "StreamClosed";
+  }
+}
+
+/**
+ * A session's events from `cursor`, in process: the same shared read and deadlines as an SSE
+ * client (`streamSessionEvents`). Ends when `signal` aborts or the feed ends; throws
+ * `StreamClosed` when the Runtime ends it for its token (expiry or revocation).
+ */
+export async function* observeSession(
+  ctx: TenantContext,
+  sessionId: string,
+  cursor: string | undefined,
+  options: { holder?: StreamHolder; signal: AbortSignal }
+): AsyncGenerator<LiveEvent> {
+  const queue: LiveEvent[] = [];
+  let ended: { reason?: StreamEndReason } | undefined;
+  let wake: (() => void) | undefined;
+  const notify = () => {
+    const resolve = wake;
+    wake = undefined;
+    resolve?.();
+  };
+  const observer: Observer = {
+    sink: {
+      write: (event) => {
+        queue.push(event);
+        notify();
+      },
+      end: (reason) => {
+        ended = reason ? { reason } : {};
+        notify();
+      },
+    },
+    next: startSeq(sessionId, cursor),
+    ...(options.holder ? { holder: options.holder } : {}),
+  };
+  const joined = await join(ctx, sessionId, observer);
+  armDeadline(ctx.live, joined, observer);
+  const stop = () => {
+    leave(ctx.live, joined, observer);
+    notify();
+  };
+  options.signal.addEventListener("abort", stop, { once: true });
+  let last = cursor;
+  try {
+    for (;;) {
+      while (queue.length > 0) {
+        const event = queue.shift()!;
+        last = event.cursor;
+        yield event;
+      }
+      if (options.signal.aborted) return;
+      if (ended) {
+        if (ended.reason) throw new StreamClosed(ended.reason, last);
+        return;
+      }
+      await new Promise<void>((resolve) => (wake = resolve));
+    }
+  } finally {
+    options.signal.removeEventListener("abort", stop);
+    leave(ctx.live, joined, observer);
+  }
+}
+
+/** Ends the observer when its token expires. */
+function armDeadline(hub: LiveHub, feed: SessionFeed, observer: Observer): void {
+  if (!observer.holder) return;
+  observer.deadline = setTimeout(
+    () => endObserver(hub, feed, observer, "token_expired"),
+    Math.max(0, observer.holder.expiresAt - Date.now())
+  );
+  observer.deadline.unref();
+}
+
+/**
+ * Adds `observer` to the session's shared read, starting or restarting it from the
+ * observer's position when needed. 404 when the session has no stream.
+ */
+async function join(
+  ctx: TenantContext,
+  sessionId: string,
+  observer: Observer
+): Promise<SessionFeed> {
+  const from = observer.next;
   streamsOf(ctx);
   const stream =
     (await currentStream(ctx, sessionId)) ?? fail(404, "Session not found");
   const hub = ctx.live;
-  const observer: Observer = {
-    sink: sseSink(response),
-    next: from,
-    ...(holder ? { holder } : {}),
-  };
   let feed = hub.feeds.get(sessionId);
   if (feed && feed.stream !== stream) {
     // The session was created again since that feed started: it follows an abandoned stream.
@@ -270,16 +367,8 @@ export async function streamSessionEvents(
     feed.next = from;
     runFeed(ctx, feed);
   }
-  const joined = feed;
-  joined.observers.add(observer);
-  openSse(request, response, () => leave(hub, joined, observer));
-  if (holder) {
-    observer.deadline = setTimeout(
-      () => endObserver(hub, joined, observer, "token_expired"),
-      Math.max(0, holder.expiresAt - Date.now())
-    );
-    observer.deadline.unref();
-  }
+  feed.observers.add(observer);
+  return feed;
 }
 
 /** Ends one observer early (its token expired or was revoked). */
@@ -296,7 +385,7 @@ function endObserver(
 
 function leave(hub: LiveHub, feed: SessionFeed, observer: Observer): void {
   if (observer.deadline) clearTimeout(observer.deadline);
-  feed.observers.delete(observer);
+  if (!feed.observers.delete(observer)) return;
   if (feed.observers.size > 0) return;
   feed.read.abort();
   if (hub.feeds.get(feed.sessionId) === feed) hub.feeds.delete(feed.sessionId);

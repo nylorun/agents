@@ -152,6 +152,17 @@ export function routeAccess(
       if (n === 4 && method === "POST" && sub === "commands") return SESSIONS;
       if (n === 5 && method === "POST" && sub === "sandbox") return "never";
       return undefined;
+    case "ag-ui": {
+      // `/v1/ag-ui/agents/:agent` and `…/threads/:thread/{messages,events,cancel}`.
+      const [, , , , threads, , action] = path;
+      if (id !== "agents") return undefined;
+      if (n === 4 && method === "POST") return SESSIONS;
+      if (n !== 7 || threads !== "threads") return undefined;
+      if (method === "GET" && (action === "messages" || action === "events"))
+        return SESSIONS;
+      if (method === "POST" && action === "cancel") return SESSIONS;
+      return undefined;
+    }
     case "vaults":
       if (n === 2) return method === "GET" || method === "POST" ? VAULTS : undefined;
       if (n === 3) return method === "GET" || method === "DELETE" ? VAULTS : undefined;
