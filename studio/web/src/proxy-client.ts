@@ -114,6 +114,35 @@ export async function fetchHello(fetcher?: StudioFetch): Promise<StudioHello> {
   );
 }
 
+/**
+ * Create a Tenant through the Studio server. It registers the derived
+ * principal `project`, so a Project on this machine can link it with
+ * `nylo tenant use <id>`; no key reaches the browser.
+ */
+export async function createTenant(
+  name: string,
+  fetcher?: StudioFetch,
+): Promise<StudioTenant> {
+  const body = await readJson<{ tenant: StudioTenant }>(
+    await studioFetch(
+      "/_studio/tenants",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      },
+      fetcher,
+    ),
+    "Creating the Tenant",
+  );
+  return body.tenant;
+}
+
+/** The command that links a Project on this machine to a Tenant. */
+export function tenantUseCommand(tenantId: string): string {
+  return `npx @nylorun/cli tenant use ${tenantId}`;
+}
+
 export async function listTenants(
   fetcher?: StudioFetch,
 ): Promise<readonly StudioTenant[]> {

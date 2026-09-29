@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   StudioSignedOutError,
+  createTenant,
   createTenantClient,
   fetchHello,
   listTenants,
@@ -10,6 +11,7 @@ import {
   tenantRuntime,
   tenantRuntimePath,
   tenantScope,
+  tenantUseCommand,
 } from "../web/src/proxy-client.ts";
 
 function recorder(respond = () => Response.json({})) {
@@ -68,6 +70,28 @@ test("createTenantClient strips the SDK bearer and targets the Tenant proxy", as
   assert.equal(agents.url, "http://localhost:4170/_studio/tenants/tn_1/runtime/v1/agents");
   assert.equal(new Headers(agents.init.headers).has("authorization"), false);
   assert.equal(agents.init.credentials, "same-origin");
+});
+
+test("createTenant posts the name as JSON and returns the Tenant", async () => {
+  const { calls, fetcher } = recorder(() =>
+    Response.json({ tenant: { id: "tn_1", name: "my-agents", state: "open" } }, { status: 201 }),
+  );
+  assert.deepEqual(await createTenant("my-agents", fetcher), {
+    id: "tn_1",
+    name: "my-agents",
+    state: "open",
+  });
+  assert.equal(calls[0].url, "/_studio/tenants");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.credentials, "same-origin");
+  assert.equal(calls[0].init.headers["content-type"], "application/json");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { name: "my-agents" });
+
+  const rejected = recorder(() => Response.json({ message: "name too long" }, { status: 400 }));
+  await assert.rejects(createTenant("x", rejected.fetcher), /name too long/);
+  const signedOut = recorder(() => new Response("{}", { status: 401 }));
+  await assert.rejects(createTenant("x", signedOut.fetcher), StudioSignedOutError);
+  assert.equal(tenantUseCommand("tn_1"), "npx @nylorun/cli tenant use tn_1");
 });
 
 test("fetchHello and listTenants report a missing session", async () => {

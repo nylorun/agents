@@ -10,7 +10,9 @@
  * - Every other request needs that cookie, except `/healthz`.
  * - `Host` must be the published loopback address (DNS rebinding); requests
  *   that change state must carry this origin's `Origin`; no CORS headers.
- * - Tenants are listed through the Admin API with the admin key. Tenant API
+ * - Tenants are listed and created through the Admin API with the admin key.
+ *   A Tenant Studio creates registers the derived principal `project`, so a
+ *   Project on this machine can link it (`nylo tenant use`). Tenant API
  *   calls use the Tenant's Studio key, derived from the admin key in memory.
  *   No key ever reaches the browser.
  *
@@ -23,7 +25,12 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { AdminError, createAdmin, deriveStudioToken } from "@nylorun/admin";
+import {
+  AdminError,
+  PROJECT_PRINCIPAL_ID,
+  createAdmin,
+  deriveStudioToken,
+} from "@nylorun/admin";
 import { packagedWebRoot, serveDashboard } from "./static.js";
 import { proxyRuntime } from "./proxy.js";
 import {
@@ -77,6 +84,9 @@ export type StudioServerHello = Readonly<{
 }>;
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
+/** Longest Tenant name Studio creates. */
+export const TENANT_NAME_MAX = 64;
+const MAX_JSON_BODY = 4096;
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TENANT_RUNTIME = /^\/_studio\/tenants\/([^/]+)\/runtime(\/.*)$/;
 
@@ -211,6 +221,27 @@ function json(
 
 function fail(response: ServerResponse, status: number, message: string): void {
   json(response, status, { message });
+}
+
+/** A small JSON request body, or undefined when it is not JSON or too large. */
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const type = request.headers["content-type"] ?? "";
+  if (!/^application\/json(;|$)/iu.test(type)) {
+    request.resume();
+    return undefined;
+  }
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_JSON_BODY) return undefined;
+    chunks.push(chunk as Buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function page(
@@ -350,6 +381,45 @@ export async function startStudioServer(
     }
   };
 
+  const createTenant = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    const body = await readJsonBody(request);
+    const raw =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as { name?: unknown }).name
+        : undefined;
+    const name = typeof raw === "string" ? raw.trim() : "";
+    if (name === "" || name.length > TENANT_NAME_MAX)
+      return fail(
+        response,
+        400,
+        `Send JSON { "name": "…" } with a Tenant name of 1 to ${TENANT_NAME_MAX} characters.`,
+      );
+    try {
+      // The application key it returns is dropped: Projects derive theirs.
+      const { tenant } = await admin.createTenant({
+        name,
+        principals: [PROJECT_PRINCIPAL_ID],
+      });
+      const summary: StudioTenantSummary = {
+        id: tenant.id,
+        name: tenant.name,
+        state: "open",
+      };
+      json(response, 201, { tenant: summary });
+    } catch (error) {
+      fail(
+        response,
+        502,
+        error instanceof AdminError
+          ? error.message
+          : "The Runtime Admin API is unavailable",
+      );
+    }
+  };
+
   const handle = async (
     request: IncomingMessage,
     response: ServerResponse,
@@ -438,6 +508,7 @@ export async function startStudioServer(
     }
 
     if (pathname === "/_studio/tenants") {
+      if (method === "POST") return createTenant(request, response);
       request.resume();
       if (method !== "GET") return fail(response, 405, "Method not allowed");
       return listTenants(response);

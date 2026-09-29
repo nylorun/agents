@@ -8,14 +8,16 @@
 // Needs the CLI and @nylorun/admin built. Starts the stack, checks
 // `nylorun status --json` and the Runtime's /ready (Postgres, Restate, S2),
 // checks that Studio is printed without a login token, creates a Tenant
-// through @nylorun/admin, mints a Studio login, runs
+// through @nylorun/admin, mints a Studio login, creates a Tenant in Studio and
+// links a Project to it with `nylo tenant use`, runs
 // `nylorun down` and `nylorun up` (the stack's files and the Tenant are kept),
 // checks that every file in the Host root belongs to this user (the bind
 // mount's UID/GID), and always ends with `nylorun reset --yes`.
 import assert from "node:assert/strict";
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureImages, studioSession, withStack } from "./lib/stack.mjs";
+import { ensureImages, studioSession, tenantGet, withStack } from "./lib/stack.mjs";
 
 /** Every entry under `dir`, with its owner. */
 async function walk(dir) {
@@ -71,6 +73,34 @@ try {
     const studio = await studioSession(await stack.studioLogin());
     const listed = await (await studio.get("/_studio/tenants")).json();
     assert.ok(listed.tenants.some((t) => t.id === tenant.id), "Studio lists the Tenant");
+
+    // Studio creates a Tenant; a Project links it with no key of its own.
+    const createdInStudio = await studio.get("/_studio/tenants", {
+      method: "POST",
+      headers: { origin: studio.origin, "content-type": "application/json" },
+      body: JSON.stringify({ name: "studio-smoke" }),
+    });
+    assert.equal(createdInStudio.status, 201, await createdInStudio.clone().text());
+    const studioTenant = (await createdInStudio.json()).tenant;
+    const project = await mkdtemp(join(tmpdir(), "nylorun-studio-project-"));
+    let link;
+    let credentials;
+    try {
+      // The Project lookup stops at the home directory, so give it a .nylorun/.
+      await mkdir(join(project, ".nylorun"), { recursive: true });
+      await writeFile(join(project, "package.json"), '{"name":"studio-project"}');
+      await stack.nylo(["tenant", "use", studioTenant.id], { cwd: project });
+      link = JSON.parse(await readFile(join(project, ".nylorun", "link.json"), "utf8"));
+      credentials = JSON.parse(await readFile(join(project, ".nylorun", "credentials.json"), "utf8"));
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
+    assert.equal(link.tenantId, studioTenant.id);
+    assert.equal(credentials.principalId, "project");
+    assert.ok(
+      await tenantGet(runtimeUrl, studioTenant.id, credentials.applicationKey, "/v1/agents"),
+      "the derived project key reaches the Tenant API",
+    );
 
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
     // `up` reuses the stack it set up, and the stopped volumes keep the Tenant.

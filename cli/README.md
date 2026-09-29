@@ -10,6 +10,7 @@ independent and never call each other. Depends on `@nylorun/agents` and
 ```sh
 npx nylorun up                        # the local stack (nylorun)
 npx @nylorun/cli tenant create        # this project's Tenant, linked in .nylorun/
+npx @nylorun/cli tenant use <id>      # or: link a Tenant created in Studio
 ```
 
 ## Commands
@@ -46,6 +47,22 @@ Inside a Project (the nearest `.nylorun/` or `package.json`):
 
 Outside a Project it creates the Tenant and prints the three `NYLORUN_*`
 exports once; the Host keeps only a hash of the application key.
+
+## `nylo tenant use <name-or-id>`
+
+Links the Project to another Tenant on the local Host. It uses the first key
+that the Tenant accepts:
+
+1. The Project's `.nylorun/credentials.json`.
+2. A key it kept when the Project last left that Tenant
+   (`.nylorun/credentials.<tenantId>.json`).
+3. The key of the derived principal `project`, computed from this machine's
+   admin key. Every Tenant created in Studio registers that principal, so
+   Studio's **Connect your code** step needs only this command.
+
+When it replaces an application key (shown only once, when the Tenant was
+created), it keeps that key as `.nylorun/credentials.<tenantId>.json`, so
+`nylo tenant use <that id>` switches back.
 
 ## Project link
 

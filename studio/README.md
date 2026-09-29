@@ -38,7 +38,14 @@ as `http://localhost:<port>`.
    session survives container restarts and ends after 30 days or when the admin
    key changes (`nylorun reset`).
 
-The dashboard lists Tenants through the Admin API. Each Tenant view calls the
+The dashboard lists and creates Tenants through the Admin API. While the Host
+has none, `/` asks for a name and creates the first (`POST /_studio/tenants`).
+A Tenant Studio creates registers the derived principal `project`, so a Project
+on this machine links it with `npx @nylorun/cli tenant use <id>`, which derives
+the key from the local admin key; the application key `createTenant` returns is
+dropped and never reaches the browser. A Tenant with no agents shows **Connect
+your code**: the model provider, that command, and `npm run dev`, and it
+switches to the agent list when the first agent registers. Each Tenant view calls the
 Tenant API through `/_studio/tenants/<id>/runtime/…`, which the server forwards
 with that Tenant's Studio key (derived from the admin key in memory). No
 Runtime, admin or Tenant credential ever reaches the browser.

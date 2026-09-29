@@ -323,7 +323,7 @@ async function openLogin(ctx: Context, login: string): Promise<void> {
 
 /** Printed by `start` while the Host has no Tenant: nylorun never creates one. */
 export const TENANT_HINT =
-  "No Tenant yet. In your project, run `npx @nylorun/cli tenant create`.";
+  "No Tenant yet. Create one in Studio, or run `npx @nylorun/cli tenant create` in your project.";
 
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
   const usage = "nylorun start [--no-studio] [--no-open]";
