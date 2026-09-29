@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { WorkflowManifest } from "@nylorun/core/contracts";
+import {
+  Agent,
+  Chain,
+  Loop,
+  Map as MapNode,
+  Switch,
+  tool,
+  type BuiltWorkflow,
+  type JsonValue,
+} from "@nylorun/core/define";
 import {
   createFlowCheckpoint,
   runFlowDurable,
@@ -96,6 +107,16 @@ describe("flow paths / keys / iterations", () => {
         iterations: "1",
       }),
     ).toBe("t:0:flow:implement[2]/code:agent:1");
+    expect(
+      flowEffectId({
+        turnId: "t",
+        segment: 0,
+        path: "report/loud",
+        kind: "fn",
+        iterations: "-",
+        role: "slot-input",
+      }),
+    ).toBe("t:0:flow:report/loud:fn.slot-input:-");
   });
 });
 
@@ -746,5 +767,194 @@ describe("flow values (WF-R14)", () => {
       status: "completed",
       result: { output: [2] },
     });
+  });
+});
+
+/**
+ * Keys the engine sends must be keys core registers: resolve every fn, verify and tool
+ * effect through `getBinding().nodes[effect.key]`, the way the executor does.
+ */
+describe("flow effect keys match core bindings", () => {
+  const Verdict = z.discriminatedUnion("pass", [
+    z.object({ pass: z.literal(true) }),
+    z.object({ pass: z.literal(false), feedback: z.string() }),
+  ]);
+  const split = tool({
+    name: "split",
+    input: z.object({ text: z.string() }),
+    output: z.object({ words: z.array(z.string()) }),
+    run: async ({ text }) => ({ words: text.split(" ") }),
+  });
+  const shout = tool({
+    name: "shout",
+    input: z.object({ word: z.string() }),
+    output: z.object({ loud: z.string() }),
+    run: async ({ word }) => ({ loud: word.toUpperCase() }),
+  });
+  const words = (value: unknown) => (value as { words: string[] }).words.map((word) => ({ word }));
+
+  async function runBound(
+    workflow: BuiltWorkflow,
+    input: JsonValue,
+    agent: (agentId: string, input: unknown) => unknown = () => "agent-output",
+  ) {
+    const { nodes } = workflow.getBinding();
+    const seen: HostEffect[] = [];
+    const journal = new Map<string, EffectResolution>();
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        const recorded = journal.get(effect.effectId);
+        if (recorded) return recorded;
+        seen.push(effect);
+        let value: unknown;
+        if (effect.kind === "agent") {
+          const body = effect.input as { agentId: string; input: unknown };
+          value = agent(body.agentId, body.input);
+        } else {
+          const impl = nodes[effect.key];
+          const expected = effect.kind === "tool" ? "tool" : effect.kind;
+          if (!impl || impl.kind !== expected)
+            throw new Error(`No ${effect.kind} binding for key '${effect.key}'`);
+          value =
+            impl.kind === "tool"
+              ? await impl.tool.execute(effect.input, {} as never)
+              : await impl.fn(effect.input as never);
+        }
+        const resolution: EffectResolution = {
+          status: "completed",
+          outcome: { value: value as JsonValue },
+        };
+        journal.set(effect.effectId, resolution);
+        return resolution;
+      },
+    };
+    const result = await runFlowDurable({
+      manifest: workflow.manifest,
+      checkpoint: createFlowCheckpoint({
+        manifest: workflow.manifest,
+        sessionId: "s1",
+        turnId: "t1",
+        input,
+      }),
+      host,
+    });
+    return { result, seen };
+  }
+
+  it("routes a slot input and a Map over", async () => {
+    const workflow = Chain({
+      id: "shouter",
+      steps: [
+        { run: split, input: ({ value }) => ({ text: String(value) }) },
+        MapNode({ id: "each", over: words, each: shout }),
+      ],
+    });
+    const { result, seen } = await runBound(workflow, "hello big world");
+    expect(result).toMatchObject({
+      status: "completed",
+      result: { output: [{ loud: "HELLO" }, { loud: "BIG" }, { loud: "WORLD" }] },
+    });
+    expect(seen.filter((e) => e.kind === "fn").map((e) => e.key)).toEqual([
+      "shouter/split/input",
+      "shouter/each/over",
+    ]);
+  });
+
+  it("gives a slot input and the Map it wraps distinct effects", async () => {
+    const workflow = Chain({
+      id: "wrapped",
+      steps: [
+        { run: split, input: ({ value }) => ({ text: String(value) }) },
+        {
+          id: "loud",
+          run: MapNode({ id: "each", over: words, each: shout }),
+          input: ({ value }) => ({ words: (value as { words: string[] }).words.slice(0, 2) }),
+        },
+      ],
+    });
+    const { result, seen } = await runBound(workflow, "one two three");
+    expect(result).toMatchObject({
+      status: "completed",
+      result: { output: [{ loud: "ONE" }, { loud: "TWO" }] },
+    });
+    const onPath = seen.filter((e) => e.kind === "fn" && e.path === "wrapped/loud");
+    expect(onPath.map((e) => e.key)).toEqual(["wrapped/loud/input", "wrapped/loud/over"]);
+    expect(new Set(onPath.map((e) => e.effectId)).size).toBe(2);
+  });
+
+  it("gives a slot input and the Switch it wraps distinct effects", async () => {
+    const workflow = Chain({
+      id: "wrapped",
+      steps: [
+        {
+          id: "route",
+          run: Switch({
+            id: "pick",
+            on: (value) => ((value as { word: string }).word.length > 3 ? "long" : "short"),
+            cases: { long: shout, short: shout },
+          }),
+          input: ({ value }) => ({ word: String(value) }),
+        },
+      ],
+    });
+    const { result, seen } = await runBound(workflow, "hello");
+    expect(result).toMatchObject({ status: "completed", result: { output: { loud: "HELLO" } } });
+    expect(seen.filter((e) => e.kind === "fn").map((e) => e.key)).toEqual([
+      "wrapped/route/input",
+      "wrapped/route/on",
+    ]);
+  });
+
+  it("routes a per-item slot input inside a Map", async () => {
+    const workflow = MapNode({
+      id: "each",
+      over: (value) => value as string[],
+      each: { run: shout, input: ({ value, index }) => ({ word: `${index}:${String(value)}` }) },
+    });
+    const { result, seen } = await runBound(workflow, ["a", "b"]);
+    expect(result).toMatchObject({
+      status: "completed",
+      result: { output: [{ loud: "0:A" }, { loud: "1:B" }] },
+    });
+    expect(new Set(seen.filter((e) => e.kind === "fn").map((e) => e.key))).toEqual(
+      new Set(["each/over", "each/shout/input"]),
+    );
+  });
+
+  it("routes a verifier slot input, verify function and decide in Loops", async () => {
+    const writer = Agent({ id: "writer", instructions: "Write." }).build();
+    const judge = Agent({ id: "judge", instructions: "Judge.", outputSchema: Verdict }).build();
+    const judged = Loop({
+      id: "essay",
+      run: writer,
+      verify: { run: judge, input: ({ value }) => ({ draft: value }) },
+      decide: ({ verdict, output }) => (verdict.pass ? { output } : { input: "again" }),
+    });
+    const first = await runBound(judged, "prompt", (agentId, input) => {
+      if (agentId === "writer") return "draft-text";
+      expect(input).toEqual({ draft: { task: "prompt", response: "draft-text", iteration: 1 } });
+      return { pass: true };
+    });
+    expect(first.result).toMatchObject({ status: "completed", result: { output: "draft-text" } });
+    expect(first.seen.filter((e) => e.kind === "fn").map((e) => e.key)).toEqual([
+      "essay/judge/input",
+      "essay/decide",
+    ]);
+
+    const checked = Loop({
+      id: "polish",
+      run: writer,
+      verify: ({ output }) => (output ? { pass: true } : { pass: false, feedback: "empty" }),
+      decide: ({ output }) => ({ output }),
+    });
+    const second = await runBound(checked, "prompt");
+    expect(second.result).toMatchObject({
+      status: "completed",
+      result: { output: "agent-output" },
+    });
+    expect(second.seen.filter((e) => e.kind !== "agent").map((e) => `${e.kind}:${e.key}`)).toEqual([
+      "verify:polish",
+      "fn:polish/decide",
+    ]);
   });
 });

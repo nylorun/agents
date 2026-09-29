@@ -180,7 +180,8 @@ function resolveRunnable(run: WorkflowRunnable, rename?: string): ResolvedChild 
       id,
       node: binding.manifest.root,
       agents: { ...binding.agents },
-      nodes: { ...binding.nodes },
+      // A rename moves the whole subtree: the harness path uses the new part, not run.id.
+      nodes: remapNodeKeys({ ...binding.nodes }, run.id, id),
       sandboxSpecs: sandboxSpecsFromAgents(binding.agents),
       isReshapingSlot: false,
     };
