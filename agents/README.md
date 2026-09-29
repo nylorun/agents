@@ -41,11 +41,9 @@ Sources never mix. Partial environment fails with `connection_missing`.
 import { Agent, createClient, connectAgents, tool } from "@nylorun/agents";
 import { z } from "zod";
 
-const assistant = Agent({
-  id: "assistant",
-  name: "Assistant",
-  instructions: "Use the available tools.",
-  tools: [
+const assistant = Agent({ id: "assistant", name: "Assistant" })
+  .instructions("Use the available tools.")
+  .tools(
     tool({
       name: "lookup",
       input: z.object({ id: z.string() }),
@@ -53,8 +51,7 @@ const assistant = Agent({
         return { id, owner: ctx.info };
       },
     }),
-  ],
-});
+  );
 
 // Explicit Tenant API client (options or env / link via createClient()).
 const client = createClient({
@@ -97,68 +94,57 @@ throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
 required features do not match. Re-exports include `PROTOCOL_FEATURES`,
 `ERROR_CODES` and `compareVersions`.
 
-Load Agent Skills from a local catalog folder with `skills(path)`:
+Load Agent Skills from a local catalog folder with `.skills(path)`:
 
 ```ts
-import { Agent, skills } from "@nylorun/agents";
+import { Agent } from "@nylorun/agents";
 
-const assistant = Agent({
-  id: "assistant",
-  name: "Order assistant",
-  instructions: "Use lookup_order for orders.",
-  tools: [lookupOrder],
-}).use(skills("./assistant-skills"));
+const assistant = Agent({ id: "assistant", name: "Order assistant" })
+  .instructions("Use lookup_order for orders.")
+  .tools(lookupOrder)
+  .skills("./assistant-skills");
 ```
 
 Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Supporting files (for example `references/`) are available through `read_skill_resource` after `load_skill`. The helper sets both the manifest skill catalog and the on-disk skill records so you do not duplicate content.
 
-Declare MCP servers with `mcp(...)` (same map shape as agent-plugins `mcpServers` / manifest v3):
+Declare MCP servers with `.mcp(...)` (same map shape as agent-plugins `mcpServers`):
 
 ```ts
-import { Agent, mcp } from "@nylorun/agents";
+import { Agent } from "@nylorun/agents";
 
-const assistant = Agent({
-  id: "assistant",
-  name: "Assistant",
-  instructions: "Use the available tools.",
-}).use(
-  mcp({
-    github: {
-      name: "github",
-      type: "streamable-http",
-      url: "https://mcp.example.com/github",
-    },
-  }),
-);
+const assistant = Agent({ id: "assistant", name: "Assistant" })
+  .instructions("Use the available tools.")
+  .mcp({
+    github: { type: "streamable-http", url: "https://mcp.example.com/github" },
+  });
 ```
 
-Each key must equal that server's `name`. Transports follow [Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers): `stdio`, `streamable-http`, and `sse`. Pass `{ id: "…" }` as the second argument to override the default capability id `"mcp"`.
+Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Transports follow [Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers): `stdio`, `streamable-http`, and `sse`. Attach an Agent Plugin package with `.plugin(path)`.
 
-Give an agent an isolated computer with `sandbox()`:
+Give an agent an isolated computer with `.sandbox()`:
 
 ```ts
-import { Agent, sandbox } from "@nylorun/agents";
+import { Agent } from "@nylorun/agents";
 
-const analyst = Agent({
-  id: "analyst",
-  instructions: "Analyse the data the user gives you. Use Python.",
-}).use(sandbox());
+const analyst = Agent({ id: "analyst" })
+  .instructions("Analyse the data the user gives you. Use Python.")
+  .sandbox();
 ```
 
 The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a Linux machine with a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no connected executor. The agent declares what it needs; the Runtime decides where it runs (today an emulated shell in the Runtime process). Every option is optional plain data:
 
 ```ts
-.use(sandbox({
+.sandbox({
   image: "python:3.13",                           // any OCI image; default python:3.13-slim
   network: { preset: "dev", allow: ["api.example.com"] }, // "none" | "dev" (default) | "open"
   resources: { cpus: 2, memory: "2GiB" },
   idle: "15m",                                    // stop compute when idle; files persist
-}))
+})
 ```
 
 The `dev` preset allows package registries and code hosts. Private networks, loopback, the host and cloud metadata endpoints are always blocked. Options from the full design that are not in this version (`setup`, `files`, `secrets`, `mount`, `onStart`, …) throw a `SandboxError` that says so.
 
-Put an agent in another agent's `tools` to let the model delegate to it:
+Add an agent with `.subagents()` to let the model delegate to it:
 
 ```ts
 import { Agent } from "@nylorun/agents";
@@ -168,54 +154,44 @@ const researcher = Agent({
   id: "researcher",
   description:
     "Investigates an order's history. Returns a short summary with the ids it relied on.",
-  instructions:
-    "Investigate one question about one order. Be exhaustive, then be brief.",
-  tools: [searchOrders, readTicket],
-  outputSchema: z.object({
-    summary: z.string(),
-    evidence: z.array(z.string()),
-  }),
-});
+})
+  .instructions("Investigate one question about one order. Be exhaustive, then be brief.")
+  .tools(searchOrders, readTicket)
+  .output(z.object({ summary: z.string(), evidence: z.array(z.string()) }));
 
-const support = Agent({
-  id: "support",
-  instructions:
+const support = Agent({ id: "support" })
+  .instructions(
     "For anything needing more than two lookups, delegate to researcher with a complete, self-contained task.",
-  tools: [lookupOrder, refundOrder, researcher],
-});
+  )
+  .tools(lookupOrder, refundOrder)
+  .subagents(researcher);
 ```
 
 The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, hooks, skills and MCP servers, served by the executor you already run for the parent (`connectAgents({ agents: [support] })` serves both), shares the session's sandbox, and starts with empty `ctx.state`. Tools can read `ctx.agent` (`{ id, path, delegationId }`). Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
 
-Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, switch capabilities with a `before("step")` patch instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, its tools cannot declare `approval` (keep those on the parent), and `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor` inside it fail with `delegation.interaction-unsupported`. Delegation is not an approval boundary; approvals live on tools.
+Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, switch capabilities with a `.beforeModel()` patch instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, its tools cannot declare `approval` (keep those on the parent), and `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor` inside it fail with `delegation.interaction-unsupported`. Delegation is not an approval boundary; approvals live on tools.
 
-## Workflows
+## Flow agents
 
-Nest `Chain`, `Switch`, `Parallel`, `Map`, and `Loop` around agents and `tool()` to
-build durable flows. A workflow is a definition with `kind: "workflow"`: register
-it in `export const agents` (or `saveAgent(workflow)` — referenced agents are
-saved first), then `createSession({ agentId })` and `session.input(value)` like
-any agent. `input` sends string values as `content` and other JSON as `data`.
-`connectAgents({ agents: [workflow] })` saves the tree and connects executors for
-the workflow id and every referenced agent. Tool nodes, pure functions (slot
-`input`, Switch `on`, Map `over`, Loop `decide`), and Loop `verify` run as Actions
-routed by `(workflowId, key)`.
+An agent's body is either a ReAct loop (the model decides) or a flow (your code
+decides). A flow agent is built from stages, each shaped `.stage(whatRuns, { how })`,
+and is registered, saved and opened as a session like any agent: put it in
+`export const agents`, `saveAgent(flowAgent)` (the agents it uses are saved first),
+then `createSession({ agentId })` and `session.input(value)`. `input` sends string
+values as `content` and other JSON as `data`. On the wire a flow agent is a
+workflow (`kind: "workflow"`).
 
 ```ts
-import { Agent, Chain, Loop, Map, tool } from "@nylorun/agents";
+import { Agent, tool } from "@nylorun/agents";
 import { z } from "zod";
 
-const planner = Agent({
-  id: "planner",
-  instructions: "Return { tasks: string[] }.",
-  outputSchema: z.object({ tasks: z.array(z.string()) }),
-}).build();
+const planner = Agent({ id: "planner" })
+  .instructions("Return { tasks: string[] }.")
+  .output(z.object({ tasks: z.array(z.string()) }));
 
-const coder = Agent({
-  id: "coder",
-  instructions: "Implement one task. Return { summary }.",
-  outputSchema: z.object({ summary: z.string() }),
-}).build();
+const coder = Agent({ id: "coder" })
+  .instructions("Implement one task. Return { summary }.")
+  .output(z.object({ summary: z.string() }));
 
 const openPr = tool({
   name: "open-pr",
@@ -226,43 +202,41 @@ const openPr = tool({
   },
 });
 
-export const shipFeature = Chain({
-  id: "ship-feature",
-  steps: [
-    planner,
-    Map({
-      id: "implement",
-      over: (plan) => plan.tasks,
-      each: Loop({
-        id: "code",
-        run: coder,
-        verify: () => ({ pass: true }),
-        decide: ({ output }) => ({ output }),
-      }),
+export const shipFeature = Agent({ id: "ship-feature" })
+  .step(planner)
+  .map(
+    Agent({ id: "code" }).loop(coder, {
+      verify: ({ output }) => (output.summary ? { pass: true } : { pass: false, feedback: "Say what you changed." }),
+      max: 2,
     }),
-    {
-      run: openPr,
-      input: ({ value }) => ({
-        summaries: value.map((item: { summary: string }) => item.summary),
-      }),
-    },
-  ],
-});
+    { id: "implement", input: ({ input }) => input.tasks },
+  )
+  .step(openPr, { input: ({ input }) => ({ summaries: input.map((item) => item.summary) }) });
 
 export const agents = [shipFeature];
 ```
 
-| Primitive | Role |
+| Stage | Role |
 | --- | --- |
-| **Chain** | Steps in order; slots reshape with `{ run, id?, input? }` |
-| **Switch** | Pure `on(input) → key`, then the matching case (or `default`) |
-| **Parallel** | Fixed named branches at once; output is an object |
-| **Map** | Pure `over(input) → items`, one child per item; output is an array |
-| **Loop** | `run` → `verify` → `decide` until `{ output }` |
+| **`.step(x, { id?, input? })`** | Run one agent, tool or `flow()`; its output is the next stage's input |
+| **`.switch({ ...cases, default? }, { on })`** | `on({ input })` returns a case name; exactly that case runs |
+| **`.parallel(branches)`** | Fixed named branches at once, same input; output is an object |
+| **`.map(each)`** | Run `each` once per item of the input, which must be an array; output is an array |
+| **`.loop(body, { verify, max?, decide? })`** | Run, verify, run again with the feedback until it passes; needs `max` or `decide` |
 
-Agents inside a workflow keep their own sessions (linked from the workflow
-session) and share one sandbox: declare identical specs on every agent that
-uses one, attach with `createSession({ …, sandbox: { session } })`, call
+Every function receives one object: `{ input, results, flowInput }`. `input` is
+what the stage received, `results` holds earlier steps' outputs by step id, and
+`flowInput` is the agent's own input. The `input` option computes a stage's input;
+the `id` option names a step. `flow()` builds a sequence with no id for a case,
+branch, map item or loop body that is more than one step. Types flow from each
+step's `.output()` schema to the next stage's `input`.
+
+`Chain`, `Switch`, `Parallel`, `Map` and `Loop` still build the same workflows
+directly; flow agents compile to them.
+
+Agents inside a flow keep their own sessions (linked from the flow's session)
+and share one sandbox: declare it with `.sandbox(spec)` on the flow agent and give
+every agent in it that uses a sandbox the same spec, attach with `createSession({ …, sandbox: { session } })`, call
 built-ins via `session.sandbox` (application) or `ctx.sandbox` (executor).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and

@@ -23,9 +23,8 @@ export type {
   Compatibility,
   ErrorCode,
 } from "@nylorun/core/compatibility";
+export { Agent, AgentBuilder } from "./builder.js";
 export {
-  Agent,
-  AgentBuilder,
   AgentBuildError,
   AgentLifecycleError,
   Loop,
@@ -40,9 +39,19 @@ export {
   WorkflowBuildError,
   isBuiltWorkflow,
   capability,
+  CapabilityBuilder,
+  flow,
   tool,
   defineSchema,
   ToolError,
+} from "@nylorun/core/define";
+export type {
+  FlowAgentBuilder,
+  Flow,
+  Named,
+  StageArgs,
+  NestedStageArgs,
+  CapabilityIdentity,
 } from "@nylorun/core/define";
 export type {
   AgentOptions,
@@ -123,7 +132,7 @@ export type {
   SkillDiagnostic,
 } from "./skills/index.js";
 export { mcp, McpError } from "./mcp/index.js";
-export type { McpCapability, McpOptions } from "./mcp/index.js";
+export type { McpCapability, McpOptions, McpServerSpec } from "./mcp/index.js";
 export { sandbox, SandboxError } from "./sandbox/index.js";
 export type {
   SandboxCapability,

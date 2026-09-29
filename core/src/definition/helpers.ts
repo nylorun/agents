@@ -7,7 +7,6 @@ import type {
   ToolSchemaSource,
 } from "../types/tool.js";
 import { prepareTool } from "./schema.js";
-import { delegateTool, isAgentItem } from "./delegate.js";
 
 export const tool = <
   InputSchema extends ToolInputSchema,
@@ -28,51 +27,6 @@ export const model = <T extends ModelAdapter>(value: T): T => value;
 /** @deprecated Prefer `before` / `after` hooks. Kept through 1.0. */
 export const middleware = <T extends StepMiddleware>(value: T): T => value;
 
-/** Compose a reusable capability bundle (tools, instructions, optional hooks). */
-export function capability<Info = unknown>(declaration: {
-  readonly id: string;
-  readonly name?: string;
-  readonly description?: string;
-  readonly tools?: readonly (ToolDefinition<any, Info, any> | import("../types/agent.js").AgentTool)[];
-  readonly instructions?: string | readonly string[];
-  /** Run before each turn or before every model call (step). */
-  readonly before?: import("../types/dynamics.js").BeforeHooks<Info>;
-  /** Run after every model call (step) or after the turn's final answer. */
-  readonly after?: import("../types/dynamics.js").AfterHooks<Info>;
-  /** @deprecated Prefer before / after hooks. */
-  readonly middleware?: StepMiddleware<Info>;
-  /** @deprecated Model resolution is Runtime-owned; not projected into the manifest. */
-  readonly model?: import("../types/model.js").ModelDirective;
-}): import("../types/middleware.js").CapabilityDeclaration<Info> {
-  const instructions =
-    declaration.instructions === undefined
-      ? undefined
-      : typeof declaration.instructions === "string"
-      ? [declaration.instructions]
-      : declaration.instructions;
-  return {
-    id: declaration.id,
-    ...(declaration.name === undefined ? {} : { name: declaration.name }),
-    ...(declaration.description === undefined
-      ? {}
-      : { description: declaration.description }),
-    ...(declaration.tools === undefined
-      ? {}
-      : {
-          tools: declaration.tools.map((item) =>
-            isAgentItem(item)
-              ? delegateTool(item)
-              : (item as ToolDefinition<any, Info, any>)
-          ),
-        }),
-    ...(instructions === undefined ? {} : { instructions }),
-    ...(declaration.before === undefined ? {} : { before: declaration.before }),
-    ...(declaration.after === undefined ? {} : { after: declaration.after }),
-    ...(declaration.middleware === undefined
-      ? {}
-      : { middleware: declaration.middleware }),
-    ...(declaration.model === undefined ? {} : { model: declaration.model }),
-  };
-}
+export { capability } from "./capability.js";
 
 export type { ToolSchemaSource };

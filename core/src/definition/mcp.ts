@@ -1,7 +1,12 @@
-import type {
-  CapabilityDeclaration,
-  McpServerManifest,
-} from "@nylorun/core/define";
+import type { CapabilityDeclaration } from "../types/middleware.js";
+import type { McpServerManifest } from "../types/manifest.js";
+
+type WithOptionalName<T> = T extends { readonly name: string }
+  ? Omit<T, "name"> & { readonly name?: string }
+  : never;
+
+/** An MCP server as written by an author: `name` defaults to the server's key. */
+export type McpServerSpec = WithOptionalName<McpServerManifest>;
 
 export interface McpOptions {
   /** Capability id. Defaults to `"mcp"`. */
@@ -23,42 +28,47 @@ export class McpError extends Error {
 }
 
 /**
- * Declare MCP servers as one capability for `Agent.use`.
+ * Declare MCP servers as one capability.
  *
- * The map shape matches agent-plugins `mcpServers` and manifest v3: each key
- * must equal that server's `name`. Supported transports are `stdio`,
+ * Prefer `Agent(...).mcp({ ... })`. Each key names a server; its `name` defaults to
+ * the key and, when given, must equal it. Supported transports are `stdio`,
  * `streamable-http`, and `sse` (see https://agent-plugins.org/plugin-authors/mcp-servers).
  *
  * ```ts
- * Agent({...}).use(mcp({
- *   github: {
- *     name: "github",
- *     type: "streamable-http",
- *     url: "https://mcp.example.com/github",
- *   },
- * }))
+ * Agent({ id: "assistant" }).mcp({
+ *   github: { type: "streamable-http", url: "https://mcp.example.com/github" },
+ * })
  * ```
  */
 export function mcp(
-  servers: Readonly<Record<string, McpServerManifest>>,
+  servers: Readonly<Record<string, McpServerSpec>>,
   options: McpOptions = {}
 ): McpCapability {
   const id = options.id ?? "mcp";
+  return { id, mcpServers: normalizeMcpServers(servers, "mcp()") };
+}
+
+/** Validate a map of MCP servers and fill each `name` from its key. */
+export function normalizeMcpServers(
+  servers: Readonly<Record<string, McpServerSpec>>,
+  caller = "mcp()"
+): Readonly<Record<string, McpServerManifest>> {
   if (!isRecord(servers)) {
     throw new McpError(
       "mcp.invalid",
-      "mcp() expects a non-empty map of MCP servers"
+      `${caller} expects a non-empty map of MCP servers`
     );
   }
   const entries = Object.entries(servers);
   if (entries.length === 0) {
     throw new McpError(
       "mcp.empty",
-      "mcp() requires at least one MCP server"
+      `${caller} requires at least one MCP server`
     );
   }
   const mcpServers: Record<string, McpServerManifest> = {};
-  for (const [key, server] of entries) {
+  for (const [key, spec] of entries) {
+    const server = isRecord(spec) && spec.name === undefined ? { ...spec, name: key } : spec;
     if (!isMcpServer(server)) {
       throw new McpError(
         "mcp.invalid-server",
@@ -73,7 +83,7 @@ export function mcp(
     }
     mcpServers[key] = freezeServer(server);
   }
-  return { id, mcpServers: Object.freeze(mcpServers) };
+  return Object.freeze(mcpServers);
 }
 
 function freezeServer(server: McpServerManifest): McpServerManifest {

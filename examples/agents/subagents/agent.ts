@@ -11,7 +11,7 @@ import {
 
 /**
  * A parent that delegates to the Instructions, Skills, and Tool Use examples.
- * Each agent in `tools` becomes a tool named after its id; its description is the routing text.
+ * Each subagent becomes a tool named after its id; its description is the routing text.
  * The engine runs each one with a fresh context and returns only its final answer.
  */
 export async function createSubagents(
@@ -22,16 +22,13 @@ export async function createSubagents(
     createSkills(deps),
     createToolUse(deps),
   ]);
-  return Agent({
-    id: "subagents",
-    name: "Subagents",
-    instructions: [
+  return Agent({ id: "subagents", name: "Subagents" })
+    .instructions(
       exampleInstructions,
       "Do not do specialist work yourself. Delegate each task to the matching agent.",
       "Write each task so it stands on its own: the agent sees nothing but the task.",
-    ],
-    tools: [instructions, skills, toolUse],
-  })
-    .use(modelSelection(deps.provider, deps.model))
+    )
+    .subagents(instructions, skills, toolUse)
+    .capability(modelSelection(deps.provider, deps.model))
     .build();
 }

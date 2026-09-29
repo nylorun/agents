@@ -11,9 +11,7 @@ const lookupOrder = tool({
   },
 });
 
-export const assistant = Agent({
-  id: "assistant",
-  name: "Order assistant",
-  instructions: "Help with orders. Always use lookup_order for order questions. Remember conversation context.",
-  tools: [lookupOrder],
-}).build();
+export const assistant = Agent({ id: "assistant", name: "Order assistant" })
+  .instructions("Help with orders. Always use lookup_order for order questions. Remember conversation context.")
+  .tools(lookupOrder)
+  .build();

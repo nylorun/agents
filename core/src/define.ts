@@ -20,6 +20,28 @@ export {
 } from "./definition/delegate.js";
 export type { Delegate } from "./definition/delegate.js";
 export { capability, middleware, model, tool } from "./definition/helpers.js";
+export { sandbox, SandboxError } from "./definition/sandbox.js";
+export type {
+  SandboxCapability,
+  SandboxCapabilityOptions,
+  SandboxOptions,
+} from "./definition/sandbox.js";
+export { mcp, McpError, normalizeMcpServers } from "./definition/mcp.js";
+export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
+export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";
+export { flow, FlowBuilder, isFlowBuilder } from "./definition/flow/index.js";
+export type {
+  FlowAgentBuilder,
+  Flow,
+  Named,
+  StageArgs,
+  NestedStageArgs,
+  FlowOut,
+  LoopChoice,
+  LoopDecideArgs as FlowLoopDecideArgs,
+  LoopVerifyFn as FlowLoopVerifyFn,
+} from "./definition/flow/index.js";
+export type { McpCapability, McpOptions, McpServerSpec } from "./definition/mcp.js";
 export { ToolError, isToolError } from "./definition/tool-error.js";
 export { defineSchema } from "./definition/schema.js";
 export { hashManifest } from "./utils/hash.js";

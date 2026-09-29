@@ -1,24 +1,23 @@
-import { Agent, Chain, Map, tool } from "@nylorun/agents/define";
+import { Agent, tool } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * Map: one run per item of a list, concurrently.
- * Design: docs/design/workflows/map.md
+ * Map: the same step once per item of a list, concurrently.
+ * Design: docs/design/agent/flow-agents.md
  */
 const planner = Agent({
   id: "planner",
   name: "Section planner",
   description: "Plans sections for a digest.",
-  instructions: "Plan section titles for the topic. Return { sections: string[] }.",
-  outputSchema: z.object({ sections: z.array(z.string()) }),
-}).build();
+})
+  .instructions("Plan section titles for the topic. Return { sections: string[] }.")
+  .output(z.object({ sections: z.array(z.string()) }));
 
 const sectionWriter = Agent({
   id: "section-writer",
   name: "Section writer",
   description: "Writes one section from a title.",
-  instructions: "Write one short section for the given title.",
-}).build();
+}).instructions("Write one short section for the given title.");
 
 const merge = tool({
   name: "merge",
@@ -30,18 +29,11 @@ const merge = tool({
   },
 });
 
-export const digest = Chain({
+export const digest = Agent({
   id: "digest",
-  steps: [
-    planner,
-    Map({
-      id: "write",
-      over: (plan) => (plan as { sections: string[] }).sections,
-      each: sectionWriter,
-    }),
-    {
-      run: merge,
-      input: ({ value }) => ({ parts: value as string[] }),
-    },
-  ],
-});
+  name: "Digest",
+  description: "Plans sections, writes each one, and joins them into a digest.",
+})
+  .step(planner)
+  .map(sectionWriter, { id: "write", input: ({ input }) => input.sections })
+  .step(merge, { input: ({ input }) => ({ parts: input }) });
