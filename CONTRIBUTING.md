@@ -43,8 +43,9 @@ support remains separate from the pinned contributor toolchain.
    (default `~/.nylorun`) as Compose project `nylorun`, and outlives
    `npm run dev`.
 3. It links `examples/` to its Tenant once (`nylo tenant create`, the Project
-   link in the git-ignored `examples/.nylorun/`), prints a single-use Studio
-   login URL for that Tenant (`nylorun studio`, opened unless `--no-open`), and
+   link in the git-ignored `examples/.nylorun/`), signs the browser in to Studio
+   on that Tenant (`nylorun studio`; `--no-open` prints a single-use login URL
+   instead), and
    starts the examples executor with their own `npm run dev` (`tsx watch`).
 4. It watches `core`, `harness`, `agents`, `admin`, `runtime`, `nylorun`, `cli`
    and `studio`. An edit rebuilds that package and the packages that depend on it,

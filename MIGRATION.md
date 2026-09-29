@@ -26,6 +26,16 @@ it is opened, within limits its Tenant sets, so the same agent runs in any Tenan
 - **Executors.** `ctx.sandbox` follows the session (the action claim says whether it
   has one), so tools and `verify` in a tree opened with a sandbox get it.
 
+# Studio opens signed in
+
+`nylorun up` prints Studio as `http://localhost:<port>`, without a login token.
+In a terminal it opens Studio in the browser, signed in; `--no-open` (or CI)
+keeps the browser closed and says to run `nylorun studio`. A sign-in lasts 30
+days and survives Studio restarts. `nylorun studio` also prints the plain URL
+when it opens the browser; `nylorun studio --no-open` still prints the
+single-use login URL, so scripts that read the `Studio` line of `nylorun up`
+should use `nylorun studio --no-open` instead.
+
 # Flow agents as subagents
 
 `.subagents(flowAgent)` now works: the flow agent's workflow manifest v2 is inlined in

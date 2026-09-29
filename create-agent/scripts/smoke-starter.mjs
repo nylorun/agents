@@ -187,7 +187,7 @@ try {
       const up = (await stack.nylorun(["up"], { cwd: project })).stdout;
       const runtimeUrl = field(up, "Runtime");
       assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/, up);
-      assert.match(field(up, "Studio") ?? "", /^http:\/\/localhost:\d+\/login\?token=/, up);
+      assert.match(field(up, "Studio") ?? "", /^http:\/\/localhost:\d+$/, up);
       const admin = await stack.admin(
         pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
       );
