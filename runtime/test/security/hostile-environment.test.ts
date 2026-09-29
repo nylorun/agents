@@ -78,7 +78,10 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
       headers: a.headers(),
     });
     expect(sandbox.status).toBe(200);
-    expect(sandbox.raw).not.toContain(`"${HOSTILE_SANDBOX}"`);
+    // The backend selection must ignore NYLORUN_SANDBOX. The Tenant's own configuration
+    // (`config`, whose unset default is also the word "none") is not part of the selection.
+    const { config: _config, ...selection } = sandbox.body as Record<string, unknown>;
+    expect(JSON.stringify(selection)).not.toContain(`"${HOSTILE_SANDBOX}"`);
 
     const status = await getJson(`${host.url}/v1/tenant`, {
       headers: a.headers(),

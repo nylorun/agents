@@ -1,6 +1,8 @@
 /**
- * Shared workflow sandbox: one sandbox per owning session, attached via
- * PutSession.sandbox = { session }. Specs must match; keys use the owner id.
+ * Shared sandboxes: one sandbox per owning session, attached via PutSession.sandbox =
+ * { session }; keys use the owner id. A sandbox is either declared by the definition (an agent
+ * capability or a workflow's `sandbox`) or chosen when the session was opened and pinned on the
+ * session record (`sandbox`).
  */
 import {
   canonical,
@@ -16,7 +18,14 @@ export type SessionSandboxRef = {
   readonly manifest: AgentManifest | WorkflowManifest | Record<string, unknown>;
   /** Session whose id keys the sandbox. Absent means this session owns its own. */
   readonly sandboxOwnerId?: string | null;
+  /** The sandbox chosen when the session was opened (or inherited from its owner), resolved. */
+  readonly sandbox?: SandboxManifest;
 };
+
+/** The session's sandbox spec: the one pinned at open, else the one its definition declares. */
+export function sessionSandboxSpec(session: SessionSandboxRef): SandboxManifest | undefined {
+  return session.sandbox ?? sandboxSpecOf(session.manifest);
+}
 
 /** Sandbox spec declared on an agent capability or a workflow manifest. */
 export function sandboxSpecOf(
@@ -77,5 +86,5 @@ export function sessionHasSandbox(
 ): boolean {
   const ownerId = owningSandboxSessionId(session, lookup);
   const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
-  return sandboxSpecOf(owner.manifest) !== undefined || sandboxSpecOf(session.manifest) !== undefined;
+  return sessionSandboxSpec(owner) !== undefined || sessionSandboxSpec(session) !== undefined;
 }

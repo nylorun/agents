@@ -24,6 +24,10 @@ export {
 export type { Delegate } from "./definition/delegate.js";
 export { capability, middleware, model, tool } from "./definition/helpers.js";
 export { sandbox, SandboxError } from "./definition/sandbox.js";
+export {
+  SANDBOX_CAPABILITY_ID,
+  sandboxCapabilityManifest,
+} from "./definition/sandbox-capability.js";
 export type {
   SandboxCapability,
   SandboxCapabilityOptions,

@@ -11,6 +11,7 @@ import {
   CreateCredentialRequestSchema,
   CreateVaultRequestSchema,
   PutHostModelRequestSchema,
+  PutTenantSandboxRequestSchema,
   ResetTenantRequestSchema,
   RotateCredentialRequestSchema,
   SeedTenantConfigRequestSchema,
@@ -30,6 +31,18 @@ import {
 } from "./streams.js";
 import { clearWork, drain } from "./scheduler.js";
 import { usesFixtureModel } from "./model-setting.js";
+import { sandboxConfigErrors } from "../sandbox/resolve.js";
+import {
+  effectiveSandboxConfig,
+  readSandboxConfig,
+  writeSandboxConfig,
+} from "../sandbox/tenant-config.js";
+
+/** `GET /v1/tenant/sandbox`: the backend report and the configuration with defaults applied. */
+async function sandboxView(ctx: TenantContext): Promise<unknown> {
+  const config = await ctx.store.tx((t) => readSandboxConfig(t));
+  return { ...(await ctx.sandbox.report()), config: effectiveSandboxConfig(config) };
+}
 
 export async function dispatchTenant(
   ctx: TenantContext,
@@ -102,7 +115,19 @@ export async function dispatchTenant(
   if (path[2] === "models" && path.length === 3 && method === "GET")
     return hostModelCatalog();
   if (path[2] === "sandbox" && path.length === 3 && method === "GET")
-    return ctx.sandbox.report();
+    return sandboxView(ctx);
+  if (path[2] === "sandbox" && path.length === 3 && method === "PUT") {
+    const { requestId: _requestId, ...config } = PutTenantSandboxRequestSchema.parse(
+      await readBody(request)
+    );
+    const errors = sandboxConfigErrors(
+      effectiveSandboxConfig(config),
+      (await ctx.sandbox.ready).backend?.name
+    );
+    if (errors.length > 0) fail(400, errors.join(" "));
+    await ctx.store.tx((t) => writeSandboxConfig(t, config));
+    return sandboxView(ctx);
+  }
   if (path[2] === "providers" && path.length === 3 && method === "GET")
     return vault.listHostProviders();
   if (path[2] === "model" && path.length === 3 && method === "GET")
