@@ -12,8 +12,8 @@ and is not published to npm. It depends only on `@nylorun/agents` and
 Developers never install this package. `nylorun` runs it:
 
 ```sh
-npx nylorun up         # starts the stack, including Studio, and prints a login URL
-npx nylorun studio     # opens a fresh login (on the linked Project's Tenant)
+npx nylorun up         # starts the stack, including Studio, and opens it signed in
+npx nylorun studio     # signs a browser in (on the linked Project's Tenant)
 npx nylorun status     # reports Studio's health and URL
 npx nylorun logs studio
 ```
@@ -26,15 +26,26 @@ as `http://localhost:<port>`.
 1. The CLI asks Studio for a login token: `POST /_studio/login-tokens` with the
    Host's admin key. The token is 256 random bits, single-use, and valid for
    two minutes.
-2. The CLI opens `/login?token=…` (optionally `&next=/tenants/<id>`). Studio
-   consumes the token, sets an `HttpOnly`, `SameSite=Strict` session cookie and
+2. The CLI opens `/login?token=…` (optionally `&next=/tenants/<id>`) in the
+   browser and prints only `http://localhost:<port>`. Studio consumes the
+   token, sets an `HttpOnly`, `SameSite=Strict` session cookie for 30 days and
    redirects to `next` or `/`.
 3. Every request needs that cookie, except `GET /healthz`. The `Host` header
    must be `localhost` or `127.0.0.1` on the published port; state-changing
    requests must carry this origin's `Origin`; Studio never sends CORS headers.
-4. Sessions live in the Studio process and end when the container restarts.
+4. The session cookie is `v1.<issued>.<nonce>.<signature>`, an HMAC-SHA256
+   with a key derived from the admin key. Studio keeps no session state, so a
+   session survives container restarts and ends after 30 days or when the admin
+   key changes (`nylorun reset`).
 
-The dashboard lists Tenants through the Admin API. Each Tenant view calls the
+The dashboard lists and creates Tenants through the Admin API. While the Host
+has none, `/` asks for a name and creates the first (`POST /_studio/tenants`).
+A Tenant Studio creates registers the derived principal `project`, so a Project
+on this machine links it with `npx @nylorun/cli tenant use <id>`, which derives
+the key from the local admin key; the application key `createTenant` returns is
+dropped and never reaches the browser. A Tenant with no agents shows **Connect
+your code**: the model provider, that command, and `npm run dev`, and it
+switches to the agent list when the first agent registers. Each Tenant view calls the
 Tenant API through `/_studio/tenants/<id>/runtime/…`, which the server forwards
 with that Tenant's Studio key (derived from the admin key in memory). No
 Runtime, admin or Tenant credential ever reaches the browser.

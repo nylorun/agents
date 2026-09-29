@@ -18,7 +18,8 @@ const usage = `nylo <tenant|access|configure|env|doctor>
 
 Runtime client (the local stack's Runtime, or any Runtime by URL and key):
   tenant create [name]                    create a Tenant; in a Project, link it and seed it from .env
-  tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete
+  tenant use <name-or-id>                 link this Project to a Tenant, e.g. one created in Studio
+  tenant current|list [--json]|status [--json]|reset|delete
   access policy get|set <file>|init       the access policy for subject tokens (nylo access --help)
   access keys list|create|set-origins|revoke  publishable keys for web pages and apps
   access signing-keys list|rotate|revoke  the Tenant's token signing keys

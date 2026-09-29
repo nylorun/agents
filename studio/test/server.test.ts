@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
@@ -16,10 +17,12 @@ import {
   PROTOCOL_VERSION,
   TENANT_HEADER,
 } from "@nylorun/agents";
-import { deriveStudioToken } from "@nylorun/admin";
+import { deriveStudioToken, deriveTenantKey } from "@nylorun/admin";
 import {
   LOGIN_TOKEN_TTL_MS,
   SESSION_COOKIE,
+  SESSION_TTL_MS,
+  TENANT_NAME_MAX,
   parseRuntimeUrl,
   readAdminKeyFile,
   safeNextPath,
@@ -48,8 +51,22 @@ async function startFakeRuntime() {
           protocol: {
             min: PROTOCOL_VERSION,
             max: PROTOCOL_VERSION,
-            features: [...PROTOCOL_FEATURES],
+            features: [...PROTOCOL_FEATURES, "derived-principals"],
           },
+        }),
+      );
+      return;
+    }
+    if (req.url === "/v1/admin/tenants" && req.method === "POST") {
+      const created = JSON.parse(body) as { tenantId: string; name: string };
+      res.statusCode = 201;
+      res.end(
+        JSON.stringify({
+          id: created.tenantId,
+          name: created.name,
+          createdAt: "2026-09-29T00:00:00.000Z",
+          updatedAt: "2026-09-29T00:00:00.000Z",
+          schemaVersion: 1,
         }),
       );
       return;
@@ -132,18 +149,18 @@ async function withStudio(
     runtime: Awaited<ReturnType<typeof startFakeRuntime>>;
     clock: { now: number };
   }) => Promise<void>,
-  extra: { publicPort?: number } = {},
+  extra: { publicPort?: number; adminKey?: string; clock?: { now: number } } = {},
 ) {
   const runtime = await startFakeRuntime();
   const root = await webRoot();
-  const clock = { now: 1_000_000 };
+  const { clock = { now: 1_000_000 }, ...options } = extra;
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: ADMIN_KEY,
     port: 0,
     webRoot: root,
     now: () => clock.now,
-    ...extra,
+    ...options,
   });
   try {
     await run({ port: studio.port, runtime, clock });
@@ -202,10 +219,11 @@ test("login tokens need the admin key and are 256-bit, single-use", async () => 
     assert.equal(first.status, 303);
     assert.equal(first.headers.location, "/");
     const cookie = String(first.headers["set-cookie"]?.[0]);
-    assert.match(cookie, new RegExp(`^${SESSION_COOKIE}=[A-Za-z0-9_-]{43};`));
+    assert.match(cookie, new RegExp(`^${SESSION_COOKIE}=v1\\.\\d+\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43};`));
     assert.match(cookie, /; HttpOnly/);
     assert.match(cookie, /; SameSite=Strict/);
     assert.match(cookie, /; Path=\//);
+    assert.match(cookie, new RegExp(`; Max-Age=${SESSION_TTL_MS / 1000}$`));
 
     const again = await send(port, { path: `/login?token=${token}` });
     assert.equal(again.status, 401);
@@ -227,6 +245,45 @@ test("login tokens expire after two minutes", async () => {
     assert.equal(reply.status, 401);
     assert.equal(reply.headers["set-cookie"], undefined);
   });
+});
+
+test("a session survives a Studio restart and lasts 30 days", async () => {
+  const clock = { now: 1_000_000 };
+  let cookie = "";
+  await withStudio(async ({ port }) => {
+    cookie = await session(port);
+  }, { clock });
+  // A new Studio process with the same admin key accepts the cookie.
+  await withStudio(async ({ port }) => {
+    clock.now += SESSION_TTL_MS - 1;
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 200);
+    clock.now += 1;
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 401);
+  }, { clock });
+});
+
+test("a session ends when the admin key changes, and cannot be forged", async () => {
+  const clock = { now: 1_000_000 };
+  let cookie = "";
+  await withStudio(async ({ port }) => {
+    cookie = await session(port);
+  }, { clock });
+  await withStudio(async ({ port }) => {
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 401);
+  }, { clock, adminKey: "b".repeat(64) });
+  await withStudio(async ({ port }) => {
+    const [name, value] = cookie.split("=") as [string, string];
+    const [version, issuedAt, nonce, signature] = value.split(".");
+    const forged = [
+      `${name}=${version}.${Number(issuedAt) + 1}.${nonce}.${signature}`,
+      `${name}=${version}.${issuedAt}.${nonce}.${signature!.slice(0, -1)}${signature!.endsWith("A") ? "B" : "A"}`,
+      `${name}=v2.${issuedAt}.${nonce}.${signature}`,
+      `${name}=${version}.${clock.now + 10 * 60 * 1000}.${nonce}.${signature}`,
+    ];
+    for (const attempt of forged)
+      assert.equal((await send(port, { path: "/", headers: { cookie: attempt } })).status, 401, attempt);
+    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 200);
+  }, { clock });
 });
 
 test("login redirects only to same-origin paths", async () => {
@@ -439,6 +496,71 @@ test("the Tenant list comes from the Admin API with the admin key", async () => 
     assert.equal(hello.status, 200);
     assert.deepEqual(JSON.parse(hello.body).runtime, { compatible: true });
     assertNoKeys(hello);
+  });
+});
+
+test("Studio creates a Tenant with the project principal and returns no key", async () => {
+  await withStudio(async ({ port, runtime }) => {
+    const cookie = await session(port);
+    const origin = `http://localhost:${port}`;
+    const create = (body: string, headers: Record<string, string> = {}) =>
+      send(port, {
+        method: "POST",
+        path: "/_studio/tenants",
+        body,
+        headers: { cookie, origin, "content-type": "application/json", ...headers },
+      });
+
+    const anonymous = await send(port, {
+      method: "POST",
+      path: "/_studio/tenants",
+      body: '{"name":"x"}',
+      headers: { origin, "content-type": "application/json" },
+    });
+    assert.equal(anonymous.status, 401);
+    const noOrigin = await send(port, {
+      method: "POST",
+      path: "/_studio/tenants",
+      body: '{"name":"x"}',
+      headers: { cookie, "content-type": "application/json" },
+    });
+    assert.equal(noOrigin.status, 403);
+    for (const [body, headers] of [
+      ['{"name":"  "}', {}],
+      [JSON.stringify({ name: "n".repeat(TENANT_NAME_MAX + 1) }), {}],
+      ['{"name":3}', {}],
+      ["not json", {}],
+      ['{"name":"x"}', { "content-type": "text/plain" }],
+      [JSON.stringify({ name: "x", pad: "p".repeat(5000) }), {}],
+    ] as const) {
+      const rejected = await create(body, headers);
+      assert.equal(rejected.status, 400, body.slice(0, 40));
+    }
+    assert.equal(runtime.seen.filter((s) => s.method === "POST").length, 0);
+
+    const reply = await create(JSON.stringify({ name: "  my-agents  " }));
+    assert.equal(reply.status, 201, reply.body);
+    const { tenant } = JSON.parse(reply.body) as { tenant: { id: string; name: string; state: string } };
+    assert.equal(tenant.name, "my-agents");
+    assert.equal(tenant.state, "open");
+    assert.match(tenant.id, /^tn_/);
+
+    const sent = runtime.seen.find((s) => s.method === "POST" && s.path === "/v1/admin/tenants");
+    assert.ok(sent);
+    assert.equal(sent.headers.authorization, `Bearer ${ADMIN_KEY}`);
+    const request = JSON.parse(sent.body) as {
+      tenantId: string;
+      name: string;
+      derivedPrincipals: { id: string; credentialHash: string }[];
+    };
+    assert.equal(request.tenantId, tenant.id);
+    const projectKey = deriveTenantKey(ADMIN_KEY, tenant.id, "project");
+    assert.deepEqual(request.derivedPrincipals, [
+      { id: "project", credentialHash: createHash("sha256").update(projectKey).digest("hex") },
+    ]);
+    assert.ok(!reply.body.includes(projectKey), "the project key never reaches the browser");
+    assert.ok(!reply.body.includes("applicationKey"));
+    assertNoKeys(reply);
   });
 });
 

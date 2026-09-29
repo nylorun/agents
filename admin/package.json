@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/admin",
-  "version": "0.4.1-beta",
+  "version": "0.5.0-beta",
   "description": "Nylorun Admin API client for Tenants and Host status",
   "type": "module",
   "license": "Apache-2.0",

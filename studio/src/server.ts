@@ -4,24 +4,33 @@
  *
  * - The CLI mints a single-use login token with the admin key
  *   (`POST /_studio/login-tokens`) and opens `/login?token=…`, which sets an
- *   `HttpOnly`, `SameSite=Strict` session cookie.
+ *   `HttpOnly`, `SameSite=Strict` session cookie for `SESSION_TTL_MS`. The
+ *   cookie is signed with a key derived from the admin key, so it survives
+ *   Studio restarts and ends when the admin key changes (`nylorun reset`).
  * - Every other request needs that cookie, except `/healthz`.
  * - `Host` must be the published loopback address (DNS rebinding); requests
  *   that change state must carry this origin's `Origin`; no CORS headers.
- * - Tenants are listed through the Admin API with the admin key. Tenant API
+ * - Tenants are listed and created through the Admin API with the admin key.
+ *   A Tenant Studio creates registers the derived principal `project`, so a
+ *   Project on this machine can link it (`nylo tenant use`). Tenant API
  *   calls use the Tenant's Studio key, derived from the admin key in memory.
  *   No key ever reaches the browser.
  *
  * This module does not read the environment; `server-main.ts` does.
  */
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { AdminError, createAdmin, deriveStudioToken } from "@nylorun/admin";
+import {
+  AdminError,
+  PROJECT_PRINCIPAL_ID,
+  createAdmin,
+  deriveStudioToken,
+} from "@nylorun/admin";
 import { packagedWebRoot, serveDashboard } from "./static.js";
 import { proxyRuntime } from "./proxy.js";
 import {
@@ -32,6 +41,11 @@ import {
 
 export const SESSION_COOKIE = "nylorun_studio_session";
 export const LOGIN_TOKEN_TTL_MS = 2 * 60 * 1000;
+/** How long a browser stays signed in: 30 days. */
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_VERSION = "v1";
+/** Sessions issued this far in the future (clock skew) are still accepted. */
+const SESSION_SKEW_MS = 60 * 1000;
 
 export type StudioServerOptions = Readonly<{
   /** Runtime base URL, e.g. `http://runtime:4000`. Non-loopback is allowed. */
@@ -46,7 +60,7 @@ export type StudioServerOptions = Readonly<{
   publicPort?: number;
   /** Built dashboard directory. Default: `dist/web` beside this module. */
   webRoot?: string;
-  /** Clock for login-token expiry (tests). */
+  /** Clock for login-token and session expiry (tests). */
   now?: () => number;
 }>;
 
@@ -70,6 +84,9 @@ export type StudioServerHello = Readonly<{
 }>;
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
+/** Longest Tenant name Studio creates. */
+export const TENANT_NAME_MAX = 64;
+const MAX_JSON_BODY = 4096;
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TENANT_RUNTIME = /^\/_studio\/tenants\/([^/]+)\/runtime(\/.*)$/;
 
@@ -136,6 +153,33 @@ function digest(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
 }
 
+/** The key that signs session cookies, derived from the admin key. */
+function sessionKey(adminKey: string): Buffer {
+  return createHmac("sha256", adminKey).update("nylorun/studio-session/v1", "utf8").digest();
+}
+
+function sign(key: Buffer, payload: string): string {
+  return createHmac("sha256", key).update(payload, "utf8").digest("base64url");
+}
+
+/** A session cookie value: `v1.<issued ms>.<nonce>.<signature>`. */
+function issueSession(key: Buffer, issuedAt: number): string {
+  const payload = `${SESSION_VERSION}.${issuedAt}.${randomBytes(16).toString("base64url")}`;
+  return `${payload}.${sign(key, payload)}`;
+}
+
+function validSession(key: Buffer, value: string, at: number): boolean {
+  const parts = value.split(".");
+  if (parts.length !== 4 || parts[0] !== SESSION_VERSION) return false;
+  const expected = Buffer.from(sign(key, parts.slice(0, 3).join(".")));
+  const provided = Buffer.from(parts[3]!);
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected))
+    return false;
+  if (!/^\d{1,16}$/u.test(parts[1]!)) return false;
+  const issuedAt = Number(parts[1]);
+  return issuedAt <= at + SESSION_SKEW_MS && at - issuedAt < SESSION_TTL_MS;
+}
+
 function bearer(request: IncomingMessage): string | undefined {
   const header = request.headers.authorization;
   if (typeof header !== "string" || !header.startsWith("Bearer "))
@@ -179,6 +223,27 @@ function fail(response: ServerResponse, status: number, message: string): void {
   json(response, status, { message });
 }
 
+/** A small JSON request body, or undefined when it is not JSON or too large. */
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const type = request.headers["content-type"] ?? "";
+  if (!/^application\/json(;|$)/iu.test(type)) {
+    request.resume();
+    return undefined;
+  }
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_JSON_BODY) return undefined;
+    chunks.push(chunk as Buffer);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 function page(
   response: ServerResponse,
   status: number,
@@ -207,7 +272,7 @@ function page(
 }
 
 const SIGN_IN =
-  "Run <code>nylorun studio</code> in a terminal to open a fresh login link.";
+  "Run <code>npx nylorun studio</code> in a terminal. It opens Studio in your browser, signed in for 30 days.";
 
 /** Starts the Studio server. The container entry is `server-main.ts`. */
 export async function startStudioServer(
@@ -218,14 +283,13 @@ export async function startStudioServer(
   if (typeof adminKey !== "string" || adminKey === "")
     throw new Error("Studio requires the admin key.");
   const adminKeyDigest = digest(adminKey);
+  const signingKey = sessionKey(adminKey);
   const webRoot = options.webRoot ?? packagedWebRoot();
   const now = options.now ?? Date.now;
   const admin = createAdmin({ url: runtimeUrl, key: adminKey });
 
   /** Login token → expiry (ms). Single use. */
   const loginTokens = new Map<string, number>();
-  /** Session ids. They end when the process restarts. */
-  const sessions = new Set<string>();
   /** Tenant id → derived Studio key, in memory only. */
   const studioKeys = new Map<string, string>();
 
@@ -242,8 +306,12 @@ export async function startStudioServer(
     return key;
   };
 
-  const hasSession = (request: IncomingMessage): boolean =>
-    cookieValues(request, SESSION_COOKIE).some((id) => sessions.has(id));
+  const hasSession = (request: IncomingMessage): boolean => {
+    const at = now();
+    return cookieValues(request, SESSION_COOKIE).some((value) =>
+      validSession(signingKey, value, at),
+    );
+  };
 
   const mintLoginToken = (
     request: IncomingMessage,
@@ -276,7 +344,8 @@ export async function startStudioServer(
     const token = url.searchParams.get("token") ?? "";
     const expiresAt = loginTokens.get(token);
     loginTokens.delete(token);
-    if (expiresAt === undefined || expiresAt <= now()) {
+    const at = now();
+    if (expiresAt === undefined || expiresAt <= at) {
       page(
         response,
         401,
@@ -285,11 +354,10 @@ export async function startStudioServer(
       );
       return;
     }
-    const session = randomBytes(32).toString("base64url");
-    sessions.add(session);
+    const session = issueSession(signingKey, at);
     response.writeHead(303, {
       location: safeNextPath(url.searchParams.get("next")),
-      "set-cookie": `${SESSION_COOKIE}=${session}; HttpOnly; SameSite=Strict; Path=/`,
+      "set-cookie": `${SESSION_COOKIE}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`,
       "cache-control": "no-store",
     });
     response.end();
@@ -310,6 +378,45 @@ export async function startStudioServer(
           ? error.message
           : "The Runtime Admin API is unavailable";
       fail(response, 502, detail);
+    }
+  };
+
+  const createTenant = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    const body = await readJsonBody(request);
+    const raw =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as { name?: unknown }).name
+        : undefined;
+    const name = typeof raw === "string" ? raw.trim() : "";
+    if (name === "" || name.length > TENANT_NAME_MAX)
+      return fail(
+        response,
+        400,
+        `Send JSON { "name": "…" } with a Tenant name of 1 to ${TENANT_NAME_MAX} characters.`,
+      );
+    try {
+      // The application key it returns is dropped: Projects derive theirs.
+      const { tenant } = await admin.createTenant({
+        name,
+        principals: [PROJECT_PRINCIPAL_ID],
+      });
+      const summary: StudioTenantSummary = {
+        id: tenant.id,
+        name: tenant.name,
+        state: "open",
+      };
+      json(response, 201, { tenant: summary });
+    } catch (error) {
+      fail(
+        response,
+        502,
+        error instanceof AdminError
+          ? error.message
+          : "The Runtime Admin API is unavailable",
+      );
     }
   };
 
@@ -384,7 +491,7 @@ export async function startStudioServer(
         return fail(
           response,
           401,
-          "Studio session required. Run nylorun studio to open a login link.",
+          "Studio session required. Run npx nylorun studio to sign in.",
         );
       return page(response, 401, "Sign in to Studio", SIGN_IN, method);
     }
@@ -401,6 +508,7 @@ export async function startStudioServer(
     }
 
     if (pathname === "/_studio/tenants") {
+      if (method === "POST") return createTenant(request, response);
       request.resume();
       if (method !== "GET") return fail(response, 405, "Method not allowed");
       return listTenants(response);
