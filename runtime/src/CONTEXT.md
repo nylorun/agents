@@ -17,12 +17,14 @@ application, Studio, the CLI, a desktop app, an IDE extension or CI.
 _Avoid_: calling only the SDK or only the CLI "the client".
 
 **Tenant API**: Every route a Tenant principal calls, identified by the
-`Nylorun-Tenant` header. Agents, sessions, events, executors, vaults, Tenant
+`Nylorun-Tenant` header or a publishable key (`Nylorun-Key`). Agents, sessions, events, executors, vaults, Tenant
 settings and status. Client package: `@nylorun/agents`.
 _Avoid_: "SDK API" or "application API" as the surface name.
 
 **Admin API**: The `/v1/admin/tenants` and `/v1/admin/status` routes, called
 with an admin key. Shared by OSS and Cloud. Client package: `@nylorun/admin`.
+Served on the **operator listener** when the Host has one, otherwise on its
+only listener.
 `POST /v1/admin/host/shutdown` is Host-private on OSS and is not part of
 this surface.
 _Avoid_: treating Host shutdown as a shared Admin API method.
@@ -43,7 +45,18 @@ prerequisite is an error naming what to install.
 _Avoid_: "bootstrap" for installing the Runtime.
 
 **Local Host settings**: `host.json` and `host-credentials.json` in the Host
-root. `@nylorun/admin` reads them for local connection resolution.
+root. `@nylorun/admin` reads them for local connection resolution: `port` is
+the Tenant API, `adminPort` (when present) the operator listener.
+
+**Public listener** / **Operator listener**: With an operator listener
+(`adminPort` in host.json, or `NYLORUN_ADMIN_LISTEN_PORT` in a container; the
+stack's is container port 4001, published on loopback as `NYLORUN_ADMIN_PORT`),
+the Host serves two ports (`ListenerRole` in `host/create-host.ts`). The public
+listener serves the Tenant API, with browser access when enabled, and answers
+admin routes with the opaque `404`. The operator listener serves the Admin API,
+Host shutdown and the Tenant API, never to browsers. Without one, a single
+`combined` listener serves everything. Studio uses the operator listener.
+_Avoid_: proxying the operator port.
 
 **Runtime Host** (or **Host**): The code in every Runtime process that listens,
 validates `Nylorun-Protocol` and `Nylorun-Tenant`, serves admin routes, and
@@ -58,8 +71,9 @@ _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
 **Tenant**: One isolated unit of sessions, principals, vault, sandboxes, plugin
 data and logs: the Postgres schema `tenant_<id>` and the Tenant directory
-`<host root>/tenants/<tenantId>/`. Selected only by the
-`Nylorun-Tenant` header (never by a default, query string or body field). Ids
+`<host root>/tenants/<tenantId>/`. Selected by the `Nylorun-Tenant` header or
+by the Tenant a publishable key names (`Nylorun-Key`); both must agree when both
+are sent. Never by a default, query string or body field. Ids
 match `tn_` plus 26 Crockford characters. Quarantine leaves other Tenants
 running.
 _Avoid_: "scope" or "database" as the name for this unit.
@@ -95,25 +109,86 @@ the host model's vault). A subject reaches only sessions and vaults whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
 missing one. Only application principals may send it; from an executor it is
 `403`.
-_Avoid_: "user" for the header value (the Runtime has no user accounts);
-per-person tokens (deferred until a credential must leave the app server).
+A **subject token** names its subject itself.
+_Avoid_: "user" for the header value (the Runtime has no user accounts).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
 `vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). `routeAccess` maps each
 route to the scopes that allow it, decided from the route alone before any
-lookup (`403 scope_required`); reset, config seed, executors, actions and the
-sandbox tool routes are open to no subject.
+lookup (`403 scope_required`); reset, config seed, executors, actions, the
+sandbox tool routes, `/v1/tokens` and `/v1/access/**` are open to no subject.
+A subject token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
+`vaults:own`).
+
+**Subject token**: ES256 JWT (`typ: nylorun-subject+jwt`) for one subject and one
+**role**, minted by `POST /v1/tokens` with an application key and sent as the
+bearer (feature `subject-tokens`, `tenant/tokens.ts`). Lives at most 15 minutes.
+Its scopes and agents are its role's, narrowed by the mint, resolved on every
+request. Forged, foreign or malformed tokens are the opaque `404`; a verified
+token that a new one would fix (expired, revoked, key revoked, role removed) is
+`401 token_expired`. It may not set session `info`, send `message.manifest` or
+store OAuth refresh credentials, and sees only `{ agentId, name, description }`
+of the agents it may use.
+_Avoid_: "session token", "JWT" as the public name; accepting one from a query
+string.
+
+**Signing key**: A Tenant's ES256 key pair for subject tokens (`signing_keys`,
+`tenant/signing-keys.ts`): the public JWK in the clear, the private key sealed
+with the vault KEK. States `standby`, `current` (signs), `previous` (verifies),
+`revoked`. Rotation never signs anyone out; `force` does.
+
+**Access policy**: The Tenant setting `access.policy`: its **roles** (token
+scopes, an agent allowlist, **subject limits**), what a publishable key grants
+alone (`anon`), and the longest token lifetime. Without roles nothing is minted
+(`tenant/access-policy.ts`).
+
+**Revocation epoch**: A per-subject counter in every subject token (`epc`).
+`POST /v1/access/revocations` bumps it: older tokens are refused and the
+subject's open streams end with `event: nylorun.closed` on every process
+(`subject.revoked` on `tenant/control`, `checkFeeds` as backstop).
+
+**Runtime AG-UI endpoint**: `/v1/ag-ui/agents/:agent` (feature
+`ag-ui-endpoint`, `tenant/ag-ui.ts`): run, thread messages, reattach and
+cancel, for a person named by a subject token or by subject headers. The SDK's
+`createAgUiHandler` forwards here. A **thread session** is
+`sessionIdFor(subject, agent, thread)` (`ag-ui/session-id.ts`), the same on
+every path; it is created on the thread's first run with the options in
+`forwardedProps.nylorun.session` and never changed by a later run.
+_Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
+
+**Publishable key**: `nr_pub_<tenantId>_<32 Crockford characters>` in
+`Nylorun-Key` (feature `browser-access`, `tenant/browser.ts`): names the Tenant
+and one client app, with an **origin allowlist** (exact origins, or
+`http://localhost:*` and `http://127.0.0.1:*`; `[]` for native apps). Public by
+design and stored as it is; revocable. Alone it grants the **anon role**
+(`anon` in the access policy: at most `agents:read`, empty by default) and owns
+no session or vault.
+_Avoid_: calling it an API key or a secret; using it to authorize (tokens do).
+
+**Browser access**: Whether requests with an `Origin` may reach Tenant routes
+(`browserAccess`; `NYLORUN_BROWSER_ACCESS`, on in the stack). The Host answers
+preflights for browser routes from the route alone; the Tenant admits an
+`Origin` only with a publishable key that lists it, and only then sets CORS
+headers. `/health`, `/ready`, admin routes and Tenant or executor keys refuse
+`Origin` always.
+
+**Subject limits**: A role's `turnsPerHour` (a token bucket per subject) and
+`concurrentTurns` (sessions `runnable`, `running` or `waiting`), checked when a
+subject token starts a turn (`429 limit_exceeded`, `tenant/subject-limits.ts`).
 
 **App server**: The developer's own server: signs people in, names the subject
-and scopes on each Runtime call (`client.as`), hosts the AG-UI handler and the
-executor, and strips any `Nylorun-*` header its clients send. Nylorun ships
+and scopes on each Runtime call (`client.as`) or mints subject tokens for its
+pages, hosts the AG-UI handler (which forwards to the Runtime's AG-UI endpoint)
+and the executor, and strips any `Nylorun-*` header its clients send. Nylorun ships
 libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
 
 **Reverse proxy**: Infrastructure on the Runtime's machine, needed only when the
-app server is on another machine: TLS, `Host` rewrite, admin routes and Studio
-blocked. Configured by the developer (Caddy, nginx, Tailscale).
+Runtime is reached from another machine: TLS, `Host` rewrite, only the public
+port proxied (admin routes blocked as well), Studio and the operator port never
+proxied, `OPTIONS`, `Origin` and `Nylorun-Key` passed through, no CORS headers
+of its own. Configured by the developer (Caddy, nginx, Tailscale).
 
 **Executor principal**: Bearer credential hashed in the Tenant `executors`
 table, scoped to an `agentId`. Never equal to an application principal hash.
@@ -127,8 +202,9 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
 `admin-status` and `studio-principal`; optional Host features
-`tenant-fixture-model`, `transcript-events`, `derived-principals` and
-`subject-headers`).
+`tenant-fixture-model`, `transcript-events`, `derived-principals`,
+`subject-headers`, `subject-tokens`, `browser-access` and
+`ag-ui-endpoint`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
@@ -144,7 +220,8 @@ whose key is derived from the admin key, the principal id and the Tenant id
 (`deriveTenantKey`, `admin/src/derived-credentials.ts`). Registered by hash when
 the Tenant is created (`derivedPrincipals`, feature `derived-principals`), so
 the client stores no key. The Studio principal is the first of these, with its
-own derivation.
+own derivation. Tenants Studio creates register `project` (`PROJECT_PRINCIPAL_ID`),
+which `nylo tenant use` derives to link a Project on the same machine.
 _Avoid_: storing an application key on a machine that already holds the admin
 key.
 
@@ -155,7 +232,8 @@ and tool calls, keyed by the model's `invocationId` and each call's `callId`),
 `action.*` and `delegation.*` events. Written in the transaction that completes
 the effect, so a replay writes nothing (`tenant/transcript.ts`); payload
 schemas and `parseTranscriptEvent` are in `@nylorun/core/contracts`.
-`@nylorun/agents/ag-ui` turns them into AG-UI events.
+The Runtime's AG-UI endpoint turns them into AG-UI events
+(`runtime/src/ag-ui/`).
 _Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
 formats.
 

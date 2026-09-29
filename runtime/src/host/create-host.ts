@@ -11,7 +11,10 @@ import {
   isTenantId,
   PROTOCOL_HEADER,
   TENANT_HEADER,
+  PUBLISHABLE_KEY_HEADER,
+  tenantOfPublishableKey,
 } from "@nylorun/core/compatibility";
+import { answerPreflight } from "./cors.js";
 import {
   AdminStatusSchema,
   CreateTenantRequestSchema,
@@ -68,6 +71,20 @@ export interface CreateHostOptions {
    */
   publicUrl?: string;
   /**
+   * Browser access (Host feature `browser-access`): requests with an `Origin` may reach Tenant
+   * routes, where the publishable key's origin allowlist decides. Off by default: every
+   * `Origin` is `403 origin_rejected`, as before. Admin routes, `/health` and `/ready` refuse
+   * `Origin` either way.
+   */
+  browserAccess?: boolean;
+  /**
+   * The operator listener: the Admin API (and the Tenant API, never with browser access) on
+   * its own address, kept off the network that reaches the Tenant API. When set, the main
+   * listener is public and answers admin routes with the opaque 404. Absent: one listener
+   * serves everything, as before.
+   */
+  operator?: OperatorListen;
+  /**
    * Infrastructure readiness (`infra/readiness.ts`). `/ready` adds its checks
    * and answers 503 while it reports not ok. Default: listener and discovery
    * only.
@@ -86,12 +103,29 @@ export interface CreateHostOptions {
   };
 }
 
+/** Where the operator listener binds, and the `Host` values it accepts. */
+export interface OperatorListen {
+  host: string;
+  port: number;
+  /** Exact `Host` values (lowercase `name:port`); absent means the loopback forms of the port. */
+  allowedHosts?: readonly string[];
+}
+
+/**
+ * What a listener serves. `combined`: everything (one port). `public`: the Tenant API, with
+ * browser access when enabled; admin routes are the opaque 404. `operator`: the Admin API and
+ * the Tenant API, never to browsers.
+ */
+export type ListenerRole = "combined" | "public" | "operator";
+
 export interface HostServer {
   listen(): Promise<void>;
   close(): Promise<void>;
   /** Settles once `close()` has finished, whatever called it. */
   readonly closed: Promise<void>;
   readonly url: string;
+  /** Where the Admin API answers: the operator listener, or `url` when there is one listener. */
+  readonly adminUrl: string;
 }
 
 function hashUtf8(value: string): Buffer {
@@ -147,6 +181,11 @@ export function createHost(options: CreateHostOptions): HostServer {
   let server: Server | undefined;
   let url = "";
   let listenPort = bindPort;
+  const operator = options.operator;
+  let operatorServer: Server | undefined;
+  let operatorPort = operator?.port ?? 0;
+  let adminUrl = "";
+  const mainRole: ListenerRole = operator ? "public" : "combined";
   let closing = false;
   let closePromise: Promise<void> | undefined;
 
@@ -313,6 +352,7 @@ export function createHost(options: CreateHostOptions): HostServer {
   const handle = async (
     request: IncomingMessage,
     response: ServerResponse,
+    role: ListenerRole,
   ): Promise<void> => {
     const started = Date.now();
     let tenantId: string | undefined;
@@ -323,16 +363,25 @@ export function createHost(options: CreateHostOptions): HostServer {
 
       // D§11: Host, Origin, then Content-Type — before any other processing.
       const hostHeader = headerValue(request.headers, "host");
-      if (
-        !isAllowedRequestHost(hostHeader, {
-          port: listenPort,
-          host: config.host,
-          allowNonLoopback: config.allowNonLoopback,
-          ...(containerListen
-            ? { allowedHosts: containerListen.allowedHosts }
-            : {}),
-        })
-      ) {
+      const hostAllowed =
+        role === "operator"
+          ? isAllowedRequestHost(hostHeader, {
+              port: operatorPort,
+              host: operator!.host,
+              allowNonLoopback: false,
+              ...(operator!.allowedHosts
+                ? { allowedHosts: operator!.allowedHosts }
+                : {}),
+            })
+          : isAllowedRequestHost(hostHeader, {
+              port: listenPort,
+              host: config.host,
+              allowNonLoopback: config.allowNonLoopback,
+              ...(containerListen
+                ? { allowedHosts: containerListen.allowedHosts }
+                : {}),
+            });
+      if (!hostAllowed) {
         sendRejected(
           response,
           421,
@@ -343,15 +392,27 @@ export function createHost(options: CreateHostOptions): HostServer {
         return;
       }
 
-      if (headerValue(request.headers, "origin") !== undefined) {
-        sendRejected(
-          response,
-          403,
-          "origin_rejected",
-          "Browser Origin headers are not accepted",
-        );
-        statusCode = 403;
-        return;
+      const origin = headerValue(request.headers, "origin");
+      if (origin !== undefined) {
+        const route = pathname.split("/").filter(Boolean);
+        // Only Tenant routes, and only when the operator allows browsers; the Tenant then
+        // checks the publishable key and its origins before adding any CORS header.
+        const tenantRoute = route[0] === "v1" && route[1] !== "admin";
+        // The operator listener never serves browsers.
+        if (!options.browserAccess || role === "operator" || !tenantRoute) {
+          sendRejected(
+            response,
+            403,
+            "origin_rejected",
+            "Browser Origin headers are not accepted",
+          );
+          statusCode = 403;
+          return;
+        }
+        if (request.method === "OPTIONS") {
+          statusCode = answerPreflight(request, response, route);
+          return;
+        }
       }
 
       if (
@@ -387,7 +448,9 @@ export function createHost(options: CreateHostOptions): HostServer {
       }
 
       if (pathname === "/ready") {
-        const listener = Boolean(server?.listening);
+        const listener =
+          Boolean(server?.listening) &&
+          (!operator || Boolean(operatorServer?.listening));
         const discovery = module.started;
         const infra = await options.readiness?.();
         const ready = listener && discovery && !closing && (infra?.ok ?? true);
@@ -408,6 +471,13 @@ export function createHost(options: CreateHostOptions): HostServer {
       const isAdmin =
         segments[0] === "v1" && segments[1] === "admin";
 
+      // A public listener has no admin routes: the same 404 as a wrong admin key.
+      if (isAdmin && role === "public") {
+        sendOpaqueNotFound(response);
+        statusCode = 404;
+        return;
+      }
+
       if (isAdmin) {
         const protocolHeader = headerValue(request.headers, PROTOCOL_HEADER);
         if (!protocolAccepted(protocolHeader)) {
@@ -424,27 +494,36 @@ export function createHost(options: CreateHostOptions): HostServer {
         return;
       }
 
-      // Tenant-scoped routes: header pattern → protocol → resolve → Tenant handle.
+      // Tenant-scoped routes: header pattern → protocol → resolve → Tenant handle. The Tenant
+      // is named by `Nylorun-Tenant`, by the publishable key in `Nylorun-Key`, or by both
+      // when they agree.
+      const invalid = (message: string) => {
+        sendJson(response, 400, {
+          status: "rejected",
+          code: "invalid_request",
+          message,
+        });
+        statusCode = 400;
+      };
+      const keyHeader = headerValue(request.headers, PUBLISHABLE_KEY_HEADER);
+      const keyTenant =
+        keyHeader === undefined ? undefined : tenantOfPublishableKey(keyHeader);
+      if (keyHeader !== undefined && keyTenant === undefined)
+        return invalid(`${PUBLISHABLE_KEY_HEADER} header is malformed`);
       const tenantHeader = headerValue(request.headers, TENANT_HEADER);
-      if (tenantHeader === undefined || tenantHeader.trim() === "") {
-        sendJson(response, 400, {
-          status: "rejected",
-          code: "invalid_request",
-          message: `${TENANT_HEADER} header is required`,
-        });
-        statusCode = 400;
-        return;
-      }
-      if (!isTenantId(tenantHeader)) {
-        sendJson(response, 400, {
-          status: "rejected",
-          code: "invalid_request",
-          message: `${TENANT_HEADER} header is malformed`,
-        });
-        statusCode = 400;
-        return;
-      }
-      tenantId = tenantHeader;
+      const named =
+        tenantHeader === undefined || tenantHeader.trim() === ""
+          ? undefined
+          : tenantHeader;
+      if (named === undefined && keyTenant === undefined)
+        return invalid(`${TENANT_HEADER} header is required`);
+      if (named !== undefined && !isTenantId(named))
+        return invalid(`${TENANT_HEADER} header is malformed`);
+      if (named !== undefined && keyTenant !== undefined && named !== keyTenant)
+        return invalid(
+          `${PUBLISHABLE_KEY_HEADER} and ${TENANT_HEADER} name different Tenants`,
+        );
+      tenantId = (named ?? keyTenant)!;
 
       const protocolHeader = headerValue(request.headers, PROTOCOL_HEADER);
       if (!protocolAccepted(protocolHeader)) {
@@ -532,8 +611,13 @@ export function createHost(options: CreateHostOptions): HostServer {
         EXIT_NON_LOOPBACK,
       );
     }
+    if (operator && !containerListen && !isLoopbackHost(operator.host))
+      throw new HostListenError(
+        `Refusing to bind the operator listener on non-loopback host ${operator.host}`,
+        EXIT_NON_LOOPBACK,
+      );
     server = createServer((req, res) => {
-      void handle(req, res);
+      void handle(req, res, mainRole);
     });
     await new Promise<void>((resolve, reject) => {
       server!.once("error", (error: NodeJS.ErrnoException) => {
@@ -555,10 +639,44 @@ export function createHost(options: CreateHostOptions): HostServer {
     listenPort =
       typeof address === "object" && address ? address.port : bindPort;
     url = `http://${bindHost}:${listenPort}`;
+    adminUrl = url;
+    if (operator) {
+      operatorServer = createServer((req, res) => {
+        void handle(req, res, "operator");
+      });
+      await new Promise<void>((resolve, reject) => {
+        operatorServer!.once("error", (error: NodeJS.ErrnoException) => {
+          if (error.code === "EADDRINUSE") {
+            reject(
+              new HostListenError(
+                `Port ${operator.port} on ${operator.host} is already in use`,
+                EXIT_PORT_IN_USE,
+                error,
+              ),
+            );
+            return;
+          }
+          reject(error);
+        });
+        operatorServer!.listen(operator.port, operator.host, resolve);
+      }).catch(async (error) => {
+        // Leave nothing half-open: the main listener closes too.
+        await new Promise<void>((resolve) => server!.close(() => resolve()));
+        server = undefined;
+        throw error;
+      });
+      const operatorAddress = operatorServer.address();
+      operatorPort =
+        typeof operatorAddress === "object" && operatorAddress
+          ? operatorAddress.port
+          : operator.port;
+      adminUrl = `http://${operator.host}:${operatorPort}`;
+    }
     await module.start();
     logger.info("host_listening", {
       hostId: config.hostId,
       url,
+      ...(operator ? { adminUrl } : {}),
       pid,
     });
   }
@@ -584,13 +702,15 @@ export function createHost(options: CreateHostOptions): HostServer {
     closePromise = (async () => {
       closing = true;
       logger.info("host_shutdown", { hostId: config.hostId });
-      if (server) {
+      for (const listening of [server, operatorServer]) {
+        if (!listening) continue;
         await new Promise<void>((resolve) => {
-          server!.close(() => resolve());
-          server!.closeIdleConnections?.();
+          listening.close(() => resolve());
+          listening.closeIdleConnections?.();
         });
-        server = undefined;
       }
+      server = undefined;
+      operatorServer = undefined;
       await step("beforeTenants", options.shutdown?.beforeTenants);
       await step("tenants", () => module.close());
       await step("afterTenants", options.shutdown?.afterTenants);
@@ -604,6 +724,9 @@ export function createHost(options: CreateHostOptions): HostServer {
     closed,
     get url() {
       return url;
+    },
+    get adminUrl() {
+      return adminUrl;
     },
   };
 }

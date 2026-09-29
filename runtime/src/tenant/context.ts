@@ -13,7 +13,11 @@
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
-import type { SubjectScope, TenantEnvelope } from "@nylorun/core/contracts";
+import type {
+  RoleLimits,
+  SubjectScope,
+  TenantEnvelope,
+} from "@nylorun/core/contracts";
 import type {
   DurableCheckpoint,
   FlowCheckpoint,
@@ -32,6 +36,7 @@ import type { TenantConfig } from "./types.js";
 import type { LiveHub } from "./live.js";
 import type { StuckInvocation, Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
+import type { SigningKeys } from "./signing-keys.js";
 import { fail } from "./http.js";
 
 export interface Session {
@@ -85,6 +90,22 @@ export interface Session {
 
 export type AuthScope =
   | { kind: "application"; principalId: string }
+  /**
+   * A subject token (Host feature `subject-tokens`): one subject, the role's scopes and agents
+   * narrowed by the token, until `expiresAt` (ms) or the subject's epoch moves past `epoch`.
+   */
+  | {
+      kind: "token";
+      subject: string;
+      scopes: ReadonlySet<SubjectScope>;
+      agents: ReadonlySet<string> | "*";
+      role: string;
+      limits?: RoleLimits;
+      epoch: number;
+      expiresAt: number;
+      tokenId: string;
+      keyId: string;
+    }
   /** An application principal acting for `subject` (`Nylorun-Subject`), narrowed to `scopes`. */
   | {
       kind: "subject";
@@ -92,7 +113,17 @@ export type AuthScope =
       subject: string;
       scopes: ReadonlySet<SubjectScope>;
     }
-  | { kind: "executor"; executor: ExecutorRecord };
+  | { kind: "executor"; executor: ExecutorRecord }
+  /**
+   * A publishable key with no bearer (Host feature `browser-access`): what the policy grants
+   * `anon`, at most `agents:read`. It owns no session or vault.
+   */
+  | {
+      kind: "publishable";
+      keyId: string;
+      scopes: ReadonlySet<SubjectScope>;
+      agents: ReadonlySet<string> | "*";
+    };
 
 export interface TenantContext {
   readonly config: TenantConfig;
@@ -114,6 +145,8 @@ export interface TenantContext {
   readonly work: WorkState;
   /** Live delivery over Durable Streams: session feeds, executor streams, the streams wiring. */
   readonly live: LiveHub;
+  /** The Tenant's signing keys for subject tokens. */
+  readonly signingKeys: SigningKeys;
   /** The Worker id this process writes as session `owner` (§10.6). */
   readonly workerId: string;
   /** How long an advance's ownership lease lasts; the heartbeat renews it. */
@@ -135,11 +168,29 @@ export interface TenantContext {
 }
 
 /**
- * `owner`, when set, is the subject the request acts for: another owner's session is the same
- * 404 as a missing one, so a subject cannot learn which session ids exist.
+ * What a request acting for a person may reach: that person's sessions and vaults, and, for a
+ * subject token, only sessions of the agents its role allows. Undefined means the whole Tenant.
  */
-function owned<T extends Session>(session: T | undefined, owner?: string): T {
-  if (!session || (owner !== undefined && session.ownerUserId !== owner))
+export interface SessionAccess {
+  readonly owner: string;
+  readonly agents?: ReadonlySet<string>;
+}
+
+/**
+ * `access`, when set, limits the request to the owner's sessions of the allowed agents:
+ * anything else is the same 404 as a missing session, so a subject cannot learn which session
+ * ids exist.
+ */
+function owned<T extends Session>(
+  session: T | undefined,
+  access?: SessionAccess
+): T {
+  if (
+    !session ||
+    (access !== undefined &&
+      (session.ownerUserId !== access.owner ||
+        (access.agents !== undefined && !access.agents.has(session.agentId))))
+  )
     return fail(404, "Session not found");
   return session;
 }
@@ -148,18 +199,18 @@ function owned<T extends Session>(session: T | undefined, owner?: string): T {
 export async function sessionOf(
   t: Tx,
   id: string,
-  owner?: string
+  access?: SessionAccess
 ): Promise<Session> {
-  return owned(await t.get<StoredSession<Session>>("sessions", id), owner);
+  return owned(await t.get<StoredSession<Session>>("sessions", id), access);
 }
 
 /** Locks the session for the rest of the transaction and returns it, or a 404. */
 export async function lockedSession(
   t: Tx,
   id: string,
-  owner?: string
+  access?: SessionAccess
 ): Promise<Session> {
-  return owned(await t.lockSession<Session>(id), owner);
+  return owned(await t.lockSession<Session>(id), access);
 }
 
 /** An advance's hold on its session (§10.6): every write the advance makes presents `epoch`. */
@@ -188,9 +239,9 @@ export async function ownedSession(
 export function loadSession(
   ctx: TenantContext,
   id: string,
-  owner?: string
+  access?: SessionAccess
 ): Promise<Session> {
-  return ctx.store.tx((t) => sessionOf(t, id, owner));
+  return ctx.store.tx((t) => sessionOf(t, id, access));
 }
 
 /**

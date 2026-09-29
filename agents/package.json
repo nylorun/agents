@@ -31,6 +31,10 @@
     "./ag-ui": {
       "types": "./dist/ag-ui/index.d.ts",
       "import": "./dist/ag-ui/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
     }
   },
   "scripts": {
@@ -39,7 +43,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@ag-ui/core": "~1.0.0",
     "@nylorun/core": "0.8.0-beta",
     "gray-matter": "^4.0.3"
   },

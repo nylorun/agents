@@ -19,7 +19,8 @@
     "configure": "nylo configure",
     "test": "vitest run",
     "codex:preflight": "node scripts/codex-preflight.mjs",
-    "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts"
+    "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts",
+    "browser-direct": "tsx --env-file-if-exists=.env src/browser-direct/server.ts"
   },
   "index": "// CLI loads the supported registry directly.\nexport { agents } from \"../agents/index.js\";\n"
 }

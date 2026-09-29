@@ -70,7 +70,11 @@ export async function* observeSSE(
   const signal = options.signal ?? controller.signal;
   let cursor = options.cursor;
   let retry = 250;
+  // The Runtime ended the stream because its subject token expired or was revoked: reconnect
+  // at once (the transport fetches a new token), but only once in a row.
+  let closedByRuntime = 0;
   while (!signal.aborted) {
+    let reconnectNow = false;
     try {
       const response = await transport.request(path, {
         signal,
@@ -80,7 +84,13 @@ export async function* observeSSE(
         },
       });
       for await (const event of readSSE(response, signal)) {
+        if (event.event === "nylorun.closed") {
+          closedByRuntime += 1;
+          reconnectNow = closedByRuntime === 1;
+          break;
+        }
         retry = 250;
+        closedByRuntime = 0;
         if (event.id) cursor = event.id;
         yield event;
       }
@@ -94,6 +104,7 @@ export async function* observeSSE(
       )
         throw error;
     }
+    if (reconnectNow) continue;
     if (!signal.aborted) await delay(retry, signal).catch(() => {});
     retry = Math.min(30000, retry * 2);
   }

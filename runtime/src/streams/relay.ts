@@ -301,6 +301,20 @@ export async function signalSessionsReset(
   await streams.append(tenantId, CONTROL_STREAM, [signal]);
 }
 
+/**
+ * Appends a `subject.revoked` signal to `tenant/control`: every process with the Tenant open
+ * ends the subject's streams opened with a token older than `epoch`.
+ */
+export async function signalSubjectRevoked(
+  streams: DurableStreams,
+  tenantId: string,
+  subject: string,
+  epoch: number,
+): Promise<void> {
+  const signal: ControlSignal = { type: "subject.revoked", subject, epoch };
+  await streams.append(tenantId, CONTROL_STREAM, [signal]);
+}
+
 // ---------------------------------------------------------------------------
 
 /** The leading run of `rows` (ascending) without a sequence gap. */

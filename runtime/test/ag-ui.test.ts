@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -14,6 +13,7 @@ import {
 } from "@nylorun/agents";
 import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
 import type { ModelProvider } from "../src/core/provider.js";
+import { sessionIdFor } from "../src/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
 
 /**
@@ -134,12 +134,8 @@ let server: Server;
 let base: string;
 let runtimeClient: ReturnType<typeof createClient>;
 
-/** The handler's session id for a person's thread (`sessionIdFor`). */
-const sessionOf = (subject: string, agentId: string, threadId: string) =>
-  createHash("sha256")
-    .update(`${subject}\u0000${agentId}\u0000${threadId}`)
-    .digest("hex")
-    .slice(0, 32);
+/** A person's thread session, as the Runtime names it. */
+const sessionOf = sessionIdFor;
 
 beforeAll(async () => {
   runtime = await startTestTenant({

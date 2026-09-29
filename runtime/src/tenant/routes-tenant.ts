@@ -187,6 +187,11 @@ export async function dispatchVault(
   if (path[3] !== "credentials") fail(404, "Route not found");
   if (path.length === 4 && method === "POST") {
     const body = CreateCredentialRequestSchema.parse(await readBody(request));
+    // The Runtime calls a refresh credential's token endpoint itself: never for a browser.
+    if (scope.kind === "token" && body.auth.type === "oauth" && body.auth.refresh)
+      fail(403, "A subject token cannot store OAuth refresh credentials", {
+        code: "scope_required",
+      });
     return vault.createCredential(vaultId, body);
   }
   if (path.length === 4 && method === "GET")

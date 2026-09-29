@@ -34,6 +34,7 @@
     "test:starter": "node create-agent/scripts/smoke-starter.mjs",
     "test:acceptance": "node scripts/acceptance/tenants.mjs",
     "test:acceptance:access": "node scripts/acceptance/access.mjs",
+    "test:acceptance:direct": "node scripts/acceptance/direct.mjs",
     "test:remote": "node scripts/acceptance/remote.mjs",
     "test:stack": "node scripts/smoke-stack.mjs",
     "test:stack:openshell": "node scripts/smoke-openshell.mjs",

@@ -25,12 +25,15 @@ import {
   requestAborted,
 } from "./http.js";
 import {
+  accessOf,
   authenticate,
   authorize,
-  ownerOf,
   requireApplication,
   requirePrincipal,
 } from "./auth.js";
+import { dispatchAccess } from "./routes-access.js";
+import { identifyClient } from "./browser.js";
+import { dispatchAgUi } from "./ag-ui.js";
 import { command } from "./commands.js";
 import {
   actionSandboxTool,
@@ -42,6 +45,7 @@ import {
   updateAction,
 } from "./actions.js";
 import {
+  listAgentsPublic,
   listDefinitions,
   listSessions,
   putDefinition,
@@ -62,9 +66,14 @@ export async function handle(
   response: ServerResponse,
   _url?: URL
 ): Promise<void> {
-  const json = (value: unknown, status = 200) => {
+  const json = (
+    value: unknown,
+    status = 200,
+    headers: Readonly<Record<string, string>> = {}
+  ) => {
     const payload = JSON.stringify(value);
     response.writeHead(status, {
+      ...headers,
       "content-type": "application/json",
       "content-length": Buffer.byteLength(payload),
     });
@@ -77,11 +86,24 @@ export async function handle(
       .filter(Boolean)
       .map(decodeURIComponent);
     const method = request.method;
-    const scope = await authenticate(ctx, request);
+    // The client app first: a browser's origin is checked, and CORS headers set, before the
+    // bearer is looked at, so every answer from here on is readable by an allowed page.
+    const client = await identifyClient(ctx, request, response);
+    const scope = await authenticate(ctx, request, client);
     if (path[0] !== "v1") fail(404, "Route not found");
     authorize(scope, method, path);
-    // Set when the request acts for a subject: only the subject's own sessions are reachable.
-    const owner = ownerOf(scope);
+    if (scope.kind === "publishable") {
+      if (path[1] === "agents" && path.length === 2 && method === "GET")
+        return json(await listAgentsPublic(ctx, scope.agents));
+      if (path[1] === "access")
+        return json(await dispatchAccess(ctx, scope, method, path, request));
+      return fail(403, "A publishable key alone reaches only the agent list", {
+        code: "scope_required",
+      });
+    }
+    // Set when the request acts for a person: only their own sessions (of the agents a token
+    // allows) are reachable.
+    const access = accessOf(scope);
     if (path[1] === "executors" && path[2] === "connect" && method === "GET") {
       if (scope.kind !== "executor")
         return fail(403, "Executor credential required");
@@ -127,7 +149,13 @@ export async function handle(
       return json(await dispatchVault(ctx, scope, method, path, url, request));
     if (path[1] === "tenant")
       return json(await dispatchTenant(ctx, scope, method, path, request));
-    const principalId = requirePrincipal(scope);
+    if (path[1] === "tokens" || path[1] === "access")
+      return json(await dispatchAccess(ctx, scope, method, path, request));
+    // Executors reach only their own routes above.
+    if (scope.kind === "executor")
+      return fail(403, "Application credential required");
+    if (path[1] === "ag-ui")
+      return await dispatchAgUi(ctx, scope, method, path, url, request, response, json);
     if (path[1] === "executors" && path.length === 2 && method === "GET")
       return json(listExecutors(ctx));
     // The length guard matters: the connect branch above only matches GET, so without it a
@@ -136,7 +164,7 @@ export async function handle(
       return json(
         await registerExecutors(
           ctx,
-          principalId,
+          requirePrincipal(scope),
           RegisterExecutorsRequestSchema.parse(await readBody(request))
         )
       );
@@ -148,10 +176,14 @@ export async function handle(
     )
       return json(await deleteExecutor(ctx, path[2]));
     if (path[1] === "agents" && path.length === 2 && method === "GET")
-      return json(await listDefinitions(ctx));
+      return json(
+        scope.kind === "token"
+          ? await listAgentsPublic(ctx, scope.agents)
+          : await listDefinitions(ctx)
+      );
     if (path[1] === "sessions" && path.length === 2 && method === "GET")
       return json(
-        await listSessions(ctx, url.searchParams.get("agentId"), owner)
+        await listSessions(ctx, url.searchParams.get("agentId"), access)
       );
     if (
       path[1] === "agents" &&
@@ -170,17 +202,22 @@ export async function handle(
       const id = path[2];
       if (method === "PUT" && path.length === 3) {
         const body = PutSessionRequestSchema.parse(await readBody(request));
-        const session = await putSession(ctx, id, body, owner);
+        // Agent code may trust `info`: only an app server sets it.
+        if (scope.kind === "token" && body.info !== undefined)
+          fail(403, "A subject token cannot set session info", {
+            code: "scope_required",
+          });
+        const session = await putSession(ctx, id, body, access);
         return json(await ctx.store.tx((t) => sessionView(t, session)));
       }
       if (method === "GET" && path.length === 3)
         return json(
           await ctx.store.tx(async (t) =>
-            sessionView(t, await sessionOf(t, id, owner))
+            sessionView(t, await sessionOf(t, id, access))
           )
         );
       // Every other session route needs the session to exist.
-      await loadSession(ctx, id, owner);
+      await loadSession(ctx, id, access);
       const cursor = requestCursor(request, url);
       if (method === "GET" && path[3] === "items")
         return json(
@@ -192,7 +229,20 @@ export async function handle(
           )
         );
       if (method === "GET" && path[3] === "events") {
-        await streamSessionEvents(ctx, request, response, id, cursor);
+        await streamSessionEvents(
+          ctx,
+          request,
+          response,
+          id,
+          cursor,
+          scope.kind === "token"
+            ? {
+                subject: scope.subject,
+                epoch: scope.epoch,
+                expiresAt: scope.expiresAt,
+              }
+            : undefined
+        );
         return;
       }
       if (
@@ -238,6 +288,7 @@ export async function handle(
         ? 400
         : 500;
     const rejection = error instanceof HttpError ? error.rejection : {};
+    const headers = error instanceof HttpError ? error.headers : {};
     json(
       {
         status: "rejected",
@@ -251,7 +302,8 @@ export async function handle(
           ? {}
           : { details: rejection.details }),
       },
-      status
+      status,
+      headers
     );
   }
 }

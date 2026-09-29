@@ -27,6 +27,7 @@ import {
 } from "../core/provider.js";
 import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
+import { SigningKeys } from "./signing-keys.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
@@ -150,10 +151,13 @@ export class TenantRuntime implements TenantHandle {
         vaultKek: hooks.vaultKek,
         vaultKekPath: paths.kek,
       });
-      if ((await store.tx((t) => t.countCredentials())) > 0 && !kek) {
+      const sealed = await store.tx(
+        async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
+      );
+      if (sealed > 0 && !kek) {
         throw new QuarantineError(
           "kek-missing",
-          "Vault key-encryption key is missing for ciphertext in this Tenant",
+          "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant",
           "restore the vault-kek file in the Tenant directory"
         );
       }
@@ -264,6 +268,7 @@ export class TenantRuntime implements TenantHandle {
         closed: false,
         work: createWorkState(),
         live,
+        signingKeys: new SigningKeys({ tenantId: config.tenantId, kek: ensureKek }),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
         wake: async (sessionId, wake) => {

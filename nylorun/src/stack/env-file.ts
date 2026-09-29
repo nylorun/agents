@@ -6,8 +6,10 @@ import type { StackSandbox } from "./openshell.js";
  * Restate identity public key is derived from `restate-identity.pem`.
  */
 export interface StackEnv {
-  /** Published Runtime port (loopback). */
+  /** Published Runtime port (loopback): the Tenant API. */
   runtimePort: number;
+  /** Published operator port (loopback): the Admin API. */
+  adminPort: number;
   /** Published Studio port (loopback). */
   studioPort: number;
   /** Published Restate UI and admin port (loopback). */
@@ -33,6 +35,7 @@ export interface StackEnv {
 
 const KEYS = {
   runtimePort: "NYLORUN_PORT",
+  adminPort: "NYLORUN_ADMIN_PORT",
   studioPort: "NYLORUN_STUDIO_PORT",
   restatePort: "NYLORUN_RESTATE_PORT",
   postgresPassword: "NYLORUN_POSTGRES_PASSWORD",
@@ -76,6 +79,7 @@ export function renderEnvFile(env: StackEnv): string {
     "",
     "# Published on 127.0.0.1; clients use http://localhost:<port>.",
     line("runtimePort"),
+    line("adminPort"),
     line("studioPort"),
     line("restatePort"),
     "",
@@ -128,6 +132,7 @@ function port(value: string | undefined): number | undefined {
 /** The settings that persist across starts, from an existing .env. */
 export interface PersistedStackEnv {
   runtimePort?: number;
+  adminPort?: number;
   studioPort?: number;
   restatePort?: number;
   postgresPassword?: string;
@@ -142,6 +147,8 @@ export function parsePersisted(text: string): PersistedStackEnv {
   const out: PersistedStackEnv = {};
   const runtimePort = port(values.get(KEYS.runtimePort));
   if (runtimePort) out.runtimePort = runtimePort;
+  const adminPort = port(values.get(KEYS.adminPort));
+  if (adminPort) out.adminPort = adminPort;
   const studioPort = port(values.get(KEYS.studioPort));
   if (studioPort) out.studioPort = studioPort;
   const restatePort = port(values.get(KEYS.restatePort));

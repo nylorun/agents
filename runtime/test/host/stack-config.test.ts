@@ -220,3 +220,60 @@ describe("isAllowedRequestHost with an explicit allowlist", () => {
     expect(isAllowedRequestHost("runtime:4000", { port: 4000, host: "127.0.0.1" })).toBe(false);
   });
 });
+
+describe("NYLORUN_BROWSER_ACCESS", () => {
+  it("is absent by default and on or off when set", () => {
+    expect(parseStackConfig({}, []).browserAccess).toBeUndefined();
+    expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: "on" }, []).browserAccess).toBe(true);
+    expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: "off" }, []).browserAccess).toBe(false);
+  });
+
+  it("rejects anything else", () => {
+    expect(() => parseStackConfig({ NYLORUN_BROWSER_ACCESS: "yes" }, [])).toThrow(
+      StackConfigError
+    );
+  });
+});
+
+describe("NYLORUN_ADMIN_LISTEN_*", () => {
+  const base = {
+    NYLORUN_LISTEN_HOST: "0.0.0.0",
+    NYLORUN_LISTEN_PORT: "4000",
+    NYLORUN_ALLOWED_HOSTS: "runtime:4000",
+  };
+
+  it("is one listener when unset", () => {
+    expect(parseStackConfig(base, []).operator).toBeUndefined();
+  });
+
+  it("adds the operator listener with its own Host allowlist", () => {
+    const config = parseStackConfig(
+      {
+        ...base,
+        NYLORUN_ADMIN_LISTEN_PORT: "4001",
+        NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001,localhost:8788",
+      },
+      []
+    );
+    expect(config.operator).toEqual({
+      host: "0.0.0.0",
+      port: 4001,
+      allowedHosts: ["runtime:4001", "localhost:8788", "localhost:4001", "127.0.0.1:4001", "[::1]:4001"],
+    });
+  });
+
+  it("requires an allowlist off loopback, a port with the other variables, and a port of its own", () => {
+    expect(() => parseStackConfig({ ...base, NYLORUN_ADMIN_LISTEN_PORT: "4001" }, [])).toThrow(
+      /NYLORUN_ADMIN_ALLOWED_HOSTS is required/
+    );
+    expect(() =>
+      parseStackConfig({ ...base, NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001" }, [])
+    ).toThrow(/NYLORUN_ADMIN_LISTEN_PORT is required/);
+    expect(() =>
+      parseStackConfig(
+        { ...base, NYLORUN_ADMIN_LISTEN_PORT: "4000", NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4000" },
+        []
+      )
+    ).toThrow(/must differ/);
+  });
+});

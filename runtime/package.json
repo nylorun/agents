@@ -57,6 +57,7 @@
     "start": "node dist/host/main.js"
   },
   "dependencies": {
+    "@ag-ui/core": "~1.0.0",
     "@bufbuild/protobuf": "2.12.1",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
@@ -67,6 +68,7 @@
     "@nylorun/harness": "0.20.0-beta",
     "@restatedev/restate-sdk": "1.16.9",
     "@s2-dev/streamstore": "0.27.0",
+    "jose": "^6.2.12",
     "just-bash": "3.4.2",
     "postgres": "^3.4.9"
   },

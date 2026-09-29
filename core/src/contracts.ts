@@ -1557,6 +1557,15 @@ const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
 /** Owner ids the Runtime uses itself: the host model's vault is owned by `host`. */
 const RESERVED_SUBJECTS = new Set(["host"]);
 
+/** A valid subject: 1–200 visible ASCII characters, not reserved by the Runtime. */
+export function isSubject(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    SUBJECT_PATTERN.test(value) &&
+    !RESERVED_SUBJECTS.has(value)
+  );
+}
+
 /**
  * Validates `Nylorun-Subject` and `Nylorun-Scopes`. Returns the subject and its scopes, or a
  * message naming what is wrong. Scopes are required: the Runtime never grants a default.
@@ -1591,3 +1600,276 @@ export function parseSubjectHeaders(
     scopes: new Set(names as SubjectScope[]),
   };
 }
+
+// --- subject tokens and the access policy (Host feature `subject-tokens`) ------------------
+
+/** Scopes a subject token may carry: never `agents:write` or `tenant:settings`. */
+export const TOKEN_SCOPES = ["agents:read", "sessions:own", "vaults:own"] as const;
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
+const TokenScopeSchema = z.enum(TOKEN_SCOPES);
+
+/** The JWT `typ` of a subject token (RFC 8725 explicit typing). */
+export const SUBJECT_TOKEN_TYPE = "nylorun-subject+jwt";
+/** The `aud` of every subject token. */
+export const SUBJECT_TOKEN_AUDIENCE = "nylorun";
+/** The `iss` of a Tenant's subject tokens. */
+export function subjectTokenIssuer(tenantId: string): string {
+  return `urn:nylorun:tenant:${tenantId}`;
+}
+/** Token lifetimes, in seconds. */
+export const TOKEN_TTL_MIN_SECONDS = 60;
+export const TOKEN_TTL_MAX_SECONDS = 900;
+export const TOKEN_TTL_DEFAULT_SECONDS = 600;
+
+/** A role's name in the access policy; `anon` is reserved for publishable keys. */
+export const ROLE_NAME_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
+const AgentAllowlistSchema = z.union([
+  z.literal("*"),
+  z.array(z.string().min(1)),
+]);
+
+export const RoleLimitsSchema = z
+  .object({
+    turnsPerHour: z.number().int().min(1).max(100_000).optional(),
+    concurrentTurns: z.number().int().min(1).max(1000).optional(),
+  })
+  .strict();
+export type RoleLimits = z.infer<typeof RoleLimitsSchema>;
+
+export const AccessRoleSchema = z
+  .object({
+    scopes: z.array(TokenScopeSchema).min(1),
+    agents: AgentAllowlistSchema,
+    limits: RoleLimitsSchema.optional(),
+  })
+  .strict();
+export type AccessRole = z.infer<typeof AccessRoleSchema>;
+
+/**
+ * The Tenant's access policy: what each role may do with a subject token, what a publishable
+ * key grants alone (`anon`), and how long tokens live. Without roles nothing can be minted.
+ */
+export const AccessPolicySchema = z
+  .object({
+    version: z.literal(1),
+    roles: z
+      .record(z.string(), AccessRoleSchema)
+      .superRefine((roles, issue) => {
+        for (const name of Object.keys(roles))
+          if (!ROLE_NAME_PATTERN.test(name) || name === "anon")
+            issue.addIssue({
+              code: "custom",
+              message: `Role name ${name} is invalid or reserved`,
+              path: [name],
+            });
+      }),
+    anon: z
+      .object({
+        scopes: z.array(z.literal("agents:read")),
+        agents: AgentAllowlistSchema,
+      })
+      .strict(),
+    tokens: z
+      .object({
+        maxTtlSeconds: z
+          .number()
+          .int()
+          .min(TOKEN_TTL_MIN_SECONDS)
+          .max(TOKEN_TTL_MAX_SECONDS),
+      })
+      .strict(),
+  })
+  .strict();
+export type AccessPolicy = z.infer<typeof AccessPolicySchema>;
+
+/** The policy of a Tenant that never set one: no roles, nothing for `anon`. */
+export const DEFAULT_ACCESS_POLICY: AccessPolicy = Object.freeze({
+  version: 1,
+  roles: {},
+  anon: { scopes: [], agents: [] },
+  tokens: { maxTtlSeconds: TOKEN_TTL_DEFAULT_SECONDS },
+}) as AccessPolicy;
+
+export const PutAccessPolicyRequestSchema = z
+  .object({ requestId: RequestIdSchema, policy: AccessPolicySchema })
+  .strict();
+export type PutAccessPolicyRequest = z.infer<typeof PutAccessPolicyRequestSchema>;
+
+export const CreateTokenRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    subject: z.string().refine(isSubject, "subject must be 1-200 visible ASCII characters and not reserved"),
+    role: z.string().regex(ROLE_NAME_PATTERN),
+    scopes: z.array(TokenScopeSchema).min(1).optional(),
+    agents: z.array(z.string().min(1)).optional(),
+    ttlSeconds: z
+      .number()
+      .int()
+      .min(TOKEN_TTL_MIN_SECONDS)
+      .max(TOKEN_TTL_MAX_SECONDS)
+      .optional(),
+  })
+  .strict();
+export type CreateTokenRequest = z.infer<typeof CreateTokenRequestSchema>;
+
+export const CreateTokenResponseSchema = z
+  .object({
+    token: z.string().min(1),
+    /** ISO time the token stops being accepted. */
+    expiresAt: z.string().min(1),
+    subject: z.string(),
+    role: z.string(),
+    scopes: z.array(TokenScopeSchema),
+    agents: AgentAllowlistSchema,
+    keyId: z.string(),
+  })
+  .strict();
+export type CreateTokenResponse = z.infer<typeof CreateTokenResponseSchema>;
+
+export const SIGNING_KEY_STATES = ["standby", "current", "previous", "revoked"] as const;
+export type SigningKeyState = (typeof SIGNING_KEY_STATES)[number];
+
+/** A public JSON Web Key as the JWKS publishes it. */
+export const PublicJwkSchema = z
+  .object({
+    kty: z.literal("EC"),
+    crv: z.literal("P-256"),
+    x: z.string(),
+    y: z.string(),
+    kid: z.string(),
+    alg: z.literal("ES256"),
+    use: z.literal("sig"),
+  })
+  .strict();
+export type PublicJwk = z.infer<typeof PublicJwkSchema>;
+
+export const SigningKeyViewSchema = z
+  .object({
+    id: z.string(),
+    state: z.enum(SIGNING_KEY_STATES),
+    alg: z.literal("ES256"),
+    publicKey: PublicJwkSchema,
+    createdAt: z.string(),
+    activatedAt: z.string().nullable(),
+    retiredAt: z.string().nullable(),
+    revokedAt: z.string().nullable(),
+  })
+  .strict();
+export type SigningKeyView = z.infer<typeof SigningKeyViewSchema>;
+
+export const SigningKeyListSchema = z
+  .object({ keys: z.array(SigningKeyViewSchema) })
+  .strict();
+export const JwksSchema = z.object({ keys: z.array(PublicJwkSchema) }).strict();
+export type Jwks = z.infer<typeof JwksSchema>;
+
+export const RotateSigningKeysRequestSchema = z
+  .object({ requestId: RequestIdSchema, force: z.boolean().optional() })
+  .strict();
+export const RevokeSigningKeyRequestSchema = z
+  .object({ requestId: RequestIdSchema })
+  .strict();
+
+export const RevokeSubjectRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    subject: z.string().refine(isSubject, "subject must be 1-200 visible ASCII characters and not reserved"),
+  })
+  .strict();
+export type RevokeSubjectRequest = z.infer<typeof RevokeSubjectRequestSchema>;
+export const RevokeSubjectResponseSchema = z
+  .object({ subject: z.string(), epoch: z.number().int().nonnegative() })
+  .strict();
+
+/** The claims of a subject token, as the Runtime writes them. */
+export interface SubjectTokenClaims {
+  iss: string;
+  aud: string;
+  /** Tenant id. */
+  tnt: string;
+  sub: string;
+  role: string;
+  /** Space-separated token scopes. */
+  scp: string;
+  /** The agents the mint narrowed the role to; absent when not narrowed. */
+  agt?: string[];
+  /** The subject's revocation epoch when minted. */
+  epc: number;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+// --- publishable keys (Host feature `browser-access`) --------------------------------------
+
+/** Loopback origins with any port, for development: `http://localhost:*`, `http://127.0.0.1:*`. */
+export const LOOPBACK_ORIGIN_WILDCARDS = ["http://localhost:*", "http://127.0.0.1:*"] as const;
+
+/** True for a serialized web origin: `scheme://host[:port]`, lowercase, no path. */
+export function isSerializedOrigin(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    (url.protocol === "https:" || url.protocol === "http:") &&
+    url.origin === value &&
+    // Host names only: no wildcards or other characters URL parsing lets through.
+    /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])$/.test(url.hostname)
+  );
+}
+
+/** An origin allowlist entry: an exact origin or a loopback wildcard. */
+export const OriginEntrySchema = z
+  .string()
+  .refine(
+    (value) =>
+      (LOOPBACK_ORIGIN_WILDCARDS as readonly string[]).includes(value) ||
+      isSerializedOrigin(value),
+    "must be an origin such as https://app.example.com, or http://localhost:*"
+  );
+
+/** True when `origin` (a request's `Origin`) is allowed by `origins`. */
+export function originAllowed(origins: readonly string[], origin: string): boolean {
+  if (!isSerializedOrigin(origin)) return false;
+  for (const entry of origins) {
+    if (entry === origin) return true;
+    if (entry.endsWith(":*")) {
+      const prefix = entry.slice(0, -1);
+      if (origin.startsWith(prefix) && /^\d{1,5}$/.test(origin.slice(prefix.length)))
+        return true;
+    }
+  }
+  return false;
+}
+
+export const PublishableKeySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    key: z.string(),
+    origins: z.array(z.string()),
+    createdAt: z.string(),
+    revokedAt: z.string().nullable(),
+  })
+  .strict();
+export type PublishableKey = z.infer<typeof PublishableKeySchema>;
+
+export const CreatePublishableKeyRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    name: z.string().min(1).max(100),
+    /** `[]` allows native apps only (no `Origin`). */
+    origins: z.array(OriginEntrySchema).max(100),
+  })
+  .strict();
+export type CreatePublishableKeyRequest = z.infer<typeof CreatePublishableKeyRequestSchema>;
+
+export const UpdatePublishableKeyRequestSchema = z
+  .object({
+    requestId: RequestIdSchema,
+    origins: z.array(OriginEntrySchema).max(100),
+  })
+  .strict();

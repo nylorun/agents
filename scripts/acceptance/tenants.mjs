@@ -340,7 +340,14 @@ async function h6(url, admin, adminKey) {
   const compatible = await newTenant(admin, "compat-ok");
   assert.equal(await status(url, "/v1/tenant", compatible), 200);
   const before = (await admin.listTenants()).length;
-  const rejected = await request(url, "/v1/admin/tenants", {
+  // The Admin API answers on the operator listener; the Runtime port has no admin routes.
+  const onRuntimePort = await request(url, "/v1/admin/tenants", {
+    method: "POST",
+    headers: { authorization: `Bearer ${adminKey}` },
+    body: { name: "should-not-create", idempotencyKey: randomUUID() },
+  });
+  assert.equal(onRuntimePort.status, 404, "the Runtime port serves no admin routes");
+  const rejected = await request(admin.adminUrl, "/v1/admin/tenants", {
     method: "POST",
     headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: "99" },
     body: { name: "should-not-create", idempotencyKey: randomUUID() },

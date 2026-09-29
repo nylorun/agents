@@ -269,11 +269,20 @@ Tools receive state, info, identity, resume, signal, approval/response helpers a
 
 ## AG-UI
 
-`@nylorun/agents/ag-ui` serves the Tenant's agents to any
-[AG-UI](https://docs.ag-ui.com) client (`@ag-ui/client`'s `HttpAgent`,
-CopilotKit, a desktop renderer) from your own server. Your server signs people
-in and names the person each request is for; the handler maps each AG-UI thread
-to one session per person, agent and thread, and streams it as AG-UI events.
+The Runtime serves the Tenant's agents to any [AG-UI](https://docs.ag-ui.com)
+client (`@ag-ui/client`'s `HttpAgent`, CopilotKit, a desktop renderer) at
+`/v1/ag-ui/agents/{agentId}` (optional feature `ag-ui-endpoint`). Each AG-UI
+thread is one session per person, agent and thread. There are two ways in:
+
+- **From your own server**, with `@nylorun/agents/ag-ui` (below): your server
+  signs people in and the handler forwards each request to the Runtime acting
+  for that person. The browser never sees the Runtime.
+- **From the page itself**, with `@nylorun/agents/browser`'s `agUi()` and a
+  subject token ([In the browser](#in-the-browser)). No chat traffic passes
+  through your server.
+
+Both reach the same threads: one started through the handler continues from
+the page.
 
 ```ts
 import { createServer } from "node:http";
@@ -299,9 +308,10 @@ createServer(toNodeListener(agui)).listen(3000);
 
 `run`, `history`, `reattach` and `cancel` are also on the handler for your own
 routing. The default `client` is `createClient()`; pass `client` to use another
-one, and `session(subject, agentId)` to add the person's `vaultIds` or
-`credentialSelections` (keep `info` stable: it is part of the session's
-identity).
+one, and `session(subject, agentId)` to add the person's `vaultIds`,
+`credentialSelections` or `info`. They apply when the thread's session is
+created, on its first run; later runs keep them. Whatever the browser sends in
+`forwardedProps.nylorun` is replaced.
 
 - Each AG-UI message id is the command's idempotency key: a retried run replays
   the same turn instead of starting a second one.
@@ -319,9 +329,9 @@ identity).
   `scopes` defaults to `["sessions:own"]`; add `"vaults:own"` when `session()`
   attaches the person's vaults. A `subject` the Runtime cannot name (see below)
   answers `500` (`subject_invalid`).
-- The handler needs a Runtime with the optional features `transcript-events`
-  and `subject-headers` and answers `502` (`runtime_feature_missing`) without
-  them.
+- The handler needs a Runtime with the optional feature `ag-ui-endpoint` and
+  answers `502` (`runtime_feature_missing`) without it. It loads no AG-UI
+  package itself: the Runtime does the protocol work.
 
 A complete web backend with a test is in
 [examples/src/ag-ui](../examples/README.md#an-agent-in-your-web-app-ag-ui).
@@ -330,8 +340,8 @@ Limitations: assistant text arrives once per model step (no token streaming);
 no reasoning, state, activity or subagent events, and an agent used as a tool
 shows only its result; frontend tools in `RunAgentInput.tools` are rejected
 (`400`); one text part per user message; earlier messages cannot be edited or
-regenerated. Browsers always go through your server: never let one call the
-Runtime directly.
+regenerated. A browser reaches the Runtime only with a subject token and a
+publishable key, never with a Tenant key.
 
 ## Acting for a person (app servers)
 
@@ -370,4 +380,113 @@ characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
 for a subject: an executor key that tries is `403`.
 
-The SDK depends only on core within the Nylorun packages; installing it does not install harness. `/ag-ui` adds `@ag-ui/core`; nothing else imports it. Use `/define`, `/client`, `/executor` or `/ag-ui` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+## Minting subject tokens (app servers)
+
+To let a person's browser or app call the Runtime directly, your server mints a
+short-lived **subject token** for them instead of carrying their requests
+(optional feature `subject-tokens`). What a token may do comes from the Tenant's
+access policy, not from the caller:
+
+```ts
+import { createClient } from "@nylorun/agents";
+
+const app = createClient(); // the Tenant key, on the server only
+
+// Once: roles, their agents and limits (or `nylo access policy init`).
+await app.access.putPolicy({
+  version: 1,
+  roles: {
+    user: {
+      scopes: ["sessions:own", "agents:read"],
+      agents: ["support"],
+      limits: { turnsPerHour: 60, concurrentTurns: 2 },
+    },
+  },
+  anon: { scopes: [], agents: [] },
+  tokens: { maxTtlSeconds: 600 },
+});
+
+// Per signed-in person, from a same-origin POST route:
+const { token, expiresAt } = await app.tokens.create({
+  subject: `app:${user.id}`,
+  role: "user",
+});
+```
+
+The client sends it as `Authorization: Bearer <token>` with `Nylorun-Tenant`.
+Tokens carry only `sessions:own`, `vaults:own` and `agents:read`, live at most
+15 minutes, and see only `{ agentId, name, description }` of their role's
+agents. A token that expired or was revoked answers `401` with
+`code: "token_expired"`: fetch a new one and retry. Starting more turns than the
+role allows answers `429` with `code: "limit_exceeded"` and `Retry-After`.
+
+| Call | Does |
+| --- | --- |
+| `app.access.revokeSubject(subject)` | Ends every token minted so far for the person and their open event streams |
+| `app.access.signingKeys.rotate()` | Rotates the Tenant's signing keys without signing anyone out (`{ force: true }` for incidents) |
+| `app.access.signingKeys.list()`, `.revoke(kid)`, `app.access.jwks()` | Inspect and retire keys; the public keys |
+
+Keep tokens in memory on the client, never in `localStorage`, and serve the
+minting route without CORS. `nylo access …` does the same from the terminal.
+
+`createTokenEndpoint` is that route, ready to mount (Next.js, Hono or any
+`Request` → `Response` handler):
+
+```ts
+import { createTokenEndpoint } from "@nylorun/agents";
+
+export const POST = createTokenEndpoint({
+  client: app,
+  role: "user",
+  subject: (request) => userFromCookie(request)?.id,
+});
+```
+
+## In the browser
+
+`@nylorun/agents/browser` calls the Runtime from a web page or an app with a
+publishable key and the token route above (optional feature `browser-access`).
+It loads no Node module.
+
+```ts
+import { createBrowserClient } from "@nylorun/agents/browser";
+
+const nylo = createBrowserClient({
+  url: "https://runtime.example.com",
+  publishableKey: "nr_pub_tn_…", // app.access.publishableKeys.create({ name, origins })
+  token: () => fetch("/api/nylorun/token", { method: "POST" }).then((r) => r.json()),
+});
+
+const session = await nylo.createSession({ agentId: "support" }); // owned by the token's subject
+await session.input("Where is my order?", { idempotencyKey: crypto.randomUUID() });
+for await (const event of session.observe()) console.log(event.type);
+```
+
+For a chat UI, `agUi()` gives `@ag-ui/client`'s `HttpAgent` a `fetch` with the
+key and a current token:
+
+```ts
+import { HttpAgent } from "@ag-ui/client";
+
+const { url, fetch } = nylo.agUi("support");
+const agent = new HttpAgent({
+  url,
+  fetch,
+  threadId,
+  initialMessages: await nylo.agUiHistory("support", threadId),
+});
+```
+
+When the Runtime ends a run's stream because the token expired or was revoked,
+that `fetch` reattaches from the last event with a new token, so the agent sees
+one run. A person's token may attach their own vaults to a new thread
+(`forwardedProps: { nylorun: { session: { vaultIds } } }`) but not set `info`.
+
+The client keeps the token in memory, fetches a new one a minute before it
+expires or when the Runtime answers `401 token_expired`, and never asks for two
+at once. Event streams that the Runtime ends at token expiry or revocation
+reconnect from their last event with a new token. Create a publishable key per
+app with the origins that serve it (`http://localhost:*` for development);
+requests from other origins get the opaque `404`.
+
+The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI package. Use `/define`, `/client`, `/executor`, `/ag-ui` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).

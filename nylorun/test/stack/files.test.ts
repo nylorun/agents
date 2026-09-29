@@ -16,6 +16,7 @@ import { fakePorts, temporaryHome } from "./support.js";
 
 const env: StackEnv = {
   runtimePort: 8787,
+  adminPort: 8788,
   studioPort: 4161,
   restatePort: 9070,
   postgresPassword: "0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -51,17 +52,26 @@ describe("compose.yaml", () => {
     expect(compose).toMatchSnapshot();
   });
 
-  it("publishes the Runtime, Studio, Restate UI and the optional OpenShell gateway, all on loopback", () => {
+  it("publishes the Runtime, its operator port, Studio, Restate UI and the optional OpenShell gateway, all on loopback", () => {
     const published = [...compose.matchAll(/^\s+- "([^"]+):([^":]+)"/gm)].map((m) => `${m[1]}:${m[2]}`);
     expect(published).toEqual([
       "127.0.0.1:${NYLORUN_RESTATE_PORT:?run nylorun start}:9070",
       "127.0.0.1:${NYLORUN_PORT:?run nylorun start}:4000",
+      "127.0.0.1:${NYLORUN_ADMIN_PORT:?run nylorun start}:4001",
       "127.0.0.1:${NYLORUN_OPENSHELL_PORT:-18080}:${NYLORUN_OPENSHELL_PORT:-18080}",
       "127.0.0.1:${NYLORUN_OPENSHELL_HEALTH_PORT:-18081}:8081",
       "127.0.0.1:${NYLORUN_STUDIO_PORT:?run nylorun start}:3000",
     ]);
     // The gateway runs only with the openshell profile.
     expect(compose).toContain('profiles: ["openshell"]');
+  });
+
+  it("serves the Admin API on the operator listener, which Studio uses", () => {
+    expect(compose).toContain('NYLORUN_ADMIN_LISTEN_PORT: "4001"');
+    expect(compose).toContain(
+      "NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:${NYLORUN_ADMIN_PORT},127.0.0.1:${NYLORUN_ADMIN_PORT}",
+    );
+    expect(compose).toContain("NYLORUN_RUNTIME_URL: http://runtime:4001");
   });
 
   it("pins Postgres, Restate and s2 and takes the Runtime and Studio images from .env", () => {
@@ -114,6 +124,7 @@ describe(".env", () => {
   it("round-trips the persisted settings", () => {
     expect(parsePersisted(renderEnvFile(env))).toEqual({
       runtimePort: 8787,
+      adminPort: 8788,
       studioPort: 4161,
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
@@ -178,7 +189,7 @@ describe("prepareStack", () => {
     const paths = stackPaths(home);
     const prepared = await prepare(home);
     expect(prepared.firstRun).toBe(true);
-    expect(prepared.env).toMatchObject({ runtimePort: 8787, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
+    expect(prepared.env).toMatchObject({ runtimePort: 8787, adminPort: 8788, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
     expect(prepared.env.postgresPassword).toMatch(/^[0-9a-f]{48}$/);
     expect(prepared.env.restateIdentityKey).toMatch(/^publickeyv1_[1-9A-HJ-NP-Za-km-z]{43,44}$/);
     const pem = await readFile(paths.restateIdentity, "utf8");
@@ -195,6 +206,7 @@ describe("prepareStack", () => {
       hostId: expect.stringMatching(/^host_[0-9a-hjkmnp-tv-z]{26}$/),
       host: "localhost",
       port: 8787,
+      adminPort: 8788,
       runtimeVersion: "0.10.0-beta",
     });
     const credentials = JSON.parse(await readFile(paths.credentials, "utf8"));

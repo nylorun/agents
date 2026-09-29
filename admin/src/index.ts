@@ -11,16 +11,23 @@ import {
   type ErrorCode,
 } from "@nylorun/core/compatibility";
 import { AdminClient, resolveAdminConnection } from "./client.js";
-import { deriveStudioToken, deriveTenantKey } from "./derived-credentials.js";
+import {
+  PROJECT_PRINCIPAL_ID,
+  deriveStudioToken,
+  deriveTenantKey,
+} from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
-export { deriveStudioToken, deriveTenantKey };
+export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey };
 
 export interface Admin {
+  /** The Host's Tenant API URL. */
   readonly url: string;
+  /** Where Admin API requests go: the operator listener, or `url` on a single-port Host. */
+  readonly adminUrl: string;
   readonly source: "options" | "environment" | "local-host";
   status(): Promise<AdminStatus>;
   listTenants(): Promise<AdminTenant[]>;

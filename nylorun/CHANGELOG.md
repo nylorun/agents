@@ -1,5 +1,26 @@
 # nylorun
 
+## 0.2.1-beta
+
+### Patch Changes
+
+- db956bc: Studio creates Tenants. While the Host has none, Studio asks for a name and creates the first one. A Tenant with no agents shows **Connect your code**: its model provider, the `npx @nylorun/cli tenant use <id>` command, and `npm run dev`. It switches to the agent list when the first agent registers.
+
+  Every Tenant Studio creates registers the derived principal `project` (`PROJECT_PRINCIPAL_ID` in `@nylorun/admin`). `nylo tenant use` now falls back to that key, derived from the local admin key, so a Project links a Studio-created Tenant with no stored key. When it replaces a one-time application key, it keeps that key as `.nylorun/credentials.<tenantId>.json`, and `nylo tenant use <that id>` switches back. `nylorun up` again offers Studio for creating the first Tenant.
+
+- Pin studio to the tested release.
+
+## 0.2.0-beta
+
+### Minor Changes
+
+- c82aa6f: `nylorun up` prints Studio as `http://localhost:<port>`, with no login token in it, and in a terminal opens Studio in the browser already signed in (`--no-open` keeps the browser closed). The Studio sign-in lasts 30 days and survives Studio restarts: the session cookie is signed with a key derived from the admin key instead of being held in memory. `nylorun studio` prints the plain URL when it opens the browser; `nylorun studio --no-open` still prints the single-use login URL.
+
+### Patch Changes
+
+- 5e4947a: `nylorun up` no longer says a Tenant can be created in Studio, which has no way to create one. While the Host has no Tenant, it names `npx @nylorun/cli tenant create` alone.
+- Pin studio to the tested release.
+
 ## 0.1.2-beta
 
 ### Patch Changes

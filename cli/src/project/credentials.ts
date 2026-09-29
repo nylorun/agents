@@ -18,10 +18,12 @@ export interface ProjectCredentials {
   executors?: Record<string, string>;
 }
 
+/** The Project's credentials, or with `tenantId` the key kept for that Tenant. */
 export async function readCredentials(
   projectRoot: string,
+  tenantId?: string,
 ): Promise<ProjectCredentials | undefined> {
-  const path = credentialsPath(projectRoot);
+  const path = credentialsPath(projectRoot, tenantId);
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as {
       format?: unknown;
@@ -79,9 +81,10 @@ export async function writeCredentials(
     principalId: string;
     format?: 0 | 1;
   },
+  tenantId?: string,
 ): Promise<void> {
   await ensureProjectNylorunDir(projectRoot);
-  const path = credentialsPath(projectRoot);
+  const path = credentialsPath(projectRoot, tenantId);
   const temporary = `${path}.${randomUUID()}.tmp`;
   // Version 1 writes format 1 without executors (D§3.7).
   const body = `${JSON.stringify(
@@ -102,6 +105,9 @@ export async function writeCredentials(
   }
 }
 
-export async function removeCredentials(projectRoot: string): Promise<void> {
-  await rm(credentialsPath(projectRoot), { force: true });
+export async function removeCredentials(
+  projectRoot: string,
+  tenantId?: string,
+): Promise<void> {
+  await rm(credentialsPath(projectRoot, tenantId), { force: true });
 }

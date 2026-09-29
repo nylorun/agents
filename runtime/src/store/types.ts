@@ -247,6 +247,37 @@ export interface SealedSecret {
   wrappedDek: Uint8Array;
 }
 
+/** A Tenant signing key (subject tokens). The private key is sealed; the public JWK is not. */
+export interface SigningKeyRow extends SealedSecret {
+  id: string;
+  state: "standby" | "current" | "previous" | "revoked";
+  alg: "ES256";
+  /** JSON text of the public JWK. */
+  publicJwk: string;
+  createdAt: string;
+  activatedAt: string | null;
+  retiredAt: string | null;
+  revokedAt: string | null;
+}
+
+/** A publishable key (Host feature `browser-access`). Public by design. */
+export interface PublishableKeyRow {
+  id: string;
+  key: string;
+  name: string;
+  /** JSON array of allowed origins. */
+  originsJson: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+/** A subject's turn bucket (subject limits): tokens left and when they were last refilled. */
+export interface SubjectUsageRow {
+  subject: string;
+  turnTokens: number;
+  refilledAt: string;
+}
+
 export interface VaultCredentialRow extends SealedSecret {
   id: string;
   vaultId: string;
@@ -591,6 +622,59 @@ export interface Tx {
   /** Rejects when the id exists. */
   insertVaultIdempotency(row: VaultIdempotencyRow): Promise<void>;
 
+  // --- subject tokens ------------------------------------------------------
+
+  /** Rejects on a duplicate id, or a second key in `standby`, `current` or `previous`. */
+  insertSigningKey(row: SigningKeyRow): Promise<void>;
+  signingKey(id: string): Promise<SigningKeyRow | undefined>;
+  /** Keys in the given states (all when omitted), ordered by `createdAt`, then id. */
+  signingKeys(
+    states?: readonly SigningKeyRow["state"][],
+  ): Promise<SigningKeyRow[]>;
+  /**
+   * Moves a key from `from` to `to` and stamps the matching time (`activatedAt` for
+   * `current`, `retiredAt` for `previous`, `revokedAt` for `revoked`). Returns false when the
+   * key is not in `from`.
+   */
+  setSigningKeyState(
+    id: string,
+    from: SigningKeyRow["state"],
+    to: SigningKeyRow["state"],
+    at: string,
+  ): Promise<boolean>;
+  countSigningKeys(): Promise<number>;
+  /** The subject's revocation epoch; 0 when it was never revoked. */
+  subjectEpoch(subject: string): Promise<number>;
+  /** The epochs of several subjects; subjects never revoked are absent. */
+  subjectEpochs(subjects: readonly string[]): Promise<Map<string, number>>;
+  /** Adds one to the subject's epoch and returns the new value. */
+  bumpSubjectEpoch(subject: string, at: string): Promise<number>;
+  /**
+   * The subject's turn bucket, created from `initial` when missing, locked until the
+   * transaction ends so concurrent commands of one subject serialize.
+   */
+  lockSubjectUsage(initial: SubjectUsageRow): Promise<SubjectUsageRow>;
+  putSubjectUsage(row: SubjectUsageRow): Promise<void>;
+  /** How many sessions of `ownerUserId` are in one of `statuses`. */
+  countOwnerSessions(
+    ownerUserId: string,
+    statuses: readonly string[],
+  ): Promise<number>;
+
+  // --- publishable keys ----------------------------------------------------
+
+  /** Rejects on a duplicate id, key or name. */
+  insertPublishableKey(row: PublishableKeyRow): Promise<void>;
+  publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined>;
+  publishableKey(id: string): Promise<PublishableKeyRow | undefined>;
+  /** All keys, revoked ones included, ordered by `createdAt`, then id. */
+  publishableKeys(): Promise<PublishableKeyRow[]>;
+  /** Returns false when the key does not exist. */
+  updatePublishableKey(
+    id: string,
+    patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
+  ): Promise<boolean>;
+
   // --- tenant settings (non-secret) -----------------------------------------
 
   getSetting(key: string): Promise<string | undefined>;
@@ -600,11 +684,13 @@ export interface Tx {
 
   /**
    * Deletes Tenant state by scope, in this transaction:
-   * - `sessions`: sessions, commands, checkpoints, effects, actions, links and the outbox;
+   * - `sessions`: sessions, commands, checkpoints, effects, actions, links, the outbox and
+   *   subject turn buckets;
    * - `sandboxes`: sandbox records;
    * - `all`: both, plus definitions, executors and user vaults with their
-   *   credentials. The host vault, principals, settings, audit and vault
-   *   idempotency rows stay.
+   *   credentials. The host vault, principals, signing keys, subject epochs, publishable
+   *   keys, settings,
+   *   audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;
 }

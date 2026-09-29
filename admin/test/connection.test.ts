@@ -99,6 +99,28 @@ describe("B1 createAdmin connection resolution", () => {
     }
   });
 
+  it("sends Admin API requests to the operator port when host.json names one", async () => {
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME");
+    const seen: string[] = [];
+    const server = await startStubServer((request, response) => {
+      seen.push(request.url ?? "");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(request.url === "/health" ? healthBody() : []));
+    });
+    try {
+      const adminPort = Number(new URL(server.url).port);
+      const home = await writeLocalHost({ port: 1, adminPort, format: 1 });
+      const admin = createAdmin({ home });
+      // The Tenant API stays on `port`; only admin requests move.
+      expect(admin.url).toBe("http://127.0.0.1:1");
+      expect(admin.adminUrl).toBe(`http://127.0.0.1:${adminPort}`);
+      await admin.listTenants();
+      expect(seen).toContain("/v1/admin/tenants");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("accepts format 0 host.json (missing format field)", async () => {
     stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY");
     const server = await startStubServer((request, response) => {

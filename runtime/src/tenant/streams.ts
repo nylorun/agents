@@ -49,7 +49,12 @@ import {
   type SessionStreamRef,
 } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
-import { announceWork, checkFeeds, sleep } from "./live.js";
+import {
+  announceWork,
+  checkFeeds,
+  endSubjectStreams,
+  sleep,
+} from "./live.js";
 
 export interface WireStreamsOptions {
   tenantId: string;
@@ -176,6 +181,12 @@ export async function wireStreams(
         ctx.abortLocal(signal.sessionId);
       else if (signal?.type === "sessions.reset")
         void checkFeeds(ctx).catch(report("session feed check failed"));
+      else if (
+        signal?.type === "subject.revoked" &&
+        typeof signal.subject === "string" &&
+        typeof signal.epoch === "number"
+      )
+        endSubjectStreams(ctx.live, signal.subject, signal.epoch);
     },
     report("control stream read failed; retrying")
   );

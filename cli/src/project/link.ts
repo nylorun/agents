@@ -20,8 +20,15 @@ export function linkPath(projectRoot: string): string {
   return join(nylorunDir(projectRoot), "link.json");
 }
 
-export function credentialsPath(projectRoot: string): string {
-  return join(nylorunDir(projectRoot), "credentials.json");
+/**
+ * `.nylorun/credentials.json`, or with `tenantId` the key `nylo tenant use`
+ * kept for a Tenant the Project was linked to before (`credentials.<id>.json`).
+ */
+export function credentialsPath(projectRoot: string, tenantId?: string): string {
+  return join(
+    nylorunDir(projectRoot),
+    tenantId === undefined ? "credentials.json" : `credentials.${tenantId}.json`,
+  );
 }
 
 /**
