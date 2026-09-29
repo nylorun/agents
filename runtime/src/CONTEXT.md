@@ -144,7 +144,8 @@ whose key is derived from the admin key, the principal id and the Tenant id
 (`deriveTenantKey`, `admin/src/derived-credentials.ts`). Registered by hash when
 the Tenant is created (`derivedPrincipals`, feature `derived-principals`), so
 the client stores no key. The Studio principal is the first of these, with its
-own derivation.
+own derivation. Tenants Studio creates register `project` (`PROJECT_PRINCIPAL_ID`),
+which `nylo tenant use` derives to link a Project on the same machine.
 _Avoid_: storing an application key on a machine that already holds the admin
 key.
 

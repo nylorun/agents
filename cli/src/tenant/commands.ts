@@ -1,12 +1,18 @@
 import { createInterface } from "node:readline/promises";
 import { randomUUID } from "node:crypto";
-import { createAdmin, type AdminTenant } from "@nylorun/admin";
+import {
+  PROJECT_PRINCIPAL_ID,
+  createAdmin,
+  type AdminTenant,
+} from "@nylorun/admin";
 import { createClient, isTenantId } from "@nylorun/agents";
 import { CliError } from "../errors.js";
 import { resolveHome } from "../home.js";
 import {
   readCredentials,
   removeCredentials,
+  writeCredentials,
+  type ProjectCredentials,
 } from "../project/credentials.js";
 import {
   readLink,
@@ -184,25 +190,52 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     console.warn(
       "Sharing a Tenant shares executor registrations across Projects that link to it.",
     );
-    const credentials = await readCredentials(root);
-    if (!credentials) {
+    const authorizes = async (key: string): Promise<boolean> => {
+      try {
+        await createClient({ url: admin.url, key, tenant: selected.id }).transport.json(
+          "/v1/tenant",
+          "GET",
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const link = await readLink(root);
+    const current = await readCredentials(root);
+    const kept = await readCredentials(root, selected.id);
+    // The Project's own key, then one kept when it last left this Tenant, then
+    // the key derived from this machine's admin key (Tenants Studio creates).
+    let chosen: ProjectCredentials | undefined;
+    for (const candidate of [current, kept])
+      if (!chosen && candidate && (await authorizes(candidate.applicationKey)))
+        chosen = candidate;
+    if (!chosen) {
+      const derived = admin.deriveTenantKey(selected.id, PROJECT_PRINCIPAL_ID);
+      if (await authorizes(derived))
+        chosen = { format: 1, applicationKey: derived, principalId: PROJECT_PRINCIPAL_ID };
+    }
+    if (!chosen) {
       throw new CliError(
-        "No Project credentials. Run nylo tenant create to create a Tenant first, or copy credentials for the target Tenant.",
+        `No key of this Project authorizes Tenant ${selected.id}, and it has no derived "${PROJECT_PRINCIPAL_ID}" principal (Tenants created in Studio have one). Link a Tenant created in Studio, or create one with nylo tenant create.`,
         1,
       );
     }
-    const client = createClient({
-      url: admin.url,
-      key: credentials.applicationKey,
-      tenant: selected.id,
-    });
-    try {
-      await client.transport.json("/v1/tenant", "GET");
-    } catch {
-      throw new CliError(
-        `Credentials do not authorize Tenant ${selected.id}. Create a new Tenant with nylo tenant create instead of reusing another Project's Tenant without its key.`,
-        1,
-      );
+    if (chosen !== current) {
+      // An application key is shown only once: keep the one being replaced.
+      if (
+        current &&
+        link &&
+        link.tenantId !== selected.id &&
+        current.principalId !== PROJECT_PRINCIPAL_ID
+      ) {
+        await writeCredentials(root, current, link.tenantId);
+        console.warn(
+          `Kept the key for Tenant ${link.tenantId} in .nylorun/credentials.${link.tenantId}.json; nylo tenant use ${link.tenantId} switches back.`,
+        );
+      }
+      await writeCredentials(root, chosen);
+      if (chosen === kept) await removeCredentials(root, selected.id);
     }
     await writeLink(root, {
       format: 1,

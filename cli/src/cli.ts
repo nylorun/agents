@@ -17,7 +17,8 @@ const usage = `nylo <tenant|configure|env|doctor>
 
 Runtime client (the local stack's Runtime, or any Runtime by URL and key):
   tenant create [name]                    create a Tenant; in a Project, link it and seed it from .env
-  tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete
+  tenant use <name-or-id>                 link this Project to a Tenant, e.g. one created in Studio
+  tenant current|list [--json]|status [--json]|reset|delete
   configure                               set the linked Tenant's model provider
   env                                     print the linked Project's NYLORUN_* variables as exports
   doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers
