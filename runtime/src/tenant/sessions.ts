@@ -14,7 +14,12 @@ import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import { newStreamIncarnation } from "../streams/types.js";
 import { validateSandboxAttach } from "../core/sandbox-routes.js";
-import { sandboxLookup, type Session, type TenantContext } from "./context.js";
+import {
+  sandboxLookup,
+  type Session,
+  type SessionAccess,
+  type TenantContext,
+} from "./context.js";
 import { fail } from "./http.js";
 
 /** A session's creation identity: everything but the request id and vault attachments. */
@@ -49,6 +54,30 @@ export async function listDefinitions(ctx: TenantContext) {
   };
 }
 
+/**
+ * The agents a subject token or publishable key may see: id, name and description only, never
+ * instructions, tools or MCP servers, and only the agents allowed.
+ */
+export async function listAgentsPublic(
+  ctx: TenantContext,
+  agents: ReadonlySet<string> | "*"
+) {
+  const definitions = await ctx.store.tx((t) =>
+    t.listDefinitions<Definition>()
+  );
+  return {
+    agents: definitions
+      .filter((d) => agents === "*" || agents.has(d.manifest.id))
+      .map((d) => ({
+        agentId: d.manifest.id as string,
+        ...(typeof d.manifest.name === "string" ? { name: d.manifest.name } : {}),
+        ...(typeof d.manifest.description === "string"
+          ? { description: d.manifest.description }
+          : {}),
+      })),
+  };
+}
+
 export async function putDefinition(
   ctx: TenantContext,
   agentId: string,
@@ -68,20 +97,26 @@ export async function putDefinition(
   };
 }
 
-/** `owner`, when the request acts for a subject, limits the list to that subject's sessions. */
+/**
+ * `access`, when the request acts for a person, limits the list to that person's sessions of
+ * the agents they may use.
+ */
 export async function listSessions(
   ctx: TenantContext,
   agentId: string | null,
-  owner?: string
+  access?: SessionAccess
 ) {
   const sessions = await ctx.store.tx((t) =>
     t.listSessions<Session>({
       ...(agentId === null ? {} : { agentId }),
-      ...(owner === undefined ? {} : { ownerUserId: owner }),
+      ...(access === undefined ? {} : { ownerUserId: access.owner }),
     })
   );
+  const allowed = access?.agents;
   return {
-    sessions: sessions.map((s) => ({
+    sessions: sessions
+      .filter((s) => allowed === undefined || allowed.has(s.agentId))
+      .map((s) => ({
       id: s.id,
       agentId: s.agentId,
       ownerUserId: s.ownerUserId,
@@ -101,16 +136,24 @@ export function putSession(
   ctx: TenantContext,
   id: string,
   body: PutSessionRequest,
-  owner?: string
+  access?: SessionAccess
 ): Promise<Session> {
   const vaultIds = body.vaultIds ?? [];
   const credentialSelections = body.credentialSelections ?? [];
-  const opaque = owner !== undefined;
-  if (opaque && body.ownerUserId !== owner)
+  const opaque = access !== undefined;
+  if (opaque && body.ownerUserId !== access.owner)
     fail(403, "ownerUserId must be the subject");
+  // An agent the subject may not use is the 404 of a missing definition.
+  if (access?.agents !== undefined && !access.agents.has(body.agentId))
+    fail(404, "Definition not found");
   return ctx.store.tx(async (t) => {
     const prior = await t.lockSession<Session>(id);
-    if (opaque && prior && prior.ownerUserId !== owner)
+    if (
+      opaque &&
+      prior &&
+      (prior.ownerUserId !== access.owner ||
+        (access.agents !== undefined && !access.agents.has(prior.agentId)))
+    )
       fail(404, "Session not found");
     const definition =
       prior === undefined || body.sandbox

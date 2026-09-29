@@ -66,6 +66,8 @@ import type {
   SessionStoreOptions,
   StoreCounts,
   StoreHealth,
+  SigningKeyRow,
+  SubjectUsageRow,
   StoredSession,
   TakeOwnership,
   Tx,
@@ -246,6 +248,30 @@ function principalRow(row: Row): PrincipalRow {
     createdAt: row.created_at,
   };
 }
+
+function signingKeyRow(row: Row): SigningKeyRow {
+  return {
+    id: row.id,
+    state: row.state,
+    alg: row.alg,
+    publicJwk: row.public_jwk,
+    createdAt: row.created_at,
+    activatedAt: row.activated_at,
+    retiredAt: row.retired_at,
+    revokedAt: row.revoked_at,
+    kekId: row.kek_id,
+    nonce: fromBytes(row.nonce),
+    ciphertext: fromBytes(row.ciphertext),
+    wrappedDek: fromBytes(row.wrapped_dek),
+  };
+}
+
+/** The time column a signing key's new state stamps. */
+const SIGNING_KEY_STAMP: Partial<Record<SigningKeyRow["state"], string>> = {
+  current: "activated_at",
+  previous: "retired_at",
+  revoked: "revoked_at",
+};
 
 function vaultRow(row: Row): VaultRow {
   return {
@@ -977,6 +1003,127 @@ class PostgresTx implements Tx {
       VALUES (${row.id}, ${row.bodyHash}, ${row.response})`;
   }
 
+  // --- subject tokens ------------------------------------------------------
+
+  async insertSigningKey(row: SigningKeyRow): Promise<void> {
+    this.check();
+    await this.sql`
+      INSERT INTO ${this.t("signing_keys")} (
+        id, state, alg, public_jwk, kek_id, nonce, ciphertext, wrapped_dek,
+        created_at, activated_at, retired_at, revoked_at
+      ) VALUES (
+        ${row.id}, ${row.state}, ${row.alg}, ${row.publicJwk}, ${row.kekId},
+        ${bytes(row.nonce)}, ${bytes(row.ciphertext)}, ${bytes(row.wrappedDek)},
+        ${row.createdAt}, ${row.activatedAt}, ${row.retiredAt}, ${row.revokedAt}
+      )`;
+  }
+
+  async signingKey(id: string): Promise<SigningKeyRow | undefined> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT * FROM ${this.t("signing_keys")} WHERE id = ${id}`;
+    return row && signingKeyRow(row);
+  }
+
+  async signingKeys(
+    states?: readonly SigningKeyRow["state"][],
+  ): Promise<SigningKeyRow[]> {
+    this.check();
+    const sql = this.sql;
+    const rows = await sql`
+      SELECT * FROM ${this.t("signing_keys")}
+      ${states === undefined ? sql`` : sql`WHERE state = ANY(${states as string[]})`}
+      ORDER BY created_at, id`;
+    return rows.map(signingKeyRow);
+  }
+
+  async setSigningKeyState(
+    id: string,
+    from: SigningKeyRow["state"],
+    to: SigningKeyRow["state"],
+    at: string,
+  ): Promise<boolean> {
+    this.check();
+    const sql = this.sql;
+    const column = SIGNING_KEY_STAMP[to];
+    const rows = await sql`
+      UPDATE ${this.t("signing_keys")}
+      SET state = ${to}${column ? sql`, ${sql(column)} = ${at}` : sql``}
+      WHERE id = ${id} AND state = ${from}
+      RETURNING id`;
+    return rows.length === 1;
+  }
+
+  async countSigningKeys(): Promise<number> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT count(*)::int AS n FROM ${this.t("signing_keys")}`;
+    return row!.n as number;
+  }
+
+  async subjectEpoch(subject: string): Promise<number> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT epoch FROM ${this.t("subject_epochs")} WHERE subject = ${subject}`;
+    return row ? Number(row.epoch) : 0;
+  }
+
+  async subjectEpochs(subjects: readonly string[]): Promise<Map<string, number>> {
+    this.check();
+    if (subjects.length === 0) return new Map();
+    const rows = await this.sql`
+      SELECT subject, epoch FROM ${this.t("subject_epochs")}
+      WHERE subject = ANY(${subjects as string[]})`;
+    return new Map(rows.map((row) => [row.subject as string, Number(row.epoch)]));
+  }
+
+  async bumpSubjectEpoch(subject: string, at: string): Promise<number> {
+    this.check();
+    const [row] = await this.sql`
+      INSERT INTO ${this.t("subject_epochs")} (subject, epoch, revoked_at)
+      VALUES (${subject}, 1, ${at})
+      ON CONFLICT (subject) DO UPDATE
+        SET epoch = ${this.t("subject_epochs")}.epoch + 1, revoked_at = excluded.revoked_at
+      RETURNING epoch`;
+    return Number(row!.epoch);
+  }
+
+  async lockSubjectUsage(initial: SubjectUsageRow): Promise<SubjectUsageRow> {
+    this.check();
+    await this.sql`
+      INSERT INTO ${this.t("subject_usage")} (subject, turn_tokens, refilled_at)
+      VALUES (${initial.subject}, ${initial.turnTokens}, ${initial.refilledAt})
+      ON CONFLICT (subject) DO NOTHING`;
+    const [row] = await this.sql`
+      SELECT subject, turn_tokens, refilled_at FROM ${this.t("subject_usage")}
+      WHERE subject = ${initial.subject} FOR UPDATE`;
+    return {
+      subject: row!.subject,
+      turnTokens: Number(row!.turn_tokens),
+      refilledAt: row!.refilled_at,
+    };
+  }
+
+  async putSubjectUsage(row: SubjectUsageRow): Promise<void> {
+    this.check();
+    await this.sql`
+      INSERT INTO ${this.t("subject_usage")} (subject, turn_tokens, refilled_at)
+      VALUES (${row.subject}, ${row.turnTokens}, ${row.refilledAt})
+      ON CONFLICT (subject) DO UPDATE
+        SET turn_tokens = excluded.turn_tokens, refilled_at = excluded.refilled_at`;
+  }
+
+  async countOwnerSessions(
+    ownerUserId: string,
+    statuses: readonly string[],
+  ): Promise<number> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT count(*)::int AS n FROM ${this.t("sessions")}
+      WHERE owner_user_id = ${ownerUserId} AND status = ANY(${statuses as string[]})`;
+    return row!.n as number;
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -998,8 +1145,10 @@ class PostgresTx implements Tx {
   async reset(scope: ResetScope): Promise<void> {
     this.check();
     const sql = this.sql;
-    if (scope === "sessions" || scope === "all")
+    if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await sql`DELETE FROM ${this.t(table)}`;
+      await sql`DELETE FROM ${this.t("subject_usage")}`;
+    }
     if (scope === "sandboxes" || scope === "all")
       await sql`DELETE FROM ${this.t("sandboxes")}`;
     if (scope === "all") {

@@ -376,4 +376,53 @@ characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
 for a subject: an executor key that tries is `403`.
 
+## Minting subject tokens (app servers)
+
+To let a person's browser or app call the Runtime directly, your server mints a
+short-lived **subject token** for them instead of carrying their requests
+(optional feature `subject-tokens`). What a token may do comes from the Tenant's
+access policy, not from the caller:
+
+```ts
+import { createClient } from "@nylorun/agents";
+
+const app = createClient(); // the Tenant key, on the server only
+
+// Once: roles, their agents and limits (or `nylo access policy init`).
+await app.access.putPolicy({
+  version: 1,
+  roles: {
+    user: {
+      scopes: ["sessions:own", "agents:read"],
+      agents: ["support"],
+      limits: { turnsPerHour: 60, concurrentTurns: 2 },
+    },
+  },
+  anon: { scopes: [], agents: [] },
+  tokens: { maxTtlSeconds: 600 },
+});
+
+// Per signed-in person, from a same-origin POST route:
+const { token, expiresAt } = await app.tokens.create({
+  subject: `app:${user.id}`,
+  role: "user",
+});
+```
+
+The client sends it as `Authorization: Bearer <token>` with `Nylorun-Tenant`.
+Tokens carry only `sessions:own`, `vaults:own` and `agents:read`, live at most
+15 minutes, and see only `{ agentId, name, description }` of their role's
+agents. A token that expired or was revoked answers `401` with
+`code: "token_expired"`: fetch a new one and retry. Starting more turns than the
+role allows answers `429` with `code: "limit_exceeded"` and `Retry-After`.
+
+| Call | Does |
+| --- | --- |
+| `app.access.revokeSubject(subject)` | Ends every token minted so far for the person and their open event streams |
+| `app.access.signingKeys.rotate()` | Rotates the Tenant's signing keys without signing anyone out (`{ force: true }` for incidents) |
+| `app.access.signingKeys.list()`, `.revoke(kid)`, `app.access.jwks()` | Inspect and retire keys; the public keys |
+
+Keep tokens in memory on the client, never in `localStorage`, and serve the
+minting route without CORS. `nylo access …` does the same from the terminal.
+
 The SDK depends only on core within the Nylorun packages; installing it does not install harness. `/ag-ui` adds `@ag-ui/core`; nothing else imports it. Use `/define`, `/client`, `/executor` or `/ag-ui` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).

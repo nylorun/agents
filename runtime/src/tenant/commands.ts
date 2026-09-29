@@ -47,7 +47,8 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { ownerOf, scoped } from "./auth.js";
+import { accessOf, scoped } from "./auth.js";
+import { chargeTurn } from "./subject-limits.js";
 import {
   actionTarget,
   rebaseSessionState,
@@ -136,7 +137,7 @@ export async function command(
   const { store } = ctx;
   const cascadeCancelIds: string[] = [];
   const response = await store.tx(async (t) => {
-    const s = await lockedSession(t, id, ownerOf(scope));
+    const s = await lockedSession(t, id, accessOf(scope));
     let command = input;
     if (command.type === "action_result") {
       const a =
@@ -147,6 +148,15 @@ export async function command(
       command = acceptedToolResult(a, command);
     } else if (scope.kind === "executor")
       fail(403, "Application credential required");
+    // A person's token may not replace the instructions of a turn.
+    if (
+      scope.kind === "token" &&
+      command.type === "message" &&
+      command.manifest !== undefined
+    )
+      fail(403, "A subject token cannot send message.manifest", {
+        code: "scope_required",
+      });
     const key = commandKey(id, command.idempotencyKey);
     const existing = await t.get("commands", key);
     if (existing) {
@@ -318,6 +328,9 @@ export async function command(
       if (command.type === "message") {
         if (!["idle", "completed", "failed", "cancelled"].includes(s.status))
           fail(409, "Session has active or unresolved work");
+        // After the replay check above, so a retried message is never charged twice.
+        if (scope.kind === "token" && scope.limits)
+          await chargeTurn(t, scope.subject, scope.limits);
         s.turnStartState = s.state;
         s.activeTurnId = randomUUID();
         if (isWorkflowManifest(s.manifest)) {

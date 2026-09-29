@@ -95,15 +95,48 @@ the host model's vault). A subject reaches only sessions and vaults whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
 missing one. Only application principals may send it; from an executor it is
 `403`.
-_Avoid_: "user" for the header value (the Runtime has no user accounts);
-per-person tokens (deferred until a credential must leave the app server).
+A **subject token** names its subject itself.
+_Avoid_: "user" for the header value (the Runtime has no user accounts).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
 `vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). `routeAccess` maps each
 route to the scopes that allow it, decided from the route alone before any
-lookup (`403 scope_required`); reset, config seed, executors, actions and the
-sandbox tool routes are open to no subject.
+lookup (`403 scope_required`); reset, config seed, executors, actions, the
+sandbox tool routes, `/v1/tokens` and `/v1/access/**` are open to no subject.
+A subject token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
+`vaults:own`).
+
+**Subject token**: ES256 JWT (`typ: nylorun-subject+jwt`) for one subject and one
+**role**, minted by `POST /v1/tokens` with an application key and sent as the
+bearer (feature `subject-tokens`, `tenant/tokens.ts`). Lives at most 15 minutes.
+Its scopes and agents are its role's, narrowed by the mint, resolved on every
+request. Forged, foreign or malformed tokens are the opaque `404`; a verified
+token that a new one would fix (expired, revoked, key revoked, role removed) is
+`401 token_expired`. It may not set session `info`, send `message.manifest` or
+store OAuth refresh credentials, and sees only `{ agentId, name, description }`
+of the agents it may use.
+_Avoid_: "session token", "JWT" as the public name; accepting one from a query
+string.
+
+**Signing key**: A Tenant's ES256 key pair for subject tokens (`signing_keys`,
+`tenant/signing-keys.ts`): the public JWK in the clear, the private key sealed
+with the vault KEK. States `standby`, `current` (signs), `previous` (verifies),
+`revoked`. Rotation never signs anyone out; `force` does.
+
+**Access policy**: The Tenant setting `access.policy`: its **roles** (token
+scopes, an agent allowlist, **subject limits**), what a publishable key grants
+alone (`anon`), and the longest token lifetime. Without roles nothing is minted
+(`tenant/access-policy.ts`).
+
+**Revocation epoch**: A per-subject counter in every subject token (`epc`).
+`POST /v1/access/revocations` bumps it: older tokens are refused and the
+subject's open streams end with `event: nylorun.closed` on every process
+(`subject.revoked` on `tenant/control`, `checkFeeds` as backstop).
+
+**Subject limits**: A role's `turnsPerHour` (a token bucket per subject) and
+`concurrentTurns` (sessions `runnable`, `running` or `waiting`), checked when a
+subject token starts a turn (`429 limit_exceeded`, `tenant/subject-limits.ts`).
 
 **App server**: The developer's own server: signs people in, names the subject
 and scopes on each Runtime call (`client.as`), hosts the AG-UI handler and the
@@ -127,8 +160,8 @@ Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
 `admin-status` and `studio-principal`; optional Host features
-`tenant-fixture-model`, `transcript-events`, `derived-principals` and
-`subject-headers`).
+`tenant-fixture-model`, `transcript-events`, `derived-principals`,
+`subject-headers` and `subject-tokens`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.

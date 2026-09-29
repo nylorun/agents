@@ -12,12 +12,17 @@ import { printLinkedEnvExports } from "./project/env.js";
 import { readLink as readProjectLink } from "./project/link.js";
 import { readCredentials as readProjectCredentials } from "./project/credentials.js";
 import { tenantCommand } from "./tenant/commands.js";
+import { accessCommand } from "./access/commands.js";
 
-const usage = `nylo <tenant|configure|env|doctor>
+const usage = `nylo <tenant|access|configure|env|doctor>
 
 Runtime client (the local stack's Runtime, or any Runtime by URL and key):
   tenant create [name]                    create a Tenant; in a Project, link it and seed it from .env
   tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete
+  access policy get|set <file>|init       the access policy for subject tokens (nylo access --help)
+  access signing-keys list|rotate|revoke  the Tenant's token signing keys
+  access revoke <subject>                 end a subject's tokens and open streams
+  access token --subject <s> --role <r>   mint a subject token for trying the API
   configure                               set the linked Tenant's model provider
   env                                     print the linked Project's NYLORUN_* variables as exports
   doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers
@@ -114,6 +119,13 @@ async function main() {
     );
 
   if (command === "tenant") return await tenantCommand(args);
+  if (command === "access") {
+    if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
+      const { accessUsage } = await import("./access/commands.js");
+      return void console.log(accessUsage);
+    }
+    return await accessCommand(args);
+  }
 
   if (command === "env") {
     if (args.length) throw usageError("Usage: nylo env");

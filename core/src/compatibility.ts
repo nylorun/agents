@@ -16,12 +16,16 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `POST /v1/admin/tenants` accepts `derivedPrincipals`. `subject-headers`: an application
  * principal may act for a subject with `Nylorun-Subject` and `Nylorun-Scopes`, and the Runtime
  * enforces the scopes and the subject's ownership of sessions and vaults.
+ * `subject-tokens`: `POST /v1/tokens` mints ES256 subject tokens for the roles of the Tenant's
+ * access policy, and the Tenant API accepts them as bearers (`/v1/access/**` manages the
+ * policy, signing keys and revocations).
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
   "transcript-events",
   "derived-principals",
   "subject-headers",
+  "subject-tokens",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -55,6 +59,8 @@ export const ERROR_CODES = [
   "incompatible_host",
   "subject_invalid",
   "scope_required",
+  "token_expired",
+  "limit_exceeded",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -62,6 +68,8 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 const CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz";
 export const TENANT_ID_PATTERN = /^tn_[0-9a-hjkmnp-tv-z]{26}$/;
 export const PRINCIPAL_ID_PATTERN = /^pr_[0-9a-hjkmnp-tv-z]{26}$/;
+/** A Tenant signing key's id, the `kid` of the subject tokens it signs. */
+export const SIGNING_KEY_ID_PATTERN = /^sk_[0-9a-hjkmnp-tv-z]{26}$/;
 /** A derived principal's id names its client, e.g. `babai`; `studio` is reserved. */
 export const DERIVED_PRINCIPAL_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -107,7 +115,7 @@ function encodeRandom(): string {
 let lastTime = -1;
 let lastRandom = "";
 
-function newPrefixedId(prefix: "tn_" | "pr_", now?: number): string {
+function newPrefixedId(prefix: "tn_" | "pr_" | "sk_", now?: number): string {
   const ms = now ?? Date.now();
   const time = encodeTime(ms);
   let random = encodeRandom();
@@ -131,6 +139,11 @@ export function newTenantId(now?: number): string {
 /** Principal id: `pr_` + lowercase Crockford ULID (same generator as tenants). */
 export function newPrincipalId(now?: number): string {
   return newPrefixedId("pr_", now);
+}
+
+/** Signing key id: `sk_` + lowercase Crockford ULID (same generator as tenants). */
+export function newSigningKeyId(now?: number): string {
+  return newPrefixedId("sk_", now);
 }
 
 type SemVerParts = {

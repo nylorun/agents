@@ -25,6 +25,7 @@ import {
   type SessionCommand,
   type VaultInfo,
 } from "@nylorun/core/contracts";
+import { AccessClient, TokensClient } from "./access.js";
 import { resolveConnection } from "./connection.js";
 import { Transport, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
@@ -148,6 +149,17 @@ export class AgentsClient {
       }),
       subject,
     });
+  }
+  /**
+   * Mints subject tokens for signed-in people (Host feature `subject-tokens`), so their
+   * browser or app calls the Runtime directly. Application key only.
+   */
+  get tokens(): TokensClient {
+    return new TokensClient(this.transport);
+  }
+  /** The access policy, signing keys and revocations (Host feature `subject-tokens`). */
+  get access(): AccessClient {
+    return new AccessClient(this.transport);
   }
   /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
@@ -592,3 +604,4 @@ export function createClient(
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
+export { AccessClient, SigningKeysClient, TokensClient } from "./access.js";

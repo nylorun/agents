@@ -27,9 +27,11 @@ import {
   type SessionOwnership,
   type SessionStore,
   type SessionStoreOptions,
+  type SigningKeyRow,
   type StoreCounts,
   type StoreHealth,
   type StoredSession,
+  type SubjectUsageRow,
   type TakeOwnership,
   type Tx,
   type VaultAuditRow,
@@ -59,6 +61,9 @@ interface State {
   audit: VaultAuditRow[];
   idempotency: Map<string, VaultIdempotencyRow>;
   settings: Map<string, string>;
+  signingKeys: Map<string, SigningKeyRow>;
+  subjectEpochs: Map<string, number>;
+  subjectUsage: Map<string, SubjectUsageRow>;
 }
 
 function emptyState(): State {
@@ -75,6 +80,9 @@ function emptyState(): State {
     audit: [],
     idempotency: new Map(),
     settings: new Map(),
+    signingKeys: new Map(),
+    subjectEpochs: new Map(),
+    subjectUsage: new Map(),
   };
 }
 
@@ -832,6 +840,105 @@ class MemoryTx implements Tx {
     this.s.idempotency.set(row.id, copy(row));
   }
 
+  // --- subject tokens ------------------------------------------------------
+
+  async insertSigningKey(row: SigningKeyRow): Promise<void> {
+    this.check();
+    if (this.s.signingKeys.has(row.id))
+      throw new Error("signing_keys.id must be unique");
+    if (row.state !== "revoked")
+      for (const other of this.s.signingKeys.values())
+        if (other.state === row.state)
+          throw new Error(`signing_keys allows one ${row.state} key`);
+    this.s.signingKeys.set(row.id, copy(row));
+  }
+
+  async signingKey(id: string): Promise<SigningKeyRow | undefined> {
+    this.check();
+    const row = this.s.signingKeys.get(id);
+    return row && copy(row);
+  }
+
+  async signingKeys(
+    states?: readonly SigningKeyRow["state"][],
+  ): Promise<SigningKeyRow[]> {
+    this.check();
+    return [...this.s.signingKeys.values()]
+      .filter((row) => states === undefined || states.includes(row.state))
+      .sort(byCreated)
+      .map(copy);
+  }
+
+  async setSigningKeyState(
+    id: string,
+    from: SigningKeyRow["state"],
+    to: SigningKeyRow["state"],
+    at: string,
+  ): Promise<boolean> {
+    this.check();
+    const row = this.s.signingKeys.get(id);
+    if (!row || row.state !== from) return false;
+    if (to !== "revoked")
+      for (const other of this.s.signingKeys.values())
+        if (other.id !== id && other.state === to)
+          throw new Error(`signing_keys allows one ${to} key`);
+    this.s.signingKeys.set(id, { ...row, ...signingKeyStamp(to, at), state: to });
+    return true;
+  }
+
+  async countSigningKeys(): Promise<number> {
+    this.check();
+    return this.s.signingKeys.size;
+  }
+
+  async subjectEpoch(subject: string): Promise<number> {
+    this.check();
+    return this.s.subjectEpochs.get(subject) ?? 0;
+  }
+
+  async subjectEpochs(subjects: readonly string[]): Promise<Map<string, number>> {
+    this.check();
+    const out = new Map<string, number>();
+    for (const subject of subjects) {
+      const epoch = this.s.subjectEpochs.get(subject);
+      if (epoch !== undefined) out.set(subject, epoch);
+    }
+    return out;
+  }
+
+  async bumpSubjectEpoch(subject: string, _at: string): Promise<number> {
+    this.check();
+    const epoch = (this.s.subjectEpochs.get(subject) ?? 0) + 1;
+    this.s.subjectEpochs.set(subject, epoch);
+    return epoch;
+  }
+
+  async lockSubjectUsage(initial: SubjectUsageRow): Promise<SubjectUsageRow> {
+    this.check();
+    // Transactions are serialized, so the row is as good as locked.
+    const row = this.s.subjectUsage.get(initial.subject);
+    if (row) return copy(row);
+    this.s.subjectUsage.set(initial.subject, copy(initial));
+    return copy(initial);
+  }
+
+  async putSubjectUsage(row: SubjectUsageRow): Promise<void> {
+    this.check();
+    this.s.subjectUsage.set(row.subject, copy(row));
+  }
+
+  async countOwnerSessions(
+    ownerUserId: string,
+    statuses: readonly string[],
+  ): Promise<number> {
+    this.check();
+    return this.sessions<SessionDoc>().filter(
+      (s) =>
+        (s as { ownerUserId?: unknown }).ownerUserId === ownerUserId &&
+        statuses.includes((s as { status?: string }).status ?? ""),
+    ).length;
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -860,6 +967,7 @@ class MemoryTx implements Tx {
         this.s.docs[table].clear();
       this.s.sessionMeta.clear();
       this.s.outbox.clear();
+      this.s.subjectUsage.clear();
     }
     if (scope === "sandboxes" || scope === "all")
       this.s.docs.sandboxes.clear();
@@ -870,6 +978,17 @@ class MemoryTx implements Tx {
         if (vault.scope !== "host") await this.deleteVault(vault.id);
     }
   }
+}
+
+/** The time column a signing key's new state stamps. */
+export function signingKeyStamp(
+  state: SigningKeyRow["state"],
+  at: string,
+): Partial<SigningKeyRow> {
+  if (state === "current") return { activatedAt: at };
+  if (state === "previous") return { retiredAt: at };
+  if (state === "revoked") return { revokedAt: at };
+  return {};
 }
 
 function byCreated(

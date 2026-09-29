@@ -83,6 +83,8 @@ interface HostCheck {
   compatible: boolean;
   /** Features the Host advertised at the last compatibility check. */
   features: readonly string[];
+  /** The Host's protocol range at the last compatibility check. */
+  range?: ProtocolRange;
 }
 
 export class Transport {
@@ -168,7 +170,20 @@ export class Transport {
     );
     if (!result.ok) throw new IncompatibleRuntimeError(result);
     this.check.features = [...protocol.features];
+    this.check.range = protocol;
     this.check.compatible = true;
+  }
+
+  /** Throws `IncompatibleRuntimeError` before anything is sent when the Host lacks `feature`. */
+  async requireFeature(feature: string, signal?: AbortSignal): Promise<void> {
+    const features = await this.hostFeatures(signal);
+    if (!features.includes(feature))
+      throw new IncompatibleRuntimeError({
+        ok: false,
+        reason: "feature",
+        missing: [feature],
+        host: this.check.range ?? { min: 0, max: 0, features },
+      });
   }
 
   /** The Host's protocol features, including optional ones, from its `/health`. */

@@ -23,7 +23,9 @@ export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    readonly rejection: Rejection = {}
+    readonly rejection: Rejection = {},
+    /** Response headers the rejection carries, such as `retry-after` or `www-authenticate`. */
+    readonly headers: Readonly<Record<string, string>> = {}
   ) {
     super(message);
   }
@@ -32,9 +34,10 @@ export class HttpError extends Error {
 export const fail = (
   status: number,
   message: string,
-  rejection?: Rejection
+  rejection?: Rejection,
+  headers?: Readonly<Record<string, string>>
 ): never => {
-  throw new HttpError(status, message, rejection);
+  throw new HttpError(status, message, rejection, headers);
 };
 
 export class OpaqueAuthError extends Error {

@@ -201,7 +201,20 @@ export interface SessionsResetSignal {
   type: "sessions.reset";
 }
 
-export type ControlSignal = SessionCancelSignal | SessionsResetSignal;
+/**
+ * A subject's tokens older than `epoch` were revoked: each process ends that subject's
+ * streams opened with them.
+ */
+export interface SubjectRevokedSignal {
+  type: "subject.revoked";
+  subject: string;
+  epoch: number;
+}
+
+export type ControlSignal =
+  | SessionCancelSignal
+  | SessionsResetSignal
+  | SubjectRevokedSignal;
 
 export const WORK_AVAILABLE: Readonly<WorkSignal> = Object.freeze({
   type: "work_available",

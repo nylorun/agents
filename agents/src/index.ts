@@ -100,6 +100,8 @@ export type {
   CommandOptions,
   SessionSandbox,
 } from "./client.js";
+export { AccessClient, SigningKeysClient, TokensClient } from "./access.js";
+export type { CreateTokenOptions } from "./access.js";
 export { connectAgents } from "./executor.js";
 export type { ConnectOptions, AgentConnection } from "./executor.js";
 export type {

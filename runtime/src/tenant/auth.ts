@@ -1,8 +1,9 @@
 /**
  * Tenant request authentication and authorization: a bearer token resolves to an application
- * principal or a registered executor; anything else is the opaque 404 (D5). An application
- * principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`); `authorize` then
- * limits the request to the routes its scopes allow, decided from the route alone.
+ * principal, a registered executor or a subject token; anything else is the opaque 404 (D5).
+ * An application principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`); a
+ * subject token names its subject itself. `authorize` limits both to the routes their scopes
+ * allow, decided from the route alone.
  */
 import type { IncomingMessage } from "node:http";
 import {
@@ -15,8 +16,9 @@ import {
   type SubjectScope,
 } from "@nylorun/core/contracts";
 import { hashToken } from "../core/executors.js";
-import type { AuthScope, TenantContext } from "./context.js";
+import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
+import { looksLikeToken, verifySubjectToken } from "./tokens.js";
 
 const SUBJECT_INVALID = { code: "subject_invalid" } as const;
 
@@ -42,6 +44,16 @@ export async function authenticate(
       reason: "missing_bearer",
     });
     return failOpaque();
+  }
+  if (looksLikeToken(token)) {
+    const scope = await verifySubjectToken(ctx, token);
+    // Read only after verification, so an unknown token still sees the opaque 404.
+    if (
+      singleHeader(request, SUBJECT_HEADER) !== undefined ||
+      singleHeader(request, SCOPES_HEADER) !== undefined
+    )
+      fail(403, "A subject token cannot act for another subject");
+    return scope;
   }
   const tokenHash = hashToken(token);
   const principal = await ctx.store.tx((t) => t.principalByTokenHash(tokenHash));
@@ -97,6 +109,9 @@ export function routeAccess(
   switch (resource) {
     case "executors":
     case "actions":
+    // Minting and access management belong to the application key alone.
+    case "tokens":
+    case "access":
       return "never";
     case "agents":
       if (n === 2 && method === "GET") return ["agents:read", "agents:write"];
@@ -139,17 +154,17 @@ export function routeAccess(
 }
 
 /**
- * Limits a subject to the routes its scopes allow. Decided from the route alone, before any
- * lookup, so a refusal reveals nothing about which resources exist. A route the table does not
- * know is a 404 for a subject: new routes stay closed until they are added here. Application
- * and executor scopes pass through to the checks each route makes today.
+ * Limits a subject (headers or token) to the routes its scopes allow. Decided from the route
+ * alone, before any lookup, so a refusal reveals nothing about which resources exist. A route
+ * the table does not know is a 404 for a subject: new routes stay closed until they are added
+ * here. Application and executor scopes pass through to the checks each route makes today.
  */
 export function authorize(
   scope: AuthScope,
   method: string | undefined,
   path: readonly string[]
 ): void {
-  if (scope.kind !== "subject") return;
+  if (scope.kind !== "subject" && scope.kind !== "token") return;
   const access = routeAccess(method, path);
   if (access === undefined) fail(404, "Route not found");
   if (access === "never")
@@ -164,14 +179,39 @@ export function authorize(
     });
 }
 
+/**
+ * The sessions and vaults the request is limited to, if it acts for a person; undefined for
+ * the whole Tenant. Exhaustive on purpose: a new scope kind must decide here, because
+ * undefined means no owner filter at all.
+ */
+export function accessOf(scope: AuthScope): SessionAccess | undefined {
+  switch (scope.kind) {
+    case "application":
+    case "executor":
+      return undefined;
+    case "subject":
+      return { owner: scope.subject };
+    case "token":
+      return {
+        owner: scope.subject,
+        ...(scope.agents === "*" ? {} : { agents: scope.agents }),
+      };
+    default: {
+      const unknown: never = scope;
+      return fail(404, `Unknown credential ${String((unknown as AuthScope).kind)}`);
+    }
+  }
+}
+
 /** The subject whose sessions and vaults the request is limited to, if it acts for one. */
 export function ownerOf(scope: AuthScope): string | undefined {
-  return scope.kind === "subject" ? scope.subject : undefined;
+  return accessOf(scope)?.owner;
 }
 
 /** The application principal behind the request, acting for a subject or not. */
 export function requirePrincipal(scope: AuthScope): string {
-  if (scope.kind !== "executor") return scope.principalId;
+  if (scope.kind === "application" || scope.kind === "subject")
+    return scope.principalId;
   return fail(403, "Application credential required");
 }
 
