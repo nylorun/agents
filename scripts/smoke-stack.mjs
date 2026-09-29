@@ -7,7 +7,8 @@
 // unless NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI).
 // Needs the CLI and @nylorun/admin built. Starts the stack, checks
 // `nylorun status --json` and the Runtime's /ready (Postgres, Restate, S2),
-// creates a Tenant through @nylorun/admin, mints a Studio login, runs
+// checks that Studio is printed without a login token, creates a Tenant
+// through @nylorun/admin, mints a Studio login, runs
 // `nylorun down` and `nylorun up` (the stack's files and the Tenant are kept),
 // checks that every file in the Host root belongs to this user (the bind
 // mount's UID/GID), and always ends with `nylorun reset --yes`.
@@ -33,7 +34,7 @@ try {
   await withStack({ name: "nylorun-smoke-stack", images, start: false }, async (stack) => {
     const { home } = stack;
     const { runtimeUrl, studioUrl } = await stack.start();
-    assert.match(studioUrl ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
+    assert.match(studioUrl ?? "", /^http:\/\/localhost:\d+$/, "nylorun start prints Studio without a token");
 
     const status = JSON.parse((await stack.nylorun(["status", "--json"])).stdout);
     assert.equal(status.state, "running");
