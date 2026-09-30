@@ -66,6 +66,11 @@ describe("compose.yaml", () => {
     expect(compose).toContain('profiles: ["openshell"]');
   });
 
+  it("lets the Runtime deliver Actions to endpoints on this machine", () => {
+    expect(compose).toContain("NYLORUN_ENDPOINT_LOOPBACK: docker-host");
+    expect(compose).toContain("host.docker.internal: host-gateway");
+  });
+
   it("serves the Admin API on the operator listener, which Studio uses", () => {
     expect(compose).toContain('NYLORUN_ADMIN_LISTEN_PORT: "4001"');
     expect(compose).toContain(
