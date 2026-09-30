@@ -5,10 +5,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
+import type { NodeBindings } from "../../src/tenant/types.js";
 import {
   createFakeModule,
   getJson,
@@ -69,9 +69,9 @@ it("a Tenant that fails after starting its response gets that response ended, no
             updatedAt: "2026-01-01T00:00:00.000Z",
             schemaVersion: 1,
           },
-          async handle(_request: IncomingMessage, response: ServerResponse) {
-            response.writeHead(200, { "content-type": "application/json" });
-            response.write('{"partial":');
+          async fetch(_request: Request, { outgoing }: NodeBindings) {
+            outgoing.writeHead(200, { "content-type": "application/json" });
+            outgoing.write('{"partial":');
             throw Object.assign(new Error("store went away"), { status: 503 });
           },
           async summary() {

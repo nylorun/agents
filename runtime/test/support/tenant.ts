@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { getRequestListener } from "@hono/node-server";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -226,6 +227,9 @@ export async function startTestTenant(
   }
 
   const handle = await openTenantRuntime(config, hooks);
+  const tenant = getRequestListener((request, node) => handle.fetch(request, node), {
+    overrideGlobalObjects: false,
+  });
   const server = createServer((req, res) => {
     // SDK Transport probes /health for protocol compatibility (Host normally serves this).
     if (req.url === "/health" || req.url?.startsWith("/health?")) {
@@ -247,7 +251,7 @@ export async function startTestTenant(
       );
       return;
     }
-    void handle.handle(req, res, new URL(req.url ?? "/", "http://127.0.0.1"));
+    void tenant(req, res);
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

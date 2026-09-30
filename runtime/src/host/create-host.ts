@@ -4,18 +4,8 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { createHash, timingSafeEqual } from "node:crypto";
-import {
-  checkCompatibility,
-  type ErrorCode,
-  HOST_PROTOCOL,
-  isTenantId,
-  PROTOCOL_HEADER,
-  TENANT_HEADER,
-  PUBLISHABLE_KEY_HEADER,
-  tenantOfPublishableKey,
-} from "@nylorun/core/compatibility";
-import { answerPreflight } from "./cors.js";
+import { getRequestListener, RequestError } from "@hono/node-server";
+import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import {
   AdminStatusSchema,
   CreateTenantRequestSchema,
@@ -29,22 +19,22 @@ import {
   type Logger,
   type TenantModule,
 } from "../tenant/types.js";
+import { createHostApp, type HostBindings } from "./app.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import type { ContainerListen } from "./stack-config.js";
 import {
   EXIT_NON_LOOPBACK,
   EXIT_PORT_IN_USE,
+  headerValue,
   HostListenError,
   isAllowedRequestHost,
-  isJsonContentType,
   isLoopbackHost,
-  readBearer,
   readJsonBody,
+  pathnameIsLogged,
   redactRoutePath,
-  requestHasBody,
+  rejectedResponse,
   sendJson,
   sendOpaqueNotFound,
-  sendProtocolRejected,
   sendRejected,
 } from "./http.js";
 import { RUNTIME_VERSION } from "../version.js";
@@ -129,42 +119,7 @@ export interface HostServer {
   readonly adminUrl: string;
 }
 
-function hashUtf8(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
-}
-
-/** Constant-time comparison of SHA-256 digests of the presented and stored admin keys. */
-export function adminKeyMatches(
-  presented: string | undefined,
-  adminKey: string,
-): boolean {
-  if (presented === undefined) return false;
-  const a = hashUtf8(presented);
-  const b = hashUtf8(adminKey);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-function headerValue(
-  headers: IncomingMessage["headers"],
-  name: string,
-): string | undefined {
-  const raw = headers[name.toLowerCase()];
-  if (Array.isArray(raw)) return raw[0];
-  return raw;
-}
-
-function parseProtocolVersion(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return undefined;
-  return Number(trimmed);
-}
-
-function protocolAccepted(raw: string | undefined): boolean {
-  const version = parseProtocolVersion(raw);
-  if (version === undefined) return false;
-  return checkCompatibility({ version, required: [] }, HOST_PROTOCOL).ok;
-}
+export { adminKeyMatches } from "./http.js";
 
 export function createHost(options: CreateHostOptions): HostServer {
   const {
@@ -209,18 +164,6 @@ export function createHost(options: CreateHostOptions): HostServer {
         pid,
       },
     });
-  };
-
-  const requireAdmin = (
-    request: IncomingMessage,
-    response: ServerResponse,
-  ): boolean => {
-    const token = readBearer(headerValue(request.headers, "authorization"));
-    if (!adminKeyMatches(token, credentials.adminKey)) {
-      sendOpaqueNotFound(response);
-      return false;
-    }
-    return true;
   };
 
   const handleAdmin = async (
@@ -351,250 +294,82 @@ export function createHost(options: CreateHostOptions): HostServer {
     return sendRejected(response, 404, "not_found", "Route not found");
   };
 
-  const handle = async (
-    request: IncomingMessage,
-    response: ServerResponse,
-    role: ListenerRole,
-  ): Promise<void> => {
-    const started = Date.now();
-    let tenantId: string | undefined;
-    let statusCode = 500;
-    try {
-      const urlObj = new URL(request.url ?? "/", "http://runtime.local");
-      const pathname = urlObj.pathname;
+  const app = createHostApp({
+    module,
+    logger,
+    hostId: config.hostId,
+    adminKey: credentials.adminKey,
+    coreVersion,
+    pid,
+    browserAccess: options.browserAccess === true,
+    ...(options.readiness ? { readiness: options.readiness } : {}),
+    listening: () =>
+      Boolean(server?.listening) && (!operator || Boolean(operatorServer?.listening)),
+    closing: () => closing,
+    admin: handleAdmin,
+  });
 
-      // D§11: Host, Origin, then Content-Type — before any other processing.
-      const hostHeader = headerValue(request.headers, "host");
-      const hostAllowed =
-        role === "operator"
-          ? isAllowedRequestHost(hostHeader, {
-              port: operatorPort,
-              host: operator!.host,
-              allowNonLoopback: false,
-              ...(operator!.allowedHosts
-                ? { allowedHosts: operator!.allowedHosts }
-                : {}),
-            })
-          : isAllowedRequestHost(hostHeader, {
-              port: listenPort,
-              host: config.host,
-              allowNonLoopback: config.allowNonLoopback,
-              ...(containerListen
-                ? { allowedHosts: containerListen.allowedHosts }
-                : {}),
-            });
-      if (!hostAllowed) {
-        sendRejected(
-          response,
-          421,
-          "host_rejected",
-          "Host header is not an allowed loopback or configured address",
-        );
-        statusCode = 421;
-        return;
-      }
-
-      const origin = headerValue(request.headers, "origin");
-      if (origin !== undefined) {
-        const route = pathname.split("/").filter(Boolean);
-        // Only Tenant routes, and only when the operator allows browsers; the Tenant then
-        // checks the publishable key and its origins before adding any CORS header.
-        const tenantRoute = route[0] === "v1" && route[1] !== "admin";
-        // The operator listener never serves browsers.
-        if (!options.browserAccess || role === "operator" || !tenantRoute) {
-          sendRejected(
-            response,
-            403,
-            "origin_rejected",
-            "Browser Origin headers are not accepted",
-          );
-          statusCode = 403;
-          return;
-        }
-        if (request.method === "OPTIONS") {
-          statusCode = answerPreflight(request, response, route);
-          return;
-        }
-      }
-
-      if (
-        requestHasBody(request) &&
-        !isJsonContentType(headerValue(request.headers, "content-type"))
-      ) {
-        sendRejected(
-          response,
-          415,
-          "unsupported_media_type",
-          "Request bodies must use application/json",
-        );
-        statusCode = 415;
-        return;
-      }
-
-      if (pathname === "/health") {
-        sendJson(response, 200, {
-          status: "ok",
-          service: "nylorun-runtime",
-          version: RUNTIME_VERSION,
-          protocol: {
-            min: HOST_PROTOCOL.min,
-            max: HOST_PROTOCOL.max,
-            features: [...HOST_PROTOCOL.features],
-          },
-          coreVersion,
-          hostId: config.hostId,
-          pid,
-        });
-        statusCode = 200;
-        return;
-      }
-
-      if (pathname === "/ready") {
-        const listener =
-          Boolean(server?.listening) &&
-          (!operator || Boolean(operatorServer?.listening));
-        const discovery = module.started;
-        const infra = await options.readiness?.();
-        const ready = listener && discovery && !closing && (infra?.ok ?? true);
-        sendJson(
-          response,
-          ready ? 200 : 503,
-          {
-            status: ready ? "ready" : "not_ready",
-            service: "nylorun-runtime",
-            checks: { listener, discovery, ...infra?.checks },
-          },
-        );
-        statusCode = ready ? 200 : 503;
-        return;
-      }
-
-      const segments = pathname.split("/").filter(Boolean);
-      const isAdmin =
-        segments[0] === "v1" && segments[1] === "admin";
-
-      // A public listener has no admin routes: the same 404 as a wrong admin key.
-      if (isAdmin && role === "public") {
-        sendOpaqueNotFound(response);
-        statusCode = 404;
-        return;
-      }
-
-      if (isAdmin) {
-        const protocolHeader = headerValue(request.headers, PROTOCOL_HEADER);
-        if (!protocolAccepted(protocolHeader)) {
-          sendProtocolRejected(response);
-          statusCode = 426;
-          return;
-        }
-        if (!requireAdmin(request, response)) {
-          statusCode = 404;
-          return;
-        }
-        await handleAdmin(request, response, urlObj, segments);
-        statusCode = response.statusCode || 200;
-        return;
-      }
-
-      // Tenant-scoped routes: header pattern → protocol → resolve → Tenant handle. The Tenant
-      // is named by `Nylorun-Tenant`, by the publishable key in `Nylorun-Key`, or by both
-      // when they agree.
-      const invalid = (message: string) => {
-        sendRejected(response, 400, "invalid_request", message);
-        statusCode = 400;
-      };
-      const keyHeader = headerValue(request.headers, PUBLISHABLE_KEY_HEADER);
-      const keyTenant =
-        keyHeader === undefined ? undefined : tenantOfPublishableKey(keyHeader);
-      if (keyHeader !== undefined && keyTenant === undefined)
-        return invalid(`${PUBLISHABLE_KEY_HEADER} header is malformed`);
-      const tenantHeader = headerValue(request.headers, TENANT_HEADER);
-      const named =
-        tenantHeader === undefined || tenantHeader.trim() === ""
-          ? undefined
-          : tenantHeader;
-      if (named === undefined && keyTenant === undefined)
-        return invalid(`${TENANT_HEADER} header is required`);
-      if (named !== undefined && !isTenantId(named))
-        return invalid(`${TENANT_HEADER} header is malformed`);
-      if (named !== undefined && keyTenant !== undefined && named !== keyTenant)
-        return invalid(
-          `${PUBLISHABLE_KEY_HEADER} and ${TENANT_HEADER} name different Tenants`,
-        );
-      tenantId = (named ?? keyTenant)!;
-
-      const protocolHeader = headerValue(request.headers, PROTOCOL_HEADER);
-      if (!protocolAccepted(protocolHeader)) {
-        sendProtocolRejected(response);
-        statusCode = 426;
-        return;
-      }
-
-      const resolution = await module.resolve(tenantId);
-      if (resolution.kind !== "open") {
-        if (resolution.kind === "quarantined") {
-          logger.warn("tenant_quarantined", {
-            tenantId,
-            code: resolution.quarantine.code,
-            repair: resolution.quarantine.repair,
+  /** Where a listener's requests go once their `Host` header checks out. */
+  const pipeline = (role: ListenerRole) =>
+    getRequestListener(
+      async (request, node) => alreadySent(await app.fetch(request, { ...node, role } as HostBindings)),
+      {
+        // The Runtime runs inside other processes (`startEphemeralRuntime`): leave their
+        // `Request` and `Response` alone.
+        overrideGlobalObjects: false,
+        // A request target `@hono/node-server` cannot make a URL of, such as `*`.
+        errorHandler: (error) => {
+          if (error instanceof RequestError)
+            return rejectedResponse(400, "invalid_request", "Invalid request target");
+          logger.error("request_failed", {
+            error: error instanceof Error ? error.message : String(error),
           });
-        }
-        sendOpaqueNotFound(response);
-        statusCode = 404;
-        return;
-      }
+          return rejectedResponse(500, "internal_error", "Internal error");
+        },
+      },
+    );
 
-      await resolution.handle.handle(request, response, urlObj);
-      statusCode = response.statusCode || 200;
-    } catch (error) {
-      const status = (error as { status?: number }).status;
-      let rejection: { status: number; code: ErrorCode; message: string };
-      if (typeof status === "number" && status >= 400 && status < 600) {
-        rejection = {
-          status,
-          code: status === 400 ? "invalid_request" : "request_rejected",
-          message: error instanceof Error ? error.message : "Request rejected",
-        };
-      } else if (
-        error &&
-        typeof error === "object" &&
-        "name" in error &&
-        (error as { name: string }).name === "ZodError"
-      ) {
-        rejection = { status: 400, code: "invalid_request", message: "Invalid request body" };
-      } else {
-        logger.error("request_failed", {
-          error: error instanceof Error ? error.message : String(error),
+  /** The `Host` values a listener accepts. */
+  const hostAllowed = (role: ListenerRole, hostHeader: string | undefined) =>
+    role === "operator"
+      ? isAllowedRequestHost(hostHeader, {
+          port: operatorPort,
+          host: operator!.host,
+          allowNonLoopback: false,
+          ...(operator!.allowedHosts ? { allowedHosts: operator!.allowedHosts } : {}),
+        })
+      : isAllowedRequestHost(hostHeader, {
+          port: listenPort,
+          host: config.host,
+          allowNonLoopback: config.allowNonLoopback,
+          ...(containerListen ? { allowedHosts: containerListen.allowedHosts } : {}),
         });
-        rejection = { status: 500, code: "internal_error", message: "Internal error" };
-      }
-      // Once a response has started, the rejection can only end it.
-      if (response.headersSent) response.end();
-      else sendRejected(response, rejection.status, rejection.code, rejection.message);
-      statusCode = rejection.status;
-    } finally {
-      if (pathnameIsLogged(request.url)) {
-        logger.info("request", {
-          status: statusCode,
-          tenantId,
-          durationMs: Date.now() - started,
-          path: redactRoutePath(
-            new URL(request.url ?? "/", "http://runtime.local").pathname,
-          ),
-          method: request.method,
-        });
-      }
-    }
-  };
 
   /** Responses not yet finished; shutdown ends the streams among them. */
   const inFlight = new Set<ServerResponse>();
-  const serve =
-    (role: ListenerRole) => (req: IncomingMessage, res: ServerResponse) => {
+  const serve = (role: ListenerRole) => {
+    const next = pipeline(role);
+    return (req: IncomingMessage, res: ServerResponse) => {
+      const started = Date.now();
       inFlight.add(res);
       res.once("close", () => inFlight.delete(res));
-      void handle(req, res, role);
+      // D§11: `Host` first, before anything reads the request.
+      if (hostAllowed(role, headerValue(req, "host"))) return void next(req, res);
+      sendRejected(
+        res,
+        421,
+        "host_rejected",
+        "Host header is not an allowed loopback or configured address",
+      );
+      if (pathnameIsLogged(req.url))
+        logger.info("request", {
+          status: 421,
+          durationMs: Date.now() - started,
+          path: redactRoutePath(new URL(req.url ?? "/", "http://runtime.local").pathname),
+          method: req.method,
+        });
     };
+  };
 
   /** Binds `listening`; once bound, a listener error is logged rather than lost. */
   const bindListener = (listening: Server, port: number, host: string) =>
@@ -751,6 +526,21 @@ export function createHost(options: CreateHostOptions): HostServer {
   };
 }
 
+/**
+ * An answer already written to the Node response. `@hono/node-server` skips writing one that
+ * says so in its headers, unless it is its own `Response` class, which a process that ran its
+ * `serve()` has as the global one: it writes those again. This is never that class.
+ */
+const SENT = {
+  status: 200,
+  headers: new Headers({ "x-hono-already-sent": "true" }),
+  body: null,
+} as unknown as Response;
+
+function alreadySent(response: Response): Response {
+  return response.headers.has("x-hono-already-sent") ? SENT : response;
+}
+
 /** How long shutdown waits for requests in progress before closing their connections. */
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -762,8 +552,3 @@ function isStreaming(response: ServerResponse): boolean {
   return response.headersSent && !response.writableEnded;
 }
 
-function pathnameIsLogged(rawUrl: string | undefined): boolean {
-  if (!rawUrl) return true;
-  const pathname = new URL(rawUrl, "http://runtime.local").pathname;
-  return pathname !== "/health" && pathname !== "/ready";
-}

@@ -61,7 +61,8 @@ _Avoid_: proxying the operator port.
 **Runtime Host** (or **Host**): The code in every Runtime process that listens,
 validates `Nylorun-Protocol` and `Nylorun-Tenant`, serves admin routes, and
 forwards Tenant routes to the matching Tenant Runtime, opening it on demand
-(`host/create-host.ts`). `/health` reports `service: "nylorun-runtime"`,
+(`host/create-host.ts`: the listeners and the `Host` check; `host/app.ts`: the rest of the
+pipeline, a Hono app). Only `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`,
 `hostId` and protocol range; `/ready` reports Postgres, Restate and S2
 (`infra/readiness.ts`). Tenant data is a Postgres schema per Tenant; the Host
 keeps each Tenant's key, plugin data and logs under `tenants/` in its Host root

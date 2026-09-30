@@ -16,7 +16,6 @@ import type {
   HostAggregate,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   createHost,
   type CreateHostOptions,
@@ -123,13 +122,10 @@ export function createFakeModule(options?: {
       name: "t",
       state: "open",
     }),
-    async handle(
-      _request: IncomingMessage,
-      response: ServerResponse,
-      _url: URL,
-    ) {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ ok: true, tenantId }));
+    async fetch() {
+      return new Response(JSON.stringify({ ok: true, tenantId }), {
+        headers: { "content-type": "application/json" },
+      });
     },
     async summary(): Promise<TenantSummary> {
       return {

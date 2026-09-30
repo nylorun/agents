@@ -16,6 +16,10 @@ const allowed = {
 const substrates = {
   runtime: ["just-bash", "@restatedev/restate-sdk", "@s2-dev/streamstore"],
 };
+// The HTTP framework stays in the HTTP layer: the Host and the API routes.
+const httpFramework = {
+  runtime: { packages: ["hono", "@hono/[^/\"']+", "@asteasolutions/[^/\"']+"], dirs: ["host", "api"] },
+};
 const files = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]
@@ -64,6 +68,13 @@ export function checkBoundaries(name) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["']${substrate}(?:/[^"']*)?["']`);
         if (pattern.test(source) && !/[\\/]adapters[\\/]/.test(path.slice(join(root, name).length)))
           throw new Error(`${path} imports ${substrate}; only adapters/ may import substrate SDKs`);
+      }
+      const http = httpFramework[name];
+      if (http) {
+        const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["'](?:${http.packages.join("|")})(?:/[^"']*)?["']`);
+        const [, top] = path.slice(join(root, name).length).split(/[\\/]/).slice(1);
+        if (pattern.test(source) && !http.dirs.includes(top))
+          throw new Error(`${path} imports the HTTP framework; only ${http.dirs.join("/ and ")}/ may`);
       }
       if (name === "core" && /(?:from\s*|import\s*\()["']node:/.test(source))
         throw new Error(`Core must remain portable: ${path}`);
