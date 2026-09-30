@@ -148,3 +148,64 @@ it("runs the session's sandbox tools for the delivery token, and only for its Ac
   // A delivery token reaches nothing else.
   expect((await call("GET", "/v1/sessions/s1", undefined, delivery.token)).status).toBe(403);
 });
+
+it("runs a background tool through the SDK handler: 202, heartbeats, then the result", async () => {
+  const { AgentsClient, createActionHandler } = await import("@nylorun/agents");
+  const runs: string[] = [];
+  const background = Agent({ id: "issue", name: "Issue" })
+    .use({
+      id: "notes",
+      tools: [
+        tool({
+          name: "save",
+          input: z.object({ note: z.string() }),
+          output: z.object({ saved: z.literal(true) }),
+          background: true,
+          async run({ note }) {
+            // Longer than the lease, so only heartbeats keep the delivery alive.
+            await new Promise((resolve) => setTimeout(resolve, 1_500));
+            runs.push(note);
+            return { saved: true as const };
+          },
+        }),
+      ],
+    })
+    .build();
+  const runtime = await startTestTenant({
+    applicationKey: APP,
+    leaseMs: 1_200,
+    modelProvider: async (effect) => {
+      const call = effect.input as { prompt?: { kind?: string }[] };
+      if (call.prompt?.at(-1)?.kind === "tool-result") return { output: [{ type: "text", text: "done" }] };
+      return { output: [{ type: "tool-call", id: "call-1", name: "save", args: { note: "later" } }] };
+    },
+  });
+  cleanup.push(() => runtime.close());
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise((resolve) => server.close(resolve)));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/actions`;
+  const client = new AgentsClient({ url: runtime.url, tenant: runtime.tenantId, key: APP });
+  const actions = createActionHandler({ agents: [background], client, url });
+  server.on("request", actions.node);
+  const call = async (method: string, path: string, body?: unknown) => {
+    const response = await fetch(`${runtime.url}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, body: (await response.json().catch(() => undefined)) as any };
+  };
+  await call("PUT", "/v1/agents/issue", { requestId: "put", manifest: background.manifest, implementationVersion: "dev" });
+  await call("PUT", "/v1/endpoints", { endpoints: [{ agentId: "issue", url, implementationVersion: "dev" }] });
+  await call("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "issue", ownerUserId: "user" });
+  await call("POST", "/v1/sessions/s1/commands", { type: "message", requestId: "m1", idempotencyKey: "m1", content: "save" });
+  await until(status(call), (s) => s === "idle" || s === "completed");
+  expect(runs).toEqual(["later"]);
+  const items = (await call("GET", "/v1/sessions/s1/items")).body.items as { type: string; payload: any }[];
+  expect(items.find((e) => e.type === "action.completed")!.payload.result).toEqual({
+    kind: "completed",
+    output: { saved: true },
+  });
+  expect(items.some((e) => e.type === "action.uncertain")).toBe(false);
+});

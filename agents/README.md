@@ -1,26 +1,42 @@
 # @nylorun/agents
 
-Tenant API client package: definition authoring, a session client, and a
-connected customer executor. Depends only on `@nylorun/core` among Nylorun
+Tenant API client package: definition authoring, a session client, and the
+Action endpoint that runs your tools (`createActionHandler`). Depends only on `@nylorun/core` among Nylorun
 packages. A developer application's production tree should contain only this
 package and `@nylorun/core` from Nylorun. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
-## Application entry (preferred)
+## Application entry (preferred): an Action endpoint
 
 ```ts
 // src/main.ts
-import { connectAgents } from "@nylorun/agents";
+import { createServer } from "node:http";
+import { createActionHandler } from "@nylorun/agents";
 import { agents } from "../agents/index.js";
 
-await connectAgents({ agents }).ready;
+const url = process.env.NYLORUN_ACTIONS_URL ?? "http://localhost:3001/nylorun/actions";
+const actions = createActionHandler({ agents, url });
+createServer(actions.node).listen(3001); // or actions.fetch in Hono, Next.js, Workers, Bun
+await actions.register({ url });
 ```
 
-Application mode saves definitions, registers **derived** executor credentials
-(HMAC of the application key + Tenant + agent id), and connects. Restarts and
-replicas re-register the same hashes; tokens are never stored in the Project.
-The same entry runs under the project's `npm run dev` (`tsx watch`) and as
-`node dist/src/main.js` (`npm start`). It finds the Runtime through the three
+The Runtime delivers each tool call, hook and workflow function of these agents
+to `url`, signed with a short-lived **delivery token** that the handler checks
+(Tenant, URL, Action, generation and body) before any code runs. `register`
+saves the definitions, registers the URL and pings it through the Runtime. A
+process that only serves Actions needs no key: pass `runtime: { url, tenant }`
+and it reads the Tenant's public keys. Mark a long tool
+`tool({ …, background: true })`: the handler answers at once, heartbeats and
+posts the result. `npx @nylorun/cli tenant endpoints` shows each endpoint and
+how its deliveries are doing.
+
+The URL must be one the Runtime can reach: `localhost` on the local stack
+(its Runtime runs in Docker and maps `localhost` to this machine), a public URL
+in production, or a tunnel (ngrok, Cloudflare Tunnel) for a remote Runtime.
+
+`connectAgents({ agents })` (executors: an SSE connection that claims Actions)
+still works for agents without an endpoint, but is deprecated and will be
+removed. It finds the Runtime through the three
 `NYLORUN_*` variables or the Project link that `npx @nylorun/cli tenant create`
 writes; with neither, it fails with `connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
 for upgrading from `nylorun serve`.

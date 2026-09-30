@@ -96,6 +96,10 @@ services:
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
       NYLORUN_OPENSHELL_GATEWAY: \${NYLORUN_OPENSHELL_GATEWAY:-} # set when the openshell profile runs
+      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
+    extra_hosts:
+      host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
       - workspaces:/workspaces

@@ -9,13 +9,13 @@
     "core": "0.8.0-beta",
     "cli": "0.5.0-beta"
   },
-  "templateHash": "35e90bef4aee5a16b44f176c8a19123b3e2211150cd979c2f5436e2600b97f08",
+  "templateHash": "a8415b6cd03bdec4a57d80dcc510bb974625357141ee34098069f7fea53dcc50",
   "files": {
     ".env.example": "3fc4b40839a19eab373ff8625e9f9588ec62537e1efa547e4102e997d807501e",
     ".gitignore": "35d28e69221a58d60f19655637c7d99310a6dd6e0fda5f51c544d876ad19a3a0",
     "package.json": "337a09323b6f1ccfbca9c5a0ae5c1303a7aa3053577e009b3bab86ee38412d33",
     "src/index.ts": "d61a6b97f77f2f813384e82ded8f7a2905f98f2b75399b32510d6f266d057b8e",
-    "src/main.ts": "4dab1ba99be374a6051da257ac765f4d8de183e558ff885beb88fc4285c31118",
+    "src/main.ts": "796bb99e6ee1fb6984af5290bae708c50bc7eeac69836449116bd2e5fd626890",
     "tsconfig.build.json": "0210063cd78016582d5c14a7627a703258910a20ff9c57db7951e5c2a9d62c7d",
     "tsconfig.json": "912b9cdf9eac674c7f8e47c51c78594fbf09ba6372cf3131acfa4acb390b4d6a"
   }
