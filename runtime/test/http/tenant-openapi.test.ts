@@ -122,14 +122,16 @@ it("documents vaults for a person's own credentials, and Tenant settings for app
   });
 });
 
-it("documents the public keys for every caller, and access management for application keys", () => {
+it("documents the public keys for every caller or none, and access management for application keys", () => {
   const jwks = operation("get", "/v1/access/jwks");
   expect(jwks["x-nylorun-scopes"]).toBe("any");
+  // `{}`: no credential needed; `Nylorun-Tenant` alone names the Tenant.
   expect(jwks.security).toEqual([
     { applicationKey: [] },
     { subjectToken: [] },
     { publishableKey: [] },
     { executorKey: [] },
+    {},
   ]);
   for (const [method, path] of [
     ["post", "/v1/tokens"],

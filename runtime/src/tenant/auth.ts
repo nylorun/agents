@@ -170,6 +170,14 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
       };
     // A publishable key alone owns nothing: no session or vault is ever reachable.
     case "publishable":
+    // Nor does a request with no credential, on a route that serves public data.
+    case "anonymous":
+      return fail(404, "Not found");
+    // A delivery token reaches its Action's callbacks, never a session or vault.
+    case "delivery":
+      return fail(404, "Not found");
+    // A delivery token reaches its Action's callbacks, never a session or vault.
+    case "delivery":
       return fail(404, "Not found");
     // A delivery token reaches its Action's callbacks, never a session or vault.
     case "delivery":
