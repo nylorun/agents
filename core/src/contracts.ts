@@ -752,32 +752,30 @@ export const SelectHostModelRequestSchema = z
 export type SelectHostModelRequest = z.infer<
   typeof SelectHostModelRequestSchema
 >;
-export type HostModelProviderInfo = {
-  readonly id: string;
-  readonly name: string;
-  readonly model: string;
-  readonly authType: "api_key" | "oauth";
-  readonly baseUrl?: string;
-  readonly lastUpdated: string;
-  readonly active: boolean;
-};
-export interface VaultInfo {
-  readonly id: string;
-  readonly name: string;
-  readonly ownerUserId: string;
-  readonly metadata?: Readonly<Record<string, string>>;
-  readonly createdAt: string;
-}
-export interface CredentialInfo {
-  readonly id: string;
-  readonly vaultId: string;
-  readonly name: string;
-  readonly type: "bearer" | "oauth";
-  readonly binding: { readonly url: string };
-  readonly expiresAt?: string;
-  readonly createdAt: string;
-  readonly rotatedAt?: string;
-}
+export type HostModelProviderInfo = z.infer<typeof HostModelProviderInfoSchema>;
+export const VaultInfoSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    ownerUserId: z.string(),
+    metadata: z.record(z.string(), z.string()).optional(),
+    createdAt: z.string(),
+  })
+  .strict();
+export type VaultInfo = z.infer<typeof VaultInfoSchema>;
+export const CredentialInfoSchema = z
+  .object({
+    id: z.string(),
+    vaultId: z.string(),
+    name: z.string(),
+    type: z.enum(["bearer", "oauth"]),
+    binding: z.object({ url: z.string() }).strict(),
+    expiresAt: z.string().optional(),
+    createdAt: z.string(),
+    rotatedAt: z.string().optional(),
+  })
+  .strict();
+export type CredentialInfo = z.infer<typeof CredentialInfoSchema>;
 const commandBase = {
   requestId: RequestIdSchema,
   idempotencyKey: IdempotencyKeySchema,
@@ -1873,3 +1871,238 @@ export const UpdatePublishableKeyRequestSchema = z
     origins: z.array(OriginEntrySchema).max(100),
   })
   .strict();
+
+// Successful answers of the Tenant and Admin APIs that had no schema of their own. With the
+// request schemas above they describe every body the Runtime sends (its OpenAPI document).
+
+/** `GET /v1/agents` with an application key: every definition, manifest included. */
+export const AgentDefinitionViewSchema = z
+  .object({
+    agentId: z.string(),
+    manifest: z.record(z.string(), z.unknown()),
+    manifestHash: z.string(),
+    implementationVersion: z.string(),
+  })
+  .strict();
+export type AgentDefinitionView = z.infer<typeof AgentDefinitionViewSchema>;
+export const ListAgentsResponseSchema = z
+  .object({ agents: z.array(AgentDefinitionViewSchema) })
+  .strict();
+export type ListAgentsResponse = z.infer<typeof ListAgentsResponseSchema>;
+/** `GET /v1/agents` with a subject token or publishable key: the allowed agents' names only. */
+export const PublicAgentSchema = z
+  .object({
+    agentId: z.string(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .strict();
+export type PublicAgent = z.infer<typeof PublicAgentSchema>;
+export const ListPublicAgentsResponseSchema = z
+  .object({ agents: z.array(PublicAgentSchema) })
+  .strict();
+export type ListPublicAgentsResponse = z.infer<typeof ListPublicAgentsResponseSchema>;
+export const PutAgentResponseSchema = z
+  .object({
+    agentId: z.string(),
+    manifestHash: z.string(),
+    implementationVersion: z.string(),
+  })
+  .strict();
+export type PutAgentResponse = z.infer<typeof PutAgentResponseSchema>;
+
+export const SESSION_STATUSES = [
+  "idle",
+  "runnable",
+  "running",
+  "waiting",
+  "paused",
+  "uncertain",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+export const SessionSummarySchema = z
+  .object({
+    id: z.string(),
+    agentId: z.string(),
+    ownerUserId: z.string(),
+    status: z.enum(SESSION_STATUSES),
+    activeTurnId: z.string().nullable(),
+  })
+  .strict();
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+export const ListSessionsResponseSchema = z
+  .object({ sessions: z.array(SessionSummarySchema) })
+  .strict();
+export type ListSessionsResponse = z.infer<typeof ListSessionsResponseSchema>;
+/** `PUT` and `GET /v1/sessions/:id`. */
+export const SessionViewSchema = z
+  .object({
+    id: z.string(),
+    agentId: z.string(),
+    ownerUserId: z.string(),
+    manifestHash: z.string(),
+    implementationVersion: z.string(),
+    status: z.enum(SESSION_STATUSES),
+    activeTurnId: z.string().nullable(),
+    vaultIds: z.array(z.string()),
+    credentialSelections: z.array(CredentialSelectionSchema),
+    /** The session whose sandbox this one shares; `null` when it owns its own. */
+    sandboxOwnerId: z.string().nullable(),
+    /** The sandbox pinned when the session was opened, or `null`. */
+    sandbox: z.record(z.string(), z.unknown()).nullable(),
+    sandboxSource: z.enum(["default", "inline", "shared"]).optional(),
+    mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
+    mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
+    /** What the session waits on: interactions, approvals, timers. */
+    waits: z.unknown().optional(),
+    error: z.string().optional(),
+    /** Its Actions that are pending, claimed or uncertain. */
+    actions: z.array(ActionSchema),
+    uncertainEffects: z.array(
+      z
+        .object({
+          effectId: z.string(),
+          turnId: z.string(),
+          kind: z.string(),
+          error: z.unknown(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type SessionView = z.infer<typeof SessionViewSchema>;
+
+export const ListActionsResponseSchema = z.object({ actions: z.array(ActionSchema) }).strict();
+export type ListActionsResponse = z.infer<typeof ListActionsResponseSchema>;
+export const ActionHeartbeatResponseSchema = z
+  .object({ leaseExpiresAt: z.string() })
+  .strict();
+export type ActionHeartbeatResponse = z.infer<typeof ActionHeartbeatResponseSchema>;
+export const DeleteExecutorResponseSchema = z
+  .object({ agentId: z.string(), deleted: z.literal(true) })
+  .strict();
+export type DeleteExecutorResponse = z.infer<typeof DeleteExecutorResponseSchema>;
+/** A sandbox tool call's answer (`POST …/sandbox/:tool`): its output, or why it failed. */
+export const SandboxToolOutcomeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("completed"), output: z.unknown() }).strict(),
+  z
+    .object({ kind: z.literal("failed"), code: z.string(), message: z.string() })
+    .strict(),
+]);
+export type SandboxToolOutcome = z.infer<typeof SandboxToolOutcomeSchema>;
+
+export const ResetTenantResponseSchema = z.object({ ok: z.literal(true) }).strict();
+export type ResetTenantResponse = z.infer<typeof ResetTenantResponseSchema>;
+/** `GET /v1/tenant/models`: public provider and model names, no credentials. */
+export const HostModelCatalogSchema = z
+  .object({
+    providers: z.array(
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          models: z.array(z.object({ id: z.string(), name: z.string() }).strict()),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type HostModelCatalog = z.infer<typeof HostModelCatalogSchema>;
+export const HostModelProviderInfoSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    model: z.string(),
+    authType: z.enum(["api_key", "oauth"]),
+    baseUrl: z.string().optional(),
+    lastUpdated: z.string(),
+    active: z.boolean(),
+  })
+  .strict();
+export const ListProvidersResponseSchema = z
+  .object({ providers: z.array(HostModelProviderInfoSchema) })
+  .strict();
+export type ListProvidersResponse = z.infer<typeof ListProvidersResponseSchema>;
+const SandboxResourcesLimitSchema = z
+  .object({ cpus: z.number(), memoryMiB: z.number() })
+  .strict();
+/** A Tenant's sandbox configuration with every default applied (sizes in MiB). */
+export const EffectiveSandboxConfigSchema = z
+  .object({
+    default: z.union([z.literal("none"), z.literal("virtual"), SandboxInlineRequestSchema]),
+    limits: z
+      .object({
+        network: z.array(z.string()),
+        resources: SandboxResourcesLimitSchema,
+        defaultResources: SandboxResourcesLimitSchema,
+        idle: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+export type EffectiveSandboxConfig = z.infer<typeof EffectiveSandboxConfigSchema>;
+const SandboxBackendNameSchema = z.enum(["virtual", "openshell"]);
+const SandboxIsolationSchema = z.enum(["process", "container"]);
+/** `GET` and `PUT /v1/tenant/sandbox`: the backend chosen, and the configuration in force. */
+export const TenantSandboxViewSchema = z
+  .object({
+    preference: z.union([z.literal("auto"), SandboxBackendNameSchema]),
+    backend: SandboxBackendNameSchema.nullable(),
+    isolation: SandboxIsolationSchema.nullable(),
+    reason: z.string(),
+    probes: z.array(
+      z
+        .object({
+          name: SandboxBackendNameSchema,
+          available: z.boolean(),
+          isolation: SandboxIsolationSchema,
+          reason: z.string().optional(),
+          version: z.string().optional(),
+        })
+        .strict(),
+    ),
+    defaultImage: z.string(),
+    config: EffectiveSandboxConfigSchema,
+  })
+  .strict();
+export type TenantSandboxView = z.infer<typeof TenantSandboxViewSchema>;
+
+export const ListVaultsResponseSchema = z.object({ vaults: z.array(VaultInfoSchema) }).strict();
+export type ListVaultsResponse = z.infer<typeof ListVaultsResponseSchema>;
+export const ListCredentialsResponseSchema = z
+  .object({ credentials: z.array(CredentialInfoSchema) })
+  .strict();
+export type ListCredentialsResponse = z.infer<typeof ListCredentialsResponseSchema>;
+/** A deleted vault or credential. */
+export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
+export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;
+
+export const AccessPolicyResponseSchema = z.object({ policy: AccessPolicySchema }).strict();
+export type AccessPolicyResponse = z.infer<typeof AccessPolicyResponseSchema>;
+export const ListPublishableKeysResponseSchema = z
+  .object({ keys: z.array(PublishableKeySchema) })
+  .strict();
+export type ListPublishableKeysResponse = z.infer<typeof ListPublishableKeysResponseSchema>;
+
+export const AdminTenantListSchema = z.array(AdminTenantSchema);
+export const HostShutdownResponseSchema = z
+  .object({ status: z.literal("shutting_down") })
+  .strict();
+
+/** The last frame of a session stream the Runtime ends: `event: nylorun.closed`. */
+export const StreamClosedFrameSchema = z
+  .object({ reason: z.enum(["token_expired", "revoked"]) })
+  .strict();
+export type StreamClosedFrame = z.infer<typeof StreamClosedFrameSchema>;
+/**
+ * The `code` of an AG-UI `RUN_ERROR` the Runtime sends: a rejection's code, or `session_busy`
+ * (another turn is running) or `runtime_error` (the Runtime failed). Never an HTTP body's code.
+ */
+export const AgUiRunErrorCodeSchema = z.enum([
+  ...ERROR_CODES,
+  "session_busy",
+  "runtime_error",
+]);
+export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;

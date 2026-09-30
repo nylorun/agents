@@ -7,6 +7,7 @@ import {
 import { createHash, timingSafeEqual } from "node:crypto";
 import {
   checkCompatibility,
+  type ErrorCode,
   HOST_PROTOCOL,
   isTenantId,
   PROTOCOL_HEADER,
@@ -295,11 +296,12 @@ export function createHost(options: CreateHostOptions): HostServer {
             activeWork !== "drain" &&
             activeWork !== "cancel"
           ) {
-            return sendJson(response, 400, {
-              status: "rejected",
-              code: "invalid_request",
-              message: "activeWork must be refuse, drain, or cancel",
-            });
+            return sendRejected(
+              response,
+              400,
+              "invalid_request",
+              "activeWork must be refuse, drain, or cancel",
+            );
           }
           try {
             await module.delete(id, activeWork);
@@ -498,11 +500,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       // is named by `Nylorun-Tenant`, by the publishable key in `Nylorun-Key`, or by both
       // when they agree.
       const invalid = (message: string) => {
-        sendJson(response, 400, {
-          status: "rejected",
-          code: "invalid_request",
-          message,
-        });
+        sendRejected(response, 400, "invalid_request", message);
         statusCode = 400;
       };
       const keyHeader = headerValue(request.headers, PUBLISHABLE_KEY_HEADER);
@@ -550,7 +548,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       statusCode = response.statusCode || 200;
     } catch (error) {
       const status = (error as { status?: number }).status;
-      let rejection: { status: number; code: string; message: string };
+      let rejection: { status: number; code: ErrorCode; message: string };
       if (typeof status === "number" && status >= 400 && status < 600) {
         rejection = {
           status,
@@ -572,12 +570,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       }
       // Once a response has started, the rejection can only end it.
       if (response.headersSent) response.end();
-      else
-        sendJson(response, rejection.status, {
-          status: "rejected",
-          code: rejection.code,
-          message: rejection.message,
-        });
+      else sendRejected(response, rejection.status, rejection.code, rejection.message);
       statusCode = rejection.status;
     } finally {
       if (pathnameIsLogged(request.url)) {
