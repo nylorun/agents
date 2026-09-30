@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { tenantApi } from "../../src/api/http/app.js";
 import { adminDocument, tenantDocument } from "../../src/api/openapi.js";
 import { RUNTIME_VERSION } from "../../src/version.js";
@@ -54,7 +55,7 @@ it("documents every Tenant operation once, with who may call it", () => {
         expect(operation["x-nylorun-scopes"], path).toBeDefined();
   expect(Object.keys(document.components?.securitySchemes ?? {}).sort()).toEqual([
     "applicationKey",
-    "executorKey",
+    "deliveryToken",
     "publishableKey",
     "subjectToken",
   ]);
@@ -72,7 +73,7 @@ it("serves the Tenant API's document to anyone, but not to a browser", async () 
 });
 
 it("serves the Admin API's document with the admin key, on the listener that serves it", async () => {
-  const admin = { "nylorun-protocol": "2", authorization: `Bearer ${rt.adminKey}` };
+  const admin = { "nylorun-protocol": String(PROTOCOL_VERSION), authorization: `Bearer ${rt.adminKey}` };
   const served = await fetch(`${rt.adminUrl}/v1/admin/openapi.json`, { headers: admin });
   expect(served.status).toBe(200);
   expect(await served.json()).toEqual(JSON.parse(JSON.stringify(adminDocument())));

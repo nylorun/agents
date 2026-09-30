@@ -5,12 +5,13 @@
     "version": "0.0.0",
     "description": "Agents, sessions and their events, vaults, access and the Tenant's settings, for one Tenant (`Nylorun-Tenant`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
     "x-nylorun-protocol": {
-      "min": 2,
-      "max": 2,
+      "min": 3,
+      "max": 3,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
+        "action-endpoints",
         "tenant-fixture-model",
         "transcript-events",
         "derived-principals",
@@ -47,10 +48,11 @@
         "bearerFormat": "JWT",
         "description": "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes."
       },
-      "executorKey": {
+      "deliveryToken": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An executor's token, scoped to its agent. Deprecated with the executor routes."
+        "bearerFormat": "JWT",
+        "description": "The delivery token the Runtime signs each Action delivery with (`Nylorun-Signature`), sent back by the Action endpoint. It reaches only that Action's heartbeat, result and sandbox routes, while that delivery is current, for at most 15 minutes."
       },
       "publishableKey": {
         "type": "apiKey",
@@ -6207,18 +6209,47 @@
           "checks"
         ]
       },
-      "ExecutorNotification": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "work_available"
-            ]
+      "SandboxToolOutcome": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "completed"
+                ]
+              },
+              "output": {}
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "type"
         ]
       },
       "Rejected": {
@@ -6315,1339 +6346,6 @@
         ],
         "additionalProperties": false
       },
-      "ListActionsResponse": {
-        "type": "object",
-        "properties": {
-          "actions": {
-            "type": "array",
-            "items": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "claimed",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "tool"
-                      ]
-                    },
-                    "capabilityId": {
-                      "type": "string"
-                    },
-                    "toolName": {
-                      "type": "string"
-                    },
-                    "inputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "outputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "claimId",
-                    "leaseExpiresAt",
-                    "kind",
-                    "capabilityId",
-                    "toolName"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "claimed",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "tool"
-                      ]
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "key": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "inputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "outputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "claimId",
-                    "leaseExpiresAt",
-                    "kind",
-                    "path",
-                    "key"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "claimed",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "hook"
-                      ]
-                    },
-                    "hook": {
-                      "type": "object",
-                      "properties": {
-                        "at": {
-                          "type": "string",
-                          "enum": [
-                            "before",
-                            "after"
-                          ]
-                        },
-                        "scope": {
-                          "type": "string",
-                          "enum": [
-                            "turn",
-                            "step"
-                          ]
-                        },
-                        "capabilityIds": {
-                          "type": "array",
-                          "items": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "minItems": 1
-                        }
-                      },
-                      "required": [
-                        "at",
-                        "scope",
-                        "capabilityIds"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "claimId",
-                    "leaseExpiresAt",
-                    "kind",
-                    "hook"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "claimed",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "fn"
-                      ]
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "key": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "claimId",
-                    "leaseExpiresAt",
-                    "kind",
-                    "path",
-                    "key"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "claimed",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "verify"
-                      ]
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "key": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "claimId",
-                    "leaseExpiresAt",
-                    "kind",
-                    "path",
-                    "key"
-                  ],
-                  "additionalProperties": false
-                }
-              ]
-            }
-          }
-        },
-        "required": [
-          "actions"
-        ],
-        "additionalProperties": false
-      },
-      "SandboxToolOutcome": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "completed"
-                ]
-              },
-              "output": {}
-            },
-            "required": [
-              "kind"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "failed"
-                ]
-              },
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "code",
-              "message"
-            ],
-            "additionalProperties": false
-          }
-        ]
-      },
-      "ActionClaimResponse": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "actionId": {
-                    "type": "string"
-                  },
-                  "sessionId": {
-                    "type": "string"
-                  },
-                  "turnId": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "manifestHash": {
-                    "type": "string"
-                  },
-                  "implementationVersion": {
-                    "type": "string"
-                  },
-                  "input": {},
-                  "context": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "claimed",
-                      "delivering",
-                      "completed",
-                      "uncertain",
-                      "cancelled"
-                    ]
-                  },
-                  "generation": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "claimId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "leaseExpiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "deadlineAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "agent": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "path": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "delegationId": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "path"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "tool"
-                    ]
-                  },
-                  "capabilityId": {
-                    "type": "string"
-                  },
-                  "toolName": {
-                    "type": "string"
-                  },
-                  "inputSchema": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "outputSchema": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  }
-                },
-                "required": [
-                  "actionId",
-                  "sessionId",
-                  "turnId",
-                  "agentId",
-                  "manifestHash",
-                  "implementationVersion",
-                  "context",
-                  "status",
-                  "generation",
-                  "claimId",
-                  "leaseExpiresAt",
-                  "kind",
-                  "capabilityId",
-                  "toolName"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "actionId": {
-                    "type": "string"
-                  },
-                  "sessionId": {
-                    "type": "string"
-                  },
-                  "turnId": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "manifestHash": {
-                    "type": "string"
-                  },
-                  "implementationVersion": {
-                    "type": "string"
-                  },
-                  "input": {},
-                  "context": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "claimed",
-                      "delivering",
-                      "completed",
-                      "uncertain",
-                      "cancelled"
-                    ]
-                  },
-                  "generation": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "claimId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "leaseExpiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "deadlineAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "agent": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "path": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "delegationId": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "path"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "tool"
-                    ]
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "key": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "inputSchema": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "outputSchema": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  }
-                },
-                "required": [
-                  "actionId",
-                  "sessionId",
-                  "turnId",
-                  "agentId",
-                  "manifestHash",
-                  "implementationVersion",
-                  "context",
-                  "status",
-                  "generation",
-                  "claimId",
-                  "leaseExpiresAt",
-                  "kind",
-                  "path",
-                  "key"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "actionId": {
-                    "type": "string"
-                  },
-                  "sessionId": {
-                    "type": "string"
-                  },
-                  "turnId": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "manifestHash": {
-                    "type": "string"
-                  },
-                  "implementationVersion": {
-                    "type": "string"
-                  },
-                  "input": {},
-                  "context": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "claimed",
-                      "delivering",
-                      "completed",
-                      "uncertain",
-                      "cancelled"
-                    ]
-                  },
-                  "generation": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "claimId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "leaseExpiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "deadlineAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "agent": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "path": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "delegationId": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "path"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "hook"
-                    ]
-                  },
-                  "hook": {
-                    "type": "object",
-                    "properties": {
-                      "at": {
-                        "type": "string",
-                        "enum": [
-                          "before",
-                          "after"
-                        ]
-                      },
-                      "scope": {
-                        "type": "string",
-                        "enum": [
-                          "turn",
-                          "step"
-                        ]
-                      },
-                      "capabilityIds": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "minItems": 1
-                      }
-                    },
-                    "required": [
-                      "at",
-                      "scope",
-                      "capabilityIds"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "actionId",
-                  "sessionId",
-                  "turnId",
-                  "agentId",
-                  "manifestHash",
-                  "implementationVersion",
-                  "context",
-                  "status",
-                  "generation",
-                  "claimId",
-                  "leaseExpiresAt",
-                  "kind",
-                  "hook"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "actionId": {
-                    "type": "string"
-                  },
-                  "sessionId": {
-                    "type": "string"
-                  },
-                  "turnId": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "manifestHash": {
-                    "type": "string"
-                  },
-                  "implementationVersion": {
-                    "type": "string"
-                  },
-                  "input": {},
-                  "context": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "claimed",
-                      "delivering",
-                      "completed",
-                      "uncertain",
-                      "cancelled"
-                    ]
-                  },
-                  "generation": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "claimId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "leaseExpiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "deadlineAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "agent": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "path": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "delegationId": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "path"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "fn"
-                    ]
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "key": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "actionId",
-                  "sessionId",
-                  "turnId",
-                  "agentId",
-                  "manifestHash",
-                  "implementationVersion",
-                  "context",
-                  "status",
-                  "generation",
-                  "claimId",
-                  "leaseExpiresAt",
-                  "kind",
-                  "path",
-                  "key"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "actionId": {
-                    "type": "string"
-                  },
-                  "sessionId": {
-                    "type": "string"
-                  },
-                  "turnId": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "manifestHash": {
-                    "type": "string"
-                  },
-                  "implementationVersion": {
-                    "type": "string"
-                  },
-                  "input": {},
-                  "context": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "claimed",
-                      "delivering",
-                      "completed",
-                      "uncertain",
-                      "cancelled"
-                    ]
-                  },
-                  "generation": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "claimId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "leaseExpiresAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "deadlineAt": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "agent": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "path": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "delegationId": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "required": [
-                      "id",
-                      "path"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "verify"
-                    ]
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "key": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "actionId",
-                  "sessionId",
-                  "turnId",
-                  "agentId",
-                  "manifestHash",
-                  "implementationVersion",
-                  "context",
-                  "status",
-                  "generation",
-                  "claimId",
-                  "leaseExpiresAt",
-                  "kind",
-                  "path",
-                  "key"
-                ],
-                "additionalProperties": false
-              }
-            ]
-          },
-          "claimId": {
-            "type": "string"
-          },
-          "generation": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "leaseExpiresAt": {
-            "type": "string"
-          },
-          "sandbox": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "action",
-          "claimId",
-          "generation",
-          "leaseExpiresAt"
-        ]
-      },
-      "ActionClaimRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "implementationVersion": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "requestId",
-          "implementationVersion"
-        ],
-        "additionalProperties": false
-      },
-      "ActionHeartbeatResponse": {
-        "type": "object",
-        "properties": {
-          "leaseExpiresAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "leaseExpiresAt"
-        ],
-        "additionalProperties": false
-      },
       "DeliveryHeartbeatResponse": {
         "type": "object",
         "properties": {
@@ -7663,162 +6361,6 @@
           "token",
           "deadlineAt"
         ]
-      },
-      "ActionHeartbeatRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "claimId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "generation": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          }
-        },
-        "required": [
-          "requestId",
-          "claimId",
-          "generation"
-        ],
-        "additionalProperties": false
-      },
-      "ListExecutorsResponse": {
-        "type": "object",
-        "properties": {
-          "executors": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "agentId": {
-                  "type": "string"
-                },
-                "implementationVersion": {
-                  "type": "string"
-                },
-                "manifestHash": {
-                  "type": "string"
-                },
-                "connected": {
-                  "type": "boolean"
-                },
-                "updatedAt": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "agentId",
-                "implementationVersion",
-                "connected",
-                "updatedAt"
-              ]
-            }
-          }
-        },
-        "required": [
-          "executors"
-        ]
-      },
-      "RegisterExecutorsResponse": {
-        "type": "object",
-        "properties": {
-          "executors": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "agentId": {
-                  "type": "string"
-                },
-                "implementationVersion": {
-                  "type": "string"
-                },
-                "rotated": {
-                  "type": "boolean"
-                },
-                "replacedBy": {
-                  "type": "string",
-                  "enum": [
-                    "different-credential"
-                  ]
-                }
-              },
-              "required": [
-                "agentId",
-                "implementationVersion",
-                "rotated"
-              ]
-            }
-          }
-        },
-        "required": [
-          "executors"
-        ]
-      },
-      "RegisterExecutorsRequest": {
-        "type": "object",
-        "properties": {
-          "executors": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "agentId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "implementationVersion": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "manifestHash": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "token": {
-                  "type": "string",
-                  "minLength": 16
-                }
-              },
-              "required": [
-                "agentId",
-                "implementationVersion",
-                "token"
-              ],
-              "additionalProperties": false
-            },
-            "minItems": 1,
-            "maxItems": 64
-          }
-        },
-        "required": [
-          "executors"
-        ],
-        "additionalProperties": false
-      },
-      "DeleteExecutorResponse": {
-        "type": "object",
-        "properties": {
-          "agentId": {
-            "type": "string"
-          },
-          "deleted": {
-            "type": "boolean",
-            "enum": [
-              true
-            ]
-          }
-        },
-        "required": [
-          "agentId",
-          "deleted"
-        ],
-        "additionalProperties": false
       },
       "AcceptedResponse": {
         "type": "object",
@@ -8642,59 +7184,6 @@
               "requestId",
               "idempotencyKey",
               "type"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "requestId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "idempotencyKey": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "action_result"
-                ]
-              },
-              "actionId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "claimId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "generation": {
-                "type": "integer",
-                "exclusiveMinimum": 0
-              },
-              "outcome": {
-                "type": "object",
-                "properties": {
-                  "value": {},
-                  "statePatch": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "requestId",
-              "idempotencyKey",
-              "type",
-              "actionId",
-              "claimId",
-              "generation",
-              "outcome"
             ],
             "additionalProperties": false
           }
@@ -10046,6 +8535,34 @@
           "implementationVersion"
         ]
       },
+      "ActionResultReceipt": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "turnId",
+          "cursor"
+        ]
+      },
       "ActionOutcome": {
         "type": "object",
         "properties": {
@@ -11118,7 +9635,6 @@
                       "type": "string",
                       "enum": [
                         "pending",
-                        "claimed",
                         "delivering",
                         "completed",
                         "uncertain",
@@ -11128,18 +9644,6 @@
                     "generation": {
                       "type": "integer",
                       "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
                     },
                     "deadlineAt": {
                       "type": [
@@ -11200,8 +9704,6 @@
                     "context",
                     "status",
                     "generation",
-                    "claimId",
-                    "leaseExpiresAt",
                     "kind",
                     "capabilityId",
                     "toolName"
@@ -11238,7 +9740,6 @@
                       "type": "string",
                       "enum": [
                         "pending",
-                        "claimed",
                         "delivering",
                         "completed",
                         "uncertain",
@@ -11248,18 +9749,6 @@
                     "generation": {
                       "type": "integer",
                       "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
                     },
                     "deadlineAt": {
                       "type": [
@@ -11322,8 +9811,6 @@
                     "context",
                     "status",
                     "generation",
-                    "claimId",
-                    "leaseExpiresAt",
                     "kind",
                     "path",
                     "key"
@@ -11360,7 +9847,6 @@
                       "type": "string",
                       "enum": [
                         "pending",
-                        "claimed",
                         "delivering",
                         "completed",
                         "uncertain",
@@ -11370,18 +9856,6 @@
                     "generation": {
                       "type": "integer",
                       "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
                     },
                     "deadlineAt": {
                       "type": [
@@ -11461,8 +9935,6 @@
                     "context",
                     "status",
                     "generation",
-                    "claimId",
-                    "leaseExpiresAt",
                     "kind",
                     "hook"
                   ],
@@ -11498,7 +9970,6 @@
                       "type": "string",
                       "enum": [
                         "pending",
-                        "claimed",
                         "delivering",
                         "completed",
                         "uncertain",
@@ -11508,18 +9979,6 @@
                     "generation": {
                       "type": "integer",
                       "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
                     },
                     "deadlineAt": {
                       "type": [
@@ -11574,8 +10033,6 @@
                     "context",
                     "status",
                     "generation",
-                    "claimId",
-                    "leaseExpiresAt",
                     "kind",
                     "path",
                     "key"
@@ -11612,7 +10069,6 @@
                       "type": "string",
                       "enum": [
                         "pending",
-                        "claimed",
                         "delivering",
                         "completed",
                         "uncertain",
@@ -11622,18 +10078,6 @@
                     "generation": {
                       "type": "integer",
                       "minimum": 0
-                    },
-                    "claimId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "leaseExpiresAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
                     },
                     "deadlineAt": {
                       "type": [
@@ -11688,8 +10132,6 @@
                     "context",
                     "status",
                     "generation",
-                    "claimId",
-                    "leaseExpiresAt",
                     "kind",
                     "path",
                     "key"
@@ -12024,7 +10466,7 @@
               "model": {
                 "type": "boolean"
               },
-              "executors": {
+              "endpoints": {
                 "type": "boolean"
               },
               "schema": {
@@ -12035,7 +10477,7 @@
               "store",
               "scheduler",
               "model",
-              "executors",
+              "endpoints",
               "schema"
             ],
             "additionalProperties": false
@@ -12104,14 +10546,14 @@
                 "registered": {
                   "type": "boolean"
                 },
-                "connected": {
+                "endpoint": {
                   "type": "boolean"
                 }
               },
               "required": [
                 "agentId",
                 "registered",
-                "connected"
+                "endpoint"
               ],
               "additionalProperties": false
             }
@@ -14669,231 +13111,19 @@
         }
       }
     },
-    "/v1/executors/connect": {
-      "get": {
-        "tags": [
-          "Executors"
-        ],
-        "deprecated": true,
-        "summary": "Wait for work",
-        "description": "Server-sent events: `work_available` at once and whenever the executor's agent has pending Actions, then `GET /v1/actions`. A `: keepalive` comment every 15 seconds.",
-        "security": [
-          {
-            "executorKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "executor"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `2`"
-            },
-            "required": true,
-            "description": "The protocol version, `2`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The executor's work stream",
-            "content": {
-              "text/event-stream": {
-                "itemSchema": {
-                  "$ref": "#/components/schemas/ExecutorNotification"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/actions": {
-      "get": {
-        "tags": [
-          "Executors"
-        ],
-        "deprecated": true,
-        "summary": "List pending Actions",
-        "security": [
-          {
-            "executorKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "executor"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `2`"
-            },
-            "required": true,
-            "description": "The protocol version, `2`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The executor's agent's pending Actions",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListActionsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/actions/{actionId}/sandbox/{tool}": {
       "post": {
         "tags": [
-          "Executors",
           "Action endpoints"
         ],
-        "summary": "Run a sandbox tool for an Action being run",
-        "description": "With the Action's delivery token (Action endpoints), the body is the tool's input. With an executor key (deprecated), it also carries the claim.",
+        "summary": "Run a sandbox tool for an Action being delivered",
+        "description": "Called by the Action endpoint with the Action's delivery token. The body is the tool's input.",
         "security": [
-          {
-            "executorKey": []
-          },
           {
             "deliveryToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "executor",
           "delivery"
         ],
         "x-nylorun-scopes": "never",
@@ -14926,10 +13156,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14950,16 +13180,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": {
-                  "claimId": {
-                    "type": "string"
-                  },
-                  "generation": {
-                    "type": "integer"
-                  }
-                },
+                "properties": {},
                 "additionalProperties": {},
-                "description": "The tool's input, and an executor's claim"
+                "description": "The tool's input"
               }
             }
           }
@@ -15006,131 +13229,7 @@
             }
           },
           "409": {
-            "description": "The claim is stale or expired, or the Action is unavailable"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/actions/{actionId}/claim": {
-      "post": {
-        "tags": [
-          "Executors"
-        ],
-        "deprecated": true,
-        "summary": "Claim an Action",
-        "security": [
-          {
-            "executorKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "executor"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "actionId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `2`"
-            },
-            "required": true,
-            "description": "The protocol version, `2`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActionClaimRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The claim",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionClaimResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The Action is unavailable, or the claim is stale or expired"
+            "description": "The delivery was cancelled, lost or sent again"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -15158,21 +13257,16 @@
     "/v1/actions/{actionId}/heartbeat": {
       "post": {
         "tags": [
-          "Executors",
           "Action endpoints"
         ],
-        "summary": "Keep an Action alive while it runs",
-        "description": "With the delivery token of an Action endpoint that answered 202, extends the delivery by a lease and returns a fresh token. With an executor key (deprecated), extends the claim named in the body.",
+        "summary": "Keep a background delivery alive",
+        "description": "Called by an Action endpoint that answered a delivery with 202: extends the delivery by a lease and returns a fresh delivery token.",
         "security": [
-          {
-            "executorKey": []
-          },
           {
             "deliveryToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "executor",
           "delivery"
         ],
         "x-nylorun-scopes": "never",
@@ -15189,10 +13283,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15207,30 +13301,13 @@
             "in": "header"
           }
         ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActionHeartbeatRequest"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
-            "description": "The claim's new expiry, or the delivery's new deadline and token",
+            "description": "The delivery's new deadline, and a fresh token",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/ActionHeartbeatResponse"
-                    },
-                    {
-                      "$ref": "#/components/schemas/DeliveryHeartbeatResponse"
-                    }
-                  ]
+                  "$ref": "#/components/schemas/DeliveryHeartbeatResponse"
                 }
               }
             }
@@ -15266,336 +13343,7 @@
             }
           },
           "409": {
-            "description": "The Action is unavailable: the claim is stale or expired, or the delivery was cancelled, lost or sent again"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/executors": {
-      "get": {
-        "tags": [
-          "Executors"
-        ],
-        "deprecated": true,
-        "summary": "List registered executors",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `2`"
-            },
-            "required": true,
-            "description": "The protocol version, `2`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Each executor and whether it is connected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListExecutorsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Executors"
-        ],
-        "deprecated": true,
-        "summary": "Register executors",
-        "description": "Each executor's token is scoped to its agent. A new token for an agent ends the old token's streams.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `2`"
-            },
-            "required": true,
-            "description": "The protocol version, `2`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterExecutorsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The executors, and which were rotated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegisterExecutorsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Two executors share a token"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/executors/{agentId}": {
-      "delete": {
-        "tags": [
-          "Executors"
-        ],
-        "deprecated": true,
-        "summary": "Remove an agent's executor",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "agentId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `2`"
-            },
-            "required": true,
-            "description": "The protocol version, `2`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The executor was removed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteExecutorResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
+            "description": "The delivery was cancelled, lost or sent again"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -15626,23 +13374,19 @@
           "Sessions"
         ],
         "summary": "Send a command to a session",
-        "description": "A message starts a turn; the others answer what the session waits on, or cancel. An executor sends only `action_result`. Idempotent on the command's `idempotencyKey`.",
+        "description": "A message starts a turn; the others answer what the session waits on, or cancel. Idempotent on the command's `idempotencyKey`.",
         "security": [
           {
             "applicationKey": []
           },
           {
             "subjectToken": []
-          },
-          {
-            "executorKey": []
           }
         ],
         "x-nylorun-credentials": [
           "application",
           "subject",
-          "token",
-          "executor"
+          "token"
         ],
         "x-nylorun-scopes": [
           "sessions:own"
@@ -15660,10 +13404,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15816,10 +13560,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15902,7 +13646,7 @@
           "Action endpoints"
         ],
         "summary": "Register Action endpoints",
-        "description": "Points the Runtime at the URL that runs each agent's Actions. Registering an endpoint removes the agent's executor; a new URL starts with no health.",
+        "description": "Points the Runtime at the URL that runs each agent's Actions. A new URL starts with no health.",
         "security": [
           {
             "applicationKey": []
@@ -15917,10 +13661,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16038,10 +13782,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16142,10 +13886,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16249,10 +13993,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16283,7 +14027,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedResponse"
+                  "$ref": "#/components/schemas/ActionResultReceipt"
                 }
               }
             }
@@ -16377,10 +14121,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16547,10 +14291,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16695,10 +14439,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16853,10 +14597,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17021,10 +14765,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17198,10 +14942,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17366,10 +15110,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17540,10 +15284,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17661,10 +15405,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17784,10 +15528,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17897,10 +15641,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18013,10 +15757,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18138,10 +15882,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18262,10 +16006,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18398,10 +16142,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18523,10 +16267,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18646,10 +16390,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18781,10 +16525,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18920,10 +16664,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19090,10 +16834,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19247,10 +16991,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19402,10 +17146,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19560,10 +17304,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19725,10 +17469,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19890,10 +17634,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20053,10 +17797,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20229,10 +17973,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20368,17 +18112,13 @@
           {
             "publishableKey": []
           },
-          {
-            "executorKey": []
-          },
           {}
         ],
         "x-nylorun-credentials": [
           "application",
           "subject",
           "token",
-          "publishable",
-          "executor"
+          "publishable"
         ],
         "x-nylorun-scopes": "any",
         "x-nylorun-browser": true,
@@ -20386,10 +18126,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20539,10 +18279,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20651,10 +18391,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20751,10 +18491,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20863,10 +18603,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20966,10 +18706,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21089,10 +18829,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21204,10 +18944,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21305,10 +19045,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21428,10 +19168,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21546,10 +19286,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21649,10 +19389,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21776,10 +19516,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21950,10 +19690,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22136,10 +19876,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22303,10 +20043,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22458,10 +20198,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22629,10 +20369,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `2`"
+              "description": "The protocol version, `3`"
             },
             "required": true,
-            "description": "The protocol version, `2`",
+            "description": "The protocol version, `3`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
