@@ -88,3 +88,24 @@ it("documents the agent list for publishable keys too, and agent puts for applic
     "never",
   );
 });
+
+it("documents vaults for a person's own credentials, and Tenant settings for application keys", () => {
+  for (const [method, path] of [
+    ["post", "/v1/vaults"],
+    ["get", "/v1/vaults/{vaultId}/credentials/{credentialId}"],
+    ["delete", "/v1/vaults/{vaultId}"],
+  ] as const) {
+    const op = operation(method, path);
+    expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+    expect(op["x-nylorun-scopes"]).toEqual(["vaults:own"]);
+    expect(op["x-nylorun-browser"]).toBe(true);
+  }
+  expect(operation("post", "/v1/tenant/reset")["x-nylorun-scopes"]).toBe("never");
+  expect(operation("get", "/v1/tenant/models")["x-nylorun-scopes"]).toEqual([
+    "tenant:settings",
+    "agents:write",
+  ]);
+  expect(operation("put", "/v1/tenant/sandbox").requestBody.content["application/json"].schema).toEqual({
+    $ref: "#/components/schemas/PutTenantSandboxRequest",
+  });
+});
