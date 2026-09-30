@@ -6,6 +6,36 @@
  */
 import type { z } from "zod";
 import {
+  TenantStatusSchema,
+  ResetTenantRequestSchema,
+  ResetTenantResponseSchema,
+  SeedTenantConfigRequestSchema,
+  SeedTenantConfigResponseSchema,
+  HostModelCatalogSchema,
+  TenantSandboxViewSchema,
+  PutTenantSandboxRequestSchema,
+  ListProvidersResponseSchema,
+  HostModelViewSchema,
+  PutHostModelRequestSchema,
+  SelectHostModelRequestSchema,
+  CreateVaultRequestSchema,
+  VaultInfoSchema,
+  ListVaultsResponseSchema,
+  CreateCredentialRequestSchema,
+  CredentialInfoSchema,
+  ListCredentialsResponseSchema,
+  RotateCredentialRequestSchema,
+  DeletedResponseSchema,
+  ListAgentsResponseSchema,
+  ListPublicAgentsResponseSchema,
+  ListSessionsResponseSchema,
+  LiveEventSchema,
+  PutAgentRequestSchema,
+  PutAgentResponseSchema,
+  PutSessionRequestSchema,
+  SessionItemsResponseSchema,
+  SessionViewSchema,
+  StreamClosedFrameSchema,
   AcceptedResponseSchema,
   ActionClaimRequestSchema,
   ActionClaimResponseSchema,
@@ -70,3 +100,38 @@ export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpoint
 export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
+
+export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
+export const ListPublicAgentsResponse = named(
+  "ListPublicAgentsResponse",
+  ListPublicAgentsResponseSchema,
+);
+export const PutAgentRequest = named("PutAgentRequest", PutAgentRequestSchema);
+export const PutAgentResponse = named("PutAgentResponse", PutAgentResponseSchema);
+export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
+export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);
+export const SessionView = named("SessionView", SessionViewSchema);
+export const SessionItemsResponse = named("SessionItemsResponse", SessionItemsResponseSchema);
+export const LiveEvent = named("LiveEvent", LiveEventSchema);
+export const StreamClosedFrame = named("StreamClosedFrame", StreamClosedFrameSchema);
+
+export const TenantStatus = named("TenantStatus", TenantStatusSchema);
+export const ResetTenantRequest = named("ResetTenantRequest", ResetTenantRequestSchema);
+export const ResetTenantResponse = named("ResetTenantResponse", ResetTenantResponseSchema);
+export const SeedTenantConfigRequest = named("SeedTenantConfigRequest", SeedTenantConfigRequestSchema);
+export const SeedTenantConfigResponse = named("SeedTenantConfigResponse", SeedTenantConfigResponseSchema);
+export const HostModelCatalog = named("HostModelCatalog", HostModelCatalogSchema);
+export const TenantSandboxView = named("TenantSandboxView", TenantSandboxViewSchema);
+export const PutTenantSandboxRequest = named("PutTenantSandboxRequest", PutTenantSandboxRequestSchema);
+export const ListProvidersResponse = named("ListProvidersResponse", ListProvidersResponseSchema);
+export const HostModelView = named("HostModelView", HostModelViewSchema);
+export const PutHostModelRequest = named("PutHostModelRequest", PutHostModelRequestSchema);
+export const SelectHostModelRequest = named("SelectHostModelRequest", SelectHostModelRequestSchema);
+export const CreateVaultRequest = named("CreateVaultRequest", CreateVaultRequestSchema);
+export const VaultInfo = named("VaultInfo", VaultInfoSchema);
+export const ListVaultsResponse = named("ListVaultsResponse", ListVaultsResponseSchema);
+export const CreateCredentialRequest = named("CreateCredentialRequest", CreateCredentialRequestSchema);
+export const CredentialInfo = named("CredentialInfo", CredentialInfoSchema);
+export const ListCredentialsResponse = named("ListCredentialsResponse", ListCredentialsResponseSchema);
+export const RotateCredentialRequest = named("RotateCredentialRequest", RotateCredentialRequestSchema);
+export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
