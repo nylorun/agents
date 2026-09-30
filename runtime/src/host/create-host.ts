@@ -550,38 +550,35 @@ export function createHost(options: CreateHostOptions): HostServer {
       statusCode = response.statusCode || 200;
     } catch (error) {
       const status = (error as { status?: number }).status;
+      let rejection: { status: number; code: string; message: string };
       if (typeof status === "number" && status >= 400 && status < 600) {
-        sendJson(response, status, {
-          status: "rejected",
+        rejection = {
+          status,
           code: status === 400 ? "invalid_request" : "request_rejected",
           message: error instanceof Error ? error.message : "Request rejected",
-        });
-        statusCode = status;
+        };
       } else if (
         error &&
         typeof error === "object" &&
         "name" in error &&
         (error as { name: string }).name === "ZodError"
       ) {
-        sendJson(response, 400, {
-          status: "rejected",
-          code: "invalid_request",
-          message: "Invalid request body",
-        });
-        statusCode = 400;
+        rejection = { status: 400, code: "invalid_request", message: "Invalid request body" };
       } else {
         logger.error("request_failed", {
           error: error instanceof Error ? error.message : String(error),
         });
-        if (!response.headersSent) {
-          sendJson(response, 500, {
-            status: "rejected",
-            code: "internal_error",
-            message: "Internal error",
-          });
-        }
-        statusCode = 500;
+        rejection = { status: 500, code: "internal_error", message: "Internal error" };
       }
+      // Once a response has started, the rejection can only end it.
+      if (response.headersSent) response.end();
+      else
+        sendJson(response, rejection.status, {
+          status: "rejected",
+          code: rejection.code,
+          message: rejection.message,
+        });
+      statusCode = rejection.status;
     } finally {
       if (pathnameIsLogged(request.url)) {
         logger.info("request", {
@@ -596,6 +593,38 @@ export function createHost(options: CreateHostOptions): HostServer {
       }
     }
   };
+
+  /** Responses not yet finished; shutdown ends the streams among them. */
+  const inFlight = new Set<ServerResponse>();
+  const serve =
+    (role: ListenerRole) => (req: IncomingMessage, res: ServerResponse) => {
+      inFlight.add(res);
+      res.once("close", () => inFlight.delete(res));
+      void handle(req, res, role);
+    };
+
+  /** Binds `listening`; once bound, a listener error is logged rather than lost. */
+  const bindListener = (listening: Server, port: number, host: string) =>
+    new Promise<void>((resolve, reject) => {
+      const failed = (error: NodeJS.ErrnoException) =>
+        reject(
+          error.code === "EADDRINUSE"
+            ? new HostListenError(
+                `Port ${port} on ${host} is already in use`,
+                EXIT_PORT_IN_USE,
+                error,
+              )
+            : error,
+        );
+      listening.once("error", failed);
+      listening.listen(port, host, () => {
+        listening.off("error", failed);
+        listening.on("error", (error) =>
+          logger.error("listener_error", { error: error.message }),
+        );
+        resolve();
+      });
+    });
 
   async function listen(): Promise<void> {
     if (server) throw new Error("Already listening");
@@ -616,50 +645,16 @@ export function createHost(options: CreateHostOptions): HostServer {
         `Refusing to bind the operator listener on non-loopback host ${operator.host}`,
         EXIT_NON_LOOPBACK,
       );
-    server = createServer((req, res) => {
-      void handle(req, res, mainRole);
-    });
-    await new Promise<void>((resolve, reject) => {
-      server!.once("error", (error: NodeJS.ErrnoException) => {
-        if (error.code === "EADDRINUSE") {
-          reject(
-            new HostListenError(
-              `Port ${bindPort} on ${bindHost} is already in use`,
-              EXIT_PORT_IN_USE,
-              error,
-            ),
-          );
-          return;
-        }
-        reject(error);
-      });
-      server!.listen(bindPort, bindHost, resolve);
-    });
+    server = createServer(serve(mainRole));
+    await bindListener(server, bindPort, bindHost);
     const address = server.address();
     listenPort =
       typeof address === "object" && address ? address.port : bindPort;
     url = `http://${bindHost}:${listenPort}`;
     adminUrl = url;
     if (operator) {
-      operatorServer = createServer((req, res) => {
-        void handle(req, res, "operator");
-      });
-      await new Promise<void>((resolve, reject) => {
-        operatorServer!.once("error", (error: NodeJS.ErrnoException) => {
-          if (error.code === "EADDRINUSE") {
-            reject(
-              new HostListenError(
-                `Port ${operator.port} on ${operator.host} is already in use`,
-                EXIT_PORT_IN_USE,
-                error,
-              ),
-            );
-            return;
-          }
-          reject(error);
-        });
-        operatorServer!.listen(operator.port, operator.host, resolve);
-      }).catch(async (error) => {
+      operatorServer = createServer(serve("operator"));
+      await bindListener(operatorServer, operator.port, operator.host).catch(async (error) => {
         // Leave nothing half-open: the main listener closes too.
         await new Promise<void>((resolve) => server!.close(() => resolve()));
         server = undefined;
@@ -702,12 +697,44 @@ export function createHost(options: CreateHostOptions): HostServer {
     closePromise = (async () => {
       closing = true;
       logger.info("host_shutdown", { hostId: config.hostId });
-      for (const listening of [server, operatorServer]) {
-        if (!listening) continue;
-        await new Promise<void>((resolve) => {
-          listening.close(() => resolve());
-          listening.closeIdleConnections?.();
-        });
+      const listeners = [server, operatorServer].filter(
+        (listening): listening is Server => listening !== undefined,
+      );
+      const stopped = Promise.all(
+        listeners.map(
+          (listening) =>
+            new Promise<void>((resolve) => {
+              listening.close(() => resolve());
+              listening.closeIdleConnections();
+            }),
+        ),
+      );
+      // A stream never finishes by itself, and a listener closes only once every connection
+      // has: end the streams, close their connections once idle, let other requests finish,
+      // then cut what is left.
+      const streams = [...inFlight].filter(isStreaming);
+      void Promise.all(
+        streams.map((response) => {
+          const done = new Promise((resolve) => response.once("close", resolve));
+          response.end();
+          return done;
+        }),
+      ).then(() => {
+        for (const listening of listeners) listening.closeIdleConnections();
+      });
+      let grace: NodeJS.Timeout | undefined;
+      const graceful = await Promise.race([
+        stopped.then(() => true),
+        new Promise<false>((resolve) => {
+          grace = setTimeout(() => resolve(false), SHUTDOWN_GRACE_MS);
+          grace.unref();
+        }),
+      ]);
+      clearTimeout(grace);
+      if (!graceful) {
+        logger.warn("host_shutdown_forced", { openResponses: inFlight.size });
+        for (const listening of listeners) listening.closeAllConnections();
+        await stopped;
       }
       server = undefined;
       operatorServer = undefined;
@@ -729,6 +756,17 @@ export function createHost(options: CreateHostOptions): HostServer {
       return adminUrl;
     },
   };
+}
+
+/** How long shutdown waits for requests in progress before closing their connections. */
+const SHUTDOWN_GRACE_MS = 10_000;
+
+/**
+ * A response that has started and not ended is a stream: JSON answers are written and ended
+ * at once. (`getHeader` cannot tell, since streams pass their headers to `writeHead`.)
+ */
+function isStreaming(response: ServerResponse): boolean {
+  return response.headersSent && !response.writableEnded;
 }
 
 function pathnameIsLogged(rawUrl: string | undefined): boolean {

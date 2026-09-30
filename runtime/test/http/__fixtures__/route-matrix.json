@@ -4032,52 +4032,52 @@
   },
   "GET /v1/sessions/%E0%A4%A": {
     "none": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "wrong": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "application": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "subject": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "subject-read": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "token": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "publishable": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     },
     "executor": {
-      "status": 500,
+      "status": 400,
       "contentType": "application/json",
-      "code": "internal_error",
-      "message": "Runtime request failed"
+      "code": "request_rejected",
+      "message": "Malformed path"
     }
   },
   "GET /v1/nothing": {

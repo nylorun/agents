@@ -4,7 +4,7 @@
  *
  * Later waves: stable; the streams seam (Wave 2 / Y) keeps using these helpers.
  */
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 /** D5 opaque failure for unknown/rejected credentials on Tenant routes. */
 export const OPAQUE_NOT_FOUND = {
@@ -53,23 +53,31 @@ export const failOpaque = (): never => {
   throw new OpaqueAuthError();
 };
 
-/** AbortSignal tied to the HTTP request being closed by the client. */
-export function requestAborted(request: IncomingMessage): AbortSignal {
+/**
+ * AbortSignal that aborts when the client goes away before the response is finished. The
+ * request's own `close` cannot tell: it fires as soon as its body has been read.
+ */
+export function requestAborted(response: ServerResponse): AbortSignal {
   const controller = new AbortController();
-  request.on("close", () => {
-    if (!request.complete) controller.abort();
+  response.once("close", () => {
+    if (!response.writableFinished) controller.abort();
   });
   return controller.signal;
 }
 
-/** Read a request body as text, capped at 1 MiB. */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** Read a request body as UTF-8 text, capped at 1 MiB. */
 export async function readText(request: IncomingMessage): Promise<string> {
-  let data = "";
-  for await (const chunk of request) {
-    data += chunk;
-    if (Buffer.byteLength(data) > 1024 * 1024) fail(413, "Request too large");
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of request as AsyncIterable<Buffer>) {
+    bytes += chunk.length;
+    if (bytes > MAX_BODY_BYTES) fail(413, "Request too large");
+    chunks.push(chunk);
   }
-  return data;
+  // Decoded once, so a character split across chunks stays whole.
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /** Read a JSON request body, capped at 1 MiB. */
