@@ -1,5 +1,8 @@
 import type { Readable, Writable } from "node:stream";
 import { createInterface } from "node:readline/promises";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AuthInteraction,
   Credential,
@@ -14,6 +17,7 @@ import {
   stream,
   streamSimple,
 } from "@earendil-works/pi-ai/api/openai-completions";
+import { resolveHome } from "../home.js";
 
 export class ConfigurationCancelled extends Error {
   readonly exitCode: number;
@@ -75,8 +79,14 @@ function modelsFor(
         baseUrl: selection.custom.baseUrl,
         auth: {
           apiKey: {
-            label: "Custom API key",
-            schemas: [],
+            name: "Custom API key",
+            async login(interaction) {
+              const key = await interaction.prompt({
+                type: "secret",
+                message: "API key",
+              });
+              return { type: "api_key", key: key.trim() };
+            },
             async resolve() {
               const credential = await credentials.read("custom");
               if (!credential || credential.type !== "api_key") return undefined;
@@ -84,7 +94,7 @@ function modelsFor(
               if (!key) return undefined;
               return { type: "api_key" as const, auth: { apiKey: key } };
             },
-          } as never,
+          },
         },
         models: [model],
         api: { stream, streamSimple },
@@ -175,8 +185,11 @@ export async function configureProvider(
     output?: Writable;
     /** Tenant API catalog from GET /v1/tenant/models. */
     catalog?: ModelCatalog;
+    /** This installation's stable id, for OAuth flows that need one (OpenAI). */
+    deviceId?: () => string;
   } = {},
 ): Promise<PromptedModel> {
+  const login = { getDeviceId: options.deviceId ?? installationId };
   const output = options.output ?? process.stdout;
   const controller = new AbortController();
   const signal = controller.signal;
@@ -244,7 +257,7 @@ export async function configureProvider(
       };
       const custom = modelsFor(selection, store, options.catalog);
       if (!(await custom.models.checkAuth("custom", { signal })))
-        await custom.models.login("custom", "api_key", interaction());
+        await custom.models.login("custom", "api_key", interaction(), login);
       return prompted(selection);
     } else {
       const chosen = providers[choice - 1];
@@ -269,7 +282,7 @@ export async function configureProvider(
             throw new Error("Choose authentication 1 or 2.");
           if (answer === "2") method = "oauth";
         }
-        await registry.models.login(chosen.id, method, interaction());
+        await registry.models.login(chosen.id, method, interaction(), login);
       }
       return prompted({ provider: chosen.id, model: model.id });
     }
@@ -324,4 +337,22 @@ export async function configureProvider(
       auth: captured,
     };
   }
+}
+
+/**
+ * A stable id for this CLI installation, created on first use under the Host root.
+ * OpenAI's "Sign in with ChatGPT" sends it as the agent host id.
+ */
+export function installationId(home: string = resolveHome()): string {
+  const file = join(home, "cli-installation-id");
+  try {
+    const existing = readFileSync(file, "utf8").trim();
+    if (existing) return existing;
+  } catch {
+    /* Created below on first use. */
+  }
+  const id = randomUUID();
+  mkdirSync(home, { recursive: true });
+  writeFileSync(file, `${id}\n`, { mode: 0o600 });
+  return id;
 }

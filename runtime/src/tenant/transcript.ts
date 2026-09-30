@@ -4,6 +4,7 @@
  * Payload schemas: `@nylorun/core/contracts` (`parseTranscriptEvent`).
  */
 import type { HostEffect } from "@nylorun/harness/run";
+import { isModelFailureOutcome } from "@nylorun/core/define";
 
 /** The model's tool call id and the harness invocation, for tool effects and tool actions. */
 export function toolIds(
@@ -45,7 +46,41 @@ export function assistantMessage(request: HostEffect, value: unknown) {
       toolCalls.push({ callId: block.id, name: block.name, input: block.args });
   }
   if (!text && toolCalls.length === 0) return undefined;
-  return { invocationId, text, toolCalls, ...agentOf(request) };
+  const candidate = (typeof value === "object" && value !== null ? value : {}) as {
+    finishReason?: unknown;
+    usage?: unknown;
+    evidence?: { extras?: { producer?: { provider?: unknown; model?: unknown } } };
+  };
+  const producer = candidate.evidence?.extras?.producer;
+  return {
+    invocationId,
+    text,
+    toolCalls,
+    ...(typeof producer?.provider === "string" && typeof producer.model === "string"
+      ? { model: { provider: producer.provider, model: producer.model } }
+      : {}),
+    ...(typeof candidate.finishReason === "string"
+      ? { finishReason: candidate.finishReason }
+      : {}),
+    ...(candidate.usage && typeof candidate.usage === "object"
+      ? { usage: candidate.usage }
+      : {}),
+    ...agentOf(request),
+  };
+}
+
+/** `model.failed` for a model effect that completed with a failure outcome (Model Calls §6.4). */
+export function modelFailed(request: HostEffect, value: unknown) {
+  if (!isModelFailureOutcome(value)) return undefined;
+  const invocationId = (request.context as { invocationId?: unknown })
+    ?.invocationId;
+  return {
+    ...(typeof invocationId === "string" ? { invocationId } : {}),
+    code: value.code,
+    message: value.message,
+    retryable: value.retryable,
+    ...agentOf(request),
+  };
 }
 
 /** `tool.completed` for an MCP or sandbox tool: its output, or the tool error it reported. */

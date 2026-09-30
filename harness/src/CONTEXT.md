@@ -31,6 +31,10 @@ _Avoid_: Runtime, when referring to customer code execution.
 **SDK client**: The shared application interface for communicating with a host.
 Authoring and executor capabilities accompany it in the agents SDK.
 
+**Failure outcome**: A model call that failed in a known way (`{kind: "failed", code, …}`),
+returned by the adapter instead of a candidate. The step fails with `model.<code>`; it is a
+completed outcome, never `uncertain`.
+
 ## Flow (workflows)
 
 **Flow engine**: Interprets a workflow manifest (`harness/src/flow/`). It returns

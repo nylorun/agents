@@ -65,6 +65,7 @@ export type { McpCapability, McpOptions, McpServerSpec } from "./definition/mcp.
 export { ToolError, isToolError } from "./definition/tool-error.js";
 export { defineSchema } from "./definition/schema.js";
 export { hashManifest } from "./utils/hash.js";
+export { MODEL_FAILURE_CODES, isModelFailureOutcome } from "./definition/model-failure.js";
 export {
   createSandboxTools,
   SANDBOX_INSTRUCTIONS,
@@ -133,6 +134,9 @@ export type {
   ModelDirective,
   ModelEvidence,
   ModelFinishReason,
+  ModelFailureCode,
+  ModelFailureOutcome,
+  ModelProducer,
   ModelAdapter,
   ModelAdapterContext,
   ModelPreparedCall,

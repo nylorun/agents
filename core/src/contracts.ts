@@ -981,11 +981,20 @@ const toolIds = {
   /** The harness invocation of the call; interactions refer to it. */
   invocationId: z.string().min(1),
 };
-/** `message.assistant`: one completed model step. `invocationId` is the model call's. */
+/**
+ * `message.assistant`: one completed model step. `invocationId` is the model call's.
+ * `model`, `finishReason` and `usage` are present when the provider reported them.
+ */
 export const AssistantMessagePayloadSchema = z
   .object({
     invocationId: z.string().min(1),
     text: z.string(),
+    model: z
+      .object({ provider: z.string(), model: z.string() })
+      .passthrough()
+      .optional(),
+    finishReason: z.string().optional(),
+    usage: z.record(z.string(), z.number()).optional(),
     toolCalls: z.array(
       z
         .object({
@@ -995,6 +1004,19 @@ export const AssistantMessagePayloadSchema = z
         })
         .passthrough()
     ),
+    ...eventAgent,
+  })
+  .passthrough();
+/**
+ * `model.failed`: a model call that failed in a known way (Model Calls §6.4). The turn
+ * then fails with `model.<code>`, or recovers.
+ */
+export const ModelFailedPayloadSchema = z
+  .object({
+    invocationId: z.string().min(1).optional(),
+    code: z.string().min(1),
+    message: z.string(),
+    retryable: z.boolean(),
     ...eventAgent,
   })
   .passthrough();
@@ -1070,6 +1092,7 @@ export const DelegationPayloadSchema = z
   .passthrough();
 const TRANSCRIPT_PAYLOADS = {
   "message.assistant": AssistantMessagePayloadSchema,
+  "model.failed": ModelFailedPayloadSchema,
   "tool.completed": ToolCompletedPayloadSchema,
   "action.pending": ActionPendingPayloadSchema,
   "action.completed": ActionCompletedPayloadSchema,

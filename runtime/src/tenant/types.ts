@@ -47,6 +47,8 @@ export interface TenantConfig {
     openshell?: { readonly gateway: string };
   };
   model: TenantModelConfig;
+  /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
+  modelCall?: import("../model/pi-model.js").ModelCallSettings;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
   /** Action claim lease. Default 30 s. */
   leaseMs?: number;

@@ -2,6 +2,7 @@ import type {
   ContextSnapshot,
   ModelCall,
   ModelCallTool,
+  ModelProducer,
   PromptContentPart,
   PromptItem,
   ModelRequest,
@@ -15,7 +16,7 @@ export function projectModelCall(request: ModelRequest): ModelCall {
   return freezeGraph({
     prompt: Object.freeze([
       ...projectInstructions(request.instructions),
-      ...request.transcript.flatMap(projectEntry),
+      ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId)),
       ...projectContext(request.context),
     ]),
     tools: Object.freeze(
@@ -64,7 +65,7 @@ function renderContext(items: readonly ContextItem[]): string {
   ].join("\n");
 }
 
-function projectEntry(entry: TranscriptEntry): readonly PromptItem[] {
+function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptItem[] {
   if (entry.kind === "input") {
     if (entry.event.kind !== "user-message" && entry.event.kind !== "interrupt") return [];
     return [
@@ -88,9 +89,12 @@ function projectEntry(entry: TranscriptEntry): readonly PromptItem[] {
   }
   if (entry.kind === "candidate") {
     const content = entry.candidate.output.flatMap((block): PromptContentPart[] => {
+      if (block.type === "text") return [Object.freeze({ ...block })];
+      // Reasoning an adapter marked `replay: "turn"` is sent back only within its own turn.
       if (
-        block.type === "text" ||
-        (block.type === "reasoning" && block.providerMetadata !== undefined)
+        block.type === "reasoning" &&
+        block.providerMetadata !== undefined &&
+        (block.providerMetadata.replay !== "turn" || entry.turnId === turnId)
       )
         return [Object.freeze({ ...block })];
       if (block.type === "json") return [textPart(JSON.stringify(block.value))];
@@ -109,7 +113,15 @@ function projectEntry(entry: TranscriptEntry): readonly PromptItem[] {
       return [];
     });
     if (content.length === 0) return [];
-    return [freezeItem({ kind: "message", role: "assistant", content: Object.freeze(content) })];
+    const producer = producerOf(entry.candidate.evidence?.extras?.producer);
+    return [
+      freezeItem({
+        kind: "message",
+        role: "assistant",
+        content: Object.freeze(content),
+        ...(producer ? { producer } : {}),
+      }),
+    ];
   }
   if (entry.kind === "tool-results") return entry.results.map(projectToolResult);
   return [];
@@ -144,5 +156,16 @@ function freezeItem(item: PromptItem): PromptItem {
   return Object.freeze({
     ...item,
     content: Object.freeze(item.content.map((part) => Object.freeze(part))),
+  });
+}
+
+function producerOf(value: unknown): ModelProducer | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const producer = value as Record<string, unknown>;
+  if (typeof producer.provider !== "string" || typeof producer.model !== "string") return undefined;
+  return Object.freeze({
+    provider: producer.provider,
+    model: producer.model,
+    ...(typeof producer.api === "string" ? { api: producer.api } : {}),
   });
 }

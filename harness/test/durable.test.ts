@@ -153,3 +153,55 @@ describe("durable reconstruction", () => {
     expect(checkpoint.manifestHash).toBe(hashManifest(manifest));
   });
 });
+
+describe("model failure outcomes (Model Calls §6)", () => {
+  const agent = () => Agent({ id: "failing", name: "Failing" }).build();
+
+  it("fails the turn with model.<code> when the model effect completed with a failure", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    const host: DurableHost = {
+      async resolveEffect() {
+        return {
+          status: "completed",
+          outcome: {
+            value: {
+              kind: "failed",
+              code: "overloaded",
+              message: "The server is overloaded",
+              retryable: true,
+            },
+          },
+        };
+      },
+    };
+    const result = await runDurable({ manifest, checkpoint, host });
+    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({
+      result: {
+        status: "failed",
+        error: { code: "model.overloaded", message: "The server is overloaded" },
+      },
+    });
+  });
+
+  it("rejects a checkpoint from the previous engine version", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = {
+      ...createDurableCheckpoint({ manifest, sessionId: "session", turnId: "turn", input: "go" }),
+      engineVersion: "hosted-2",
+    } as unknown as Parameters<typeof runDurable>[0]["checkpoint"];
+    await expect(
+      runDurable({
+        manifest,
+        checkpoint,
+        host: { resolveEffect: async () => ({ status: "pending" }) },
+      }),
+    ).rejects.toMatchObject({ code: "execution.incompatible" });
+  });
+});

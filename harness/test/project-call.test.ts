@@ -427,3 +427,63 @@ describe("projectModelCall", () => {
     ]);
   });
 });
+
+describe("projectModelCall reasoning scope and producers", () => {
+  const reasoning = (turnId: string) => ({
+    kind: "candidate" as const,
+    turnId,
+    stepId: `${turnId}-step`,
+    candidate: {
+      output: [
+        {
+          type: "reasoning" as const,
+          text: `thought in ${turnId}`,
+          providerMetadata: {
+            pi: { provider: "custom", model: "m", signature: "reasoning_content" },
+            replay: "turn",
+          },
+        },
+        { type: "tool-call" as const, id: `${turnId}-call`, name: "lookup", args: {} },
+      ],
+      evidence: {
+        extras: { producer: { provider: "custom", api: "openai-completions", model: "m" } },
+      },
+    },
+  });
+
+  it("replays turn-scoped reasoning only within the current turn", () => {
+    const call = projectModelCall(
+      request({ turnId: "turn-2", transcript: [reasoning("turn-1"), reasoning("turn-2")] }),
+    );
+    const text = JSON.stringify(call.prompt);
+    expect(text).not.toContain("thought in turn-1");
+    expect(text).toContain("thought in turn-2");
+    // The earlier turn's tool call is still replayed.
+    expect(text).toContain("turn-1-call");
+  });
+
+  it("keeps signed reasoning without a turn scope in every turn", () => {
+    const signed = {
+      ...reasoning("turn-1"),
+      candidate: {
+        output: [
+          {
+            type: "reasoning" as const,
+            text: "signed thought",
+            providerMetadata: { pi: { provider: "anthropic", model: "c", signature: "sig" } },
+          },
+        ],
+      },
+    };
+    const call = projectModelCall(request({ turnId: "turn-2", transcript: [signed] }));
+    expect(JSON.stringify(call.prompt)).toContain("signed thought");
+  });
+
+  it("carries the producing model on assistant messages", () => {
+    const call = projectModelCall(request({ turnId: "turn-1", transcript: [reasoning("turn-1")] }));
+    expect(call.prompt.find((item) => item.kind === "message")).toMatchObject({
+      role: "assistant",
+      producer: { provider: "custom", api: "openai-completions", model: "m" },
+    });
+  });
+});

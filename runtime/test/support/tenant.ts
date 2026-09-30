@@ -196,6 +196,7 @@ export async function startTestTenant(
     ...(options.vaultFetch === undefined
       ? {}
       : { vaultFetch: options.vaultFetch }),
+    ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     logger,
   };
 
