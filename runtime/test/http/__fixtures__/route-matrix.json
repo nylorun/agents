@@ -684,6 +684,132 @@
       "message": "Application credential required"
     }
   },
+  "POST /v1/endpoints/ghost/ping": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Endpoint not found"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/actions/act-missing/result": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "A delivery token is required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "A delivery token is required"
+    }
+  },
   "POST /v1/sessions/s1/commands": {
     "none": {
       "status": 404,
@@ -2430,10 +2556,8 @@
   },
   "GET /v1/access/jwks": {
     "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "status": 200,
+      "contentType": "application/json"
     },
     "wrong": {
       "status": 404,

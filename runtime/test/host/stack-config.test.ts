@@ -277,3 +277,26 @@ describe("NYLORUN_ADMIN_LISTEN_*", () => {
     ).toThrow(/must differ/);
   });
 });
+
+describe("NYLORUN_ENDPOINT_*", () => {
+  it("is absent by default and carries each setting when set", () => {
+    expect(parseStackConfig({}, []).delivery).toBeUndefined();
+    expect(
+      parseStackConfig(
+        {
+          NYLORUN_ENDPOINT_LOOPBACK: "docker-host",
+          NYLORUN_ENDPOINT_PRIVATE: "refuse",
+          NYLORUN_ENDPOINT_HTTP: "refuse",
+        },
+        [],
+      ).delivery,
+    ).toEqual({ loopback: "docker-host", privateAddresses: "refuse", allowHttp: false });
+    expect(parseStackConfig({ NYLORUN_ENDPOINT_HTTP: "allow" }, []).delivery).toEqual({ allowHttp: true });
+  });
+
+  it("rejects anything else, naming the variable", () => {
+    expect(() => parseStackConfig({ NYLORUN_ENDPOINT_LOOPBACK: "host" }, [])).toThrow(/NYLORUN_ENDPOINT_LOOPBACK/);
+    expect(() => parseStackConfig({ NYLORUN_ENDPOINT_PRIVATE: "no" }, [])).toThrow(/NYLORUN_ENDPOINT_PRIVATE/);
+    expect(() => parseStackConfig({ NYLORUN_ENDPOINT_HTTP: "no" }, [])).toThrow(StackConfigError);
+  });
+});

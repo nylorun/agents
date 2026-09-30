@@ -118,10 +118,26 @@ export async function handleActionSandboxTool(
   actionId: string,
   toolName: string,
   body: unknown,
-  signal: AbortSignal
+  signal: AbortSignal,
+  /** Set when a delivery token authorizes the call: the delivery's generation, not a claim. */
+  delivery?: { generation: number }
 ): Promise<SandboxToolOutcome> {
   if (!body || typeof body !== "object" || Array.isArray(body))
     throw new SandboxRouteError(400, "Sandbox tool body must be an object");
+  if (delivery) {
+    const action = await deps.getAction(actionId);
+    if (!action) throw new SandboxRouteError(404, "Action not found");
+    if (
+      action.status !== "delivering" ||
+      action.generation !== delivery.generation ||
+      Date.parse(action.deadlineAt ?? "") <= Date.now()
+    )
+      throw new SandboxRouteError(409, "The delivery was cancelled, lost or delivered again");
+    const read = await deps.session(action.sessionId);
+    if (read.session.activeTurnId !== action.turnId)
+      throw new SandboxRouteError(409, "Action unavailable");
+    return runTool(deps, read, parseTool(toolName), toolInput(body), signal);
+  }
   const record = body as Record<string, unknown>;
   const claimId = record.claimId;
   const generation = record.generation;

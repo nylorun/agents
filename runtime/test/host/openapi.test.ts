@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validate } from "@scalar/openapi-parser";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { tenantApi } from "../../src/api/http/app.js";
 import { adminDocument, tenantDocument } from "../../src/api/openapi.js";
 import { RUNTIME_VERSION } from "../../src/version.js";
 import { startEphemeralRuntime, type EphemeralRuntime } from "../../src/tenant/ephemeral.js";
@@ -44,8 +45,9 @@ it("documents every Tenant operation once, with who may call it", () => {
   const document = tenantDocument();
   const listed = operations(document);
   expect(new Set(listed).size).toBe(listed.length);
-  // 54 Tenant operations, and /health, /ready and /openapi.json.
-  expect(listed.length).toBe(60);
+  // Every Tenant route the app declares, and /health, /ready and /openapi.json.
+  const routes = tenantApi().openAPIRegistry.definitions.filter((d) => d.type === "route");
+  expect(listed.length).toBe(routes.length + 3);
   for (const [path, item] of Object.entries(document.paths ?? {}))
     if (path.startsWith("/v1/"))
       for (const operation of Object.values(item as Record<string, Record<string, unknown>>))
