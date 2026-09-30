@@ -179,6 +179,9 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
     // A delivery token reaches its Action's callbacks, never a session or vault.
     case "delivery":
       return fail(404, "Not found");
+    // A delivery token reaches its Action's callbacks, never a session or vault.
+    case "delivery":
+      return fail(404, "Not found");
     default: {
       const unknown: never = scope;
       return fail(404, `Unknown credential ${String((unknown as AuthScope).kind)}`);
@@ -199,9 +202,19 @@ export function requirePrincipal(scope: AuthScope): string {
 }
 
 /** The executor scope must belong to the Action's agent. */
+/**
+ * The caller may act on `action`: the executor of its agent, or the delivery token minted for it.
+ * Whether a delivery token's generation is still the Action's is checked by each callback.
+ */
 export function scoped(scope: AuthScope, action: Action): void {
-  if (scope.kind !== "executor" || scope.executor.agentId !== action.agentId)
-    fail(403, "Executor scope does not authorize this action");
+  if (scope.kind === "executor" && scope.executor.agentId === action.agentId) return;
+  if (
+    scope.kind === "delivery" &&
+    scope.actionId === action.actionId &&
+    scope.agentId === action.agentId
+  )
+    return;
+  fail(403, "Executor scope does not authorize this action");
 }
 
 export function requireApplication(scope: AuthScope): string {

@@ -19,6 +19,7 @@ import {
   ActionHeartbeatRequest,
   ActionHeartbeatResponse,
   DeleteExecutorResponse,
+  DeliveryHeartbeatResponse,
   ExecutorNotification,
   ListActionsResponse,
   ListExecutorsResponse,
@@ -37,13 +38,24 @@ import {
 } from "../../../tenant/actions.js";
 import { requirePrincipal } from "../../../tenant/auth.js";
 import { command } from "../../../tenant/commands.js";
+import { deliveryHeartbeat } from "../../../tenant/delivery.js";
 import { streamExecutorWork } from "../../../tenant/live.js";
+import type { AuthScope } from "../../../tenant/context.js";
+import { fail } from "../../../tenant/http.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { executorOf, notExecutor, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 
 const EXECUTOR: RouteAccess = { credentials: ["executor"], scopes: "never" };
+/** An Action's callbacks: its executor's claim, or the delivery token of its Action endpoint. */
+const CALLBACK: RouteAccess = { credentials: ["executor", "delivery"], scopes: "never" };
+
+/** Only an executor or a delivery token calls back about an Action. */
+function callbackCaller(scope: AuthScope): void {
+  if (scope.kind !== "executor" && scope.kind !== "delivery")
+    fail(403, "Executor credential required");
+}
 const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
 
 const json = (schema: z.ZodType, description: string) => ({
@@ -101,19 +113,24 @@ export function executorRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    EXECUTOR,
+    CALLBACK,
     {
       method: "post",
       path: "/v1/actions/{actionId}/sandbox/{tool}",
-      tags: ["Executors"],
-      deprecated: true,
-      summary: "Run a sandbox tool for a claimed Action",
+      tags: ["Executors", "Action endpoints"],
+      summary: "Run a sandbox tool for an Action being run",
+      description:
+        "With the Action's delivery token (Action endpoints), the body is the tool's input. " +
+        "With an executor key (deprecated), it also carries the claim.",
       request: {
         params: actionId.extend({ tool: z.enum(SANDBOX_TOOLS) }),
         body: body(
           z
-            .looseObject({ claimId: z.string(), generation: z.number().int() })
-            .meta({ description: "The claim, and the tool's input" }),
+            .looseObject({
+              claimId: z.string().optional(),
+              generation: z.number().int().optional(),
+            })
+            .meta({ description: "The tool's input, and an executor's claim" }),
         ),
       },
       responses: {
@@ -125,7 +142,7 @@ export function executorRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      executorOf(scope);
+      callbackCaller(scope);
       return jsonResponse(
         200,
         await actionSandboxTool(
@@ -140,35 +157,72 @@ export function executorRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
   );
 
-  for (const [step, request, response, summary] of [
-    ["claim", ActionClaimRequest, ActionClaimResponse, "Claim an Action"],
-    ["heartbeat", ActionHeartbeatRequest, ActionHeartbeatResponse, "Extend a claim"],
-  ] as const)
-    tenantRoute(
-      api,
-      EXECUTOR,
-      {
-        method: "post",
-        path: `/v1/actions/{actionId}/${step}`,
-        tags: ["Executors"],
-        deprecated: true,
-        summary,
-        request: { params: actionId, body: body(request) },
-        responses: {
-          200: json(response, step === "claim" ? "The claim" : "The claim's new expiry"),
-          409: { description: "The Action is unavailable, or the claim is stale or expired" },
+  tenantRoute(
+    api,
+    EXECUTOR,
+    {
+      method: "post",
+      path: "/v1/actions/{actionId}/claim",
+      tags: ["Executors"],
+      deprecated: true,
+      summary: "Claim an Action",
+      request: { params: actionId, body: body(ActionClaimRequest) },
+      responses: {
+        200: json(ActionClaimResponse, "The claim"),
+        409: { description: "The Action is unavailable, or the claim is stale or expired" },
+      },
+    },
+    async (c) => {
+      const scope = c.get("scope");
+      executorOf(scope);
+      const input = await readJson(c.req.raw);
+      return jsonResponse(
+        200,
+        await updateAction(c.env.tenant, scope, c.req.param("actionId")!, "POST", "claim", input),
+      );
+    },
+  );
+
+  tenantRoute(
+    api,
+    CALLBACK,
+    {
+      method: "post",
+      path: "/v1/actions/{actionId}/heartbeat",
+      tags: ["Executors", "Action endpoints"],
+      summary: "Keep an Action alive while it runs",
+      description:
+        "With the delivery token of an Action endpoint that answered 202, extends the delivery " +
+        "by a lease and returns a fresh token. With an executor key (deprecated), extends the " +
+        "claim named in the body.",
+      request: {
+        params: actionId,
+        body: {
+          required: false,
+          content: { "application/json": { schema: ActionHeartbeatRequest } },
         },
       },
-      async (c) => {
-        const scope = c.get("scope");
-        executorOf(scope);
-        const input = await readJson(c.req.raw);
-        return jsonResponse(
-          200,
-          await updateAction(c.env.tenant, scope, c.req.param("actionId")!, "POST", step, input),
-        );
+      responses: {
+        200: json(
+          z.union([ActionHeartbeatResponse, DeliveryHeartbeatResponse]),
+          "The claim's new expiry, or the delivery's new deadline and token",
+        ),
+        409: {
+          description:
+            "The Action is unavailable: the claim is stale or expired, or the delivery was cancelled, lost or sent again",
+        },
       },
-    );
+    },
+    async (c) => {
+      const scope = c.get("scope");
+      callbackCaller(scope);
+      const id = c.req.param("actionId")!;
+      if (scope.kind === "delivery")
+        return jsonResponse(200, await deliveryHeartbeat(c.env.tenant, scope, id));
+      const input = await readJson(c.req.raw);
+      return jsonResponse(200, await updateAction(c.env.tenant, scope, id, "POST", "heartbeat", input));
+    },
+  );
 
   tenantRoute(
     api,
