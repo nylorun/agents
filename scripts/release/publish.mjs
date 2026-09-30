@@ -10,6 +10,7 @@ import {
   releaseNotes,
 } from "./model.mjs";
 import { readArtifacts } from "./artifacts.mjs";
+import { uploadReleaseAssets } from "./assets.mjs";
 import { registry } from "./registry.mjs";
 
 
@@ -146,6 +147,21 @@ try {
             // Pre-1.0 product versions stay *-beta even on the latest npm channel.
             ...(String(version).includes("-") ? ["--prerelease"] : []),
           ]);
+        }
+        // Whether this run created the release or an earlier channel did, it gets what
+        // it lacks: the Runtime's OpenAPI documents, from the tarball npm published.
+        if (!artifacts[name].image) {
+          const attached = await uploadReleaseAssets({
+            name,
+            tag,
+            tarball: artifacts[name].path,
+            directory: temporary,
+          });
+          if (attached.length > 0) {
+            const message = `Attached ${attached.join(", ")} to the ${tag} release`;
+            messages.push(message);
+            console.log(message);
+          }
         }
       }
     } finally {
