@@ -11,6 +11,7 @@ import {
   SUBJECT_HEADER,
 } from "@nylorun/core/compatibility";
 import {
+  DELIVERY_TOKEN_TYPE,
   parseSubjectHeaders,
   type Action,
   type SubjectScope,
@@ -19,6 +20,8 @@ import { hashToken } from "../core/executors.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
 import { looksLikeToken, verifySubjectToken } from "./tokens.js";
+import { verifyDeliveryToken } from "./delivery-token.js";
+import { tokenType } from "./jwt.js";
 import { readPolicy } from "./access-policy.js";
 import type { BrowserClient } from "./browser.js";
 
@@ -57,6 +60,18 @@ export async function authenticate(
       reason: "missing_bearer",
     });
     return failOpaque();
+  }
+  if (looksLikeToken(token) && tokenType(token) === DELIVERY_TOKEN_TYPE) {
+    // Delivery tokens come back from the application's server, never from a browser.
+    if (request.headers.origin !== undefined)
+      fail(403, "Delivery tokens are not accepted from browsers", { code: "origin_rejected" });
+    const scope = await verifyDeliveryToken(ctx, token);
+    if (
+      singleHeader(request, SUBJECT_HEADER) !== undefined ||
+      singleHeader(request, SCOPES_HEADER) !== undefined
+    )
+      fail(403, "A delivery token cannot act for a subject");
+    return scope;
   }
   if (looksLikeToken(token)) {
     const scope = await verifySubjectToken(ctx, token);
@@ -250,6 +265,9 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
       };
     // A publishable key alone owns nothing: no session or vault is ever reachable.
     case "publishable":
+      return fail(404, "Not found");
+    // A delivery token reaches its Action's callbacks, never a session or vault.
+    case "delivery":
       return fail(404, "Not found");
     default: {
       const unknown: never = scope;
