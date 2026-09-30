@@ -7,14 +7,14 @@ import {
   parseEnvelope,
   parseSendParams,
   parseTaskParams,
-} from "../../src/a2a/protocol.js";
+} from "../../src/api/a2a/protocol.js";
 import {
   buildTask,
   contextSessionId,
   parseTaskId,
   taskIdOf,
-} from "../../src/a2a/tasks.js";
-import { agentCard } from "../../src/a2a/card.js";
+} from "../../src/api/a2a/tasks.js";
+import { agentCard } from "../../src/api/a2a/card.js";
 
 /** The A2A error a call throws, as `kind` and message. */
 function a2aError(run: () => unknown): A2aError {

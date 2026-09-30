@@ -3,12 +3,11 @@
  * the same. Expected problems are returned as failed outcomes; only infrastructure errors throw.
  */
 import { posix } from "node:path";
+import type { SandboxToolOutcome } from "@nylorun/core/contracts";
 import { SANDBOX_WORKSPACE, type SandboxToolName } from "@nylorun/core/define";
 import type { ExecResult, SandboxHandle } from "./types.js";
 
-export type SandboxToolOutcome =
-  | { readonly kind: "completed"; readonly output: unknown }
-  | { readonly kind: "failed"; readonly code: string; readonly message: string };
+export type { SandboxToolOutcome };
 
 /** What the Runtime reports about a tool call on the session stream. */
 export interface SandboxToolReport {

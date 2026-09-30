@@ -76,6 +76,13 @@ export const ERROR_CODES = [
   "scope_required",
   "token_expired",
   "limit_exceeded",
+  /** A request the Runtime refuses for a reason the message gives. */
+  "request_rejected",
+  /** A request the Host could not read: headers, body or query. */
+  "invalid_request",
+  /** A route that acts for a person was called without one (`Nylorun-Subject`). */
+  "subject_required",
+  "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
