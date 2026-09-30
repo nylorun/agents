@@ -18,7 +18,9 @@ import {
   AdminTenantStatusSchema,
   CreateTokenResponseSchema,
   CredentialInfoSchema,
+  DeleteEndpointResponseSchema,
   DeleteExecutorResponseSchema,
+  ListEndpointsResponseSchema,
   DeletedResponseSchema,
   HealthResponseSchema,
   HostModelCatalogSchema,
@@ -150,6 +152,16 @@ it("agents, sessions and executors", async () => {
   await answer(ListActionsResponseSchema, "GET", "/v1/actions", {
     headers: app({ authorization: `Bearer ${EXECUTOR_TOKEN}` }),
   });
+
+  await answer(ListEndpointsResponseSchema, "PUT", "/v1/endpoints", {
+    body: {
+      endpoints: [
+        { agentId: "hooked", url: "http://localhost:3000/actions", implementationVersion: "dev" },
+      ],
+    },
+  });
+  await answer(ListEndpointsResponseSchema, "GET", "/v1/endpoints");
+  await answer(DeleteEndpointResponseSchema, "DELETE", "/v1/endpoints/hooked");
 
   await answer(SessionViewSchema, "PUT", "/v1/sessions/s1", {
     body: { requestId: "s1", agentId: "bot", ownerUserId: "app:ann" },

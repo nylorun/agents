@@ -13,6 +13,9 @@ import {
   type DocTable,
   type EffectDoc,
   type EffectKind,
+  type EndpointHealthUpdate,
+  type EndpointRegistrationRow,
+  type EndpointRow,
   type ExecutorRow,
   type LinkDoc,
   type LinkedSession,
@@ -56,6 +59,7 @@ interface State {
   /** sessionId → seq → event JSON. */
   outbox: Map<string, Map<number, string>>;
   executors: Map<string, ExecutorRow>;
+  endpoints: Map<string, EndpointRow>;
   principals: Map<string, PrincipalRow>;
   vaults: Map<string, VaultRow>;
   credentials: Map<string, VaultCredentialRow>;
@@ -76,6 +80,7 @@ function emptyState(): State {
     sessionMeta: new Map(),
     outbox: new Map(),
     executors: new Map(),
+    endpoints: new Map(),
     principals: new Map(),
     vaults: new Map(),
     credentials: new Map(),
@@ -491,6 +496,37 @@ class MemoryTx implements Tx {
     );
   }
 
+  async deliveringCount(agentId: string): Promise<number> {
+    this.check();
+    return this.actions().filter(
+      (a) => a.status === "delivering" && a.agentId === agentId,
+    ).length;
+  }
+
+  async pendingActionsWithEndpoint(limit: number): Promise<ActionDoc[]> {
+    this.check();
+    return this.actions()
+      .filter((a) => a.status === "pending" && this.s.endpoints.has(a.agentId))
+      .slice(0, limit);
+  }
+
+  async expiredDeliveries(now: Date, limit: number): Promise<ActionDoc[]> {
+    this.check();
+    return this.actions()
+      .filter(
+        (a) =>
+          a.status === "delivering" &&
+          typeof a.deadlineAt === "string" &&
+          Date.parse(a.deadlineAt) <= now.getTime(),
+      )
+      .sort(
+        (a, b) =>
+          Date.parse(a.deadlineAt!) - Date.parse(b.deadlineAt!) ||
+          (a.actionId < b.actionId ? -1 : 1),
+      )
+      .slice(0, limit);
+  }
+
   async actionsForSession(
     sessionId: string,
     filter: SessionActionFilter = {},
@@ -676,6 +712,45 @@ class MemoryTx implements Tx {
   async deleteExecutor(agentId: string): Promise<void> {
     this.check();
     this.s.executors.delete(agentId);
+  }
+
+  // --- Action endpoints -----------------------------------------------------
+
+  async listEndpoints(): Promise<EndpointRow[]> {
+    this.check();
+    return byId(this.s.endpoints).map(([, row]) => copy(row));
+  }
+
+  async getEndpoint(agentId: string): Promise<EndpointRow | undefined> {
+    this.check();
+    const row = this.s.endpoints.get(agentId);
+    return row && copy(row);
+  }
+
+  async putEndpoint(row: EndpointRegistrationRow): Promise<void> {
+    this.check();
+    const existing = this.s.endpoints.get(row.agentId);
+    const health =
+      existing && existing.url === row.url ? healthOf(existing) : { consecutiveFailures: 0 };
+    this.s.endpoints.set(row.agentId, {
+      ...copy(row),
+      ...health,
+      createdAt: existing?.createdAt ?? row.updatedAt,
+    });
+  }
+
+  async deleteEndpoint(agentId: string): Promise<void> {
+    this.check();
+    this.s.endpoints.delete(agentId);
+  }
+
+  async recordEndpointHealth(
+    agentId: string,
+    update: EndpointHealthUpdate,
+  ): Promise<void> {
+    this.check();
+    const row = this.s.endpoints.get(agentId);
+    if (row) this.s.endpoints.set(agentId, withHealth(row, update));
   }
 
   // --- principals ----------------------------------------------------------
@@ -1016,6 +1091,7 @@ class MemoryTx implements Tx {
     if (scope === "all") {
       this.s.docs.definitions.clear();
       this.s.executors.clear();
+      this.s.endpoints.clear();
       for (const vault of [...this.s.vaults.values()])
         if (vault.scope !== "host") await this.deleteVault(vault.id);
     }
@@ -1039,4 +1115,53 @@ function byCreated(
 ): number {
   if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+const HEALTH_KEYS = [
+  "lastDeliveryAt",
+  "lastSuccessAt",
+  "lastErrorCode",
+  "lastErrorMessage",
+  "consecutiveFailures",
+  "servedImplementationVersion",
+  "servedManifestHash",
+] as const;
+
+/** The health fields of an endpoint row. */
+function healthOf(row: EndpointRow): Partial<EndpointRow> & { consecutiveFailures: number } {
+  const health: Partial<EndpointRow> = {};
+  for (const key of HEALTH_KEYS)
+    if (row[key] !== undefined) (health as Record<string, unknown>)[key] = row[key];
+  return { ...health, consecutiveFailures: row.consecutiveFailures };
+}
+
+/** `row` after one health observation (the same rules as the Postgres store). */
+function withHealth(row: EndpointRow, update: EndpointHealthUpdate): EndpointRow {
+  switch (update.kind) {
+    case "success": {
+      const { lastErrorCode: _c, lastErrorMessage: _m, ...rest } = row;
+      return {
+        ...rest,
+        lastDeliveryAt: update.at,
+        lastSuccessAt: update.at,
+        consecutiveFailures: 0,
+      };
+    }
+    case "failure":
+      return {
+        ...row,
+        lastDeliveryAt: update.at,
+        lastErrorCode: update.code,
+        lastErrorMessage: update.message,
+        consecutiveFailures: row.consecutiveFailures + 1,
+      };
+    case "served": {
+      const { servedManifestHash: _h, ...rest } = row;
+      return {
+        ...rest,
+        servedImplementationVersion: update.implementationVersion,
+        ...(update.manifestHash === undefined ? {} : { servedManifestHash: update.manifestHash }),
+      };
+    }
+  }
 }

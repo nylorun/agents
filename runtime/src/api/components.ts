@@ -56,7 +56,10 @@ import {
   ActionClaimResponseSchema,
   ActionHeartbeatRequestSchema,
   ActionHeartbeatResponseSchema,
+  DeleteEndpointResponseSchema,
   DeleteExecutorResponseSchema,
+  ListEndpointsResponseSchema,
+  PutEndpointsRequestSchema,
   ExecutorNotificationSchema,
   ListActionsResponseSchema,
   ListExecutorsResponseSchema,
@@ -107,6 +110,9 @@ export const RegisterExecutorsResponse = named(
   RegisterExecutorsResponseSchema,
 );
 export const DeleteExecutorResponse = named("DeleteExecutorResponse", DeleteExecutorResponseSchema);
+export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
+export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
+export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
 
