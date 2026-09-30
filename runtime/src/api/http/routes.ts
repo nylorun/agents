@@ -12,19 +12,12 @@ import {
   RegisterExecutorsRequestSchema,
   SessionCommandSchema,
 } from "@nylorun/core/contracts";
-import { VaultError } from "../../vault/error.js";
 import {
   SandboxRouteError,
   handleSessionSandboxTool,
 } from "../../core/sandbox-routes.js";
 import { loadSession, sessionOf, type TenantContext } from "../../tenant/context.js";
-import {
-  HttpError,
-  OpaqueAuthError,
-  fail,
-  readBody,
-  requestAborted,
-} from "../../tenant/http.js";
+import { fail, readBody, requestAborted } from "../../tenant/http.js";
 import {
   accessOf,
   authenticate,
@@ -61,6 +54,7 @@ import {
 } from "../../tenant/live.js";
 import { dispatchTenant, dispatchVault } from "./routes-tenant.js";
 import { dispatchA2a } from "../a2a/routes.js";
+import { rejectionOf } from "./respond.js";
 
 export async function handle(
   ctx: TenantContext,
@@ -126,7 +120,14 @@ export async function handle(
         path.length === 5
       )
         return json(
-          await actionSandboxTool(ctx, scope, actionId!, path[4], request, response)
+          await actionSandboxTool(
+            ctx,
+            scope,
+            actionId!,
+            path[4],
+            () => readBody(request),
+            requestAborted(response)
+          )
         );
       const body = await readBody(request);
       return json(
@@ -280,37 +281,8 @@ export async function handle(
       response.end();
       return;
     }
-    if (error instanceof OpaqueAuthError) {
-      json(error.body, error.status);
-      return;
-    }
-    const status =
-      error instanceof HttpError ||
-      error instanceof VaultError ||
-      error instanceof SandboxRouteError
-        ? error.status
-        : (error as any)?.name === "ZodError" ||
-          (error as Error)?.message === "Invalid cursor"
-        ? 400
-        : 500;
-    const rejection = error instanceof HttpError ? error.rejection : {};
-    const headers = error instanceof HttpError ? error.headers : {};
-    json(
-      {
-        status: "rejected",
-        code:
-          status === 500
-            ? "internal_error"
-            : rejection.code ?? "request_rejected",
-        message:
-          status === 500 ? "Runtime request failed" : (error as Error).message,
-        ...(rejection.details === undefined
-          ? {}
-          : { details: rejection.details }),
-      },
-      status,
-      headers
-    );
+    const rejection = rejectionOf(error);
+    json(rejection.body, rejection.status, rejection.headers);
   }
 }
 
