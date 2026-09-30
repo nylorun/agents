@@ -35,6 +35,11 @@ export interface RouteAccess {
   readonly scopes: readonly SubjectScope[] | "never" | "any";
   /** A browser page may call it: its preflight is allowed. */
   readonly browser?: boolean;
+  /**
+   * Public data: a request with no credential at all (no `Authorization`, no `Nylorun-Key`) is
+   * served too. A credential that is sent is still checked, so a wrong one stays the opaque 404.
+   */
+  readonly anonymous?: boolean;
 }
 
 const SCHEMES: Record<Credential, string> = {
@@ -65,11 +70,17 @@ export function pathSegments(incoming: IncomingMessage): string[] {
 }
 
 /** Who is calling: the browser client and the bearer, as every Tenant request checks them. */
-export async function authenticateCaller(c: Context<TenantEnv>) {
+export async function authenticateCaller(
+  c: Context<TenantEnv>,
+  /** The route serves public data (`RouteAccess.anonymous`): no credential is needed. */
+  anonymous = false,
+): Promise<AuthScope> {
   const { tenant, incoming, outgoing } = c.env;
   // The client app first: a browser's origin is checked, and CORS headers set, before the
   // bearer is looked at, so every answer from here on is readable by an allowed page.
   const client = await identifyClient(tenant, incoming, outgoing);
+  if (anonymous && !client && incoming.headers.authorization === undefined)
+    return { kind: "anonymous" };
   return await authenticate(tenant, incoming, client);
 }
 
@@ -100,7 +111,7 @@ export function declaredRoute(
 
 function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
-    const scope = await authenticateCaller(c);
+    const scope = await authenticateCaller(c, access.anonymous === true);
     requireScopes(scope, access.scopes);
     if (scope.kind === "publishable" && !access.credentials.includes("publishable"))
       fail(403, "A publishable key alone reaches only the agent list", {
@@ -156,7 +167,11 @@ export function tenantRoute(
   });
   api.openAPIRegistry.registerPath({
     ...route,
-    security: schemes.map((scheme) => ({ [scheme]: [] })),
+    // `{}`: no credential needed (OpenAPI's optional security).
+    security: [
+      ...schemes.map((scheme) => ({ [scheme]: [] })),
+      ...(access.anonymous ? [{}] : []),
+    ],
     request: { ...route.request, headers },
     responses: {
       400: rejected("Invalid headers, path, body or cursor"),

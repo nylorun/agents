@@ -112,6 +112,8 @@ export type AuthScope =
       subject: string;
       scopes: ReadonlySet<SubjectScope>;
     }
+  /** No credential, on a route that serves public data (`RouteAccess.anonymous`). */
+  | { kind: "anonymous" }
   /**
    * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
    * Action, presented back by the Action endpoint on that Action's callbacks only.
