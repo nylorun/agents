@@ -25,26 +25,6 @@ const PREFLIGHT_MAX_AGE_SECONDS = 600;
  * vaults, AG-UI and the JWKS. Tokens, access management, executors, actions and Tenant
  * settings never are.
  */
-export function isBrowserRoute(
-  method: string,
-  segments: readonly string[]
-): boolean {
-  const [v1, resource, id, sub] = segments;
-  if (v1 !== "v1") return false;
-  switch (resource) {
-    case "agents":
-      return segments.length === 2 && method === "GET";
-    case "sessions":
-      return !(sub === "sandbox" && id !== undefined);
-    case "vaults":
-    case "ag-ui":
-      return true;
-    case "access":
-      return segments.length === 3 && id === "jwks" && method === "GET";
-    default:
-      return false;
-  }
-}
 
 /** The `Origin` header if it is a serialized origin (not `null`, not a path). */
 export function browserOrigin(request: IncomingMessage): string | undefined {
@@ -60,7 +40,8 @@ export function browserOrigin(request: IncomingMessage): string | undefined {
 export function answerPreflight(
   request: IncomingMessage,
   response: ServerResponse,
-  segments: readonly string[]
+  segments: readonly string[],
+  isBrowserRoute: (method: string, segments: readonly string[]) => boolean
 ): number {
   const origin = browserOrigin(request);
   const method = String(

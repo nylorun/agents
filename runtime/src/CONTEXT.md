@@ -117,8 +117,8 @@ _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
-`vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). `routeAccess` maps each
-route to the scopes that allow it, decided from the route alone before any
+`vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). Each route declares
+the scopes that allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
 lookup (`403 scope_required`); reset, config seed, executors, actions, the
 sandbox tool routes, `/v1/tokens` and `/v1/access/**` are open to no subject.
 A subject token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,

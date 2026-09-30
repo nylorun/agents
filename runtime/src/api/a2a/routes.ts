@@ -11,7 +11,7 @@
  * a turn within the caller's own sessions, so another subject's task is `TaskNotFoundError`.
  */
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import {
   SessionCommandSchema,
   type LiveEvent,
@@ -49,7 +49,7 @@ import {
   type SessionAccess,
   type TenantContext,
 } from "../../tenant/context.js";
-import { HttpError, fail, readText } from "../../tenant/http.js";
+import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/live.js";
 import { putSession } from "../../tenant/sessions.js";
 
@@ -125,36 +125,6 @@ export async function a2aCall(
     });
     return jsonRpcError(id, new A2aError("internal", "Internal error"));
   }
-}
-
-/**
- * Routes `/v1/a2a/agents/:agent[/card]` for the router. Returns the JSON body to send.
- */
-export async function dispatchA2a(
-  ctx: TenantContext,
-  scope: AuthScope,
-  method: string | undefined,
-  path: readonly string[],
-  url: URL,
-  request: IncomingMessage,
-  response: ServerResponse
-): Promise<unknown> {
-  const [, , agents, agentId, sub] = path;
-  if (agents !== "agents" || !agentId) return fail(404, "Route not found");
-  if (path.length === 5 && sub === "card" && method === "GET")
-    return a2aCard(ctx, scope, agentId);
-  if (path.length !== 4 || method !== "POST") return fail(404, "Route not found");
-  const version = request.headers["a2a-version"];
-  return a2aCall(
-    ctx,
-    scope,
-    agentId,
-    {
-      body: () => readText(request),
-      version: typeof version === "string" ? version : url.searchParams.get("A2A-Version"),
-    },
-    response
-  );
 }
 
 async function operation(

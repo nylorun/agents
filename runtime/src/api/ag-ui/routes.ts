@@ -19,7 +19,7 @@
  * revocation with `CUSTOM nylorun.stream_closed`, and the client reattaches with a new token.
  */
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import {
   EventType,
   type BaseEvent,
@@ -44,7 +44,7 @@ import {
   type SessionAccess,
   type TenantContext,
 } from "../../tenant/context.js";
-import { fail, HttpError, readBody } from "../../tenant/http.js";
+import { fail, HttpError } from "../../tenant/http.js";
 import {
   observeSession,
   readHistory,
@@ -61,8 +61,6 @@ const TERMINAL = new Set([
   "turn.failed",
   "turn.cancelled",
 ]);
-
-type Json = (value: unknown, status?: number) => void;
 
 /** The person a request acts for: a subject token's subject, or `Nylorun-Subject`. */
 function personOf(scope: AuthScope): string {
@@ -436,53 +434,4 @@ export async function cancelRun(
     { type: "cancel", requestId: randomUUID(), idempotencyKey: `cancel:${randomUUID()}` },
     scope
   );
-}
-
-export async function dispatchAgUi(
-  ctx: TenantContext,
-  scope: AuthScope,
-  method: string | undefined,
-  path: readonly string[],
-  url: URL,
-  request: IncomingMessage,
-  response: ServerResponse,
-  json: Json
-): Promise<void> {
-  const [, , collection, agentId, threads, threadId, action] = path;
-  if (collection !== "agents" || !agentId) return fail(404, "Route not found");
-  const caller = agUiCaller(scope, agentId);
-
-  if (path.length === 4 && method === "POST")
-    return startRun(ctx, scope, agentId, caller, await readBody(request), response);
-
-  if (path.length !== 7 || threads !== "threads" || !threadId)
-    return fail(404, "Route not found");
-  const id = sessionIdFor(caller.subject, agentId, threadId);
-
-  if (action === "messages" && method === "GET")
-    return json(await threadMessages(ctx, id, caller.access));
-
-  if (action === "events" && method === "GET") {
-    const header = request.headers["last-event-id"];
-    return reattachRun(
-      ctx,
-      scope,
-      caller.access,
-      { threadId, id },
-      {
-        lastEventId: typeof header === "string" ? header : undefined,
-        cursor: url.searchParams.get("cursor") ?? undefined,
-        runId: url.searchParams.get("runId") ?? undefined,
-      },
-      response
-    );
-  }
-
-  if (action === "cancel" && method === "POST") {
-    await cancelRun(ctx, id, scope);
-    response.writeHead(204);
-    response.end();
-    return;
-  }
-  return fail(404, "Route not found");
 }
