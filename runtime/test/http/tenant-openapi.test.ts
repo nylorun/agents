@@ -19,8 +19,6 @@ it("documents the executor routes as deprecated, for executor or application key
     ["get", "/v1/executors/connect", "executorKey"],
     ["get", "/v1/actions", "executorKey"],
     ["post", "/v1/actions/{actionId}/claim", "executorKey"],
-    ["post", "/v1/actions/{actionId}/heartbeat", "executorKey"],
-    ["post", "/v1/actions/{actionId}/sandbox/{tool}", "executorKey"],
     ["get", "/v1/executors", "applicationKey"],
     ["put", "/v1/executors", "applicationKey"],
     ["delete", "/v1/executors/{agentId}", "applicationKey"],
@@ -29,6 +27,20 @@ it("documents the executor routes as deprecated, for executor or application key
     expect(op, `${method} ${path}`).toBeDefined();
     expect(op.deprecated).toBe(true);
     expect(op.security).toEqual([{ [scheme]: [] }]);
+    expect(op["x-nylorun-scopes"]).toBe("never");
+  }
+});
+
+it("documents an Action's callbacks for its delivery token, and the executor's where it has one", () => {
+  for (const [method, path, security] of [
+    ["post", "/v1/actions/{actionId}/heartbeat", [{ executorKey: [] }, { deliveryToken: [] }]],
+    ["post", "/v1/actions/{actionId}/sandbox/{tool}", [{ executorKey: [] }, { deliveryToken: [] }]],
+    ["post", "/v1/actions/{actionId}/result", [{ deliveryToken: [] }]],
+  ] as const) {
+    const op = operation(method, path);
+    expect(op, `${method} ${path}`).toBeDefined();
+    expect(op.deprecated).toBeUndefined();
+    expect(op.security).toEqual(security);
     expect(op["x-nylorun-scopes"]).toBe("never");
   }
 });
@@ -110,14 +122,16 @@ it("documents vaults for a person's own credentials, and Tenant settings for app
   });
 });
 
-it("documents the public keys for every caller, and access management for application keys", () => {
+it("documents the public keys for every caller or none, and access management for application keys", () => {
   const jwks = operation("get", "/v1/access/jwks");
   expect(jwks["x-nylorun-scopes"]).toBe("any");
+  // `{}`: no credential needed; `Nylorun-Tenant` alone names the Tenant.
   expect(jwks.security).toEqual([
     { applicationKey: [] },
     { subjectToken: [] },
     { publishableKey: [] },
     { executorKey: [] },
+    {},
   ]);
   for (const [method, path] of [
     ["post", "/v1/tokens"],

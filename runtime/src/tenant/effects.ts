@@ -70,6 +70,7 @@ import {
   turnManifestOf,
 } from "./session.js";
 import { command } from "./commands.js";
+import { offerAction } from "./delivery.js";
 import { assistantMessage, toolCompleted, toolIds } from "./transcript.js";
 import { abortKind } from "./worker.js";
 import type { ModelProvider } from "../core/provider.js";
@@ -294,7 +295,7 @@ export async function resolveEffect(
       ...(action.kind === "tool" ? toolIds(request.context) : {}),
       input: action.input,
     });
-    t.signalWork();
+    await offerAction(t, ctx, action);
     return resolved({ status: "pending" });
   });
   if (journaled.kind === "resolved") return journaled.resolution;
@@ -480,7 +481,7 @@ export async function resolveNewFlowEffect(
         key: action.key,
         input: action.input,
       });
-      t.signalWork();
+      await offerAction(t, ctx, action);
       return resolved({ status: "pending" });
     }
     return { kind: "agent", workflow };

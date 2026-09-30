@@ -8,6 +8,7 @@ import type {
 import type { FlowLimits } from "../core/limits.js";
 import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
+import type { OutboundPolicy } from "./outbound.js";
 import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
@@ -49,6 +50,8 @@ export interface TenantConfig {
   model: TenantModelConfig;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
   /** Action claim lease. Default 30 s. */
+  /** How the Runtime may call Action endpoints (Host settings). Default: http and private addresses allowed. */
+  delivery?: OutboundPolicy;
   leaseMs?: number;
   /** Ownership lease of an advance (§10.6); renewed every third while it runs. Default 30 s. */
   ownerLeaseMs?: number;

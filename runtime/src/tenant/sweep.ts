@@ -17,6 +17,9 @@
  * 4. **Sandboxes.** Idle sandboxes are stopped, records of compute this process no longer
  *    holds are marked stopped, and sandboxes whose session is gone are removed.
  * 5. **Hooks.** Callbacks registered with `ctx.onSweep` (the outbox drain, Wave 2 / Y).
+ * 6. **Deliveries.** Deliveries to Action endpoints whose deadline passed without an answer are
+ *    lost (`delivery.ts` `loseAction`), and pending Actions of agents with an endpoint are sent
+ *    again, in case a send was lost between a commit and the execution.
  *
  * Every step runs one transaction per session it changes (a linked agent and its workflow
  * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
@@ -31,6 +34,7 @@ import {
   reofferFnVerifyClaim,
 } from "../core/flow-host.js";
 import type { Session, TenantContext } from "./context.js";
+import { sweepDeliveries } from "./delivery.js";
 
 const BATCH = 100;
 
@@ -47,6 +51,7 @@ export async function sweep(
       ? [["reoffer", () => reofferFnVerifyClaims(ctx)] satisfies Step]
       : []),
     ["claims", () => expireClaims(ctx, now)],
+    ["deliveries", () => sweepDeliveries(ctx, now)],
     ["linked", () => reconcileLinkedAgents(ctx)],
     ["orphans", () => wakeOrphanedSessions(ctx, now)],
     [

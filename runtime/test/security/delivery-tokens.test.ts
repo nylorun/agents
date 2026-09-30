@@ -1,7 +1,7 @@
 /**
  * Delivery tokens (design: Action endpoints §8.1): minted by the Runtime for one delivery of one
- * Action, accepted back as a bearer only where a route lists them. None does yet, so every route
- * refuses them; the checks here are the ones the callback routes will rely on.
+ * Action, accepted back as a bearer only where a route lists them: that Action's heartbeat, result
+ * and sandbox callbacks (`delivery-background.test.ts`). Every other route refuses them.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { SignJWT } from "jose";
@@ -151,15 +151,14 @@ describe("as a bearer", () => {
   const call = (url: string, method: string, path: string, token: string, headers: Record<string, string> = {}) =>
     fetch(`${url}${path}`, { method, headers: { authorization: `Bearer ${token}`, ...headers } });
 
-  it("reaches no route that does not list it", async () => {
+  it("reaches no route that does not list it (only an Action's callbacks do)", async () => {
     const { runtime, ctx } = await tenant();
     const { token } = await mint(ctx);
     for (const [method, path] of [
       ["GET", "/v1/agents"],
       ["GET", "/v1/sessions"],
       ["GET", "/v1/actions"],
-      ["POST", "/v1/actions/a1/heartbeat"],
-      ["POST", "/v1/actions/a1/sandbox/bash"],
+      ["POST", "/v1/actions/a1/claim"],
       ["GET", "/v1/executors"],
       ["GET", "/v1/vaults"],
       ["GET", "/v1/tenant"],
