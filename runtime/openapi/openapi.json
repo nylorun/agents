@@ -9844,6 +9844,173 @@
           }
         ]
       },
+      "ListEndpointsResponse": {
+        "type": "object",
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "agentId": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "implementationVersion": {
+                  "type": "string"
+                },
+                "manifestHash": {
+                  "type": "string"
+                },
+                "timeoutMs": {
+                  "type": "integer"
+                },
+                "maxConcurrent": {
+                  "type": "integer"
+                },
+                "health": {
+                  "type": "object",
+                  "properties": {
+                    "lastDeliveryAt": {
+                      "type": "string"
+                    },
+                    "lastSuccessAt": {
+                      "type": "string"
+                    },
+                    "lastError": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "consecutiveFailures": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "served": {
+                      "type": "object",
+                      "properties": {
+                        "implementationVersion": {
+                          "type": "string"
+                        },
+                        "manifestHash": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "implementationVersion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "consecutiveFailures"
+                  ],
+                  "additionalProperties": false
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agentId",
+                "url",
+                "implementationVersion",
+                "timeoutMs",
+                "maxConcurrent",
+                "health",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "endpoints"
+        ],
+        "additionalProperties": false
+      },
+      "PutEndpointsRequest": {
+        "type": "object",
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "agentId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "implementationVersion": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "manifestHash": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "timeoutMs": {
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 840000
+                },
+                "maxConcurrent": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              },
+              "required": [
+                "agentId",
+                "url",
+                "implementationVersion"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 64
+          }
+        },
+        "required": [
+          "endpoints"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteEndpointResponse": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "agentId",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
       "ListAgentsResponse": {
         "type": "object",
         "properties": {
@@ -15552,6 +15719,324 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/endpoints": {
+      "get": {
+        "tags": [
+          "Action endpoints"
+        ],
+        "summary": "List Action endpoints",
+        "description": "Each agent's Action endpoint, with what recent deliveries say about it.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `2`"
+            },
+            "required": true,
+            "description": "The protocol version, `2`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Tenant"
+            },
+            "required": true,
+            "description": "The Tenant",
+            "name": "Nylorun-Tenant",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The endpoints",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEndpointsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Action endpoints"
+        ],
+        "summary": "Register Action endpoints",
+        "description": "Points the Runtime at the URL that runs each agent's Actions. Registering an endpoint removes the agent's executor; a new URL starts with no health.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `2`"
+            },
+            "required": true,
+            "description": "The protocol version, `2`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Tenant"
+            },
+            "required": true,
+            "description": "The Tenant",
+            "name": "Nylorun-Tenant",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutEndpointsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The registered endpoints",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEndpointsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/endpoints/{agentId}": {
+      "delete": {
+        "tags": [
+          "Action endpoints"
+        ],
+        "summary": "Remove an agent's Action endpoint",
+        "description": "The agent's pending Actions wait until an endpoint is registered again.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `2`"
+            },
+            "required": true,
+            "description": "The protocol version, `2`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Tenant"
+            },
+            "required": true,
+            "description": "The Tenant",
+            "name": "Nylorun-Tenant",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The endpoint was removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteEndpointResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The agent has no endpoint"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
                 }
               }
             }

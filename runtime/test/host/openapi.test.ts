@@ -45,7 +45,7 @@ it("documents every Tenant operation once, with who may call it", () => {
   const listed = operations(document);
   expect(new Set(listed).size).toBe(listed.length);
   // 54 Tenant operations, and /health, /ready and /openapi.json.
-  expect(listed.length).toBe(57);
+  expect(listed.length).toBe(60);
   for (const [path, item] of Object.entries(document.paths ?? {}))
     if (path.startsWith("/v1/"))
       for (const operation of Object.values(item as Record<string, Record<string, unknown>>))
