@@ -31,9 +31,13 @@ for (const path of [
   "dist/core/runtime.js",
   "dist/host/main.js",
   "dist/version.js",
+  "dist/openapi.json",
+  "dist/admin-openapi.json",
   "README.md",
   "CHANGELOG.md",
   "LICENSE",
 ])
   if (!files.includes(path)) throw new Error(`Missing ${path}`);
+// The packed OpenAPI documents are the routes' (`openapi/` is their committed snapshot).
+execFileSync(process.execPath, ["scripts/build-openapi.mjs", "--check"], { stdio: "inherit" });
 console.log("Runtime Node host package checks passed.");

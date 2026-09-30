@@ -30,6 +30,8 @@
       "types": "./dist/configuration.d.ts",
       "import": "./dist/configuration.js"
     },
+    "./openapi.json": "./dist/openapi.json",
+    "./admin-openapi.json": "./dist/admin-openapi.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -43,7 +45,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json",
+    "build": "npm run clean && node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json && node scripts/build-openapi.mjs",
     "check": "npm run build && npm test && node scripts/check-package.mjs",
     "typecheck": "node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -58,6 +60,7 @@
   },
   "dependencies": {
     "@ag-ui/core": "~1.0.0",
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@bufbuild/protobuf": "2.12.1",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
@@ -78,6 +81,7 @@
   "devDependencies": {
     "@a2a-js/sdk": "~1.3.0",
     "@ag-ui/client": "1.0.0",
+    "@scalar/openapi-parser": "^0.29.9",
     "@types/node": "^26.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",

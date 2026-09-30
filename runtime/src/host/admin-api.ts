@@ -36,6 +36,8 @@ export interface AdminApiOptions {
   status(): Promise<AdminStatus>;
   /** Stops the Host once the shutdown answer is sent. */
   shutdown(): void;
+  /** `GET /v1/admin/openapi.json`: this API's OpenAPI document (`api/openapi.ts`). */
+  document?(): unknown;
 }
 
 type AdminEnv = { Bindings: NodeBindings };
@@ -232,6 +234,20 @@ export function createAdminApi(options: AdminApiOptions): OpenAPIHono<AdminEnv> 
       c.env.outgoing.once("finish", () => options.shutdown());
       return jsonResponse(200, { status: "shutting_down" });
     },
+  );
+
+  serveRoute(
+    api,
+    adminRoute({
+      method: "get",
+      path: "/v1/admin/openapi.json",
+      summary: "Get this document",
+      responses: { 200: { description: "The Admin API's OpenAPI document" } },
+    }),
+    () =>
+      options.document
+        ? jsonResponse(200, options.document(), { "cache-control": "no-cache" })
+        : notFound(),
   );
 
   api.notFound(() => notFound());

@@ -38,7 +38,7 @@ export function sendJson(
   response.end(payload);
 }
 
-/** `sendJson` as a Response, byte for byte: what the Host's Hono app answers with. */
+/** `sendJson` as a Response, byte for byte (with any extra headers): the Host's answers. */
 export { jsonResponse };
 
 function jsonHeaders(payload: string) {
