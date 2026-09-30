@@ -17,26 +17,26 @@ import {
   SeedTenantConfigRequestSchema,
   SelectHostModelRequestSchema,
 } from "@nylorun/core/contracts";
-import { hostModelCatalog } from "../model/catalog.js";
-import { resetTenant } from "./reset.js";
-import { buildTenantStatus, seedTenantConfig } from "./status.js";
-import { ownerOf } from "./auth.js";
-import type { AuthScope, TenantContext } from "./context.js";
-import { fail, readBody } from "./http.js";
-import { clearExecutorStreams, clearObservers } from "./live.js";
+import { hostModelCatalog } from "../../model/catalog.js";
+import { resetTenant } from "../../tenant/reset.js";
+import { buildTenantStatus, seedTenantConfig } from "../../tenant/status.js";
+import { ownerOf } from "../../tenant/auth.js";
+import type { AuthScope, TenantContext } from "../../tenant/context.js";
+import { fail, readBody } from "../../tenant/http.js";
+import { clearExecutorStreams, clearObservers } from "../../tenant/live.js";
 import {
   requestStreamCollection,
   sessionStreamsAbandoned,
   streamsStatus,
-} from "./streams.js";
-import { clearWork, drain } from "./scheduler.js";
-import { usesFixtureModel } from "./model-setting.js";
-import { sandboxConfigErrors } from "../sandbox/resolve.js";
+} from "../../tenant/streams.js";
+import { clearWork, drain } from "../../tenant/scheduler.js";
+import { usesFixtureModel } from "../../tenant/model-setting.js";
+import { sandboxConfigErrors } from "../../sandbox/resolve.js";
 import {
   effectiveSandboxConfig,
   readSandboxConfig,
   writeSandboxConfig,
-} from "../sandbox/tenant-config.js";
+} from "../../sandbox/tenant-config.js";
 
 /** `GET /v1/tenant/sandbox`: the backend report and the configuration with defaults applied. */
 async function sandboxView(ctx: TenantContext): Promise<unknown> {
