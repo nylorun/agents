@@ -332,7 +332,13 @@ describe("createActionHandler: register", () => {
         if (path === "/health")
           return Response.json({
             status: "ok",
-            protocol: { ...HOST_PROTOCOL, features: [...HOST_PROTOCOL.features, ...features] },
+            protocol: {
+              ...HOST_PROTOCOL,
+              features: [
+                ...HOST_PROTOCOL.features.filter((f) => f !== "action-endpoints"),
+                ...features,
+              ],
+            },
           });
         if (path.startsWith("/v1/agents/")) return Response.json({ ok: true });
         if (path === "/v1/endpoints") return Response.json({ endpoints: [] });

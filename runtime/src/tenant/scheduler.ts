@@ -17,10 +17,14 @@ import { AdvanceAbort, type AdvanceAbortKind } from "./worker.js";
 export interface WorkState {
   /** Advances running on this process, by session id. */
   readonly running: Map<string, AbortController>;
+  /** Deliveries to Action endpoints in flight on this process, by their Action's session id. */
+  readonly deliveries: Map<string, Set<AbortController>>;
+  /** When each Action last reported a failed delivery (`action.delivery_failed` throttling). */
+  readonly deliveryNotices: Map<string, number>;
 }
 
 export function createWorkState(): WorkState {
-  return { running: new Map() };
+  return { running: new Map(), deliveries: new Map(), deliveryNotices: new Map() };
 }
 
 const MESSAGES: Record<AdvanceAbortKind, string> = {
@@ -36,8 +40,9 @@ function abortWith(controller: AbortController, kind: AdvanceAbortKind): void {
 }
 
 /**
- * Abort the advance of `id` if it runs on this process. Cancel calls it after committing
- * `cancelled`, and so does the control stream for cancels made elsewhere.
+ * Abort the advance of `id` if it runs on this process, and its deliveries to Action endpoints.
+ * Cancel calls it after committing `cancelled`, and so does the control stream for cancels made
+ * elsewhere.
  */
 export function abortLocal(
   ctx: TenantContext,
@@ -46,6 +51,8 @@ export function abortLocal(
 ): void {
   const controller = ctx.work.running.get(id);
   if (controller) abortWith(controller, kind);
+  // A cancel also closes the session's deliveries, which aborts the tools' `ctx.signal`.
+  for (const delivery of ctx.work.deliveries.get(id) ?? []) abortWith(delivery, kind);
 }
 
 /** Reset: abort every advance running on this process; their sessions are being cleared. */

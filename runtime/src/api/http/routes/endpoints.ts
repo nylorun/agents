@@ -7,10 +7,15 @@ import { z } from "zod";
 import { PutEndpointsRequestSchema } from "@nylorun/core/contracts";
 import {
   DeleteEndpointResponse,
+  EndpointPingResponse,
   ListEndpointsResponse,
   PutEndpointsRequest,
 } from "../../components.js";
+import { ActionOutcomeSchema } from "@nylorun/core/contracts";
+import { AcceptedResponse, ActionOutcome } from "../../components.js";
+import { deliveryResult, pingEndpoint } from "../../../tenant/delivery.js";
 import { requireApplication } from "../../../tenant/auth.js";
+import { fail } from "../../../tenant/http.js";
 import {
   deleteEndpoint,
   listEndpoints,
@@ -93,6 +98,68 @@ export function endpointRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       requireApplication(c.get("scope"));
       return jsonResponse(200, await deleteEndpoint(c.env.tenant, c.req.param("agentId")!));
+    },
+  );
+
+  tenantRoute(
+    api,
+    APPLICATION,
+    {
+      method: "post",
+      path: "/v1/endpoints/{agentId}/ping",
+      tags: ["Action endpoints"],
+      summary: "Ping an agent's Action endpoint",
+      description:
+        "Sends a signed ping through the endpoint and records what it answers it serves. A " +
+        "wrong URL, a tunnel that is down or a handler that does not serve the agent answers 502.",
+      request: { params: z.object({ agentId: z.string() }) },
+      responses: {
+        200: json(EndpointPingResponse, "What the endpoint serves"),
+        404: { description: "The agent has no endpoint" },
+        502: { description: "The endpoint did not answer the ping" },
+      },
+    },
+    async (c) => {
+      requireApplication(c.get("scope"));
+      return jsonResponse(200, await pingEndpoint(c.env.tenant, c.req.param("agentId")!));
+    },
+  );
+
+  tenantRoute(
+    api,
+    { credentials: ["delivery"], scopes: "never" },
+    {
+      method: "post",
+      path: "/v1/actions/{actionId}/result",
+      tags: ["Action endpoints"],
+      summary: "Post the outcome of an Action answered with 202",
+      description:
+        "Called by an Action endpoint with the Action's delivery token after it answered the " +
+        "delivery with 202. The same result again returns the first receipt.",
+      request: {
+        params: z.object({ actionId: z.string() }),
+        body: { required: true, content: { "application/json": { schema: ActionOutcome } } },
+      },
+      responses: {
+        200: json(AcceptedResponse, "The outcome was recorded"),
+        409: {
+          description:
+            "The delivery was cancelled, lost or sent again, or the Action has another result",
+        },
+      },
+    },
+    async (c) => {
+      const scope = c.get("scope");
+      if (scope.kind !== "delivery") return fail(403, "A delivery token is required");
+      return jsonResponse(
+        200,
+        await deliveryResult(
+          c.env.tenant,
+          scope,
+          c.req.param("actionId")!,
+          ActionOutcomeSchema.parse(await readJson(c.req.raw)),
+        ),
+      );
     },
   );
 }

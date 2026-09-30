@@ -167,6 +167,8 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/endpoints" },
     { method: "PUT", path: "/v1/endpoints", body: INVALID },
     { method: "DELETE", path: "/v1/endpoints/ghost" },
+    { method: "POST", path: "/v1/endpoints/ghost/ping" },
+    { method: "POST", path: "/v1/actions/act-missing/result", body: INVALID },
     { method: "POST", path: "/v1/sessions/s1/commands", body: INVALID },
     { method: "GET", path: "/v1/agents" },
     { method: "PUT", path: "/v1/agents/bot", body: INVALID },

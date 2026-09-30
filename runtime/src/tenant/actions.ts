@@ -86,7 +86,8 @@ export async function actionSandboxTool(
       actionId,
       toolName,
       await body(),
-      signal
+      signal,
+      scope.kind === "delivery" ? { generation: scope.generation } : undefined
     );
   } catch (error) {
     if (error instanceof SandboxRouteError) fail(error.status, error.message);

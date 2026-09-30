@@ -18,7 +18,8 @@
         "subject-tokens",
         "browser-access",
         "ag-ui-endpoint",
-        "a2a-endpoint"
+        "a2a-endpoint",
+        "action-endpoints"
       ]
     }
   },

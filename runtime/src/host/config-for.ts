@@ -19,6 +19,8 @@ export function configForFactory(options: {
   model?: TenantConfig["model"];
   /** The Host's OpenShell gateway, when one is configured. */
   openshellGateway?: string;
+  /** How Tenants may call Action endpoints (`StackConfig.delivery`). */
+  delivery?: TenantConfig["delivery"];
 }): (id: string) => TenantConfig {
   const { baseline } = options;
   return (id: string): TenantConfig => {
@@ -33,6 +35,7 @@ export function configForFactory(options: {
         ...(options.openshellGateway ? { openshell: { gateway: options.openshellGateway } } : {}),
       },
       model: options.model ?? { kind: "vault" },
+      ...(options.delivery ? { delivery: options.delivery } : {}),
       childEnv: tenantChildEnvironment(
         baseline,
         options.hostConfig,
