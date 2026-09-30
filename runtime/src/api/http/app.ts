@@ -15,6 +15,8 @@ import { jsonResponse, rejectionOf } from "./respond.js";
 import { handle } from "./routes.js";
 import { executorRoutes } from "./routes/executors.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { tenantRoutes } from "./routes/tenant.js";
+import { vaultRoutes } from "./routes/vaults.js";
 
 export type TenantBindings = NodeBindings & { readonly tenant: TenantContext };
 export type TenantEnv = {
@@ -49,6 +51,8 @@ function build(): OpenAPIHono<TenantEnv> {
   });
   executorRoutes(api);
   sessionRoutes(api);
+  tenantRoutes(api);
+  vaultRoutes(api);
   api.notFound(legacy);
   api.onError((error, c) => {
     const { outgoing } = c.env;
