@@ -2243,10 +2243,8 @@
   },
   "GET /v1/access/jwks": {
     "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
+      "status": 200,
+      "contentType": "application/json"
     },
     "wrong": {
       "status": 404,

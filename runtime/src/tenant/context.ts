@@ -114,6 +114,8 @@ export type AuthScope =
       scopes: ReadonlySet<SubjectScope>;
     }
   | { kind: "executor"; executor: ExecutorRecord }
+  /** No credential, on a route that serves public data (`RouteAccess.anonymous`). */
+  | { kind: "anonymous" }
   /**
    * A publishable key with no bearer (Host feature `browser-access`): what the policy grants
    * `anon`, at most `agents:read`. It owns no session or vault.

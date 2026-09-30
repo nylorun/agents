@@ -29,6 +29,11 @@ export interface RouteAccess {
   readonly scopes: readonly SubjectScope[] | "never" | "any";
   /** A browser page may call it: its preflight is allowed. */
   readonly browser?: boolean;
+  /**
+   * Public data: a request with no credential at all (no `Authorization`, no `Nylorun-Key`) is
+   * served too. A credential that is sent is still checked, so a wrong one stays the opaque 404.
+   */
+  readonly anonymous?: boolean;
 }
 
 const SCHEMES: Record<Credential, string> = {
@@ -64,7 +69,10 @@ function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
     // The client app first: a browser's origin is checked, and CORS headers set, before the
     // bearer is looked at, so every answer from here on is readable by an allowed page.
     const client = await identifyClient(tenant, incoming, outgoing);
-    const scope = await authenticate(tenant, incoming, client);
+    const scope: AuthScope =
+      access.anonymous && !client && incoming.headers.authorization === undefined
+        ? { kind: "anonymous" }
+        : await authenticate(tenant, incoming, client);
     authorize(scope, incoming.method, pathSegments(incoming));
     if (scope.kind === "publishable" && !access.credentials.includes("publishable"))
       fail(403, "A publishable key alone reaches only the agent list", {
@@ -116,7 +124,11 @@ export function tenantRoute(
   });
   api.openAPIRegistry.registerPath({
     ...route,
-    security: schemes.map((scheme) => ({ [scheme]: [] })),
+    // `{}`: no credential needed (OpenAPI's optional security).
+    security: [
+      ...schemes.map((scheme) => ({ [scheme]: [] })),
+      ...(access.anonymous ? [{}] : []),
+    ],
     request: { ...route.request, headers },
     responses: {
       400: rejected("Invalid headers, path, body or cursor"),

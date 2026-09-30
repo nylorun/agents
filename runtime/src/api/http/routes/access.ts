@@ -65,13 +65,17 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
       credentials: ["application", "subject", "token", "publishable", "executor"],
       scopes: "any",
       browser: true,
+      // Public keys: an Action endpoint verifies delivery tokens with them and holds no key.
+      anonymous: true,
     },
     {
       method: "get",
       path: "/v1/access/jwks",
       tags: ["Access"],
-      summary: "Get the public keys subject tokens are signed with",
-      description: "A JSON Web Key Set, to verify a subject token without calling the Runtime.",
+      summary: "Get the public keys subject and delivery tokens are signed with",
+      description:
+        "A JSON Web Key Set, to verify a subject token or a delivery token without calling the " +
+        "Runtime. No credential is needed: `Nylorun-Tenant` alone names the Tenant.",
       responses: { 200: json(Jwks, "The public keys") },
     },
     async (c) => {
