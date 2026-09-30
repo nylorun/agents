@@ -198,16 +198,13 @@
     "status": 403
   },
   "GET /v1/sessions/s1/unknown": {
-    "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "status": 403
   },
   "POST /v1/vaults/v1/unknown/deeper": {
-    "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "status": 403
   },
   "GET /v1/ag-ui/anything": {
-    "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "status": 403
   },
   "PATCH /v1/sessions/s1": {
     "status": 403

@@ -3571,10 +3571,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+      "message": "Route not found"
     },
     "subject": {
       "status": 404,
@@ -3602,10 +3602,10 @@
       "message": "Route not found"
     },
     "executor": {
-      "status": 400,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+      "message": "Route not found"
     }
   },
   "GET /v1/executors/connect/x": {
@@ -3622,51 +3622,41 @@
       "message": "Not found"
     },
     "application": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Executor credential required"
+      "message": "Route not found"
     },
     "subject": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "subject-read": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "token": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "publishable": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "allowOrigin": "https://app.example.com",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "executor": {
-      "status": 200,
-      "contentType": "text/event-stream"
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     }
   },
   "DELETE /v1/executors/connect": {
@@ -3746,8 +3736,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "subject": {
       "status": 404,
@@ -3775,10 +3767,10 @@
       "message": "Route not found"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
     }
   },
   "GET /v1/sessions/s1/events/x": {
@@ -3795,8 +3787,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "text/event-stream"
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "subject": {
       "status": 404,
@@ -3824,10 +3818,10 @@
       "message": "Route not found"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
     }
   },
   "POST /v1/actions/act-missing/claim/x": {
@@ -3844,53 +3838,41 @@
       "message": "Not found"
     },
     "application": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Executor credential required"
+      "message": "Route not found"
     },
     "subject": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "subject-read": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "token": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "publishable": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "allowOrigin": "https://app.example.com",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "request_rejected",
+      "message": "Route not found"
     },
     "executor": {
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Action not found"
+      "message": "Route not found"
     }
   },
   "GET /v1/actions/act-missing": {
@@ -3907,53 +3889,41 @@
       "message": "Not found"
     },
     "application": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Executor credential required"
+      "message": "Route not found"
     },
     "subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "publishable": {
-      "status": 403,
-      "contentType": "application/json",
-      "allowOrigin": "https://app.example.com",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "executor": {
-      "status": 400,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Invalid JSON"
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     }
   },
   "GET /v1/sessions/missing/unknown": {
@@ -3973,7 +3943,7 @@
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Session not found"
+      "message": "Route not found"
     },
     "subject": {
       "status": 404,
@@ -4001,10 +3971,10 @@
       "message": "Route not found"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
     }
   },
   "GET /v1/sessions/": {
@@ -4021,45 +3991,41 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own required",
-      "details": {
-        "scopes": [
-          "sessions:own"
-        ]
-      }
-    },
-    "token": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "publishable": {
-      "status": 403,
-      "contentType": "application/json",
-      "allowOrigin": "https://app.example.com",
-      "code": "scope_required",
-      "message": "Scope sessions:own required",
-      "details": {
-        "scopes": [
-          "sessions:own"
-        ]
-      }
-    },
-    "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     }
   },
   "GET /v1//sessions": {
@@ -4076,45 +4042,41 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own required",
-      "details": {
-        "scopes": [
-          "sessions:own"
-        ]
-      }
-    },
-    "token": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "publishable": {
-      "status": 403,
-      "contentType": "application/json",
-      "allowOrigin": "https://app.example.com",
-      "code": "scope_required",
-      "message": "Scope sessions:own required",
-      "details": {
-        "scopes": [
-          "sessions:own"
-        ]
-      }
-    },
-    "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     }
   },
   "GET /v1/agents/": {
@@ -4131,31 +4093,41 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "token": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "publishable": {
-      "status": 200,
-      "contentType": "application/json",
-      "allowOrigin": "https://app.example.com"
-    },
-    "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
     }
   },
   "GET /v1/sessions/s%2F1": {
@@ -4375,10 +4347,10 @@
       "message": "Route not found"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
     }
   },
   "GET /v2/agents": {
@@ -4476,10 +4448,10 @@
       "message": "Route not found"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
     }
   },
   "HEAD /v1/agents": {
@@ -4513,7 +4485,7 @@
       "allowOrigin": "https://app.example.com"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json"
     }
   },
@@ -4548,7 +4520,7 @@
       "allowOrigin": "https://app.example.com"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json"
     }
   },
@@ -4583,7 +4555,7 @@
       "allowOrigin": "https://app.example.com"
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json"
     }
   },
@@ -4628,10 +4600,10 @@
       "status": 403
     },
     "executor": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Application credential required"
+      "message": "Route not found"
     }
   }
 }

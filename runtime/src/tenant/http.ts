@@ -1,10 +1,9 @@
 /**
- * HTTP plumbing shared by the Tenant route modules: typed rejections, the opaque 404 for
- * unknown credentials (D5), request-body parsing and the client-abort signal.
+ * The Tenant's typed rejections: what a route or the code it calls throws for the client to
+ * see (`api/http/respond.ts` answers it), and the opaque 404 for unknown credentials (D5).
  *
  * Later waves: stable; the streams seam (Wave 2 / Y) keeps using these helpers.
  */
-import type { IncomingMessage, ServerResponse } from "node:http";
 
 /** D5 opaque failure for unknown/rejected credentials on Tenant routes. */
 export const OPAQUE_NOT_FOUND = {
@@ -52,40 +51,3 @@ export class OpaqueAuthError extends Error {
 export const failOpaque = (): never => {
   throw new OpaqueAuthError();
 };
-
-/**
- * AbortSignal that aborts when the client goes away before the response is finished. The
- * request's own `close` cannot tell: it fires as soon as its body has been read.
- */
-export function requestAborted(response: ServerResponse): AbortSignal {
-  const controller = new AbortController();
-  response.once("close", () => {
-    if (!response.writableFinished) controller.abort();
-  });
-  return controller.signal;
-}
-
-const MAX_BODY_BYTES = 1024 * 1024;
-
-/** Read a request body as UTF-8 text, capped at 1 MiB. */
-export async function readText(request: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of request as AsyncIterable<Buffer>) {
-    bytes += chunk.length;
-    if (bytes > MAX_BODY_BYTES) fail(413, "Request too large");
-    chunks.push(chunk);
-  }
-  // Decoded once, so a character split across chunks stays whole.
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-/** Read a JSON request body, capped at 1 MiB. */
-export async function readBody(request: IncomingMessage): Promise<unknown> {
-  const data = await readText(request);
-  try {
-    return JSON.parse(data);
-  } catch {
-    return fail(400, "Invalid JSON");
-  }
-}

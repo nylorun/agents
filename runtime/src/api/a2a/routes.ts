@@ -11,7 +11,7 @@
  * a turn within the caller's own sessions, so another subject's task is `TaskNotFoundError`.
  */
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import {
   SessionCommandSchema,
   type LiveEvent,
@@ -49,7 +49,7 @@ import {
   type SessionAccess,
   type TenantContext,
 } from "../../tenant/context.js";
-import { HttpError, fail, readText } from "../../tenant/http.js";
+import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/live.js";
 import { putSession } from "../../tenant/sessions.js";
 
@@ -76,31 +76,35 @@ interface OwnedTask {
   readonly turnId: string;
 }
 
-/**
- * Routes `/v1/a2a/agents/:agent[/card]`. Returns the JSON body to send; HTTP-level refusals
- * (unknown agent, no subject, limits) are thrown as `HttpError` like any Tenant route.
- */
-export async function dispatchA2a(
+/** `GET /v1/a2a/agents/:agent/card`: the agent's card, for a caller who may use the agent. */
+export async function a2aCard(
   ctx: TenantContext,
   scope: AuthScope,
-  method: string | undefined,
-  path: readonly string[],
-  url: URL,
-  request: IncomingMessage,
+  agentId: string
+): Promise<unknown> {
+  return agentCard(agentId, await definitionFor(ctx, agentId, accessOf(scope)));
+}
+
+/**
+ * `POST /v1/a2a/agents/:agent`: one A2A JSON-RPC call, for a subject. JSON-RPC answers (errors
+ * included) are the body to send with 200; HTTP-level refusals (unknown agent, no subject,
+ * limits) are thrown as `HttpError` like any Tenant route. `body` is read once the agent is
+ * known to be the caller's; closing `response` stops a blocking wait, never the task.
+ */
+export async function a2aCall(
+  ctx: TenantContext,
+  scope: AuthScope,
+  agentId: string,
+  input: { body: () => Promise<string>; version: string | null },
   response: ServerResponse
 ): Promise<unknown> {
-  const [, , agents, agentId, sub] = path;
-  if (agents !== "agents" || !agentId) return fail(404, "Route not found");
-  if (path.length === 5 && sub === "card" && method === "GET")
-    return agentCard(agentId, await definitionFor(ctx, agentId, accessOf(scope)));
-  if (path.length !== 4 || method !== "POST") return fail(404, "Route not found");
   const access = accessOf(scope);
   if (!access)
     return fail(400, "Acting for a subject is required: send Nylorun-Subject and Nylorun-Scopes", {
       code: "subject_required",
     });
   await definitionFor(ctx, agentId, access);
-  const envelope = parseEnvelope(await readText(request));
+  const envelope = parseEnvelope(await input.body());
   if (!envelope.ok) return jsonRpcError(envelope.id, envelope.error);
   // A blocking call stops waiting when the caller hangs up; the task keeps running.
   const hangup = new AbortController();
@@ -108,10 +112,7 @@ export async function dispatchA2a(
   const caller: Caller = { ctx, scope, access, agentId };
   const { id } = envelope.request;
   try {
-    const version = request.headers["a2a-version"];
-    checkVersion(
-      typeof version === "string" ? version : url.searchParams.get("A2A-Version")
-    );
+    checkVersion(input.version);
     return jsonRpcResult(id, await operation(caller, envelope.request, hangup.signal));
   } catch (error) {
     if (error instanceof A2aError) return jsonRpcError(id, error);

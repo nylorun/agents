@@ -1,11 +1,14 @@
 /**
- * The Tenant routes' request plumbing: body reading and the client-abort signal, over real
- * sockets.
+ * Request bodies and aborts as Tenant routes see them: a body read once and decoded whole, and
+ * the request's signal aborting when the caller leaves after sending it (what sandbox tool
+ * calls stop on).
  */
-import { createServer, request, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, request, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
+import { getRequestListener } from "@hono/node-server";
 import { afterEach, expect, it } from "vitest";
-import { HttpError, readText, requestAborted } from "../../src/tenant/http.js";
+import { readText } from "../../src/api/http/body.js";
+import { HttpError } from "../../src/tenant/http.js";
 
 const servers: ReturnType<typeof createServer>[] = [];
 afterEach(async () => {
@@ -15,20 +18,19 @@ afterEach(async () => {
   }
 });
 
-async function serve(
-  handler: (request: IncomingMessage, response: ServerResponse) => Promise<void>,
-): Promise<number> {
-  const server = createServer((req, res) => void handler(req, res));
+/** Serves `fetch` as the Runtime does, and returns the port. */
+async function serve(fetch: (request: Request) => Promise<Response>): Promise<number> {
+  const server = createServer(getRequestListener(fetch, { overrideGlobalObjects: false }));
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return (server.address() as AddressInfo).port;
 }
 
-/** POSTs `chunks`, each written separately, and returns the connection's request. */
+/** POSTs `chunks`, each written separately. */
 function post(port: number, chunks: Buffer[]) {
   const req = request({ port, host: "127.0.0.1", method: "POST", path: "/" });
   req.on("error", () => {});
-  (async () => {
+  void (async () => {
     for (const chunk of chunks) {
       req.write(chunk);
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -40,9 +42,9 @@ function post(port: number, chunks: Buffer[]) {
 
 it("readText keeps a character whose bytes arrive in different chunks", async () => {
   let text: string | undefined;
-  const port = await serve(async (req, res) => {
-    text = await readText(req);
-    res.end();
+  const port = await serve(async (request) => {
+    text = await readText(request);
+    return new Response(null, { status: 204 });
   });
   const bytes = Buffer.from("héllo ✓", "utf8");
   const split = bytes.indexOf(0xa9); // inside "é" (c3 a9)
@@ -53,9 +55,9 @@ it("readText keeps a character whose bytes arrive in different chunks", async ()
 
 it("readText refuses a body over 1 MiB", async () => {
   let error: unknown;
-  const port = await serve(async (req, res) => {
-    await readText(req).catch((caught) => void (error = caught));
-    res.end();
+  const port = await serve(async (request) => {
+    await readText(request).catch((caught) => void (error = caught));
+    return new Response(null, { status: 204 });
   });
   const req = post(port, [Buffer.alloc(1024 * 1024 + 1, 0x61)]);
   await new Promise((resolve) => req.on("response", resolve));
@@ -63,13 +65,15 @@ it("readText refuses a body over 1 MiB", async () => {
   expect((error as HttpError).status).toBe(413);
 });
 
-it("requestAborted aborts when the client leaves after its body was read", async () => {
+it("the request's signal aborts when the caller leaves after its body was read", async () => {
   let signal: AbortSignal | undefined;
   const read = Promise.withResolvers<void>();
-  const port = await serve(async (req, res) => {
-    await readText(req);
-    signal = requestAborted(res);
+  const port = await serve(async (request) => {
+    await readText(request);
+    signal = request.signal;
     read.resolve();
+    await new Promise((resolve) => signal!.addEventListener("abort", resolve));
+    return new Response(null, { status: 204 });
   });
   const req = post(port, [Buffer.from("{}")]);
   await read.promise;
@@ -79,12 +83,12 @@ it("requestAborted aborts when the client leaves after its body was read", async
   expect(signal!.aborted).toBe(true);
 });
 
-it("requestAborted does not abort a response that finished", async () => {
+it("the request's signal does not abort for a finished answer", async () => {
   let signal: AbortSignal | undefined;
-  const port = await serve(async (req, res) => {
-    await readText(req);
-    signal = requestAborted(res);
-    res.end("done");
+  const port = await serve(async (request) => {
+    await readText(request);
+    signal = request.signal;
+    return new Response("done");
   });
   const req = post(port, [Buffer.from("{}")]);
   const response = await new Promise<IncomingMessage>((resolve) => req.on("response", resolve));
