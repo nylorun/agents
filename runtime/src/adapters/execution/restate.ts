@@ -1,7 +1,7 @@
 /**
  * Durable Session Execution on Restate (architecture §12.3).
  *
- * The only module that imports the Restate SDK. It serves three virtual
+ * The only module that imports the Restate SDK. It serves four virtual
  * objects on the Worker endpoint, all named with `servicePrefix`:
  *
  * - `<prefix>NylorunSession`, key `<tenantId>:<sessionId>`. Its exclusive
@@ -17,9 +17,14 @@
  * - `<prefix>NylorunTimer`, key `<tenantId>:<timer key>`. `set` records the
  *   latest time and sends a delayed `fire`; a `fire` for an older time is a
  *   no-op, which is how setting a key again replaces it.
+ * - `<prefix>NylorunAction`, key `<tenantId>:<actionId>`. Its exclusive
+ *   `deliver` handler calls `WorkerHandlers.deliver`. Like `advance`, it keeps
+ *   no state and makes no `ctx.run`: its only journal entry is the delayed
+ *   self-send after a `retry` result, so an endpoint that is down never spends
+ *   the retry budget, which is for infrastructure errors.
  *
- * Wakes, timers and sweep arming go through the ingress as one-way sends, so
- * an API node can call them without ever calling `start`.
+ * Wakes, deliveries, timers and sweep arming go through the ingress as one-way
+ * sends, so an API node can call them without ever calling `start`.
  */
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import * as restate from "@restatedev/restate-sdk";
@@ -28,6 +33,7 @@ import {
   parseSessionKey,
   sessionKey,
   type AdvanceResult,
+  type DeliverResult,
   type DurableExecution,
   type StuckInvocation,
   type Wake,
@@ -124,6 +130,7 @@ interface SweepState {
 interface TimerInput {
   at: number;
 }
+type DeliverInput = Record<string, never>;
 
 export function createRestateExecution(
   options: RestateExecutionOptions,
@@ -138,7 +145,12 @@ export class RestateExecution implements DurableExecution {
   private readonly sessions = new Set<ServerHttp2Session>();
   private readonly controllers = new Set<AbortController>();
   private readonly inflight = new Set<Promise<unknown>>();
-  private readonly names: { session: string; tenant: string; timer: string };
+  private readonly names: {
+    session: string;
+    tenant: string;
+    timer: string;
+    action: string;
+  };
   private readonly ingressUrl: string;
   private readonly adminUrl: string;
   private readonly sweepIntervalMs: number;
@@ -151,6 +163,7 @@ export class RestateExecution implements DurableExecution {
       session: `${prefix}NylorunSession`,
       tenant: `${prefix}NylorunTenant`,
       timer: `${prefix}NylorunTimer`,
+      action: `${prefix}NylorunAction`,
     };
     this.ingressUrl = options.ingressUrl.replace(/\/+$/, "");
     this.adminUrl = options.adminUrl.replace(/\/+$/, "");
@@ -158,7 +171,12 @@ export class RestateExecution implements DurableExecution {
   }
 
   /** Service names this execution registers, for diagnostics and tests. */
-  get serviceNames(): { session: string; tenant: string; timer: string } {
+  get serviceNames(): {
+    session: string;
+    tenant: string;
+    timer: string;
+    action: string;
+  } {
     return { ...this.names };
   }
 
@@ -171,6 +189,15 @@ export class RestateExecution implements DurableExecution {
       "advance",
       { reason: wake.reason } satisfies WakeInput,
       wake.dedupeKey,
+    );
+  }
+
+  async deliver(tenantId: string, actionId: string): Promise<void> {
+    await this.send(
+      this.names.action,
+      sessionKey(tenantId, actionId),
+      "deliver",
+      {} satisfies DeliverInput,
     );
   }
 
@@ -280,7 +307,7 @@ export class RestateExecution implements DurableExecution {
       handlers: {
         advance: async (ctx: restate.ObjectContext, _wake?: WakeInput) => {
           const { tenantId, sessionId } = parseSessionKey(ctx.key);
-          const result = await this.runAdvance(
+          const result = await this.runAborted<AdvanceResult>(
             ctx.request().attemptCompletedSignal,
             (handlers, signal) => handlers.advance(tenantId, sessionId, signal),
           );
@@ -365,14 +392,42 @@ export class RestateExecution implements DurableExecution {
       options: serviceOptions,
     });
 
-    return [session, tenant, timer];
+    const action = restate.object({
+      name: names.action,
+      handlers: {
+        deliver: async (ctx: restate.ObjectContext, _input?: DeliverInput) => {
+          const { tenantId, sessionId: actionId } = parseSessionKey(ctx.key);
+          const result = await this.runAborted<DeliverResult>(
+            ctx.request().attemptCompletedSignal,
+            (handlers, signal) => {
+              if (!handlers.deliver)
+                throw new Error("WorkerHandlers.deliver is required for deliveries");
+              return handlers.deliver(tenantId, actionId, signal);
+            },
+          );
+          if (result.status === "retry")
+            ctx
+              .objectSendClient<ActionObject>({ name: names.action }, ctx.key)
+              .deliver(
+                {},
+                restate.rpc.sendOpts({ delay: Math.max(0, result.retryAfterMs) }),
+              );
+        },
+      },
+      options: serviceOptions,
+    });
+
+    return [session, tenant, timer, action];
   }
 
-  /** Runs `advance` with a signal aborted by `stop` or by the end of the Restate attempt. */
-  private async runAdvance(
+  /**
+   * Runs a Worker handler with a signal aborted by `stop` or by the end of the Restate
+   * attempt (`advance` and `deliver`).
+   */
+  private async runAborted<T>(
     attemptDone: AbortSignal,
-    fn: (handlers: WorkerHandlers, signal: AbortSignal) => Promise<AdvanceResult>,
-  ): Promise<AdvanceResult> {
+    fn: (handlers: WorkerHandlers, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     const onAttemptDone = () =>
       controller.abort(new Error("Restate attempt ended"));
@@ -489,6 +544,9 @@ export class RestateExecution implements DurableExecution {
 type SessionObject = { advance: (ctx: restate.ObjectContext, wake?: WakeInput) => Promise<void> };
 type TenantObject = { sweep: (ctx: restate.ObjectContext, input: SweepInput) => Promise<void> };
 type TimerObject = { fire: (ctx: restate.ObjectContext, input: TimerInput) => Promise<void> };
+type ActionObject = {
+  deliver: (ctx: restate.ObjectContext, input?: DeliverInput) => Promise<void>;
+};
 
 /**
  * Lists invocations of this Runtime's services that need an operator: paused
@@ -504,7 +562,7 @@ export async function listStuckInvocations(options: {
   const prefix = options.servicePrefix ?? "";
   if (!/^[A-Za-z0-9_]*$/.test(prefix))
     throw new Error(`Invalid Restate service prefix: ${prefix}`);
-  const services = ["NylorunSession", "NylorunTenant", "NylorunTimer"].map(
+  const services = ["NylorunSession", "NylorunTenant", "NylorunTimer", "NylorunAction"].map(
     (name) => `'${prefix}${name}'`,
   );
   const clauses = [
