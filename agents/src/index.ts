@@ -111,6 +111,12 @@ export { createTokenEndpoint } from "./token-endpoint.js";
 export type { TokenEndpointOptions } from "./token-endpoint.js";
 export { connectAgents } from "./executor.js";
 export type { ConnectOptions, AgentConnection } from "./executor.js";
+export { createActionHandler } from "./action-handler.js";
+export type {
+  ActionHandler,
+  ActionHandlerOptions,
+  RegisterOptions,
+} from "./action-handler.js";
 export type {
   ExecuteActionOptions,
   ExecutableDefinition,
