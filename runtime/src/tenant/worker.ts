@@ -4,13 +4,15 @@
  * this process.
  *
  * - `TenantWorker` is one open Tenant's handlers: `advance(sessionId, signal)` (§10.5, in
- *   `advance.ts`) and `sweep()` (the Tenant sweep, in `sweep.ts`).
+ *   `advance.ts`), `sweep()` (the Tenant sweep, in `sweep.ts`) and, optionally,
+ *   `deliver(actionId, signal)` (one Action to its Action endpoint).
  * - `TenantWorkers` is the registry. Its `handlers` are the `WorkerHandlers` an execution is
  *   started with; they dispatch by `tenantId` to the registered `TenantWorker`. A Tenant
  *   registers when it opens and unregisters when it closes. A call for a Tenant that is not
  *   open here asks the optional `resolve` hook (the Host can open it on demand); without one,
- *   the advance returns `done` and the sweep does nothing. Nothing is lost: the Tenant's sweep
- *   re-wakes its orphaned sessions once it is open again.
+ *   the advance and the delivery return `done` and the sweep does nothing. Nothing is lost:
+ *   the Tenant's sweep re-wakes its orphaned sessions once it is open again, and an Action
+ *   that was not delivered stays pending.
  * - `TenantExecution` pairs an execution with its registry. The Host creates one per process
  *   (`host/execution.ts`) and passes it to every Tenant it opens; a Tenant opened without one
  *   (tests, ephemeral) gets its own in-process `MemoryExecution`.
@@ -51,6 +53,7 @@ import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
 import type {
   AdvanceResult,
+  DeliverResult,
   DurableExecution,
   StuckInvocation,
   WorkerHandlers,
@@ -118,6 +121,8 @@ export interface TenantWorker {
   advance(sessionId: string, signal: AbortSignal): Promise<AdvanceResult>;
   /** One pass of the Tenant sweep. */
   sweep(): Promise<void>;
+  /** Delivers one Action to its endpoint. Only infrastructure errors throw. */
+  deliver?(actionId: string, signal: AbortSignal): Promise<DeliverResult>;
 }
 
 export interface TenantWorkersOptions {
@@ -134,7 +139,7 @@ export interface TenantWorkersOptions {
   logger?: Logger;
 }
 
-const DONE: AdvanceResult = { status: "done" };
+const DONE = { status: "done" } as const;
 
 /** Registry of open Tenants' workers, dispatched to by `tenantId`. */
 export class TenantWorkers {
@@ -181,6 +186,10 @@ export class TenantWorkers {
     },
     sweep: async (tenantId) => {
       await (await this.find(tenantId))?.sweep();
+    },
+    deliver: async (tenantId, actionId, signal) => {
+      const worker = await this.find(tenantId);
+      return worker?.deliver ? worker.deliver(actionId, signal) : DONE;
     },
   };
 
