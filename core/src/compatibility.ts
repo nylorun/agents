@@ -57,6 +57,10 @@ export const SUBJECT_HEADER = "Nylorun-Subject";
 export const SCOPES_HEADER = "Nylorun-Scopes";
 /** A publishable key: names the Tenant and the client app (Host feature `browser-access`). */
 export const PUBLISHABLE_KEY_HEADER = "Nylorun-Key";
+/** The delivery token on a request the Runtime sends to an Action endpoint. */
+export const SIGNATURE_HEADER = "Nylorun-Signature";
+/** Set to `1` on an Action endpoint's response whose body is a tagged `ActionOutcome`. */
+export const OUTCOME_HEADER = "Nylorun-Outcome";
 
 export const ERROR_CODES = [
   "not_found",

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type {
   AdvanceResult,
+  DeliverResult,
   DurableExecution,
   WorkerHandlers,
 } from "../../src/execution/types.js";
@@ -88,12 +89,14 @@ export function executionContract(
       await harness.execution.start({
         advance: async () => ({ status: "done" }),
         sweep: async () => {},
+        deliver: async () => ({ status: "done" }),
         ...handlers,
       });
       return harness.execution;
     }
 
     const ids = () => ({ tenantId: newTenantId(), sessionId: `s-${randomUUID()}` });
+    const actionIds = () => ({ tenantId: newTenantId(), actionId: `a-${randomUUID()}` });
 
     it("runs advance for a woken session with an abort signal", async () => {
       const calls: Call[] = [];
@@ -221,6 +224,123 @@ export function executionContract(
       expect(calls).toBe(2);
     });
 
+    it("runs deliver for an Action with an abort signal", async () => {
+      const calls: { tenantId: string; actionId: string; signal: AbortSignal }[] = [];
+      const execution = await started({
+        deliver: async (tenantId, actionId, signal) => {
+          calls.push({ tenantId, actionId, signal });
+          return { status: "done" };
+        },
+      });
+      const { tenantId, actionId } = actionIds();
+      await execution.deliver(tenantId, actionId);
+      await eventually(() => expect(calls).toHaveLength(1));
+      expect(calls[0]).toMatchObject({ tenantId, actionId });
+      expect(calls[0]!.signal).toBeInstanceOf(AbortSignal);
+      await settled(() => calls.length);
+      expect(calls).toHaveLength(1);
+    });
+
+    it("never runs two deliveries of one Action at once", async () => {
+      let active = 0;
+      let maxActive = 0;
+      let calls = 0;
+      const execution = await started({
+        deliver: async () => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          calls += 1;
+          await sleep(40);
+          active -= 1;
+          return { status: "done" };
+        },
+      });
+      const { tenantId, actionId } = actionIds();
+      for (let i = 0; i < 5; i++) {
+        await execution.deliver(tenantId, actionId);
+        await sleep(5);
+      }
+      await settled(() => calls, 400);
+      expect(maxActive).toBe(1);
+      expect(calls).toBeGreaterThanOrEqual(1);
+    });
+
+    it("runs deliveries of different Actions concurrently", async () => {
+      let active = 0;
+      let maxActive = 0;
+      const execution = await started({
+        deliver: async () => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await sleep(300);
+          active -= 1;
+          return { status: "done" };
+        },
+      });
+      const a = actionIds();
+      await execution.deliver(a.tenantId, a.actionId);
+      await execution.deliver(a.tenantId, `a-${randomUUID()}`);
+      await eventually(() => expect(maxActive).toBe(2));
+    });
+
+    it("keeps a delivery and an advance with the same id apart", async () => {
+      const seen: string[] = [];
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => (release = resolve));
+      const execution = await started({
+        advance: async () => {
+          seen.push("advance");
+          await blocked;
+          return { status: "done" };
+        },
+        deliver: async () => {
+          seen.push("deliver");
+          return { status: "done" };
+        },
+      });
+      const { tenantId } = ids();
+      const id = `x-${randomUUID()}`;
+      await execution.wake(tenantId, id, { reason: "message" });
+      await eventually(() => expect(seen).toEqual(["advance"]));
+      await execution.deliver(tenantId, id);
+      await eventually(() => expect(seen).toEqual(["advance", "deliver"]));
+      release();
+    });
+
+    it("delivers again after a retry result", async () => {
+      const startedAt: number[] = [];
+      const execution = await started({
+        deliver: async (): Promise<DeliverResult> => {
+          startedAt.push(Date.now());
+          return startedAt.length === 1
+            ? { status: "retry", retryAfterMs: 200 }
+            : { status: "done" };
+        },
+      });
+      const { tenantId, actionId } = actionIds();
+      await execution.deliver(tenantId, actionId);
+      await eventually(() => expect(startedAt).toHaveLength(2));
+      expect(startedAt[1]! - startedAt[0]!).toBeGreaterThanOrEqual(150);
+      await settled(() => startedAt.length);
+      expect(startedAt).toHaveLength(2);
+    });
+
+    it("retries a delivery that throws", async () => {
+      let calls = 0;
+      const execution = await started({
+        deliver: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("store unreachable");
+          return { status: "done" };
+        },
+      });
+      const { tenantId, actionId } = actionIds();
+      await execution.deliver(tenantId, actionId);
+      await eventually(() => expect(calls).toBe(2));
+      await settled(() => calls);
+      expect(calls).toBe(2);
+    });
+
     it("fires a timer at or after its time", async () => {
       const fired: { tenantId: string; key: string; at: number }[] = [];
       const execution = await started({
@@ -282,6 +402,32 @@ export function executionContract(
       });
       const { tenantId, sessionId } = ids();
       await harness.execution.wake(tenantId, sessionId, { reason: "message" });
+      await eventually(() => expect(entered).toBe(true));
+      await harness.execution.stop();
+      expect(finished).toBe(true);
+      await harness.dispose?.();
+    });
+
+    it("aborts running deliveries on stop and waits for them", async () => {
+      let finished = false;
+      let entered = false;
+      const harness = await factory({ sweepIntervalMs: SWEEP_INTERVAL_MS });
+      await harness.execution.start({
+        advance: async () => ({ status: "done" }),
+        sweep: async () => {},
+        deliver: async (_tenantId, _actionId, signal) => {
+          entered = true;
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) resolve();
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          await sleep(20);
+          finished = true;
+          return { status: "done" };
+        },
+      });
+      const { tenantId, actionId } = actionIds();
+      await harness.execution.deliver(tenantId, actionId);
       await eventually(() => expect(entered).toBe(true));
       await harness.execution.stop();
       expect(finished).toBe(true);
