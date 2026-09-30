@@ -13,6 +13,7 @@ import type { NodeBindings } from "../../tenant/types.js";
 import { pathSegments } from "./define.js";
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { handle } from "./routes.js";
+import { accessRoutes } from "./routes/access.js";
 import { executorRoutes } from "./routes/executors.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { tenantRoutes } from "./routes/tenant.js";
@@ -53,6 +54,7 @@ function build(): OpenAPIHono<TenantEnv> {
   sessionRoutes(api);
   tenantRoutes(api);
   vaultRoutes(api);
+  accessRoutes(api);
   api.notFound(legacy);
   api.onError((error, c) => {
     const { outgoing } = c.env;

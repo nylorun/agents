@@ -154,11 +154,8 @@ export async function dispatchAccess(
   return fail(404, "Route not found");
 }
 
-/**
- * Ends every token of `subject` minted so far: bumps its epoch, then ends its open streams
- * here and, through `tenant/control`, on every other process. Running turns continue.
- */
-function publishableKeyView(row: PublishableKeyRow): PublishableKey {
+/** A publishable key as the API shows it. */
+export function publishableKeyView(row: PublishableKeyRow): PublishableKey {
   return {
     id: row.id,
     name: row.name,
@@ -169,6 +166,10 @@ function publishableKeyView(row: PublishableKeyRow): PublishableKey {
   };
 }
 
+/**
+ * Ends every token of `subject` minted so far: bumps its epoch, then ends its open streams
+ * here and, through `tenant/control`, on every other process. Running turns continue.
+ */
 export async function revokeSubject(
   ctx: TenantContext,
   subject: string

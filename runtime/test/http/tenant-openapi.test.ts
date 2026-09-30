@@ -109,3 +109,24 @@ it("documents vaults for a person's own credentials, and Tenant settings for app
     $ref: "#/components/schemas/PutTenantSandboxRequest",
   });
 });
+
+it("documents the public keys for every caller, and access management for application keys", () => {
+  const jwks = operation("get", "/v1/access/jwks");
+  expect(jwks["x-nylorun-scopes"]).toBe("any");
+  expect(jwks.security).toEqual([
+    { applicationKey: [] },
+    { subjectToken: [] },
+    { publishableKey: [] },
+    { executorKey: [] },
+  ]);
+  for (const [method, path] of [
+    ["post", "/v1/tokens"],
+    ["put", "/v1/access/policy"],
+    ["post", "/v1/access/signing-keys/{kid}/revoke"],
+    ["delete", "/v1/access/publishable-keys/{keyId}"],
+    ["post", "/v1/access/revocations"],
+  ] as const) {
+    expect(operation(method, path).security, `${method} ${path}`).toEqual([{ applicationKey: [] }]);
+    expect(operation(method, path)["x-nylorun-scopes"]).toBe("never");
+  }
+});
