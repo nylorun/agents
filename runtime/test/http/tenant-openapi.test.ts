@@ -146,3 +146,16 @@ it("documents the AG-UI endpoint with AG-UI's own schemas", () => {
     operation("get", "/v1/ag-ui/agents/{agentId}/threads/{threadId}/events").responses["204"],
   ).toBeDefined();
 });
+
+it("documents the A2A endpoint's JSON-RPC envelope and links the specification", () => {
+  const call = operation("post", "/v1/a2a/agents/{agentId}");
+  expect(call.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+  expect(call.externalDocs.url).toMatch(/^https:\/\/a2a-protocol\.org\//);
+  expect(call.requestBody.content["application/json"].schema).toEqual({
+    $ref: "#/components/schemas/A2aJsonRpcRequest",
+  });
+  expect(operation("get", "/v1/a2a/agents/{agentId}/card")["x-nylorun-scopes"]).toEqual([
+    "agents:read",
+    "sessions:own",
+  ]);
+});
