@@ -4,7 +4,7 @@
  * mapping itself is covered through the SDK handler in `ag-ui.test.ts`.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { sessionIdFor } from "../src/ag-ui/session-id.js";
+import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
 import {
   APP,

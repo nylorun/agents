@@ -27,15 +27,15 @@ import {
   RevokeSubjectRequestSchema,
   RotateSigningKeysRequestSchema,
 } from "@nylorun/core/contracts";
-import { signalSubjectRevoked } from "../streams/relay.js";
-import { readPolicy, writePolicy } from "./access-policy.js";
-import { requireApplication } from "./auth.js";
-import type { PublishableKeyRow } from "../store/types.js";
-import type { AuthScope, TenantContext } from "./context.js";
-import { fail, readBody } from "./http.js";
-import { endSubjectStreams } from "./live.js";
-import { publicJwk, signingKeyView } from "./signing-keys.js";
-import { mintToken } from "./tokens.js";
+import { signalSubjectRevoked } from "../../streams/relay.js";
+import { readPolicy, writePolicy } from "../../tenant/access-policy.js";
+import { requireApplication } from "../../tenant/auth.js";
+import type { PublishableKeyRow } from "../../store/types.js";
+import type { AuthScope, TenantContext } from "../../tenant/context.js";
+import { fail, readBody } from "../../tenant/http.js";
+import { endSubjectStreams } from "../../tenant/live.js";
+import { publicJwk, signingKeyView } from "../../tenant/signing-keys.js";
+import { mintToken } from "../../tenant/tokens.js";
 
 export async function dispatchAccess(
   ctx: TenantContext,

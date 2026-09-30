@@ -72,7 +72,7 @@ import {
   type TenantWorker,
 } from "./worker.js";
 import { authorize } from "./effects.js";
-import { handle } from "./routes.js";
+import { handle } from "../api/http/routes.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
