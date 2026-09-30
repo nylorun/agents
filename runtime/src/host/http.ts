@@ -1,4 +1,6 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { jsonResponse } from "../api/http/respond.js";
 import {
   HOST_PROTOCOL,
   type ErrorCode,
@@ -32,11 +34,41 @@ export function sendJson(
 ): void {
   const payload = JSON.stringify(body);
   // No Access-Control-* headers (D§11).
-  response.writeHead(status, {
-    "content-type": "application/json",
-    "content-length": Buffer.byteLength(payload),
-  });
+  response.writeHead(status, jsonHeaders(payload));
   response.end(payload);
+}
+
+/** `sendJson` as a Response, byte for byte: what the Host's Hono app answers with. */
+export { jsonResponse };
+
+function jsonHeaders(payload: string) {
+  return {
+    "content-type": "application/json",
+    "content-length": String(Buffer.byteLength(payload)),
+  };
+}
+
+function rejection(code: ErrorCode, message: string, details?: unknown) {
+  const body: {
+    status: "rejected";
+    code: ErrorCode;
+    message: string;
+    details?: unknown;
+  } = { status: "rejected", code, message };
+  if (details !== undefined) body.details = details;
+  return body;
+}
+
+function protocolRejection(protocol: ProtocolRange) {
+  return {
+    status: "rejected",
+    code: "protocol_unsupported",
+    protocol: {
+      min: protocol.min,
+      max: protocol.max,
+      features: [...protocol.features],
+    },
+  };
 }
 
 export function sendRejected(
@@ -46,33 +78,30 @@ export function sendRejected(
   message: string,
   details?: unknown,
 ): void {
-  const body: {
-    status: "rejected";
-    code: ErrorCode;
-    message: string;
-    details?: unknown;
-  } = { status: "rejected", code, message };
-  if (details !== undefined) body.details = details;
-  sendJson(response, status, body);
+  sendJson(response, status, rejection(code, message, details));
+}
+
+export function rejectedResponse(
+  status: number,
+  code: ErrorCode,
+  message: string,
+  details?: unknown,
+): Response {
+  return jsonResponse(status, rejection(code, message, details));
 }
 
 export function sendOpaqueNotFound(response: ServerResponse): void {
   sendJson(response, 404, OPAQUE_NOT_FOUND);
 }
 
-export function sendProtocolRejected(
-  response: ServerResponse,
+export function opaqueNotFoundResponse(): Response {
+  return jsonResponse(404, OPAQUE_NOT_FOUND);
+}
+
+export function protocolRejectedResponse(
   protocol: ProtocolRange = HOST_PROTOCOL,
-): void {
-  sendJson(response, 426, {
-    status: "rejected",
-    code: "protocol_unsupported",
-    protocol: {
-      min: protocol.min,
-      max: protocol.max,
-      features: [...protocol.features],
-    },
-  });
+): Response {
+  return jsonResponse(426, protocolRejection(protocol));
 }
 
 /**
@@ -133,6 +162,13 @@ export function requestHasBody(request: IncomingMessage): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
+/** `/health` and `/ready` are polled; the request log leaves them out. */
+export function pathnameIsLogged(rawUrl: string | undefined): boolean {
+  if (!rawUrl) return true;
+  const pathname = new URL(rawUrl, "http://runtime.local").pathname;
+  return pathname !== "/health" && pathname !== "/ready";
+}
+
 /** Redact path parameters after `/v1/sessions/` for Host logs. */
 export function redactRoutePath(pathname: string): string {
   const parts = pathname.split("/");
@@ -143,6 +179,21 @@ export function redactRoutePath(pathname: string): string {
   return pathname;
 }
 
+/** Constant-time comparison of SHA-256 digests of the presented and stored admin keys. */
+export function adminKeyMatches(presented: string | undefined, adminKey: string): boolean {
+  if (presented === undefined) return false;
+  const a = createHash("sha256").update(presented, "utf8").digest();
+  const b = createHash("sha256").update(adminKey, "utf8").digest();
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** A request header's first value. */
+export function headerValue(incoming: IncomingMessage, name: string): string | undefined {
+  const raw = incoming.headers[name.toLowerCase()];
+  if (Array.isArray(raw)) return raw[0];
+  return raw;
+}
+
 export function readBearer(
   authorization: string | undefined,
 ): string | undefined {
@@ -151,29 +202,27 @@ export function readBearer(
   return match?.[1];
 }
 
-export async function readJsonBody(
-  request: import("node:http").IncomingMessage,
-  limit = 1024 * 1024,
-): Promise<unknown> {
-  const chunks: Buffer[] = [];
+/** A JSON request body, capped at `limit` bytes (413); `undefined` when there is none. */
+export async function readJsonBody(request: Request, limit = 1024 * 1024): Promise<unknown> {
+  if (request.body === null) return undefined;
+  const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of request) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buf.length;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
     if (size > limit) {
-      const error = new Error("Request too large");
-      (error as Error & { status: number }).status = 413;
-      throw error;
+      await reader.cancel();
+      throw Object.assign(new Error("Request too large"), { status: 413 });
     }
-    chunks.push(buf);
+    chunks.push(value);
   }
-  if (chunks.length === 0) return undefined;
+  if (size === 0) return undefined;
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    const error = new Error("Invalid JSON");
-    (error as Error & { status: number }).status = 400;
-    throw error;
+    throw Object.assign(new Error("Invalid JSON"), { status: 400 });
   }
 }
 

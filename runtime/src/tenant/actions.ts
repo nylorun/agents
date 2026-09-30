@@ -9,7 +9,6 @@
  * of `executorStreams`.
  */
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   ActionClaimRequestSchema,
   ActionHeartbeatRequestSchema,
@@ -34,7 +33,7 @@ import {
   type AuthScope,
   type TenantContext,
 } from "./context.js";
-import { fail, readBody, requestAborted } from "./http.js";
+import { fail } from "./http.js";
 import { scoped } from "./auth.js";
 import { endExecutorStreams, executorConnected } from "./live.js";
 
@@ -65,14 +64,17 @@ export async function listPendingActions(
   };
 }
 
-/** `POST /v1/actions/:id/sandbox/:tool`: a claim-scoped sandbox tool call. */
+/**
+ * `POST /v1/actions/:id/sandbox/:tool`: a claim-scoped sandbox tool call. The body is read
+ * once the Action is known to be the caller's; `signal` aborts when the caller leaves.
+ */
 export async function actionSandboxTool(
   ctx: TenantContext,
   scope: AuthScope,
   actionId: string,
   toolName: string,
-  request: IncomingMessage,
-  response: ServerResponse
+  body: () => Promise<unknown>,
+  signal: AbortSignal
 ) {
   const action =
     (await ctx.store.tx((t) => t.get<Action>("actions", actionId))) ??
@@ -83,8 +85,8 @@ export async function actionSandboxTool(
       sandboxRouteDeps(ctx),
       actionId,
       toolName,
-      await readBody(request),
-      requestAborted(response)
+      await body(),
+      signal
     );
   } catch (error) {
     if (error instanceof SandboxRouteError) fail(error.status, error.message);

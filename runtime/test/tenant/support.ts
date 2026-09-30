@@ -1,4 +1,3 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { tenantPaths } from "../../src/tenant/paths.js";
@@ -40,11 +39,9 @@ export function createFakeHandle(
     setSummary(next) {
       summary = next;
     },
-    async handle(
-      _request: IncomingMessage,
-      _response: ServerResponse,
-      _url: URL,
-    ) {},
+    async fetch() {
+      return new Response(null, { status: 204 });
+    },
     async summary() {
       return { ...summary };
     },

@@ -87,13 +87,27 @@ export interface TenantSummary {
   relayLagMs?: number;
 }
 
+/**
+ * The Node request and response behind a `Request`, for what still writes to Node directly
+ * (event streams). The shape of `@hono/node-server`'s `HttpBindings`.
+ */
+export interface NodeBindings {
+  readonly incoming: IncomingMessage;
+  readonly outgoing: ServerResponse;
+}
+
 /** An open Tenant Runtime. Created only by the Tenant module. */
 export interface TenantHandle {
   readonly envelope: TenantEnvelope;
   /** The handlers Durable Session Execution calls for this Tenant (`worker.ts`). */
   readonly worker?: TenantWorker;
-  /** Headers already validated by the Host. Authenticates, authorizes, dispatches. */
-  handle(
+  /**
+   * A Tenant API request whose headers the Host has validated: authenticates, authorizes,
+   * dispatches. A response already written to `node.outgoing` is `RESPONSE_ALREADY_SENT`.
+   */
+  fetch(request: Request, node: NodeBindings): Promise<Response>;
+  /** @deprecated Use `fetch`. Removed once every Tenant route is on Hono. */
+  handle?(
     request: IncomingMessage,
     response: ServerResponse,
     url: URL,
