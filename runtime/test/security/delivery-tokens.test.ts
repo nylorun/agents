@@ -162,7 +162,7 @@ describe("as a bearer", () => {
       ["POST", "/v1/actions/a1/sandbox/bash"],
       ["GET", "/v1/executors"],
       ["GET", "/v1/vaults"],
-      ["GET", "/v1/tenant/status"],
+      ["GET", "/v1/tenant"],
     ]) {
       const response = await call(runtime.url, method!, path!, token);
       expect(response.status, `${method} ${path}`).toBe(403);
