@@ -13,7 +13,8 @@
  * H2  two Projects, each linked with `nylo tenant create`, develop at once; stopping one keeps the stack and the other
  * H3  a stack restart restores sessions in both Tenants; a Tenant whose schema
  *     is newer than the Runtime is quarantined, the others keep working
- * H4  executor rotation disconnects only the affected Tenant's stream
+ * H4  Action endpoint registrations are per Tenant: re-registering or removing
+ *     one Tenant's endpoint leaves the other's untouched
  * H5  sandbox reconciliation stays inside the Tenant's prefix (packed Runtime library)
  * H6  a request outside the protocol range fails with 426 before any mutation
  * H7  concurrent `nylorun start` on a running stack changes nothing; a refused
@@ -259,7 +260,7 @@ async function h5(temporary, packed) {
   pass("H5", "sandbox reconcile lists only its own prefix; virtual backends stay Tenant-scoped");
 }
 
-// ── H1 + H4: two Tenants on one Runtime, isolation and executor rotation ──
+// ── H1 + H4: two Tenants on one Runtime, isolation and per-Tenant Action endpoints ──
 async function h1h4(url, admin) {
   const alpha = await newTenant(admin, "project-alpha");
   const beta = await newTenant(admin, "project-beta");
@@ -293,44 +294,33 @@ async function h1h4(url, admin) {
   }
 
   if (selected("H4")) {
-    const register = (tenant, token) =>
-      request(url, "/v1/executors", {
+    // Registration does not call the URL, so these need not answer.
+    const register = (tenant, path) =>
+      request(url, "/v1/endpoints", {
         method: "PUT",
         tenant,
-        body: { executors: [{ token, agentId: "shared-agent", implementationVersion: "dev" }] },
+        body: {
+          endpoints: [
+            { agentId: "shared-agent", url: `http://localhost:9/${path}`, implementationVersion: "dev" },
+          ],
+        },
       });
-    const connect = (tenant, token) =>
-      fetch(`${url}/v1/executors/connect`, {
-        headers: { ...tenantHeaders(tenant.id, token), accept: "text/event-stream" },
-      });
-    assert.equal((await register(alpha, "token-alpha-1-aaaaaaaa")).status, 200);
-    assert.equal((await register(beta, "token-beta-1-bbbbbbbbb")).status, 200);
-    const streamA = await connect(alpha, "token-alpha-1-aaaaaaaa");
-    const streamB = await connect(beta, "token-beta-1-bbbbbbbbb");
-    assert.equal(streamA.status, 200);
-    assert.equal(streamB.status, 200);
-    const readerA = streamA.body.getReader();
-    const readerB = streamB.body.getReader();
-    await readerA.read();
-    await readerB.read();
-    const rotated = await register(alpha, "token-alpha-2-aaaaaaaa");
-    assert.equal(rotated.status, 200);
-    assert.equal((await rotated.json()).executors[0].rotated, true);
-    let ended = false;
-    for (let i = 0; i < 40 && !ended; i++) ended = (await readerA.read()).done;
-    assert.equal(ended, true, "the rotated stream ends");
-    const peekB = await Promise.race([
-      readerB.read(),
-      new Promise((resolve) => setTimeout(() => resolve({ open: true }), 200)),
-    ]);
-    assert.ok(peekB.open || peekB.done === false, "the other Tenant's stream stays open");
-    const oldToken = await connect(alpha, "token-alpha-1-aaaaaaaa");
-    assert.equal(oldToken.status, 404);
-    const newToken = await connect(alpha, "token-alpha-2-aaaaaaaa");
-    assert.equal(newToken.status, 200);
-    await newToken.body.cancel();
-    await readerB.cancel().catch(() => {});
-    pass("H4", "executor rotation disconnects only the affected Tenant's stream");
+    const urls = async (tenant) =>
+      (await tenantGet(url, tenant.id, tenant.key, "/v1/endpoints")).endpoints.map((e) => e.url);
+    assert.equal((await register(alpha, "alpha-1")).status, 200);
+    assert.equal((await register(beta, "beta-1")).status, 200);
+    assert.deepEqual(await urls(alpha), ["http://localhost:9/alpha-1"]);
+    assert.deepEqual(await urls(beta), ["http://localhost:9/beta-1"]);
+    assert.equal((await register(alpha, "alpha-2")).status, 200);
+    assert.deepEqual(await urls(alpha), ["http://localhost:9/alpha-2"]);
+    assert.deepEqual(await urls(beta), ["http://localhost:9/beta-1"], "the other Tenant's endpoint is unchanged");
+    assert.equal(
+      (await request(url, "/v1/endpoints/shared-agent", { method: "DELETE", tenant: alpha })).status,
+      200,
+    );
+    assert.deepEqual(await urls(alpha), []);
+    assert.deepEqual(await urls(beta), ["http://localhost:9/beta-1"], "removing one Tenant's endpoint keeps the other's");
+    pass("H4", "Action endpoint registrations are per Tenant: re-registering or removing one leaves the other's untouched");
   }
 }
 
@@ -374,7 +364,7 @@ async function h9(url, admin, temporary) {
     );
     await writeFile(
       join(directory, ".nylorun/credentials.json"),
-      JSON.stringify({ applicationKey: tenant.key, executors: {} }, null, 2),
+      JSON.stringify({ applicationKey: tenant.key }, null, 2),
     );
   };
   await mkdir(project);
@@ -450,7 +440,16 @@ async function h2(url, stack, packed, temporary) {
     );
     await writeFile(
       join(project, "src/main.ts"),
-      `import { connectAgents } from "@nylorun/agents";\nimport { agents } from "../agents/index.ts";\nawait connectAgents({ agents }).ready;\n`,
+      [
+        'import { createServer } from "node:http";',
+        'import { createActionHandler } from "@nylorun/agents";',
+        'import { agents } from "../agents/index.ts";',
+        "const actions = createActionHandler({ agents });",
+        "const server = createServer(actions.node);",
+        "await new Promise((resolve) => server.listen(0, resolve));",
+        "await actions.register({ url: `http://localhost:${server.address().port}/nylorun/actions` });",
+        "",
+      ].join("\n"),
     );
     // The Project depends on the SDK only, as the starter does.
     await installProject(project, packed, ["core", "agents"], {
@@ -480,18 +479,17 @@ async function h2(url, stack, packed, temporary) {
       }),
     );
     assert.notEqual(tenants[0].id, tenants[1].id, "each Project has its own Tenant");
-    const connected = (tenant) =>
-      tenantGet(url, tenant.id, tenant.key, "/v1/executors").then((body) =>
-        body.executors.some((e) => e.agentId === "shared-agent" && e.connected),
-      );
+    // The Runtime (in Docker) reaches each Project's Action endpoint on this machine.
+    const connected = async (tenant) =>
+      (await request(url, "/v1/endpoints/shared-agent/ping", { method: "POST", tenant })).status === 200;
     for (const tenant of tenants)
-      await eventually(() => connected(tenant), { message: `executor of ${tenant.id}` });
+      await eventually(() => connected(tenant), { message: `the Action endpoint of ${tenant.id}` });
 
     await devs[0].stop();
     assert.equal((await fetch(`${url}/ready`)).status, 200, "the stack keeps running");
-    await eventually(async () => !(await connected(tenants[0])), { message: "the stopped Project to disconnect" });
+    await eventually(async () => !(await connected(tenants[0])), { message: "the stopped Project's endpoint to stop answering" });
     assert.equal(await status(url, "/v1/tenant", tenants[1]), 200);
-    assert.equal(await connected(tenants[1]), true, "the other Project stays connected");
+    assert.equal(await connected(tenants[1]), true, "the other Project's endpoint still answers");
     await devs[1].stop();
   } finally {
     await group.close();

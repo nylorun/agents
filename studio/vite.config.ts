@@ -18,7 +18,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), {
     name: "exclude-harness-run",
     moduleParsed(info) {
-      if (/[/\\](?:harness|runtime|cli)[/\\](?:dist|src)[/\\]/.test(info.id) || /agents[/\\](?:dist|src)[/\\](?:executor|execute-action)\./.test(info.id)) {
+      if (/[/\\](?:harness|runtime|cli)[/\\](?:dist|src)[/\\]/.test(info.id) || /agents[/\\](?:dist|src)[/\\](?:action-handler|execute-action)\./.test(info.id)) {
         this.error("Studio must not bundle harness execution modules: " + info.id);
       }
     },

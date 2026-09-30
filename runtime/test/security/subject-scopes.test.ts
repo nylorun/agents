@@ -1,7 +1,7 @@
 /**
  * The scope table: every Tenant route, called acting for a subject without the scope it needs
  * (403 `scope_required`, before anything is read or written) and with it (never 403).
- * Operator and executor routes are closed to subjects whatever their scopes.
+ * Operator routes and Action callbacks are closed to subjects whatever their scopes.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SubjectScope } from "@nylorun/core/contracts";
@@ -116,17 +116,12 @@ const routes = (): Route[] => [
     body: () => ({ requestId: "r", scope: "all", activeWork: "cancel" }),
   },
   { method: "PUT", path: "/v1/tenant/config/seed", needs: "never", body: () => ({ requestId: "s" }) },
-  { method: "GET", path: "/v1/executors", needs: "never" },
-  { method: "PUT", path: "/v1/executors", needs: "never", body: () => ({ executors: [] }) },
-  { method: "DELETE", path: "/v1/executors/bot", needs: "never" },
-  { method: "GET", path: "/v1/executors/connect", needs: "never" },
   { method: "GET", path: "/v1/endpoints", needs: "never" },
   { method: "PUT", path: "/v1/endpoints", needs: "never", body: () => ({ endpoints: [] }) },
   { method: "DELETE", path: "/v1/endpoints/bot", needs: "never" },
   { method: "POST", path: "/v1/endpoints/bot/ping", needs: "never" },
   { method: "POST", path: "/v1/actions/act-1/result", needs: "never", body: () => ({ value: null }) },
-  { method: "GET", path: "/v1/actions", needs: "never" },
-  { method: "POST", path: "/v1/actions/a1/claim", needs: "never" },
+  { method: "POST", path: "/v1/actions/a1/heartbeat", needs: "never" },
   { method: "POST", path: "/v1/actions/a1/sandbox/read", needs: "never" },
   { method: "POST", path: "/v1/sessions/owned/sandbox/read", needs: "never", body: () => ({}) },
 ];

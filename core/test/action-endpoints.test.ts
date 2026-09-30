@@ -38,8 +38,6 @@ const action = {
   context: {},
   status: "delivering",
   generation: 1,
-  claimId: null,
-  leaseExpiresAt: null,
   deadlineAt: "2026-09-30T12:01:00.000Z",
   kind: "tool",
   capabilityId: "support.tools",
@@ -128,12 +126,11 @@ describe("deliveries", () => {
     );
   });
 
-  it("still accepts Actions without a deadline", () => {
-    const { deadlineAt: _, ...claimed } = action;
-    expect(
-      ActionSchema.safeParse({ ...claimed, status: "claimed", claimId: "c1", leaseExpiresAt: "x" })
-        .success,
-    ).toBe(true);
+  it("accepts Actions without a deadline, and knows no claims", () => {
+    const { deadlineAt: _, ...pending } = action;
+    expect(ActionSchema.safeParse({ ...pending, status: "pending" }).success).toBe(true);
+    expect(ActionSchema.safeParse({ ...pending, status: "claimed" }).success).toBe(false);
+    expect(ActionSchema.safeParse({ ...pending, claimId: "c1" }).success).toBe(false);
   });
 
   it("parses pings, heartbeats and delivery events", () => {

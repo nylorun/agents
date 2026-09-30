@@ -10,7 +10,7 @@ import { z } from "zod";
 import { EventSchemas, MessageSchema, RunAgentInputSchema } from "@ag-ui/core/schemas";
 import type { TenantEnv } from "../http/app.js";
 import { readJson } from "../http/body.js";
-import { notExecutor, tenantRoute, type RouteAccess } from "../http/define.js";
+import { tenantRoute, type RouteAccess } from "../http/define.js";
 import { jsonResponse } from "../http/respond.js";
 import { agUiCaller, cancelRun, reattachRun, startRun, threadMessages } from "./routes.js";
 import { sessionIdFor } from "./session-id.js";
@@ -50,10 +50,9 @@ const agentId = z.object({ agentId: z.string() });
 const thread = agentId.extend({ threadId: z.string() });
 const TAGS = ["AG-UI"];
 
-/** The executor gate, then the person the request acts for, who may use the agent. */
+/** The person the request acts for, who may use the agent. */
 function callerOf(c: Context<TenantEnv>) {
   const scope = c.get("scope");
-  notExecutor(scope);
   return { scope, ...agUiCaller(scope, c.req.param("agentId")!) };
 }
 

@@ -45,11 +45,12 @@ try {
       import assert from 'node:assert/strict';
       import { Agent } from '@nylorun/agents/define';
       import { createClient } from '@nylorun/agents/client';
-      import { connectAgents } from '@nylorun/agents/executor';
+      import { createActionHandler } from '@nylorun/agents';
       import { createAgUiHandler, toNodeListener } from '@nylorun/agents/ag-ui';
       assert.equal(Agent({id:'isolated',name:'Isolated'}).manifest.id, 'isolated');
       assert.equal(typeof createClient, 'function');
-      assert.equal(typeof connectAgents, 'function');
+      assert.equal(typeof createActionHandler, 'function');
+      await assert.rejects(import('@nylorun/agents/executor'));
       assert.equal(typeof createAgUiHandler, 'function');
       assert.equal(typeof toNodeListener, 'function');
     `

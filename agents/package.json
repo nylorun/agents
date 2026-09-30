@@ -24,10 +24,6 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
     },
-    "./executor": {
-      "types": "./dist/executor.d.ts",
-      "import": "./dist/executor.js"
-    },
     "./ag-ui": {
       "types": "./dist/ag-ui/index.d.ts",
       "import": "./dist/ag-ui/index.js"

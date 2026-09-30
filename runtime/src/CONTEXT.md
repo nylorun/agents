@@ -17,7 +17,7 @@ application, Studio, the CLI, a desktop app, an IDE extension or CI.
 _Avoid_: calling only the SDK or only the CLI "the client".
 
 **Tenant API**: Every route a Tenant principal calls, identified by the
-`Nylorun-Tenant` header or a publishable key (`Nylorun-Key`). Agents, sessions, events, executors, vaults, Tenant
+`Nylorun-Tenant` header or a publishable key (`Nylorun-Key`). Agents, sessions, events, Action endpoints, vaults, Tenant
 settings and status. Client package: `@nylorun/agents`.
 _Avoid_: "SDK API" or "application API" as the surface name.
 
@@ -110,7 +110,7 @@ _Avoid_: "server token" / `serverToken` as the public name (legacy API).
 integrator (`app:42`); 1–200 visible ASCII characters, `host` reserved (it owns
 the host model's vault). A subject reaches only sessions and vaults whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
-missing one. Only application principals may send it; from an executor it is
+missing one. Only application principals may send it; with a delivery token it is
 `403`.
 A **subject token** names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
@@ -119,7 +119,7 @@ _Avoid_: "user" for the header value (the Runtime has no user accounts).
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
 `vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). Each route declares
 the scopes that allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
-lookup (`403 scope_required`); reset, config seed, executors, actions, the
+lookup (`403 scope_required`); reset, config seed, endpoints, actions, the
 sandbox tool routes, `/v1/tokens` and `/v1/access/**` are open to no subject.
 A subject token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
 `vaults:own`).
@@ -136,7 +136,7 @@ of the agents it may use.
 _Avoid_: "session token", "JWT" as the public name; accepting one from a query
 string.
 
-**Signing key**: A Tenant's ES256 key pair for subject tokens (`signing_keys`,
+**Signing key**: A Tenant's ES256 key pair for subject and delivery tokens (`signing_keys`,
 `tenant/signing-keys.ts`): the public JWK in the clear, the private key sealed
 with the vault KEK. States `standby`, `current` (signs), `previous` (verifies),
 `revoked`. Rotation never signs anyone out; `force` does.
@@ -173,7 +173,7 @@ _Avoid_: calling it an API key or a secret; using it to authorize (tokens do).
 (`browserAccess`; `NYLORUN_BROWSER_ACCESS`, on in the stack). The Host answers
 preflights for browser routes from the route alone; the Tenant admits an
 `Origin` only with a publishable key that lists it, and only then sets CORS
-headers. `/health`, `/ready`, admin routes and Tenant or executor keys refuse
+headers. `/health`, `/ready`, admin routes and delivery tokens refuse
 `Origin` always.
 
 **Subject limits**: A role's `turnsPerHour` (a token bucket per subject) and
@@ -183,7 +183,7 @@ subject token starts a turn (`429 limit_exceeded`, `tenant/subject-limits.ts`).
 **App server**: The developer's own server: signs people in, names the subject
 and scopes on each Runtime call (`client.as`) or mints subject tokens for its
 pages, hosts the AG-UI handler (which forwards to the Runtime's AG-UI endpoint)
-and the executor, and strips any `Nylorun-*` header its clients send. Nylorun ships
+and the Action endpoint, and strips any `Nylorun-*` header its clients send. Nylorun ships
 libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
 
@@ -193,18 +193,35 @@ port proxied (admin routes blocked as well), Studio and the operator port never
 proxied, `OPTIONS`, `Origin` and `Nylorun-Key` passed through, no CORS headers
 of its own. Configured by the developer (Caddy, nginx, Tailscale).
 
-**Executor principal**: Bearer credential hashed in the Tenant `executors`
-table, scoped to an `agentId`. Never equal to an application principal hash.
-Version 1 derives the token from the application key (HMAC); nothing stores it.
-_Avoid_: startup env registration of executors (removed); persisting random
-executor tokens in Project credentials.
+**Action endpoint**: The URL an app registers for one agent (`PUT /v1/endpoints`,
+`endpoints` table, `tenant/endpoints.ts`), served by `createActionHandler` from
+`@nylorun/agents`. The Runtime POSTs each of the agent's Actions (tool, hook, `fn`,
+`verify`) there. The endpoint answers with the outcome, or with `202` for a
+background tool, which later posts `POST /v1/actions/:id/result`. Health comes from
+recent deliveries and `POST /v1/endpoints/:agentId/ping`.
+_Avoid_: "executor", "webhook" or "callback URL" for it.
+
+**Delivery**: One POST of an Action to its endpoint (`tenant/delivery.ts`, run by the
+execution's `deliver` handler). The Action is `delivering` until its `deadlineAt`; then it
+is lost. A lost tool is `uncertain`; a lost hook, `fn` or `verify` is delivered again.
+Unreachable endpoints are retried with backoff (`action.delivery_failed`), and a cancel
+aborts the request.
+
+**Delivery token**: ES256 JWT (`typ: nylorun-delivery+jwt`) in `Nylorun-Signature`,
+signed with the Tenant's signing key (`tenant/delivery-token.ts`). It names the
+endpoint URL (`aud`), the Action and generation (`sub`, `gen`), and the SHA-256 of the
+body (`bdy`), and lives at most 900 s. It authorizes only that Action's
+`/v1/actions/:id/{heartbeat,result,sandbox/:tool}`, and only while that generation is
+being delivered. Endpoints verify it with the public JWKS (`GET /v1/access/jwks`,
+readable without a credential).
+_Avoid_: "executor key" (removed in protocol 3).
 
 **Admin key**: Host-level secret in `host-credentials.json` (mode 0600).
 Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 2`; required features `runtime-tenants`,
-`admin-status` and `studio-principal`; optional Host features
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 3`; required features `runtime-tenants`,
+`admin-status`, `studio-principal` and `action-endpoints`; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
 `subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint` and
 `a2a-endpoint`).
@@ -276,7 +293,7 @@ One line each; the module named is where the term lives in code.
 - **Outbox**: Session Store rows holding events committed but not yet in Durable Streams (`OutboxRow` in `store/types.ts`).
 - **Relay**: Appends outbox rows to their session's stream in order and deletes them once S2 has them; the only writer of events (`streams/relay.ts`).
 - **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`).
-- **Tenant sweep**: A per-Tenant durable timer that expires claims, re-wakes orphaned sessions, drains the outbox and stops idle sandboxes (`tenant/sweep.ts`).
+- **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions, drains the outbox and stops idle sandboxes (`tenant/sweep.ts`).
 - **Stream incarnation**: The id in a session's stream name `sessions/<id>/<incarnation>`, new each time a session id is created (`streams/types.ts`, `tenant/streams.ts`).
 
 ## Terms to avoid (appear nowhere in new copy)
@@ -288,10 +305,9 @@ One line each; the module named is where the term lives in code.
 | `--global`, `--db`, a database path variable | Host root + Tenant (CLI) |
 | `/v1/host/model*` (Tenant routes) | `/v1/tenant/model*` |
 | `startRuntime` / `createRuntime` | `startEphemeralRuntime` (tests) / Host entry |
-| `NYLORUN_EXECUTORS_JSON` | `PUT /v1/executors` with application credential |
-| `nylorun serve` | `node dist/src/main.js` / `connectAgents` entry |
+| `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents` | Action endpoints: `createActionHandler` and `PUT /v1/endpoints` |
+| `nylorun serve` | `node dist/src/main.js` / the app's Action endpoint |
 | importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
-| storing executor tokens in the Project | derived executor credentials |
 | `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun up` |
 | `nylorun dev`, `nylorun dev --ephemeral` | `nylo tenant create` once, then the project's `npm run dev` |
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres schema (Session Store) |

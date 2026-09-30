@@ -20,10 +20,8 @@ const base = {
   manifestHash: "hash",
   implementationVersion: "dev",
   context: {},
-  status: "claimed" as const,
+  status: "delivering" as const,
   generation: 1,
-  claimId: "claim",
-  leaseExpiresAt: null,
 };
 
 function workflowWithTool(run: (

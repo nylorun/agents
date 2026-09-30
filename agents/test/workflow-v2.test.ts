@@ -6,18 +6,58 @@ import { z } from "zod";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import type { Action } from "@nylorun/core/contracts";
 import { Agent, hashManifest, tool } from "../src/index.js";
+import { createActionHandler } from "../src/action-handler.js";
 import { AgentsClient } from "../src/client.js";
-import { connectAgents } from "../src/executor.js";
 import { executeAction } from "../src/execute-action.js";
 
 /**
  * Flow Agents Phase 2 in the SDK: a flow agent is saved as one workflow manifest v2
- * document, and its executor serves flow actions only for the manifest it runs.
+ * document, and its Action endpoint serves flow actions only for the manifest it runs.
  */
 
 const TENANT = "tn_00000000000000000000000001";
 const KEY = "a".repeat(64);
 const URL = "http://127.0.0.1:8787";
+const ENDPOINT = "http://localhost:3000/nylorun/actions";
+
+/** Registers `agents` against a fake Runtime; returns what was saved and registered. */
+async function register(agents: Parameters<typeof createActionHandler>[0]["agents"]) {
+  const saved: string[] = [];
+  let registrations: { agentId: string; manifestHash?: string }[] = [];
+  const application = new AgentsClient({
+    url: URL,
+    key: KEY,
+    tenant: TENANT,
+    fetch: async (url, init) => {
+      const path = String(url);
+      if (path.endsWith("/health")) return healthOk();
+      if (path.includes("/v1/agents/") && init?.method === "PUT") {
+        saved.push(decodeURIComponent(path.split("/").pop()!));
+        return Response.json({ ok: true });
+      }
+      if (path.endsWith("/v1/endpoints") && init?.method === "PUT") {
+        registrations = JSON.parse(String(init.body)).endpoints;
+        return Response.json({ endpoints: [] });
+      }
+      if (path.endsWith("/ping")) {
+        const agentId = decodeURIComponent(path.split("/").at(-2)!);
+        const manifestHash = registrations.find((r) => r.agentId === agentId)?.manifestHash;
+        return Response.json({
+          agentId,
+          implementationVersion: "test",
+          ...(manifestHash ? { manifestHash } : {}),
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    },
+  });
+  const answers = await createActionHandler({
+    agents,
+    client: application,
+    implementationVersion: "test",
+  }).register({ url: ENDPOINT });
+  return { saved, registrations, answers };
+}
 
 function healthOk() {
   return Response.json({
@@ -91,93 +131,20 @@ describe("saveAgent with a v2 flow agent", () => {
   });
 });
 
-describe("connectAgents with a v2 flow agent", () => {
-  it("saves only the flow agent, and registers its executor with the manifest hash", async () => {
+describe("createActionHandler with a v2 flow agent", () => {
+  it("saves only the flow agent, and registers its endpoint with the manifest hash", async () => {
     const desk = deskWith(pluginFolder());
-    const saved: string[] = [];
-    let registrations: { agentId: string; manifestHash?: string }[] = [];
-    const application = new AgentsClient({
-      url: URL,
-      key: KEY,
-      tenant: TENANT,
-      fetch: async (url, init) => {
-        const path = String(url);
-        if (path.endsWith("/health")) return healthOk();
-        if (path.includes("/v1/agents/") && init?.method === "PUT") {
-          saved.push(decodeURIComponent(path.split("/").pop()!));
-          return Response.json({ ok: true });
-        }
-        if (path.endsWith("/v1/executors") && init?.method === "PUT") {
-          registrations = JSON.parse(String(init.body)).executors;
-          return Response.json({
-            executors: registrations.map((e) => ({ agentId: e.agentId, implementationVersion: "test", rotated: false })),
-          });
-        }
-        if (path.endsWith("/v1/executors/connect"))
-          return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
-        if (path.endsWith("/v1/actions")) return Response.json({ actions: [] });
-        throw new Error(`unexpected ${path}`);
-      },
-    });
-    const connection = connectAgents({ agents: [desk], application, implementationVersion: "test", onError: () => {} });
-    await connection.ready;
-    await connection.close();
+    const { saved, registrations, answers } = await register([desk]);
     expect(saved).toEqual(["desk"]);
     expect(registrations.map((r) => [r.agentId, r.manifestHash])).toEqual([
       ["desk", hashManifest(desk.manifest)],
       ["writer", undefined],
     ]);
-  });
-
-  it("leaves flow actions for another manifest hash unclaimed", async () => {
-    const desk = deskWith(pluginFolder());
-    const action = (id: string, manifestHash: string) => ({
-      actionId: id,
-      sessionId: "s1",
-      turnId: "t1",
+    expect(answers[0]).toEqual({
       agentId: "desk",
-      manifestHash,
       implementationVersion: "test",
-      kind: "fn",
-      path: "shout:input",
-      key: "shout:input",
-      input: { input: "hi", results: {}, flowInput: "go" },
-      context: {},
-      status: "pending",
-      generation: 0,
-      claimId: null,
-      leaseExpiresAt: null,
+      manifestHash: hashManifest(desk.manifest),
     });
-    const claims: string[] = [];
-    const errors: string[] = [];
-    const connection = connectAgents({
-      agents: [desk],
-      implementationVersion: "test",
-      runtime: {
-        url: URL,
-        key: "e".repeat(64),
-        tenant: TENANT,
-        fetch: async (url, init) => {
-          const path = String(url);
-          if (path.endsWith("/health")) return healthOk();
-          if (path.endsWith("/v1/executors/connect"))
-            return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
-          if (path.endsWith("/v1/actions"))
-            return Response.json({ actions: [action("old", "sha256:old"), action("current", hashManifest(desk.manifest))] });
-          if (path.includes("/claim")) {
-            claims.push(path.split("/").at(-2)!);
-            return new Response("gone", { status: 409 });
-          }
-          return Response.json({});
-        },
-      },
-      onError: (error) => errors.push(String((error as Error).message)),
-    });
-    await connection.ready;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await connection.close();
-    expect(claims).toEqual(["current"]);
-    expect(errors.some((e) => e.includes("Skipped action old"))).toBe(true);
   });
 });
 
@@ -191,10 +158,8 @@ describe("executeAction on a v2 flow agent", () => {
       manifestHash: hashManifest(desk.manifest),
       implementationVersion: "test",
       context: {},
-      status: "claimed" as const,
+      status: "delivering" as const,
       generation: 1,
-      claimId: "claim",
-      leaseExpiresAt: null,
     };
     const input = await executeAction(
       {
@@ -242,35 +207,8 @@ describe("a flow agent used as a tool (Phase 3)", () => {
     expect(puts[0]!.body.pluginRoots).toEqual({ "research/searcher/github": realpathSync(root) });
   });
 
-  it("is served by the parent's executor, with its agents", async () => {
-    const saved: string[] = [];
-    let registrations: { agentId: string; manifestHash?: string }[] = [];
-    const application = new AgentsClient({
-      url: URL,
-      key: KEY,
-      tenant: TENANT,
-      fetch: async (url, init) => {
-        const path = String(url);
-        if (path.endsWith("/health")) return healthOk();
-        if (path.includes("/v1/agents/") && init?.method === "PUT") {
-          saved.push(decodeURIComponent(path.split("/").pop()!));
-          return Response.json({ ok: true });
-        }
-        if (path.endsWith("/v1/executors") && init?.method === "PUT") {
-          registrations = JSON.parse(String(init.body)).executors;
-          return Response.json({
-            executors: registrations.map((e) => ({ agentId: e.agentId, implementationVersion: "test", rotated: false })),
-          });
-        }
-        if (path.endsWith("/v1/executors/connect"))
-          return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
-        if (path.endsWith("/v1/actions")) return Response.json({ actions: [] });
-        throw new Error(`unexpected ${path}`);
-      },
-    });
-    const connection = connectAgents({ agents: [lead], application, implementationVersion: "test", onError: () => {} });
-    await connection.ready;
-    await connection.close();
+  it("is served by the parent's Action endpoint, with its agents", async () => {
+    const { saved, registrations } = await register([lead]);
     expect(saved).toEqual(["lead"]);
     expect(registrations.map((r) => r.agentId)).toEqual(["lead", "research", "searcher"]);
     expect(registrations[1]!.manifestHash).toBe(hashManifest(research.manifest));

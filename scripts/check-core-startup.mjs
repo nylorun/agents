@@ -1,14 +1,15 @@
 // Startup only: no sessions, commands, customer functions, or model requests.
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEphemeralRuntime } from "@nylorun/runtime/core";
-import { Agent, connectAgents } from "@nylorun/agents";
+import { Agent, createActionHandler, createClient } from "@nylorun/agents";
 
 const agent = Agent({ id: "startup-only", name: "Startup import check" });
 const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-core-startup-"));
 let runtime;
-let connection;
+let server;
 try {
   runtime = await startEphemeralRuntime({
     hostRoot,
@@ -18,60 +19,37 @@ try {
     },
     retainRoot: true,
   });
-  const headers = {
-    authorization: `Bearer ${runtime.applicationKey}`,
-    "Nylorun-Tenant": runtime.tenantId,
-    "Nylorun-Protocol": "2",
-    "content-type": "application/json",
-  };
-  const listed = await fetch(`${runtime.url}/v1/executors`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({
-      executors: [
-        {
-          token: "startup-executor-key-only",
-          agentId: agent.id,
-          implementationVersion: "dev",
-        },
-      ],
-    }),
+  const client = createClient({
+    url: runtime.url,
+    key: runtime.applicationKey,
+    tenant: runtime.tenantId,
   });
-  if (!listed.ok)
-    throw new Error(
-      `/v1/executors failed: ${listed.status} ${await listed.text()}`,
-    );
-  console.log("/v1/executors", listed.status, await listed.json());
-  connection = connectAgents({
-    agents: [agent],
-    runtime: {
-      url: runtime.url,
-      key: "startup-executor-key-only",
-      tenant: runtime.tenantId,
-    },
-  });
+  const actions = createActionHandler({ agents: [agent], client });
+  server = createServer(actions.node);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/nylorun/actions`;
   let timer;
   try {
-    await Promise.race([
-      connection.ready,
+    // Registers the endpoint and pings it through the Runtime: a signed delivery reaches the
+    // handler, which verifies it with the Tenant's public keys.
+    const answers = await Promise.race([
+      actions.register({ url, saveDefinitions: false }),
       new Promise((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error("Idle SSE startup timed out")),
+          () => reject(new Error("Action endpoint registration timed out")),
           10000,
         );
       }),
     ]);
+    console.log("/v1/endpoints registered and pinged", answers);
   } finally {
     clearTimeout(timer);
   }
-  console.log(
-    "Idle authenticated SSE connected and initial empty discovery completed.",
-  );
 } finally {
-  await connection?.close();
+  await new Promise((resolve) => (server ? server.close(resolve) : resolve()));
   await runtime?.close();
   await rm(hostRoot, { recursive: true, force: true });
 }
 console.log(
-  "Executor and ephemeral Runtime shut down cleanly. No functionality checks run.",
+  "Action endpoint and ephemeral Runtime shut down cleanly. No functionality checks run.",
 );

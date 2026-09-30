@@ -10,7 +10,6 @@ import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant, type StartTestTenantOptions } from "../support/tenant.js";
 
 export const APP = "host-execution-app-token-aaaaaaa";
-const EXECUTOR = "host-execution-executor-token-aa";
 export const server = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
@@ -23,7 +22,6 @@ export const plain = Agent({ id: "bot", name: "Bot" }).build();
 export async function boot(options: StartTestTenantOptions): Promise<Started> {
   return startTestTenant({
     applicationKey: APP,
-    executors: [{ token: EXECUTOR, agentId: "bot", implementationVersion: "dev" }],
     ...options,
   });
 }

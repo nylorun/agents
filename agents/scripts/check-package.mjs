@@ -22,9 +22,18 @@ try {
   if (nodeOnly.length)
     throw new Error(`Browser entry loaded Node-only modules: ${nodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
-  for (const name of ["Agent", "createClient", "connectAgents", "createActionHandler"])
+  for (const name of ["Agent", "createClient", "createActionHandler"])
     if (typeof sdk[name] !== "function")
       throw new Error(`Missing SDK export ${name}`);
+  // Executors were removed in protocol 3: no pull-model export or subpath remains.
+  for (const name of ["connectAgents", "deriveExecutorToken"])
+    if (name in sdk) throw new Error(`Removed SDK export ${name} is still exported`);
+  const executorEntry = await import("@nylorun/agents/executor").then(
+    () => true,
+    () => false
+  );
+  if (executorEntry)
+    throw new Error("Removed subpath @nylorun/agents/executor still resolves");
   const execution = loaded.filter((url) =>
     /[/\\](?:harness|runtime|cli)[/\\](?:src|dist)[/\\]/.test(url)
   );

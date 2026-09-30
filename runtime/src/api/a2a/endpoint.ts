@@ -7,7 +7,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import type { TenantEnv } from "../http/app.js";
 import { readText } from "../http/body.js";
-import { notExecutor, tenantRoute } from "../http/define.js";
+import { tenantRoute } from "../http/define.js";
 import { jsonResponse } from "../http/respond.js";
 import { a2aCall, a2aCard } from "./routes.js";
 
@@ -62,7 +62,6 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       return jsonResponse(200, await a2aCard(c.env.tenant, scope, c.req.param("agentId")!));
     },
   );
@@ -94,7 +93,6 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       const version = c.env.incoming.headers["a2a-version"];
       return jsonResponse(
         200,

@@ -5,7 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { PROTOCOL_FEATURES } from "@nylorun/core/compatibility";
+import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { readCredentials } from "../../src/project/credentials.js";
 import { readLink } from "../../src/project/link.js";
 
@@ -31,7 +31,7 @@ async function runtime() {
     const received = { method: request.method ?? "GET", url, body: await body(request) };
     requests.push(received);
     response.setHeader("content-type", "application/json");
-    const protocol = { min: 2, max: 2, features: [...PROTOCOL_FEATURES] };
+    const protocol = { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] };
     if (url === "/health") return void response.end(JSON.stringify({ hostId: HOST_ID, protocol }));
     if (url === "/v1/admin/status")
       return void response.end(
@@ -40,7 +40,7 @@ async function runtime() {
           version: "0.10.0-beta",
           protocol,
           tenants: [],
-          aggregate: { runningSessions: 0, connectedExecutors: 0, pendingActions: 0, uncertainEffects: 0 },
+          aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
           host: { hostId: HOST_ID, url: "http://localhost", pid: 1 },
         }),
       );

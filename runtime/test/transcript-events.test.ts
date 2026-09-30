@@ -2,7 +2,6 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import {
   Agent,
-  connectAgents,
   createClient,
   tool,
   type AgentsClient,
@@ -17,6 +16,7 @@ import {
 } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents } from "./support/endpoint.js";
 
 const APP = "transcript-events-app-token-aaaa";
 
@@ -183,7 +183,7 @@ it("pauses for approval on a tool with an output schema, with call ids on every 
       ],
     })
     .build();
-  const connection = connectAgents({
+  const connection = serveAgents({
     agents: [agent],
     application: client,
     implementationVersion: "dev",

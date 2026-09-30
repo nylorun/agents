@@ -9,7 +9,7 @@
  *    written.
  * 2. Outside any transaction: the body is signed with a delivery token and POSTed.
  * 3. In a second transaction, only while the Action is still `delivering` at that generation:
- *    the answer becomes the outcome (`recordActionOutcome`, shared with executors), the
+ *    the answer becomes the outcome (`recordActionOutcome`, shared with background results), the
  *    Action goes back to `pending` to be tried again, or it is lost.
  *
  * Nothing sent (connection refused, unknown host, a refused address), `429`, `503` and a
@@ -58,8 +58,8 @@ const RETRY_AFTER_MAX_MS = 5 * 60_000;
 const NOTICE_INTERVAL_MS = 10_000;
 
 /**
- * Offers an Action that just became `pending`: to its endpoint when the agent has one, after the
- * transaction commits, and to executors otherwise.
+ * Offers an Action that just became `pending` to its agent's endpoint, after the transaction
+ * commits. Without an endpoint it waits for the agent's next registration (`PUT /v1/endpoints`).
  */
 export async function offerAction(
   t: Tx,
@@ -68,7 +68,6 @@ export async function offerAction(
 ): Promise<void> {
   if (await t.getEndpoint(action.agentId))
     t.afterCommit(() => void ctx.deliver(action.actionId));
-  else t.signalWork();
 }
 
 type Started =
@@ -103,14 +102,12 @@ export async function deliverAction(
     )
       return { kind: "none" };
     const endpoint = await t.getEndpoint(action.agentId);
-    // No endpoint: it waits, for an executor or for the next registration.
+    // No endpoint: it waits for the next registration.
     if (!endpoint) return { kind: "none" };
     if ((await t.deliveringCount(action.agentId)) >= endpoint.maxConcurrent)
       return { kind: "busy" };
     action.status = "delivering";
     action.generation += 1;
-    action.claimId = null;
-    action.leaseExpiresAt = null;
     action.deadlineAt = new Date(
       Date.now() + endpoint.timeoutMs + DEADLINE_GRACE_MS,
     ).toISOString();
@@ -354,7 +351,7 @@ async function notice(
 
 /**
  * A delivery that may have reached the endpoint got no answer. A tool becomes `uncertain`, with
- * its effect and its session, as a lost executor claim does (`sweep.ts` `expireClaims`). A hook,
+ * its effect and its session. A hook,
  * `fn` or `verify` is pure or repeat-safe and goes back to `pending`: delivered again right away
  * (`after-commit`) or by the caller's retry (`retry`). Returns true when it will be delivered again.
  */

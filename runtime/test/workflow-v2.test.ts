@@ -4,12 +4,11 @@ import {
   Agent,
   tool,
   createClient,
-  connectAgents,
-  type AgentConnection,
   type BuiltWorkflow,
   type JsonValue,
 } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * Flow Agents Phase 2, end to end: a flow agent is saved as one workflow manifest v2
@@ -64,7 +63,7 @@ async function run(workflow: BuiltWorkflow, message: string, reply = "hello big 
   });
   cleanups.push(() => tenant.close());
   const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-  const connection: AgentConnection = connectAgents({
+  const connection: ServedAgents = serveAgents({
     agents: [workflow],
     application: client,
     implementationVersion: "v2",

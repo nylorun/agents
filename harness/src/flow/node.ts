@@ -130,7 +130,7 @@ async function runTool(
 }
 
 /**
- * The executor settles a tool node like any tool: `{ kind: "completed", output }` or
+ * The Action endpoint settles a tool node like any tool: `{ kind: "completed", output }` or
  * `{ kind: "denied", reason }`. The flow passes on the output only. Failed values are
  * already raised by `ctx.effect`.
  */

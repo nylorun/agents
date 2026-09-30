@@ -40,7 +40,6 @@ suite("a session on an OpenShell sandbox", () => {
     const runtime = await startTestTenant({
       mode: "test",
       applicationKey: APP,
-      executors: [],
       vaultKek: null,
       modelProvider: model,
       sandbox: { backend: "openshell", backends: [openshellBackend({ gateway })] },

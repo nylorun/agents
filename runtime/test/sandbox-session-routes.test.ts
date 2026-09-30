@@ -1,15 +1,12 @@
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import { registerEndpoint, startEndpoint } from "./support/endpoint.js";
 import { startTestTenant } from "./support/tenant.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
 const APP = "server-token-value-aaaaaaaa";
 const serverHeaders = {
   authorization: `Bearer ${APP}`,
-  "content-type": "application/json",
-};
-const executorHeaders = {
-  authorization: "Bearer executor-token-value",
   "content-type": "application/json",
 };
 
@@ -20,13 +17,6 @@ async function boot(modelProvider?: ModelProvider) {
   return startTestTenant({
     mode: "test",
     applicationKey: APP,
-    executors: [
-      {
-        token: "executor-token-value",
-        agentId: "coder",
-        implementationVersion: "dev",
-      },
-    ],
     vaultKek: null,
     modelProvider:
       modelProvider ??
@@ -198,7 +188,7 @@ it("rejects PutSession.sandbox when the target has no sandbox or another owner",
   }
 });
 
-it("authorizes claim-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
+it("authorizes delivery-token-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
   const { tool } = await import("@nylorun/core/define");
   const { z } = await import("zod");
   const agent = Agent({ id: "coder", name: "Coder" })
@@ -226,8 +216,10 @@ it("authorizes claim-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
       },
     ],
   }));
+  const endpoint = await startEndpoint({ runtime });
   try {
     await putAgent(runtime, agent);
+    await registerEndpoint(runtime, "coder", endpoint.url);
     await fetch(`${runtime.url}/v1/sessions/s1`, {
       method: "PUT",
       headers: serverHeaders,
@@ -249,63 +241,31 @@ it("authorizes claim-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
       }),
     });
 
-    let actionId: string | undefined;
-    for (let i = 0; i < 80; i++) {
-      const listed = (await (
-        await fetch(`${runtime.url}/v1/actions`, { headers: executorHeaders })
-      ).json()) as { actions: { actionId: string }[] };
-      if (listed.actions[0]) {
-        actionId = listed.actions[0].actionId;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    expect(actionId).toBeTruthy();
+    const delivery = await endpoint.next();
+    // The delivery tells the endpoint that ctx.sandbox is available.
+    expect(delivery.sandbox).toBe(true);
 
-    const claimed = (await (
-      await fetch(`${runtime.url}/v1/actions/${actionId}/claim`, {
-        method: "POST",
-        headers: executorHeaders,
-        body: JSON.stringify({
-          requestId: "claim-1",
-          implementationVersion: "dev",
-        }),
-      })
-    ).json()) as { claimId: string; generation: number; sandbox?: boolean };
-    // The claim tells the executor that ctx.sandbox is available.
-    expect(claimed.sandbox).toBe(true);
+    const write = await delivery.sandboxTool("write", { path: "delivered.txt", content: "ok" });
+    expect(write.status, JSON.stringify(write.body)).toBe(200);
+    expect(write.body.kind).toBe("completed");
 
-    const write = await fetch(
-      `${runtime.url}/v1/actions/${actionId}/sandbox/write`,
+    // Only the delivery token opens the route.
+    const application = await fetch(
+      `${runtime.url}/v1/actions/${encodeURIComponent(delivery.action.actionId)}/sandbox/bash`,
       {
         method: "POST",
-        headers: executorHeaders,
-        body: JSON.stringify({
-          claimId: claimed.claimId,
-          generation: claimed.generation,
-          path: "claim.txt",
-          content: "ok",
-        }),
+        headers: serverHeaders,
+        body: JSON.stringify({ command: "echo no" }),
       }
     );
-    expect(write.ok, await write.clone().text()).toBe(true);
-    const written = (await write.json()) as { kind: string };
-    expect(written.kind).toBe("completed");
+    expect(application.ok).toBe(false);
 
-    const stale = await fetch(
-      `${runtime.url}/v1/actions/${actionId}/sandbox/bash`,
-      {
-        method: "POST",
-        headers: executorHeaders,
-        body: JSON.stringify({
-          claimId: "wrong",
-          generation: claimed.generation,
-          command: "echo no",
-        }),
-      }
-    );
+    // Once the Action has its result, the delivery's token no longer runs sandbox tools.
+    expect((await delivery.result({ kind: "completed", output: { ok: true } })).status).toBe(200);
+    const stale = await delivery.sandboxTool("bash", { command: "echo no" });
     expect(stale.status).toBe(409);
   } finally {
+    await endpoint.close();
     await runtime.close();
   }
 });

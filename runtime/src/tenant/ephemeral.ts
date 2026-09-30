@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { hashToken, mintBearerToken } from "../core/executors.js";
+import { hashToken, mintBearerToken } from "../core/bearer.js";
 import { createHost } from "../host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";

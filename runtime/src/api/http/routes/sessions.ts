@@ -37,7 +37,7 @@ import {
 } from "../../../tenant/sessions.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
-import { notExecutor, tenantRoute, type RouteAccess } from "../define.js";
+import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 
 const OWN_SESSIONS: RouteAccess = {
@@ -108,7 +108,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       if (scope.kind === "publishable")
         return jsonResponse(200, await listAgentsPublic(ctx, scope.agents));
-      notExecutor(scope);
       return jsonResponse(
         200,
         scope.kind === "token"
@@ -130,7 +129,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(PutAgentResponse, "The definition, stored") },
     },
     async (c) => {
-      notExecutor(c.get("scope"));
       return jsonResponse(
         200,
         await putDefinition(
@@ -156,7 +154,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       return jsonResponse(
         200,
         await listSessions(c.env.tenant, c.req.query("agentId") ?? null, accessOf(scope)),
@@ -182,7 +179,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       const ctx = c.env.tenant;
       const request = PutSessionRequestSchema.parse(await readJson(c.req.raw));
       // Agent code may trust `info`: only an app server sets it.
@@ -206,7 +202,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       const ctx = c.env.tenant;
       const id = c.req.param("sessionId")!;
       return jsonResponse(
@@ -237,7 +232,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       const ctx = c.env.tenant;
       const id = c.req.param("sessionId")!;
       const cursor = await sessionBelow(ctx, c.env.incoming, id, accessOf(scope));
@@ -269,7 +263,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       const ctx = c.env.tenant;
       const { incoming, outgoing } = c.env;
       const id = c.req.param("sessionId")!;
@@ -308,7 +301,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const scope = c.get("scope");
-      notExecutor(scope);
       const ctx = c.env.tenant;
       const id = c.req.param("sessionId")!;
       await sessionBelow(ctx, c.env.incoming, id, accessOf(scope));

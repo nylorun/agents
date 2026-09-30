@@ -18,7 +18,6 @@ const envKeys = [
   "NYLORUN_RUNTIME_URL",
   "NYLORUN_TENANT",
   "NYLORUN_SERVER_KEY",
-  "NYLORUN_EXECUTOR_KEY",
 ] as const;
 
 afterEach(() => {
@@ -74,7 +73,6 @@ describe("resolveConnection (C1)", () => {
       url: URL,
       tenant: TENANT,
       key: KEY,
-      role: "application",
       source: "options",
     });
   });
@@ -90,30 +88,29 @@ describe("resolveConnection (C1)", () => {
     );
   });
 
-  it("uses environment when complete; executor key selects role", async () => {
-    process.env.NYLORUN_RUNTIME_URL = URL;
-    process.env.NYLORUN_TENANT = TENANT;
-    process.env.NYLORUN_EXECUTOR_KEY = "c".repeat(64);
-    const resolved = await resolveConnection();
-    expect(resolved).toEqual({
-      url: URL,
-      tenant: TENANT,
-      key: "c".repeat(64),
-      role: "executor",
-      source: "environment",
-    });
-  });
-
-  it("uses application key from environment when executor key is absent", async () => {
+  it("uses the application key from a complete environment", async () => {
     process.env.NYLORUN_RUNTIME_URL = URL;
     process.env.NYLORUN_TENANT = TENANT;
     process.env.NYLORUN_SERVER_KEY = KEY;
     const resolved = await resolveConnection();
-    expect(resolved).toMatchObject({
+    expect(resolved).toEqual({
+      url: URL,
+      tenant: TENANT,
       key: KEY,
-      role: "application",
       source: "environment",
     });
+  });
+
+  it("ignores the removed NYLORUN_EXECUTOR_KEY", async () => {
+    const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
+    await writeProjectLink(root);
+    process.env.NYLORUN_EXECUTOR_KEY = "c".repeat(64);
+    try {
+      const resolved = await resolveConnection({ cwd: root });
+      expect(resolved).toMatchObject({ key: KEY, source: "project-link" });
+    } finally {
+      delete process.env.NYLORUN_EXECUTOR_KEY;
+    }
   });
 
   it("fails on a partial environment without reading a project link", async () => {
@@ -138,7 +135,6 @@ describe("resolveConnection (C1)", () => {
       url: URL,
       tenant: TENANT,
       key: KEY,
-      role: "application",
       source: "project-link",
     });
   });

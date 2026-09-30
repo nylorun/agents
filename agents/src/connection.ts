@@ -11,7 +11,6 @@ export interface ResolvedConnection {
   url: string;
   tenant: string;
   key: string;
-  role: "application" | "executor";
   source: "options" | "environment" | "project-link";
 }
 
@@ -62,7 +61,6 @@ async function readProjectLink(
       url: stripTrailingSlash(link.hostUrl),
       tenant: link.tenantId,
       key: credentials.applicationKey,
-      role: "application",
       source: "project-link",
     };
   }
@@ -91,8 +89,7 @@ export async function resolveConnection(options?: {
         url: stripTrailingSlash(optionUrl),
         tenant: optionTenant,
         key: optionKey,
-        role: "application",
-        source: "options",
+          source: "options",
       };
     }
     missing(tried.concat(["environment", "project-link"]));
@@ -101,21 +98,17 @@ export async function resolveConnection(options?: {
   const envUrl = env("NYLORUN_RUNTIME_URL");
   const envTenant = env("NYLORUN_TENANT");
   const envServerKey = env("NYLORUN_SERVER_KEY");
-  const envExecutorKey = env("NYLORUN_EXECUTOR_KEY");
   const anyEnv =
     envUrl !== undefined ||
     envTenant !== undefined ||
-    envServerKey !== undefined ||
-    envExecutorKey !== undefined;
+    envServerKey !== undefined;
   tried.push("environment");
   if (anyEnv) {
-    const key = envExecutorKey ?? envServerKey;
-    if (envUrl && envTenant && key) {
+    if (envUrl && envTenant && envServerKey) {
       return {
         url: stripTrailingSlash(envUrl),
         tenant: envTenant,
-        key,
-        role: envExecutorKey !== undefined ? "executor" : "application",
+        key: envServerKey,
         source: "environment",
       };
     }

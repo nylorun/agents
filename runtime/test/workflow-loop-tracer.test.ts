@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
-import { Agent, Loop, createClient, connectAgents } from "@nylorun/agents";
+import { Agent, Loop, createClient } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents } from "./support/endpoint.js";
 
 const APP = "workflow-tracer-app-token-aaaaaa";
 
@@ -65,10 +66,14 @@ it("tracer: root Loop runs two iterations through the SDK with Runtime restart",
   });
 
   const polish = buildLoop();
-  const connection = connectAgents({
+  const connection = serveAgents({
     agents: [polish],
     application: client,
     implementationVersion: "tracer",
+    // The held decide is still `delivering` when the Runtime is killed; after the restart
+    // it is delivered again once its deadline (endpoint timeout + grace) passes. Keep that
+    // deadline short so the restarted Runtime redelivers it within the test.
+    timeoutMs: 1_000,
   });
   await connection.ready;
 
@@ -126,7 +131,7 @@ it("tracer: root Loop runs two iterations through the SDK with Runtime restart",
     key: second.applicationKey,
     tenant: second.tenantId,
   });
-  const connection2 = connectAgents({
+  const connection2 = serveAgents({
     agents: [buildLoop()],
     application: client2,
     implementationVersion: "tracer",

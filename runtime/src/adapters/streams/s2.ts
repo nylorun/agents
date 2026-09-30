@@ -8,9 +8,9 @@
  * - One basin per Tenant, named by `tenantBasinName` (`streams/basin.ts`):
  *   `<basinPrefix>tn-<ulid>` for a Tenant id `tn_<ulid>`.
  * - The basin is created with `createStreamOnAppend`, so `sessions/<id>/<incarnation>`,
- *   `tenant/work` and `tenant/control` come into existence on their first
- *   append. Its default stream config sets infinite retention, which session
- *   streams keep; the work and control streams are created with a one-day
+ *   and `tenant/control` come into existence on their first append. Its
+ *   default stream config sets infinite retention, which session streams
+ *   keep; the control stream is created with a one-day
  *   age-based retention instead (signals are latency hints, not history).
  * - Bodies are JSON text in string records. Record timestamps are S2 arrival
  *   times.
@@ -27,7 +27,7 @@
  *   explicit `{ infinite: {} }` retention to keep session history; this adapter
  *   sets it as the basin default, and s2-lite honours it (a new stream reports
  *   `infinite`). A `streamConfig` sent with an append that creates the stream
- *   is honoured too (used for the work and control streams). `deleteOnEmpty`
+ *   is honoured too (used for the control stream). `deleteOnEmpty`
  *   defaults to disabled (`minAgeSecs: 0`).
  * - **Stream deletion** is immediate for our purposes: right after `DELETE`,
  *   `checkTail` and reads return 404 `stream_not_found` (new read sessions
@@ -69,7 +69,6 @@ import {
 import { tenantBasinName, validateBasinPrefix } from "../../streams/basin.js";
 import {
   CONTROL_STREAM,
-  WORK_STREAM,
   type AppendOptions,
   type AppendResult,
   type DurableStreams,
@@ -94,7 +93,7 @@ export interface S2StreamsOptions {
   basinDeletionWaitMs?: number;
 }
 
-/** Retention of the work and control signal streams. */
+/** Retention of the control signal stream. */
 const SIGNAL_RETENTION_SECS = 24 * 60 * 60;
 /** Records per unary read while reading history. */
 const HISTORY_PAGE = 1000;
@@ -142,7 +141,7 @@ class S2Streams implements DurableStreams {
       }),
       {
         ...(options.matchSeq !== undefined ? { matchSeqNum: options.matchSeq } : {}),
-        ...(stream === WORK_STREAM || stream === CONTROL_STREAM
+        ...(stream === CONTROL_STREAM
           ? { streamConfig: { retentionPolicy: { ageSecs: SIGNAL_RETENTION_SECS } } }
           : {}),
       },

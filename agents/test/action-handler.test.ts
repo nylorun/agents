@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Agent, tool } from "@nylorun/core/define";
 import {
   HOST_PROTOCOL,
+  hashManifest,
   OUTCOME_HEADER,
   SIGNATURE_HEADER,
   TENANT_HEADER,
@@ -76,8 +77,6 @@ function action(input: unknown, overrides: Record<string, unknown> = {}) {
     context: {},
     status: "delivering",
     generation: 1,
-    claimId: null,
-    leaseExpiresAt: null,
     deadlineAt: "2026-09-30T12:01:00.000Z",
     kind: "tool",
     capabilityId: "agent",
@@ -292,6 +291,34 @@ describe("createActionHandler: deliveries", () => {
     expect(await ping.json()).toEqual({ agentId: "support", implementationVersion: "v7" });
     const unknown = await actions.fetch(await delivery({ type: "ping", agentId: "triage" }));
     expect(unknown.status).toBe(404);
+  });
+
+  it("runs flow actions only for the flow manifest it serves", async () => {
+    const shout = tool({
+      name: "shout",
+      input: z.object({ word: z.string() }),
+      run: async ({ word }) => word.toUpperCase(),
+    });
+    const desk = Agent({ id: "desk" })
+      .step(Agent({ id: "writer" }).instructions("Write."))
+      .step(shout, { input: ({ input }) => ({ word: String(input) }) })
+      .build();
+    const { actions } = handler({ agents: [desk] });
+    const flowAction = (manifestHash: string) =>
+      action(
+        { input: "hi", results: {}, flowInput: "go" },
+        { agentId: "desk", manifestHash, kind: "fn", path: "shout:input", key: "shout:input", capabilityId: undefined, toolName: undefined },
+      );
+    const stale = await actions.fetch(
+      await delivery({ type: "action", action: flowAction("sha256:old"), sandbox: false }),
+    );
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "version_mismatch" });
+    const current = await actions.fetch(
+      await delivery({ type: "action", action: flowAction(hashManifest(desk.manifest)), sandbox: false }),
+    );
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({ value: { word: "hi" } });
   });
 
   it("serves node:http through the same handler", async () => {

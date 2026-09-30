@@ -772,7 +772,7 @@ describe("flow values (WF-R14)", () => {
 
 /**
  * Keys the engine sends must be keys core registers: resolve every fn, verify and tool
- * effect through `getBinding().nodes[effect.key]`, the way the executor does.
+ * effect through `getBinding().nodes[effect.key]`, the way the Action endpoint does.
  */
 describe("flow effect keys match core bindings", () => {
   const Verdict = z.discriminatedUnion("pass", [

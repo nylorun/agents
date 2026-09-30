@@ -20,7 +20,6 @@ import {
 const TENANT = `tn_${"0".repeat(22)}mtrx`;
 const APPLICATION_KEY = "matrix-application-key-0000000000";
 const ADMIN_KEY = "matrix-admin-key-00000000000000000";
-const EXECUTOR_TOKEN = "matrix-executor-token-000000000000";
 const ORIGIN = "https://app.example.com";
 const SUBJECT = "app:ann";
 const ALL_SCOPES = "agents:read agents:write sessions:own vaults:own tenant:settings";
@@ -41,8 +40,7 @@ type Caller =
   | "subject"
   | "subject-read"
   | "token"
-  | "publishable"
-  | "executor";
+  | "publishable";
 const CALLERS: readonly Caller[] = [
   "none",
   "wrong",
@@ -51,11 +49,10 @@ const CALLERS: readonly Caller[] = [
   "subject-read",
   "token",
   "publishable",
-  "executor",
 ];
 
 function callerHeaders(caller: Caller): Record<string, string> {
-  const base = { "nylorun-protocol": "2", "nylorun-tenant": TENANT };
+  const base = { "nylorun-protocol": "3", "nylorun-tenant": TENANT };
   const bearer = (key: string) => ({ ...base, authorization: `Bearer ${key}` });
   switch (caller) {
     case "none":
@@ -80,9 +77,7 @@ function callerHeaders(caller: Caller): Record<string, string> {
       return bearer(subjectToken);
     case "publishable":
       // A browser page: the key names the Tenant.
-      return { "nylorun-protocol": "2", "nylorun-key": publishableKey, origin: ORIGIN };
-    case "executor":
-      return bearer(EXECUTOR_TOKEN);
+      return { "nylorun-protocol": "3", "nylorun-key": publishableKey, origin: ORIGIN };
   }
 }
 
@@ -156,14 +151,8 @@ interface Operation {
 function tenantOperations(): Operation[] {
   const vault = `/v1/vaults/${vaultId}`;
   return [
-    { method: "GET", path: "/v1/executors/connect" },
-    { method: "GET", path: "/v1/actions" },
     { method: "POST", path: "/v1/actions/act-missing/sandbox/bash", body: INVALID },
-    { method: "POST", path: "/v1/actions/act-missing/claim", body: INVALID },
     { method: "POST", path: "/v1/actions/act-missing/heartbeat", body: INVALID },
-    { method: "GET", path: "/v1/executors" },
-    { method: "PUT", path: "/v1/executors", body: INVALID },
-    { method: "DELETE", path: "/v1/executors/ghost" },
     { method: "GET", path: "/v1/endpoints" },
     { method: "PUT", path: "/v1/endpoints", body: INVALID },
     { method: "DELETE", path: "/v1/endpoints/ghost" },
@@ -223,12 +212,14 @@ function tenantOperations(): Operation[] {
 function edgeOperations(): Operation[] {
   return [
     { method: "POST", path: "/v1/sessions/s1/commands/x", body: INVALID },
-    { method: "GET", path: "/v1/executors/connect/x" },
-    { method: "DELETE", path: "/v1/executors/connect" },
     { method: "GET", path: "/v1/sessions/s1/items/x" },
     { method: "GET", path: "/v1/sessions/s1/events/x" },
-    { method: "POST", path: "/v1/actions/act-missing/claim/x", body: INVALID },
     { method: "GET", path: "/v1/actions/act-missing" },
+    // The executor routes (Action endpoints replaced them) are gone.
+    { method: "GET", path: "/v1/executors" },
+    { method: "GET", path: "/v1/executors/connect" },
+    { method: "GET", path: "/v1/actions" },
+    { method: "POST", path: "/v1/actions/act-missing/claim", body: INVALID },
     { method: "GET", path: "/v1/sessions/missing/unknown" },
     { method: "GET", path: "/v1/sessions/" },
     { method: "GET", path: "/v1//sessions" },
@@ -294,9 +285,6 @@ beforeAll(async () => {
     (await app("POST", "/v1/tokens", { requestId: "token", subject: SUBJECT, role: "user" }))
       .token,
   );
-  await app("PUT", "/v1/executors", {
-    executors: [{ agentId: "bot", implementationVersion: "dev", token: EXECUTOR_TOKEN }],
-  });
   await app("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
   vaultId = String(
     (await app("POST", "/v1/vaults", {
@@ -339,10 +327,10 @@ describe("route matrix", { timeout: 60_000 }, () => {
   });
 
   it("answers the Host and Admin operations on each listener, as recorded", async () => {
-    const admin = (key: string) => ({ "nylorun-protocol": "2", authorization: `Bearer ${key}` });
+    const admin = (key: string) => ({ "nylorun-protocol": "3", authorization: `Bearer ${key}` });
     const callers: Record<string, Record<string, string>> = {
       none: {},
-      "protocol-only": { "nylorun-protocol": "2" },
+      "protocol-only": { "nylorun-protocol": "3" },
       "wrong-admin": admin("matrix-wrong-admin-key-000000000000"),
       admin: admin(ADMIN_KEY),
       application: callerHeaders("application"),

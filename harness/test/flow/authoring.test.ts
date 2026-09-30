@@ -23,7 +23,7 @@ import {
 /**
  * Flow Agents Phase 2, end to end: flow agents compile to workflow manifest v2 and run
  * on the `flow-2` engine. Leaf agents resolve from the embedded `agents`; every fn,
- * verify and tool effect resolves through the flow's own bindings, as the executor does.
+ * verify and tool effect resolves through the flow's own bindings, as the Action endpoint does.
  * Case ids (S1, W1, …) are the design's primitive test cases.
  */
 

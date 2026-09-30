@@ -20,7 +20,6 @@ import { HttpError, OpaqueAuthError } from "../../src/tenant/http.js";
 import { startTestTenant } from "../support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
-const EXECUTOR = "executor-token-value-bbbbbbbb";
 const live: { close(): Promise<void> }[] = [];
 
 afterEach(async () => {
@@ -30,7 +29,6 @@ afterEach(async () => {
 async function tenant() {
   const runtime = await startTestTenant({
     applicationKey: APP,
-    executors: [{ token: EXECUTOR, agentId: "support", implementationVersion: "dev" }],
     modelProvider: async () => ({ output: [{ type: "text", text: "ok" }] }),
   });
   live.push(runtime);
@@ -157,9 +155,8 @@ describe("as a bearer", () => {
     for (const [method, path] of [
       ["GET", "/v1/agents"],
       ["GET", "/v1/sessions"],
-      ["GET", "/v1/actions"],
-      ["POST", "/v1/actions/a1/claim"],
-      ["GET", "/v1/executors"],
+      ["GET", "/v1/endpoints"],
+      ["POST", "/v1/sessions/s1/commands"],
       ["GET", "/v1/vaults"],
       ["GET", "/v1/tenant"],
     ]) {
@@ -174,10 +171,12 @@ describe("as a bearer", () => {
   it("is refused from a browser and cannot act for a subject", async () => {
     const { runtime, ctx } = await tenant();
     const { token } = await mint(ctx);
-    const browser = await call(runtime.url, "GET", "/v1/actions", token, { origin: "https://app.example" });
+    const browser = await call(runtime.url, "POST", "/v1/actions/a1/heartbeat", token, {
+      origin: "https://app.example",
+    });
     expect(browser.status).toBe(403);
     expect(await browser.json()).toMatchObject({ code: "origin_rejected" });
-    const subject = await call(runtime.url, "GET", "/v1/actions", token, {
+    const subject = await call(runtime.url, "POST", "/v1/actions/a1/heartbeat", token, {
       "nylorun-subject": "user-1",
       "nylorun-scopes": "sessions:own",
     });
@@ -185,10 +184,16 @@ describe("as a bearer", () => {
     expect(await subject.json()).toMatchObject({ message: "A delivery token cannot act for a subject" });
   });
 
-  it("leaves subject tokens, executor keys and application keys as they were", async () => {
+  it("leaves application keys as they were, and the executor routes are gone", async () => {
     const { runtime } = await tenant();
-    expect((await call(runtime.url, "GET", "/v1/actions", EXECUTOR)).status).toBe(200);
     expect((await call(runtime.url, "GET", "/v1/agents", APP)).status).toBe(200);
+    expect((await call(runtime.url, "GET", "/v1/endpoints", APP)).status).toBe(200);
+    for (const [method, path] of [
+      ["GET", "/v1/executors"],
+      ["GET", "/v1/actions"],
+      ["POST", "/v1/actions/a1/claim"],
+    ])
+      expect((await call(runtime.url, method!, path!, APP)).status, `${method} ${path}`).toBe(404);
   });
 });
 

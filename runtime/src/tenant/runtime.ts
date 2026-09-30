@@ -18,7 +18,6 @@ import type { ServerResponse, IncomingMessage } from "node:http";
 import { mkdirSync } from "node:fs";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { resolveFlowLimits, type FlowLimits } from "../core/limits.js";
-import { loadExecutorRegistry } from "../core/executors.js";
 import {
   scriptedModel,
   gatewayModel,
@@ -45,7 +44,6 @@ import type {
 } from "./types.js";
 import type { TenantContext } from "./context.js";
 import {
-  connectedExecutorCount,
   createLiveHub,
   endAllStreams,
 } from "./live.js";
@@ -176,7 +174,6 @@ export class TenantRuntime implements TenantHandle {
         return kek;
       };
       const opened = store;
-      const registry = await loadExecutorRegistry(opened);
       // A seeded Tenant setting wins over the Host default (A18).
       const seededBackend = await opened.tx((t) =>
         t.getSetting("sandbox.backend")
@@ -260,7 +257,6 @@ export class TenantRuntime implements TenantHandle {
         envelope,
         store: opened,
         vault,
-        registry,
         mcp,
         sandbox,
         flowLimits,
@@ -307,15 +303,10 @@ export class TenantRuntime implements TenantHandle {
 
       // Register the handlers, then arm the sweep: its first pass runs at once and re-wakes
       // sessions a previous process left runnable or running (takeover handles the rest).
-      let afterOpen = true;
       const worker: TenantWorker = {
         advance: (sessionId, signal) => advance(ctx, sessionId, signal),
         deliver: (actionId, signal) => deliverAction(ctx, actionId, signal),
-        sweep: async () => {
-          const first = afterOpen;
-          afterOpen = false;
-          await sweep(ctx, { afterOpen: first });
-        },
+        sweep: () => sweep(ctx),
       };
       const unregister = workers.register(config.tenantId, worker);
       detach = async () => {
@@ -354,7 +345,10 @@ export class TenantRuntime implements TenantHandle {
     return {
       ready: !this.ctx.closing && !this.ctx.closed,
       runningSessions: counts.runningSessions,
-      connectedExecutors: connectedExecutorCount(live),
+      inFlightDeliveries: [...this.ctx.work.deliveries.values()].reduce(
+        (n, set) => n + set.size,
+        0,
+      ),
       pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
       outboxDepth: outbox.depth,

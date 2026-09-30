@@ -50,7 +50,7 @@ it("C4: admin routes never forward to Tenant handlers", async () => {
           summary: () => ({
             ready: true,
             runningSessions: 0,
-            connectedExecutors: 0,
+            inFlightDeliveries: 0,
             pendingActions: 0,
             uncertainEffects: 0,
           }),
@@ -117,7 +117,7 @@ it("C4/C5: admin create, list, status, delete and host status", async () => {
   expect(parsed.tenants).toHaveLength(1);
   expect(parsed.aggregate).toEqual({
     runningSessions: 0,
-    connectedExecutors: 0,
+    inFlightDeliveries: 0,
     pendingActions: 0,
     uncertainEffects: 0,
   });
@@ -161,7 +161,7 @@ it("C5: GET /v1/admin/host uses only list() and summarize()", async () => {
         summary: {
           ready: true,
           runningSessions: 2,
-          connectedExecutors: 1,
+          inFlightDeliveries: 1,
           pendingActions: 3,
           uncertainEffects: 0,
         },
@@ -174,6 +174,6 @@ it("C5: GET /v1/admin/host uses only list() and summarize()", async () => {
   });
   const parsed = AdminStatusSchema.parse(host.body);
   expect(parsed.aggregate.runningSessions).toBe(2);
-  expect(parsed.aggregate.connectedExecutors).toBe(1);
+  expect(parsed.aggregate.inFlightDeliveries).toBe(1);
   expect(parsed.aggregate.pendingActions).toBe(3);
 });

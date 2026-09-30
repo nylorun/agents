@@ -46,7 +46,7 @@ support remains separate from the pinned contributor toolchain.
    link in the git-ignored `examples/.nylorun/`), signs the browser in to Studio
    on that Tenant (`nylorun studio`; `--no-open` prints a single-use login URL
    instead), and
-   starts the examples executor with their own `npm run dev` (`tsx watch`).
+   starts the examples' Action endpoint with their own `npm run dev` (`tsx watch`).
 4. It watches `core`, `harness`, `agents`, `admin`, `runtime`, `nylorun`, `cli`
    and `studio`. An edit rebuilds that package and the packages that depend on it,
    rebuilds the images built from them (Compose then recreates only those

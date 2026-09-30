@@ -1,6 +1,6 @@
 /**
  * The Tenant's Durable Streams seam end to end (architecture §12.4, §11.1, §11.5, §17): history,
- * session SSE, executor work and cancel, read from streams. Runs on the in-memory streams
+ * session SSE, Action deliveries and cancel, read from streams. Runs on the in-memory streams
  * (`streams.test.ts`) and on s2-lite (`streams.integration.test.ts`).
  *
  * "Another node" is a second Tenant runtime in this process over the same Tenant data (the
@@ -24,8 +24,6 @@ import type { TenantHandle } from "../../src/tenant/types.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import {
   CONTROL_STREAM,
-  WORK_AVAILABLE,
-  WORK_STREAM,
   streamOfSession,
   type AppendOptions,
   type AppendResult,
@@ -34,6 +32,7 @@ import {
   type StreamRecord,
 } from "../../src/streams/types.js";
 import { startTestTenant } from "../support/tenant.js";
+import { accepted, registerEndpoint, startEndpoint } from "../support/endpoint.js";
 
 export interface StreamsHarness {
   streams: DurableStreams;
@@ -112,7 +111,6 @@ export class ProbeStreams implements DurableStreams {
 }
 
 const APP = "server-token-value-aaaaaaaa";
-const EXECUTOR = "executor-token-value-bbbbbbbb";
 
 export const contextOf = (handle: TenantHandle): TenantContext =>
   (handle as unknown as { ctx: TenantContext }).ctx;
@@ -231,7 +229,7 @@ export function tenantStreamsSuite(
 
       /** The first node creates the Tenant; later ones open the same database and streams. */
       async function node(
-        options: { modelProvider?: ModelProvider; executors?: boolean } = {}
+        options: { modelProvider?: ModelProvider } = {}
       ): Promise<Node> {
         const first = nodes[0];
         const started = await startTestTenant({
@@ -241,17 +239,6 @@ export function tenantStreamsSuite(
           ...(first ? { hostRoot: first.root } : {}),
           ...(options.modelProvider
             ? { modelProvider: options.modelProvider }
-            : {}),
-          ...(options.executors
-            ? {
-                executors: [
-                  {
-                    token: EXECUTOR,
-                    agentId: "issue",
-                    implementationVersion: "dev",
-                  },
-                ],
-              }
             : {}),
         });
         nodes.push(started);
@@ -595,7 +582,7 @@ export function tenantStreamsSuite(
       expect(await drainOutbox(contextOf(a.handle))).toBe(0);
     });
 
-    it("wakes executors on another node through the work stream", async () => {
+    it("delivers an Action committed on one node to the endpoint registered through another", async () => {
       const t = await setup();
       const toolCall: ModelProvider = async (effect) => {
         const call = effect.input as { prompt?: { kind?: string }[] };
@@ -607,14 +594,11 @@ export function tenantStreamsSuite(
           ],
         };
       };
-      const a = await t.node({ executors: true, modelProvider: toolCall });
-      const b = await t.node();
-      const workBefore = await t.tailOf(WORK_STREAM);
-
-      const executor = sse(`${b.url}/v1/executors/connect`, {
-        authorization: `Bearer ${EXECUTOR}`,
-      });
-      await executor.until("the primer", (f) => f.length === 1);
+      const a = await t.node({ modelProvider: toolCall });
+      const b = await t.node({ modelProvider: toolCall });
+      // The endpoint answers 202 and calls back through node B.
+      const endpoint = await startEndpoint({ runtime: { url: b.url }, answer: () => accepted });
+      cleanups.push(() => endpoint.close());
 
       const agent = Agent({ id: "issue", name: "Issue" })
         .use({
@@ -632,22 +616,28 @@ export function tenantStreamsSuite(
         })
         .build();
       await t.createSession(a, "s1", agent.manifest);
+      await registerEndpoint(b, "issue", endpoint.url);
+      const observer = t.observe(b);
+      await observer.ready();
       await t.command(a, {
         type: "message",
         requestId: "m1",
         idempotencyKey: "m1",
         content: "save a note",
       });
-      await executor.until("work_available from node A's commit", (f) => f.length >= 2);
-      // The primer, then one frame per commit that signalled work.
-      for (const frame of executor.close())
-        expect(frame).toEqual({ type: "work_available" });
-      expect(await t.tailOf(WORK_STREAM)).toBeGreaterThan(workBefore);
-
-      const listed = await fetch(`${b.url}/v1/actions`, {
-        headers: { authorization: `Bearer ${EXECUTOR}` },
-      });
-      expect(((await listed.json()) as { actions: unknown[] }).actions).toHaveLength(1);
+      const delivery = await endpoint.next();
+      expect(delivery.action).toMatchObject({ agentId: "issue", sessionId: "s1" });
+      // The delivery token is good on node B, whichever node delivered.
+      expect((await delivery.heartbeat()).status).toBe(200);
+      const posted = await delivery.result({ kind: "completed", output: { saved: true } });
+      expect(posted.status).toBe(200);
+      await observer.until("the completed turn on node B", (f) =>
+        f.some((frame) => (frame as { type?: string }).type === "turn.completed")
+      );
+      observer.close();
+      expect(endpoint.deliveries).toHaveLength(1);
+      const { items } = await t.items(b);
+      expect(seqs(items)).toEqual(range(0, items.length));
     });
 
     it("ends observers on reset and starts a re-created session on a new stream at 0", async () => {
@@ -856,20 +846,25 @@ export function tenantStreamsSuite(
       const t = await setup();
       const other = newTenantId();
       await createTenantStreams(t.streams, other);
-      await t.streams.append(other, WORK_STREAM, [WORK_AVAILABLE]);
-      expect(await t.streams.tail(other, WORK_STREAM)).toBe(1);
+      await t.streams.append(other, CONTROL_STREAM, [{ type: "sessions.reset" }]);
+      expect(await t.streams.tail(other, CONTROL_STREAM)).toBe(1);
       await deleteTenantStreams(t.streams, other);
       await deleteTenantStreams(t.streams, other);
       // s2-lite lists a basin being deleted with its streams, but refuses appends to it.
-      await expect(t.streams.append(other, WORK_STREAM, [WORK_AVAILABLE])).rejects.toThrow();
+      await expect(
+        t.streams.append(other, CONTROL_STREAM, [{ type: "sessions.reset" }])
+      ).rejects.toThrow();
 
-      // A reset keeps the basin: the work stream is still there.
+      // A reset keeps the basin: the control stream keeps its records.
       const a = await t.node();
       await t.createSession(a);
       await t.commitConcurrently(a, 1);
-      const work = await t.tailOf(WORK_STREAM);
+      const signal = { type: "session.cancel", sessionId: "gone" };
+      await t.streams.append(t.tenantId, CONTROL_STREAM, [signal]);
       await t.reset(a);
-      expect(await t.tailOf(WORK_STREAM)).toBe(work);
+      const control = await t.records(CONTROL_STREAM);
+      expect(control[0]).toEqual(signal);
+      expect(control).toContainEqual({ type: "sessions.reset" });
       expect(
         await contextOf(a.handle).store.tx((tx) => tx.getSetting(COLLECT_SETTING))
       ).toBeDefined();

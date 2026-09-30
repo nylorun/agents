@@ -49,7 +49,7 @@ it("delete with refuse throws when sessions are running", async () => {
       setSummary?(s: {
         ready: boolean;
         runningSessions: number;
-        connectedExecutors: number;
+        inFlightDeliveries: number;
         pendingActions: number;
         uncertainEffects: number;
       }): void;
@@ -57,7 +57,7 @@ it("delete with refuse throws when sessions are running", async () => {
   ).setSummary?.({
     ready: true,
     runningSessions: 2,
-    connectedExecutors: 1,
+    inFlightDeliveries: 1,
     pendingActions: 0,
     uncertainEffects: 0,
   });

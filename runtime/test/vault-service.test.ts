@@ -199,19 +199,6 @@ describe("VaultService administration", () => {
     );
     expect(deletes.map((row) => row.credentialId)).toEqual([credentialId, null]);
   });
-
-  it("writes rejected-caller audit rows", async () => {
-    const { vault, read } = setup();
-    await vault.reject("v1/vaults");
-    expect(await read((t) => t.vaultAudit())).toEqual([
-      expect.objectContaining({
-        actor: "executor",
-        action: "reject",
-        target: "v1/vaults",
-        outcome: "rejected",
-      }),
-    ]);
-  });
 });
 
 describe("VaultService attachment", () => {

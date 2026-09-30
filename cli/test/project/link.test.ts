@@ -85,7 +85,7 @@ it("F2-2: writes format 1 link.json and credentials.json without executors", asy
   expect(await readLink(root)).toBeUndefined();
 });
 
-it("F2-2: reads format 0 link and credentials (with executors ignored on next write)", async () => {
+it("F2-2: reads format 0 link and credentials, ignoring a legacy executors map", async () => {
   const root = await fixture();
   const tenantId = newTenantId();
   await ensureProjectNylorunDir(root);
@@ -109,7 +109,7 @@ it("F2-2: reads format 0 link and credentials (with executors ignored on next wr
   const credentials = await readCredentials(root);
   expect(link?.format).toBe(0);
   expect(credentials?.format).toBe(0);
-  expect(credentials?.executors?.agent).toBe("c".repeat(64));
+  expect(credentials).not.toHaveProperty("executors");
   await writeCredentials(root, {
     applicationKey: credentials!.applicationKey,
     principalId: credentials!.principalId,

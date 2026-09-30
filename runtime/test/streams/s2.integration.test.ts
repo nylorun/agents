@@ -2,12 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createS2Streams } from "../../src/adapters/streams/s2.js";
 import { tenantBasinName } from "../../src/streams/basin.js";
-import {
-  CONTROL_STREAM,
-  WORK_AVAILABLE,
-  WORK_STREAM,
-  sessionStream,
-} from "../../src/streams/types.js";
+import { CONTROL_STREAM, sessionStream } from "../../src/streams/types.js";
 import { streamsContract } from "../contracts/streams.contract.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 
@@ -74,17 +69,18 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("resumes a live read from a sequence past the tail", async () => {
       const tenantId = await tenant();
-      await streams.append(tenantId, WORK_STREAM, [0, 1]);
+      const stream = sessionStream("resume", "i1");
+      await streams.append(tenantId, stream, [0, 1]);
       const controller = new AbortController();
       const reading = (async () => {
-        for await (const record of streams.read<number>(tenantId, WORK_STREAM, 3, {
+        for await (const record of streams.read<number>(tenantId, stream, 3, {
           signal: controller.signal,
         }))
           return record;
       })();
       await new Promise((resolve) => setTimeout(resolve, 100));
-      await streams.append(tenantId, WORK_STREAM, [2]);
-      await streams.append(tenantId, WORK_STREAM, [3]);
+      await streams.append(tenantId, stream, [2]);
+      await streams.append(tenantId, stream, [3]);
       const record = await reading;
       controller.abort();
       expect(record).toMatchObject({ seq: 3, body: 3 });
@@ -92,10 +88,11 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("ends live reads when the Tenant's basin is deleted, and on close", async () => {
       const tenantId = await tenant();
-      await streams.append(tenantId, WORK_STREAM, [0]);
+      const stream = sessionStream("live", "i1");
+      await streams.append(tenantId, stream, [0]);
       const seen: number[] = [];
       const reading = (async () => {
-        for await (const record of streams.read<number>(tenantId, WORK_STREAM, 0))
+        for await (const record of streams.read<number>(tenantId, stream, 0))
           seen.push(record.seq);
       })();
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -107,20 +104,19 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
       const otherTenant = await tenant();
       const pending = (async () => {
         const out: number[] = [];
-        for await (const record of other.read<number>(otherTenant, WORK_STREAM, 0))
+        for await (const record of other.read<number>(otherTenant, stream, 0))
           out.push(record.seq);
         return out;
       })();
       await new Promise((resolve) => setTimeout(resolve, 100));
       await other.close();
       expect(await pending).toEqual([]);
-      await expect(other.append(otherTenant, WORK_STREAM, [1])).rejects.toThrow("closed");
+      await expect(other.append(otherTenant, stream, [1])).rejects.toThrow("closed");
     });
 
-    it("keeps session streams forever and trims signal streams by age", async () => {
+    it("keeps session streams forever and trims the control stream by age", async () => {
       const tenantId = await tenant();
       await streams.append(tenantId, sessionStream("kept", "i1"), [1]);
-      await streams.append(tenantId, WORK_STREAM, [WORK_AVAILABLE]);
       await streams.append(tenantId, CONTROL_STREAM, [{ type: "session.cancel", sessionId: "s" }]);
       // Stream configs as s2-lite reports them (REST: GET /v1/streams/{stream}).
       const config = async (stream: string) => {
@@ -132,7 +128,6 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
         return ((await response.json()) as { retention_policy: unknown }).retention_policy;
       };
       expect(await config(sessionStream("kept", "i1"))).toEqual({ infinite: {} });
-      expect(await config(WORK_STREAM)).toEqual({ age: 86_400 });
       expect(await config(CONTROL_STREAM)).toEqual({ age: 86_400 });
     });
   });

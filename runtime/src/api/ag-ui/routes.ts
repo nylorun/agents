@@ -335,7 +335,7 @@ export async function startRun(
   if (!parsed.success)
     return fail(400, "Invalid RunAgentInput", { code: "invalid_request" });
   const input = parsed.data as RunAgentInput;
-  // Nylorun tools run in the Runtime or the app's executor; the browser runs none.
+  // Nylorun tools run in the Runtime or the app's Action endpoint; the browser runs none.
   if (input.tools?.length)
     return fail(400, "Frontend tools are not supported", { code: "invalid_request" });
   const id = sessionIdFor(caller.subject, agentId, input.threadId);

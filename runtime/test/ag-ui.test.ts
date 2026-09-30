@@ -6,15 +6,14 @@ import { HttpAgent, getRunOutcome } from "@ag-ui/client";
 import type { BaseEvent, Message } from "@ag-ui/core";
 import {
   Agent,
-  connectAgents,
   createClient,
   tool,
-  type AgentConnection,
 } from "@nylorun/agents";
 import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
 import type { ModelProvider } from "../src/core/provider.js";
 import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * Phase 0 and Phase 1 exit gates: an AG-UI client drives the handler against a Runtime,
@@ -129,7 +128,7 @@ const slow = Agent({ id: "slow", name: "Slow" })
   .build();
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
-let connection: AgentConnection;
+let connection: ServedAgents;
 let server: Server;
 let base: string;
 let runtimeClient: ReturnType<typeof createClient>;
@@ -156,7 +155,7 @@ beforeAll(async () => {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  connection = connectAgents({
+  connection = serveAgents({
     agents: [shop, guarded, slow],
     application: client,
     implementationVersion: "dev",
@@ -240,7 +239,7 @@ async function* frames(response: Response) {
 }
 
 describe("AG-UI handler against the Runtime", () => {
-  it("streams text between tool calls, executor and sandbox results, and reloads the same messages", async () => {
+  it("streams text between tool calls, endpoint and sandbox results, and reloads the same messages", async () => {
     const h = agentFor("shop", "ada", "t-shop");
     const events = await say(h, "Where is my order?");
     expect(types(events)).toEqual([

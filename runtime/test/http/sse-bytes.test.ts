@@ -1,7 +1,7 @@
 /**
  * Characterization of the Runtime's server-sent event streams on the wire: the exact response
- * headers and frame bytes of the executor work stream, session events (including the
- * `nylorun.closed` end frame) and the AG-UI run stream. Read through `node:http` so nothing
+ * headers and frame bytes of session events (including the `nylorun.closed` end frame) and
+ * the AG-UI run stream. Read through `node:http` so nothing
  * between the Runtime and the assertion normalizes headers or frames.
  */
 import { request, type IncomingMessage } from "node:http";
@@ -17,14 +17,13 @@ import {
 
 const TENANT = `tn_${"0".repeat(22)}sse0`;
 const APPLICATION_KEY = "sse-bytes-application-key-0000000";
-const EXECUTOR_TOKEN = "sse-bytes-executor-token-000000000";
 const SUBJECT = "app:ann";
 
 let root: string;
 let rt: EphemeralRuntime;
 
 const app = {
-  "nylorun-protocol": "2",
+  "nylorun-protocol": "3",
   "nylorun-tenant": TENANT,
   authorization: `Bearer ${APPLICATION_KEY}`,
 };
@@ -125,9 +124,6 @@ beforeAll(async () => {
     manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
     implementationVersion: "dev",
   });
-  await call("PUT", "/v1/executors", {
-    executors: [{ agentId: "bot", implementationVersion: "dev", token: EXECUTOR_TOKEN }],
-  });
   await call("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
   await call("PUT", "/v1/sessions/s2", { requestId: "s2", agentId: "bot", ownerUserId: SUBJECT });
   await call("PUT", "/v1/access/policy", {
@@ -144,30 +140,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await rt?.close();
   if (root) await rm(root, { recursive: true, force: true });
-});
-
-describe("executor work stream", () => {
-  it("opens with these headers and announces work at once", async () => {
-    const stream = await open("GET", "/v1/executors/connect", {
-      "nylorun-protocol": "2",
-      "nylorun-tenant": TENANT,
-      authorization: `Bearer ${EXECUTOR_TOKEN}`,
-    });
-    try {
-      expect(stream.status).toBe(200);
-      expect(stream.headers).toEqual({
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-        "x-accel-buffering": "no",
-        "transfer-encoding": "chunked",
-      });
-      const first = "event: work_available\ndata: {\"type\":\"work_available\"}\n\n";
-      expect(await stream.until((text) => text.length >= first.length)).toBe(first);
-    } finally {
-      stream.close();
-    }
-  });
 });
 
 describe("session events", () => {
@@ -198,7 +170,7 @@ describe("session events", () => {
       role: "user",
     });
     const stream = await open("GET", "/v1/sessions/s2/events", {
-      "nylorun-protocol": "2",
+      "nylorun-protocol": "3",
       "nylorun-tenant": TENANT,
       authorization: `Bearer ${String(token)}`,
     });

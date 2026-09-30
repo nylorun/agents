@@ -53,7 +53,6 @@ import type {
   EndpointHealthUpdate,
   EndpointRegistrationRow,
   EndpointRow,
-  ExecutorRow,
   LinkDoc,
   LinkedSession,
   OutboxRow,
@@ -152,11 +151,10 @@ class PostgresSessionStore implements SessionStore {
     } finally {
       this.inflight.delete(run);
     }
-    if (t.events.length > 0 || t.workAvailable) {
+    if (t.events.length > 0) {
       const commit = {
         events: t.events,
         incarnations: t.incarnations,
-        workAvailable: t.workAvailable,
       };
       for (const listener of [...this.listeners]) {
         try {
@@ -230,18 +228,6 @@ const bytes = (value: Uint8Array): Buffer =>
   Buffer.from(value.buffer, value.byteOffset, value.byteLength);
 
 const fromBytes = (value: Uint8Array): Uint8Array => new Uint8Array(value);
-
-function executorRow(row: Row): ExecutorRow {
-  return {
-    agentId: row.agent_id,
-    tokenHash: row.token_hash,
-    implementationVersion: row.implementation_version,
-    ...(row.manifest_hash !== null ? { manifestHash: row.manifest_hash } : {}),
-    ...(row.principal_id !== null ? { principalId: row.principal_id } : {}),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
 
 function endpointRow(row: Row): EndpointRow {
   const optional = (key: keyof EndpointRow, value: unknown) =>
@@ -381,7 +367,6 @@ class PostgresTx implements Tx {
   readonly events: LiveEvent[] = [];
   readonly incarnations: (string | null)[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
-  workAvailable = false;
 
   constructor(
     private readonly sql: TransactionSql,
@@ -497,11 +482,6 @@ class PostgresTx implements Tx {
   afterCommit(fn: () => void | Promise<void>): void {
     this.check();
     this.callbacks.push(fn);
-  }
-
-  signalWork(): void {
-    this.check();
-    this.workAvailable = true;
   }
 
   // --- ownership -----------------------------------------------------------
@@ -632,17 +612,6 @@ class PostgresTx implements Tx {
   async listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]> {
     this.check();
     return this.bodies<T>("sandboxes");
-  }
-
-  async expiredClaims(now: Date, limit: number): Promise<ActionDoc[]> {
-    this.check();
-    const rows = await this.sql`
-      SELECT body FROM ${this.t("actions")}
-      WHERE status = 'claimed' AND lease_expires_at IS NOT NULL
-        AND lease_expires_at::timestamptz <= ${now}
-      ORDER BY lease_expires_at::timestamptz, id
-      LIMIT ${limit}`;
-    return rows.map((row) => row.body as ActionDoc);
   }
 
   async pendingActions(agentId: string): Promise<ActionDoc[]> {
@@ -779,7 +748,7 @@ class PostgresTx implements Tx {
       SELECT
         (SELECT count(*) FROM ${this.t("sessions")})::int AS sessions,
         (SELECT count(*) FROM ${this.t("sessions")} WHERE status = ANY(${OPEN_SESSION}))::int AS running,
-        (SELECT count(*) FROM ${this.t("actions")} WHERE status IN ('pending', 'claimed'))::int AS actions,
+        (SELECT count(*) FROM ${this.t("actions")} WHERE status IN ('pending', 'delivering'))::int AS actions,
         (SELECT count(*) FROM ${this.t("effects")} WHERE status = 'uncertain')::int AS uncertain,
         (SELECT count(*) FROM ${this.t("sandboxes")})::int AS sandboxes,
         (SELECT count(*) FROM ${this.t("definitions")})::int AS definitions`;
@@ -843,45 +812,6 @@ class PostgresTx implements Tx {
       depth: row!.depth as number,
       oldestCreatedAt: (row!.oldest as string | null) ?? null,
     };
-  }
-
-  // --- executors -----------------------------------------------------------
-
-  async listExecutors(): Promise<ExecutorRow[]> {
-    this.check();
-    const rows = await this.sql`SELECT * FROM ${this.t("executors")} ORDER BY agent_id`;
-    return rows.map(executorRow);
-  }
-
-  async getExecutor(agentId: string): Promise<ExecutorRow | undefined> {
-    this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("executors")} WHERE agent_id = ${agentId}`;
-    return row && executorRow(row);
-  }
-
-  async putExecutor(row: Omit<ExecutorRow, "createdAt">): Promise<void> {
-    this.check();
-    await this.sql`
-      INSERT INTO ${this.t("executors")} (
-        agent_id, token_hash, implementation_version, manifest_hash,
-        principal_id, created_at, updated_at
-      ) VALUES (
-        ${row.agentId}, ${row.tokenHash}, ${row.implementationVersion},
-        ${row.manifestHash ?? null}, ${row.principalId ?? null},
-        ${row.updatedAt}, ${row.updatedAt}
-      )
-      ON CONFLICT (agent_id) DO UPDATE SET
-        token_hash = excluded.token_hash,
-        implementation_version = excluded.implementation_version,
-        manifest_hash = excluded.manifest_hash,
-        principal_id = excluded.principal_id,
-        updated_at = excluded.updated_at`;
-  }
-
-  async deleteExecutor(agentId: string): Promise<void> {
-    this.check();
-    await this.sql`DELETE FROM ${this.t("executors")} WHERE agent_id = ${agentId}`;
   }
 
   // --- Action endpoints -----------------------------------------------------
@@ -1350,7 +1280,6 @@ class PostgresTx implements Tx {
       await sql`DELETE FROM ${this.t("sandboxes")}`;
     if (scope === "all") {
       await sql`DELETE FROM ${this.t("definitions")}`;
-      await sql`DELETE FROM ${this.t("executors")}`;
       await sql`DELETE FROM ${this.t("endpoints")}`;
       await sql`DELETE FROM ${this.t("vaults")} WHERE scope <> 'host'`;
     }

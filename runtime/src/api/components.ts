@@ -52,22 +52,13 @@ import {
   SessionViewSchema,
   StreamClosedFrameSchema,
   AcceptedResponseSchema,
-  ActionClaimRequestSchema,
-  ActionClaimResponseSchema,
-  ActionHeartbeatRequestSchema,
-  ActionHeartbeatResponseSchema,
+  ActionResultReceiptSchema,
   DeleteEndpointResponseSchema,
   DeliveryHeartbeatResponseSchema,
   ActionOutcomeSchema,
   EndpointPingResponseSchema,
-  DeleteExecutorResponseSchema,
   ListEndpointsResponseSchema,
   PutEndpointsRequestSchema,
-  ExecutorNotificationSchema,
-  ListActionsResponseSchema,
-  ListExecutorsResponseSchema,
-  RegisterExecutorsRequestSchema,
-  RegisterExecutorsResponseSchema,
   SandboxToolOutcomeSchema,
   SessionCommandSchema,
   AdminStatusSchema,
@@ -93,26 +84,7 @@ export const AdminTenantStatus = named("AdminTenantStatus", AdminTenantStatusSch
 export const AdminStatus = named("AdminStatus", AdminStatusSchema);
 export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
 
-export const ExecutorNotification = named("ExecutorNotification", ExecutorNotificationSchema);
-export const ListActionsResponse = named("ListActionsResponse", ListActionsResponseSchema);
-export const ActionClaimRequest = named("ActionClaimRequest", ActionClaimRequestSchema);
-export const ActionClaimResponse = named("ActionClaimResponse", ActionClaimResponseSchema);
-export const ActionHeartbeatRequest = named("ActionHeartbeatRequest", ActionHeartbeatRequestSchema);
-export const ActionHeartbeatResponse = named(
-  "ActionHeartbeatResponse",
-  ActionHeartbeatResponseSchema,
-);
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
-export const ListExecutorsResponse = named("ListExecutorsResponse", ListExecutorsResponseSchema);
-export const RegisterExecutorsRequest = named(
-  "RegisterExecutorsRequest",
-  RegisterExecutorsRequestSchema,
-);
-export const RegisterExecutorsResponse = named(
-  "RegisterExecutorsResponse",
-  RegisterExecutorsResponseSchema,
-);
-export const DeleteExecutorResponse = named("DeleteExecutorResponse", DeleteExecutorResponseSchema);
 export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
 export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
 export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);
@@ -124,6 +96,7 @@ export const DeliveryHeartbeatResponse = named(
 export const ActionOutcome = named("ActionOutcome", ActionOutcomeSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
+export const ActionResultReceipt = named("ActionResultReceipt", ActionResultReceiptSchema);
 
 export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
 export const ListPublicAgentsResponse = named(

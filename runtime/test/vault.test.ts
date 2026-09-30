@@ -15,9 +15,11 @@ const server = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-const executor = {
-  authorization: "Bearer executor-token-value",
-  "content-type": "application/json",
+/** The application acting for another person, with that person's vault scope only. */
+const actingForBao = {
+  ...server,
+  "nylorun-subject": "bao",
+  "nylorun-scopes": "vaults:own",
 };
 
 type BootOpts = {
@@ -31,13 +33,6 @@ type BootOpts = {
 async function boot(options: BootOpts = {}) {
   const runtime = await startTestTenant({
     applicationKey: APP,
-    executors: [
-      {
-        token: "executor-token-value",
-        agentId: "bot",
-        implementationVersion: "dev",
-      },
-    ],
     vaultKek: options.vaultKek === undefined ? KEK : options.vaultKek,
     ...(options.vaultFetch === undefined ? {} : { vaultFetch: options.vaultFetch }),
     ...(options.hostRoot ? { hostRoot: options.hostRoot } : {}),
@@ -132,7 +127,7 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     const rejected = await json(
       await fetch(`${runtime.url}/v1/vaults`, {
         method: "POST",
-        headers: executor,
+        headers: actingForBao,
         body: JSON.stringify({
           requestId: "vault-x",
           idempotencyKey: "vault-x",
@@ -497,7 +492,7 @@ it("keeps the host model credential out of user vaults and responses", async () 
     ).toEqual({ configured: false });
     expect(
       (
-        await fetch(`${runtime.url}/v1/tenant/model`, { headers: executor })
+        await fetch(`${runtime.url}/v1/tenant/model`, { headers: actingForBao })
       ).status,
     ).toBe(403);
     const body = {

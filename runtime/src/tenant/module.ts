@@ -61,7 +61,7 @@ type Entry = OpenEntry | { kind: "quarantined"; quarantine: Quarantine };
 function hasLiveWork(summary: TenantSummary): boolean {
   return (
     summary.runningSessions > 0 ||
-    summary.connectedExecutors > 0 ||
+    summary.inFlightDeliveries > 0 ||
     summary.pendingActions > 0
   );
 }
@@ -366,7 +366,7 @@ export function createTenantModule(
 
     async summarize(): Promise<HostAggregate> {
       let runningSessions = 0;
-      let connectedExecutors = 0;
+      let inFlightDeliveries = 0;
       let pendingActions = 0;
       let uncertainEffects = 0;
       let outboxDepth: number | undefined;
@@ -375,7 +375,7 @@ export function createTenantModule(
         openEntries().map((e) => e.handle.summary()),
       )) {
         runningSessions += s.runningSessions;
-        connectedExecutors += s.connectedExecutors;
+        inFlightDeliveries += s.inFlightDeliveries;
         pendingActions += s.pendingActions;
         uncertainEffects += s.uncertainEffects;
         if (s.outboxDepth !== undefined)
@@ -385,7 +385,7 @@ export function createTenantModule(
       }
       return {
         runningSessions,
-        connectedExecutors,
+        inFlightDeliveries,
         pendingActions,
         uncertainEffects,
         ...(outboxDepth !== undefined ? { outboxDepth } : {}),

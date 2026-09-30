@@ -16,7 +16,7 @@ import { authenticateCaller, declaredRoute, pathSegments, type RouteAccess } fro
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
 import { endpointRoutes } from "./routes/endpoints.js";
-import { executorRoutes } from "./routes/executors.js";
+import { actionRoutes } from "./routes/actions.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { vaultRoutes } from "./routes/vaults.js";
@@ -61,7 +61,7 @@ function build(): OpenAPIHono<TenantEnv> {
     pathSegments(c.env.incoming);
     await next();
   });
-  executorRoutes(api);
+  actionRoutes(api);
   endpointRoutes(api);
   sessionRoutes(api);
   tenantRoutes(api);

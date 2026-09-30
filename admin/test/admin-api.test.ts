@@ -6,7 +6,7 @@ import {
   deriveStudioToken,
   deriveTenantKey,
 } from "../src/index.js";
-import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
+import { HOST_PROTOCOL, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import {
   ADMIN_KEY,
   healthBody,
@@ -33,7 +33,7 @@ describe("B4 Admin API methods", () => {
         return;
       }
       expect(request.headers.authorization).toBe(`Bearer ${ADMIN_KEY}`);
-      expect(request.headers["nylorun-protocol"]).toBe("2");
+      expect(request.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
       if (request.url === "/v1/admin/status" && request.method === "GET") {
         sendJson(response, 200, sampleStatus());
         return;

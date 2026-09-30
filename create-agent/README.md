@@ -17,7 +17,8 @@ npm create @nylorun/agent@beta my-agent
 
 Creates a Node 24 project whose only Nylorun dependency is `@nylorun/agents`
 (plus Zod). The registry in `agents/index.ts` exports agent definitions.
-`src/main.ts` calls `connectAgents` for both `npm run dev` and `npm start`. The
+`src/main.ts` serves the agents' tools with `createActionHandler` and registers
+its URL, for both `npm run dev` and `npm start`. The
 starter includes one ordinary `lookup_order` tool; ask “Look up order
 demo-123”.
 

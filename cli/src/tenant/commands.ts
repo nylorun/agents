@@ -188,7 +188,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     const tenants = await admin.listTenants();
     const selected = matchTenant(tenants, nameOrId);
     console.warn(
-      "Sharing a Tenant shares executor and Action endpoint registrations across Projects that link to it.",
+      "Sharing a Tenant shares Action endpoint registrations across Projects that link to it.",
     );
     const authorizes = async (key: string): Promise<boolean> => {
       try {

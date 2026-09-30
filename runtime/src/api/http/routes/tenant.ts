@@ -39,7 +39,7 @@ import {
 } from "../../../sandbox/tenant-config.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { clearExecutorStreams, clearObservers } from "../../../tenant/live.js";
+import { clearObservers } from "../../../tenant/live.js";
 import { usesFixtureModel } from "../../../tenant/model-setting.js";
 import { resetTenant } from "../../../tenant/reset.js";
 import { clearWork, drain } from "../../../tenant/scheduler.js";
@@ -69,19 +69,6 @@ const body = (schema: z.ZodType) => ({
   content: { "application/json": { schema } },
 });
 
-/**
- * The Tenant's settings are no executor's business: the refusal is recorded (`vault.reject`),
- * as every executor call to them was.
- */
-async function refuseExecutor(c: Context<TenantEnv>): Promise<TenantContext> {
-  const ctx = c.env.tenant;
-  if (c.get("scope").kind === "executor") {
-    await ctx.vault.reject(pathSegments(c.env.incoming).join("/"));
-    fail(403, "Application credential required");
-  }
-  return ctx;
-}
-
 /** `GET /v1/tenant/sandbox`: the backend report and the configuration with defaults applied. */
 async function sandboxView(ctx: TenantContext): Promise<unknown> {
   const config = await ctx.store.tx((t) => readSandboxConfig(t));
@@ -100,7 +87,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(TenantStatus, "Readiness, model, sandboxes, streams and counts") },
     },
     async (c) => {
-      const ctx = await refuseExecutor(c);
+      const ctx = c.env.tenant;
       const { vault } = ctx;
       return jsonResponse(
         200,
@@ -108,7 +95,6 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
           envelope: ctx.envelope,
           config: ctx.config,
           store: ctx.store,
-          registry: ctx.registry,
           vault,
           sandbox: ctx.sandbox,
           closing: ctx.closing || ctx.closed,
@@ -116,7 +102,6 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
             !ctx.useVaultModel ||
             (await ctx.store.tx((t) => usesFixtureModel(t))) ||
             (await vault.getHostModel()).configured,
-          executorStreams: ctx.live.executorStreams,
           ...(ctx.stuckInvocations ? { stuckInvocations: ctx.stuckInvocations } : {}),
           streamsStatus: () => streamsStatus(ctx),
         }),
@@ -138,7 +123,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(ResetTenantResponse, "Reset") },
     },
     async (c) => {
-      const ctx = await refuseExecutor(c);
+      const ctx = c.env.tenant;
       const request = ResetTenantRequestSchema.parse(await readJson(c.req.raw));
       await drain(ctx, request.activeWork, 30_000);
       // The deleted sessions' streams are abandoned: a session created again with the same id,
@@ -149,14 +134,12 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       await resetTenant(
         {
           store: ctx.store,
-          registry: ctx.registry,
           sandbox: ctx.sandbox,
           paths: ctx.config.paths,
           clearSessionState: () => {
             clearWork(ctx);
             clearObservers(ctx.live);
           },
-          clearExecutorStreams: () => clearExecutorStreams(ctx.live),
         },
         request.scope,
       );
@@ -180,7 +163,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(SeedTenantConfigResponse, "What was set, and what was kept") },
     },
     async (c) => {
-      const ctx = await refuseExecutor(c);
+      const ctx = c.env.tenant;
       const request = SeedTenantConfigRequestSchema.parse(await readJson(c.req.raw));
       return jsonResponse(200, await seedTenantConfig({ store: ctx.store, vault: ctx.vault }, request));
     },
@@ -197,7 +180,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(HostModelCatalog, "Provider and model names") },
     },
     async (c) => {
-      await refuseExecutor(c);
+      c.env.tenant;
       return jsonResponse(200, hostModelCatalog());
     },
   );
@@ -212,7 +195,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Get the Tenant's sandbox configuration",
       responses: { 200: json(TenantSandboxView, "The backend in use and the configuration in force") },
     },
-    async (c) => jsonResponse(200, await sandboxView(await refuseExecutor(c))),
+    async (c) => jsonResponse(200, await sandboxView(c.env.tenant)),
   );
 
   tenantRoute(
@@ -228,7 +211,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(TenantSandboxView, "The configuration now in force") },
     },
     async (c) => {
-      const ctx = await refuseExecutor(c);
+      const ctx = c.env.tenant;
       const { requestId: _requestId, ...config } = PutTenantSandboxRequestSchema.parse(
         await readJson(c.req.raw),
       );
@@ -252,7 +235,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "List the model providers the Tenant has credentials for",
       responses: { 200: json(ListProvidersResponse, "The providers") },
     },
-    async (c) => jsonResponse(200, await (await refuseExecutor(c)).vault.listHostProviders()),
+    async (c) => jsonResponse(200, await (c.env.tenant).vault.listHostProviders()),
   );
 
   tenantRoute(
@@ -265,7 +248,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Get the Tenant's model",
       responses: { 200: json(HostModelView, "The model its sessions call") },
     },
-    async (c) => jsonResponse(200, await (await refuseExecutor(c)).vault.getHostModel()),
+    async (c) => jsonResponse(200, await (c.env.tenant).vault.getHostModel()),
   );
 
   tenantRoute(
@@ -280,7 +263,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(HostModelView, "The model now in force") },
     },
     async (c) => {
-      const ctx = await refuseExecutor(c);
+      const ctx = c.env.tenant;
       return jsonResponse(
         200,
         await ctx.vault.putHostModel(PutHostModelRequestSchema.parse(await readJson(c.req.raw))),
@@ -300,7 +283,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(HostModelView, "The model now in force") },
     },
     async (c) => {
-      const ctx = await refuseExecutor(c);
+      const ctx = c.env.tenant;
       return jsonResponse(
         200,
         await ctx.vault.selectHostModel(

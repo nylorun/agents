@@ -46,18 +46,12 @@ const vaultId = z.object({ vaultId: z.string() });
 const credentialId = vaultId.extend({ credentialId: z.string() });
 
 /**
- * Who a vault route acts for: the subject, or no one in particular (an application key). An
- * executor is refused, and the refusal recorded. Below a vault, the vault must be the
- * subject's before anything else.
+ * Who a vault route acts for: the subject, or no one in particular (an application key). Below
+ * a vault, the vault must be the subject's before anything else.
  */
 async function ownerFor(c: Context<TenantEnv>): Promise<string | undefined> {
   const { vault } = c.env.tenant;
-  const scope = c.get("scope");
-  if (scope.kind === "executor") {
-    await vault.reject(pathSegments(c.env.incoming).join("/"));
-    fail(403, "Application credential required");
-  }
-  const owner = ownerOf(scope);
+  const owner = ownerOf(c.get("scope"));
   const id = c.req.param("vaultId");
   if (id !== undefined && owner !== undefined) await vault.assertOwner(id, owner);
   return owner;

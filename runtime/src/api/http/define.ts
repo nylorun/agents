@@ -13,6 +13,7 @@ import type { IncomingMessage } from "node:http";
 import type { OpenAPIHono, RouteConfig } from "@hono/zod-openapi";
 import type { Context, Handler, MiddlewareHandler } from "hono";
 import { z } from "zod";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { SubjectScope } from "@nylorun/core/contracts";
 import { authenticate, requireScopes } from "../../tenant/auth.js";
 import { identifyClient } from "../../tenant/browser.js";
@@ -26,7 +27,6 @@ export type Credential =
   | "subject"
   | "token"
   | "publishable"
-  | "executor"
   | "delivery";
 
 export interface RouteAccess {
@@ -42,7 +42,6 @@ const SCHEMES: Record<Credential, string> = {
   subject: "applicationKey",
   token: "subjectToken",
   publishable: "publishableKey",
-  executor: "executorKey",
   delivery: "deliveryToken",
 };
 
@@ -125,7 +124,7 @@ export function tenantRoute(
   const takes = (credential: Credential) => access.credentials.includes(credential);
   const schemes = [...new Set(access.credentials.map((credential) => SCHEMES[credential]))];
   const headers = z.object({
-    "Nylorun-Protocol": z.string().meta({ description: "The protocol version, `2`" }),
+    "Nylorun-Protocol": z.string().meta({ description: `The protocol version, \`${PROTOCOL_VERSION}\`` }),
     ...(access.browser || takes("publishable")
       ? {
           "Nylorun-Tenant": z
@@ -184,15 +183,4 @@ export function tenantRoute(
     authenticated(access),
     handler,
   );
-}
-
-/** The executor a route's caller is, or 403. */
-export function executorOf(scope: AuthScope) {
-  if (scope.kind !== "executor") return fail(403, "Executor credential required");
-  return scope.executor;
-}
-
-/** The router's executor gate: past it, executors reach nothing. */
-export function notExecutor(scope: AuthScope): void {
-  if (scope.kind === "executor") fail(403, "Application credential required");
 }

@@ -34,7 +34,6 @@ const LABELS: Readonly<Record<string, string>> = {
   "command.cancel": "Cancel",
   "command.approve": "Approve",
   "command.respond": "Respond",
-  "command.action_result": "Action result",
   "turn.completed": "Turn completed",
   "turn.waiting": "Turn waiting",
   "turn.uncertain": "Turn uncertain",
@@ -42,7 +41,6 @@ const LABELS: Readonly<Record<string, string>> = {
   "turn.cancelled": "Turn cancelled",
   "turn.runnable": "Turn runnable",
   "action.pending": "Action pending",
-  "action.claimed": "Action claimed",
   "action.delivered": "Action delivered",
   "action.delivery_failed": "Delivery failed",
   "action.completed": "Action completed",
@@ -107,8 +105,6 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
       return payload.approved === true ? "Approved." : "Denied.";
     case "command.respond":
       return compact(payload.value);
-    case "command.action_result":
-      return text(payload.actionId, "Action result submitted.");
     case "turn.completed":
       return compact(payload.output);
     case "turn.failed":
@@ -127,7 +123,6 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
         : reason;
     }
     case "action.pending":
-    case "action.claimed":
     case "action.delivered":
     case "action.completed":
     case "action.uncertain": {

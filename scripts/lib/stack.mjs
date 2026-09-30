@@ -306,7 +306,7 @@ export async function eventually(check, { timeout = 60_000, interval = 250, mess
   }
 }
 
-const PROTOCOL = "2";
+const PROTOCOL = "3";
 
 /** Headers for the Tenant API. */
 export function tenantHeaders(tenantId, key, extra = {}) {

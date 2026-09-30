@@ -30,7 +30,7 @@ export function createFakeHandle(
   let summary: TenantSummary = options.summary ?? {
     ready: true,
     runningSessions: 0,
-    connectedExecutors: 0,
+    inFlightDeliveries: 0,
     pendingActions: 0,
     uncertainEffects: 0,
   };

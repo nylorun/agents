@@ -158,8 +158,8 @@ The jobs run in this order:
    `nylorun up` pulls its pinned `ghcr.io/nylorun/runtime` and
    `ghcr.io/nylorun/studio` images, `nylo tenant create` links the project, and
    its `npm run dev` connects. The smoke checks that the stack runs exactly
-   those images, that the Tenant is created and the starter's executor
-   connects, and that the Studio login works. It
+   those images, that the Tenant is created and the starter's Action
+   endpoint answers a ping, and that the Studio login works. It
    makes no model calls, and it resets the stack's containers and volumes.
 
 Tags use `@nylorun/<package>@<version>`, Studio's included, and

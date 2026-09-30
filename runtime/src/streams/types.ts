@@ -7,7 +7,6 @@
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
  * | `sessions/<sessionId>/<incarnation>` | every `LiveEvent` of one incarnation of the session, in sequence | the relay, from the outbox | history and session SSE |
- * | `tenant/work` | `work_available` signals | API nodes and Workers after committing pending Actions | executor SSE on every API node |
  * | `tenant/control` | `session.cancel` and `sessions.reset` signals | API nodes | every process with the Tenant open |
  *
  * **Incarnations.** A session's stream name carries an incarnation, a random
@@ -132,8 +131,6 @@ export interface DurableStreams {
 // Stream names and signal records
 
 export const SESSION_STREAM_PREFIX = "sessions/";
-/** `work_available` signals for executor connections. */
-export const WORK_STREAM = "tenant/work";
 /** `session.cancel` and `sessions.reset` signals for every process with the Tenant open. */
 export const CONTROL_STREAM = "tenant/control";
 
@@ -183,10 +180,6 @@ export function parseSessionStream(
  * Signals are not canonical events: they are appended without the outbox, and
  * a lost signal costs latency, not correctness.
  */
-export interface WorkSignal {
-  type: "work_available";
-}
-
 /** Ends the advance of `sessionId` on the process running it. */
 export interface SessionCancelSignal {
   type: "session.cancel";
@@ -215,7 +208,3 @@ export type ControlSignal =
   | SessionCancelSignal
   | SessionsResetSignal
   | SubjectRevokedSignal;
-
-export const WORK_AVAILABLE: Readonly<WorkSignal> = Object.freeze({
-  type: "work_available",
-});

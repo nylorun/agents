@@ -1,26 +1,8 @@
 {
-  "GET /v1/executors/connect": {
-    "status": 403
-  },
-  "GET /v1/actions": {
-    "status": 403
-  },
   "POST /v1/actions/act-missing/sandbox/bash": {
     "status": 403
   },
-  "POST /v1/actions/act-missing/claim": {
-    "status": 403
-  },
   "POST /v1/actions/act-missing/heartbeat": {
-    "status": 403
-  },
-  "GET /v1/executors": {
-    "status": 403
-  },
-  "PUT /v1/executors": {
-    "status": 403
-  },
-  "DELETE /v1/executors/ghost": {
     "status": 403
   },
   "GET /v1/endpoints": {

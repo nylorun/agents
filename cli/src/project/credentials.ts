@@ -7,15 +7,13 @@ import {
 } from "./link.js";
 
 /**
- * Project-local credentials (mode 0600). Format 1 drops `executors`.
- * Format 0 may still contain an executors map; readers ignore it (D§3.7).
+ * Project-local credentials (mode 0600): the application key and its principal. A format 0
+ * file may still carry a legacy `executors` map from before protocol 3; it is ignored.
  */
 export interface ProjectCredentials {
   format: 0 | 1;
   applicationKey: string;
   principalId: string;
-  /** Present only on format 0 files; ignored by version 1. */
-  executors?: Record<string, string>;
 }
 
 /** The Project's credentials, or with `tenantId` the key kept for that Tenant. */
@@ -29,7 +27,6 @@ export async function readCredentials(
       format?: unknown;
       applicationKey?: unknown;
       principalId?: unknown;
-      executors?: unknown;
     };
     if (
       typeof value?.applicationKey !== "string" ||
@@ -55,18 +52,10 @@ export async function readCredentials(
       );
     }
     await chmod(path, 0o600);
-    const executors =
-      format === 0 &&
-      value.executors &&
-      typeof value.executors === "object" &&
-      !Array.isArray(value.executors)
-        ? (value.executors as Record<string, string>)
-        : undefined;
     return {
       format,
       applicationKey: value.applicationKey,
       principalId: value.principalId,
-      ...(executors ? { executors } : {}),
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -86,7 +75,7 @@ export async function writeCredentials(
   await ensureProjectNylorunDir(projectRoot);
   const path = credentialsPath(projectRoot, tenantId);
   const temporary = `${path}.${randomUUID()}.tmp`;
-  // Version 1 writes format 1 without executors (D§3.7).
+  // Version 1 writes format 1 with only the application key and principal (D§3.7).
   const body = `${JSON.stringify(
     {
       format: credentials.format ?? 1,

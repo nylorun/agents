@@ -28,10 +28,8 @@ const base = {
   manifestHash: "hash",
   implementationVersion: "dev",
   context: {},
-  status: "claimed" as const,
+  status: "delivering" as const,
   generation: 1,
-  claimId: "claim",
-  leaseExpiresAt: null,
 };
 
 it("keeps the agent identity through the wire schema", () => {

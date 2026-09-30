@@ -4,11 +4,10 @@ import {
   Agent,
   tool,
   createClient,
-  connectAgents,
-  type AgentConnection,
   type AgentsClient,
 } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * An approval-gated tool with an output schema pauses for the approval instead of failing
@@ -20,7 +19,7 @@ const APP = "tool-approval-output-app-token-aaa";
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
 let client: AgentsClient;
-let connection: AgentConnection;
+let connection: ServedAgents;
 let runs = 0;
 /** The tool result the model last saw (the tests run one session at a time). */
 let lastToolResult: unknown;
@@ -75,7 +74,7 @@ beforeAll(async () => {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  connection = connectAgents({
+  connection = serveAgents({
     agents: [agent],
     application: client,
     implementationVersion: "v1",

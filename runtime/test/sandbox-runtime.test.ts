@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import { registerEndpoint, startEndpoint } from "./support/endpoint.js";
 import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -16,7 +17,6 @@ const serverHeaders = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-const executorHeaders = { authorization: "Bearer executor-token-value" };
 
 const agent = () => Agent({ id: "bot", name: "Bot" }).instructions("Use the sandbox.").build();
 
@@ -32,7 +32,6 @@ async function boot(
   return startTestTenant({
     mode: "test",
     applicationKey: APP,
-    executors: [{ token: "executor-token-value", agentId: "bot", implementationVersion: "dev" }],
     vaultKek: null,
     modelProvider: options.modelProvider,
     sandbox: options.sandbox ?? { backend: "virtual" },
@@ -103,7 +102,7 @@ function script(calls: readonly { name: string; args: Record<string, unknown> }[
   };
 }
 
-it("runs built-in sandbox tools in the Runtime without an executor action", async () => {
+it("runs built-in sandbox tools in the Runtime without delivering an Action", async () => {
   const results: unknown[] = [];
   const runtime = await boot({
     retainRoot: true,
@@ -115,17 +114,21 @@ it("runs built-in sandbox tools in the Runtime without an executor action", asyn
       results
     ),
   });
+  let closeEndpoint = async () => {};
   try {
     const host = await (await fetch(`${runtime.url}/v1/tenant/sandbox`, { headers: serverHeaders })).json();
     expect(host).toMatchObject({ backend: "virtual", isolation: "process", defaultImage: "python:3.13-slim" });
     await register(runtime, agent().manifest);
+    // The agent has an Action endpoint, but the sandbox tools never reach it.
+    const endpoint = await startEndpoint({ runtime });
+    closeEndpoint = () => endpoint.close();
+    await registerEndpoint(runtime, "bot", endpoint.url);
     await openSession(runtime, "s1");
     await say(runtime, "s1", "sum the sales");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
     expect(session.status).toBe("completed");
     expect(JSON.stringify(results.at(-1))).toContain('\\"stdout\\":\\"7\\\\n\\"');
-    const actions = await (await fetch(`${runtime.url}/v1/actions`, { headers: executorHeaders })).json();
-    expect(actions.actions).toEqual([]);
+    expect(endpoint.deliveries).toEqual([]);
     const history = await items(runtime, "s1");
     expect(history.some((item) => item.type === "action.pending")).toBe(false);
     expect(history.filter((item) => item.type === "sandbox.state").map((item) => item.payload.state)).toEqual([
@@ -136,6 +139,7 @@ it("runs built-in sandbox tools in the Runtime without an executor action", asyn
     expect(execs.map((item) => item.payload.tool)).toEqual(["write", "bash"]);
     expect(execs[1]!.payload).toMatchObject({ exitCode: 0, outcome: "completed" });
   } finally {
+    await closeEndpoint();
     await runtime.close();
   }
   // Files persist across a Runtime restart; the sandbox reattaches.
@@ -222,7 +226,6 @@ it("deletes sandboxes of an ephemeral Runtime on close", async () => {
   const runtime = await startTestTenant({
     mode: "ephemeral",
     applicationKey: APP,
-    executors: [{ token: "executor-token-value", agentId: "bot", implementationVersion: "dev" }],
     vaultKek: null,
     modelProvider: script([{ name: "write", args: { path: "a.txt", content: "a" } }]),
     sandbox: { backend: "virtual", backends: [virtualBackend({ root })] },

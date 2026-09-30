@@ -28,7 +28,7 @@ it("answers normally in a process whose Request and Response @hono/node-server r
   });
   try {
     const headers = {
-      "nylorun-protocol": "2",
+      "nylorun-protocol": "3",
       "nylorun-tenant": rt.tenantId,
       authorization: `Bearer ${rt.applicationKey}`,
       "content-type": "application/json",
@@ -50,7 +50,7 @@ it("answers normally in a process whose Request and Response @hono/node-server r
 
     expect((await fetch(`${rt.url}/health`)).status).toBe(200);
     const admin = await fetch(`${rt.adminUrl}/v1/admin/status`, {
-      headers: { "nylorun-protocol": "2", authorization: `Bearer ${rt.adminKey}` },
+      headers: { "nylorun-protocol": "3", authorization: `Bearer ${rt.adminKey}` },
     });
     expect(admin.status).toBe(200);
     expect(await admin.json()).toMatchObject({ service: "nylorun-runtime" });

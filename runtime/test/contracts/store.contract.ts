@@ -61,8 +61,6 @@ function action(
     context: {},
     status: "pending",
     generation: 0,
-    claimId: null,
-    leaseExpiresAt: null,
     kind: "tool",
     capabilityId: "cap",
     toolName: "tool",
@@ -266,7 +264,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(await store.tx((t) => t.get("sessions", "s1"))).toBeDefined();
       });
 
-      it("rolls back writes, events, afterCommit and signalWork on throw", async () => {
+      it("rolls back writes, events and afterCommit on throw", async () => {
         const store = await fresh();
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const commits: Commit[] = [];
@@ -281,7 +279,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
             t.afterCommit(() => {
               ran = true;
             });
-            t.signalWork();
             throw failure;
           }),
         ).rejects.toBe(failure);
@@ -297,7 +294,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
       });
 
-      it("delivers events and work to commit listeners, then runs afterCommit in order", async () => {
+      it("delivers events to commit listeners, then runs afterCommit in order", async () => {
         const store = await fresh();
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const log: string[] = [];
@@ -309,7 +306,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx(async (t) => {
           await t.event("s1", "t1", "a", { n: 1 });
           await t.event("s1", "t1", "b", { n: 2 });
-          t.signalWork();
           t.afterCommit(() => {
             log.push("first");
           });
@@ -321,11 +317,10 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
         expect(log).toEqual(["body", "listener", "first", "second"]);
         expect(commits).toHaveLength(1);
-        expect(commits[0]!.workAvailable).toBe(true);
         expect(commits[0]!.events.map((e) => e.type)).toEqual(["a", "b"]);
       });
 
-      it("does not call listeners for a commit without events or work", async () => {
+      it("does not call listeners for a commit without events", async () => {
         const store = await fresh();
         let calls = 0;
         store.onCommit(() => calls++);
@@ -338,9 +333,9 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         let calls = 0;
         const off = store.onCommit(() => calls++);
-        await store.tx(async (t) => void t.signalWork());
+        await store.tx(async (t) => void (await t.event("s1", null, "x", {})));
         off();
-        await store.tx(async (t) => void t.signalWork());
+        await store.tx(async (t) => void (await t.event("s1", null, "y", {})));
         expect(calls).toBe(1);
       });
 
@@ -364,7 +359,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const result = await store.tx(async (t) => {
           await t.put("commands", "c1", { id: "c1" });
-          t.signalWork();
+          await t.event("s1", null, "x", {});
           t.afterCommit(() => {
             throw new Error("wake");
           });
@@ -754,14 +749,14 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("effects", "e7", effect("e7", "wf", "old", "queued", "fn"));
 
           await t.put("actions", "a1", action("a1", { status: "pending" }));
-          await t.put("actions", "a2", action("a2", { status: "claimed", leaseExpiresAt: "2030-01-01T00:00:05.000Z", claimId: "c" }));
-          await t.put("actions", "a3", action("a3", { status: "claimed", leaseExpiresAt: "2030-01-01T00:00:01.000Z", claimId: "c", turnId: "t2" }));
-          await t.put("actions", "a4", action("a4", { status: "claimed", leaseExpiresAt: "2030-01-01T00:01:00.000Z", claimId: "c" }));
+          await t.put("actions", "a2", action("a2", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:05.000Z" }));
+          await t.put("actions", "a3", action("a3", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:01.000Z", turnId: "t2" }));
+          await t.put("actions", "a4", action("a4", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:01:00.000Z" }));
           await t.put("actions", "a5", action("a5", { status: "completed" }));
           await t.put("actions", "a6", action("a6", { status: "pending", agentId: "agent-b", sessionId: "s2" }));
           await t.put("actions", "a7", action("a7", { status: "uncertain" }));
           await t.put("actions", "f1", {
-            ...action("f1", { sessionId: "wf", turnId: "wt", status: "claimed", leaseExpiresAt: "2030-01-01T00:00:03.000Z", claimId: "c" }),
+            ...action("f1", { sessionId: "wf", turnId: "wt", status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:03.000Z" }),
             kind: "fn",
             path: "p",
             key: "k",
@@ -804,20 +799,20 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
       });
 
-      it("finds actions by claim expiry, agent, session and kind", async () => {
+      it("finds actions by delivery deadline, agent, session and kind", async () => {
         const store = await fresh();
         await seed(store);
         await store.tx(async (t) => {
-          expect(ids(await t.expiredClaims(new Date("2030-01-01T00:00:05.000Z"), 10))).toEqual(["a3", "f1", "a2"]);
-          expect(ids(await t.expiredClaims(new Date("2030-01-01T00:00:05.000Z"), 2))).toEqual(["a3", "f1"]);
-          expect(ids(await t.expiredClaims(new Date("2030-01-01T00:00:00.000Z"), 10))).toEqual([]);
+          expect(ids(await t.expiredDeliveries(new Date("2030-01-01T00:00:05.000Z"), 10))).toEqual(["a3", "f1", "a2"]);
+          expect(ids(await t.expiredDeliveries(new Date("2030-01-01T00:00:05.000Z"), 2))).toEqual(["a3", "f1"]);
+          expect(ids(await t.expiredDeliveries(new Date("2030-01-01T00:00:00.000Z"), 10))).toEqual([]);
           expect(ids(await t.pendingActions("agent-a"))).toEqual(["a1"]);
           expect(ids(await t.pendingActions("agent-b"))).toEqual(["a6"]);
           expect(ids(await t.actionsForSession("s1"))).toEqual(["a1", "a2", "a3", "a4", "a5", "a7"]);
-          expect(ids(await t.actionsForSession("s1", { turnId: "t1", statuses: ["pending", "claimed"] }))).toEqual(["a1", "a2", "a4"]);
-          expect(ids(await t.actionsForSession("s1", { statuses: ["pending", "claimed", "uncertain"] }))).toEqual(["a1", "a2", "a3", "a4", "a7"]);
-          expect(ids(await t.actionsWithStatus(["claimed"], { kinds: ["fn", "verify"] }))).toEqual(["f1"]);
-          expect(ids(await t.actionsWithStatus(["claimed"]))).toEqual(["a2", "a3", "a4", "f1"]);
+          expect(ids(await t.actionsForSession("s1", { turnId: "t1", statuses: ["pending", "delivering"] }))).toEqual(["a1", "a2", "a4"]);
+          expect(ids(await t.actionsForSession("s1", { statuses: ["pending", "delivering", "uncertain"] }))).toEqual(["a1", "a2", "a3", "a4", "a7"]);
+          expect(ids(await t.actionsWithStatus(["delivering"], { kinds: ["fn", "verify"] }))).toEqual(["f1"]);
+          expect(ids(await t.actionsWithStatus(["delivering"]))).toEqual(["a2", "a3", "a4", "f1"]);
         });
       });
 
@@ -983,13 +978,13 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("actions", "p1", action("p1", { status: "pending" }));
           await t.put("actions", "p2", action("p2", { status: "pending", agentId: "agent-b" }));
           await t.put("actions", "p0", action("p0", { status: "pending" }));
-          await t.put("actions", "c1", action("c1", { status: "claimed", claimId: "c", leaseExpiresAt: "2030-01-01T00:00:00.000Z" }));
+          await t.put("actions", "c1", action("c1", { status: "completed", generation: 1 }));
         });
         await store.tx(async (t) => {
           expect(await t.deliveringCount("agent-a")).toBe(2);
           expect(await t.deliveringCount("agent-b")).toBe(1);
           expect(await t.deliveringCount("agent-c")).toBe(0);
-          // agent-b has no endpoint, so its pending Action is an executor's.
+          // agent-b has no endpoint, so its pending Action waits for one.
           expect((await t.pendingActionsWithEndpoint(10)).map((a) => a.actionId)).toEqual(["p0", "p1"]);
           expect((await t.pendingActionsWithEndpoint(1)).map((a) => a.actionId)).toEqual(["p0"]);
           const at = (iso: string) => new Date(iso);
@@ -1009,34 +1004,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
       });
     });
 
-    describe("executors and principals", () => {
-      it("upserts executors keeping createdAt and a unique token hash", async () => {
-        const store = await fresh();
-        await store.tx(async (t) => {
-          await t.putExecutor({ agentId: "a", tokenHash: "h1", implementationVersion: "1", updatedAt: "2030-01-01T00:00:00.000Z" });
-          await t.putExecutor({ agentId: "b", tokenHash: "h2", implementationVersion: "1", manifestHash: "m", principalId: "p", updatedAt: "2030-01-01T00:00:00.000Z" });
-        });
-        await store.tx((t) =>
-          t.putExecutor({ agentId: "a", tokenHash: "h3", implementationVersion: "2", updatedAt: "2030-01-02T00:00:00.000Z" }),
-        );
-        await store.tx(async (t) => {
-          expect(await t.getExecutor("a")).toEqual({
-            agentId: "a",
-            tokenHash: "h3",
-            implementationVersion: "2",
-            createdAt: "2030-01-01T00:00:00.000Z",
-            updatedAt: "2030-01-02T00:00:00.000Z",
-          });
-          expect((await t.listExecutors()).map((e) => e.agentId)).toEqual(["a", "b"]);
-          expect(await t.getExecutor("b")).toMatchObject({ manifestHash: "m", principalId: "p" });
-        });
-        await expect(
-          store.tx((t) => t.putExecutor({ agentId: "c", tokenHash: "h2", implementationVersion: "1", updatedAt: "x" })),
-        ).rejects.toThrow();
-        await store.tx((t) => t.deleteExecutor("a"));
-        expect(await store.tx((t) => t.getExecutor("a"))).toBeUndefined();
-      });
-
+    describe("principals", () => {
       it("stores principals with unique ids and token hashes", async () => {
         const store = await fresh();
         const app = { id: "pr_app", role: "application", tokenHash: "ha", idempotencyKey: "k", createdAt: "2030-01-01T00:00:00.000Z" };
@@ -1173,7 +1141,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.event("s1", null, "x", {});
           await t.put("sandboxes", "sb1", { key: "sb1" });
           await t.put("definitions", "agent-a", { manifest: { id: "agent-a" } });
-          await t.putExecutor({ agentId: "agent-a", tokenHash: "h", implementationVersion: "1", updatedAt: "x" });
+          await t.putEndpoint({ agentId: "agent-a", url: "http://localhost:3000/actions", implementationVersion: "1", timeoutMs: 60_000, maxConcurrent: 16, updatedAt: "x" });
           await t.insertPrincipal({ id: "pr_1", role: "application", tokenHash: "hp", idempotencyKey: null, createdAt: "x" });
           await t.insertVault({ id: "host", name: "Host", ownerUserId: "host", metadataJson: null, createdAt: "x", scope: "host" });
           await t.insertVault({ id: "v1", name: "A", ownerUserId: "u", metadataJson: null, createdAt: "x", scope: "user" });
@@ -1214,7 +1182,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx(async (t) => {
           expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, pendingActions: 0, uncertainEffects: 0, sandboxes: 0, definitions: 0 });
           expect(await t.outbox(10)).toEqual([]);
-          expect(await t.listExecutors()).toEqual([]);
+          expect(await t.listEndpoints()).toEqual([]);
           expect(await t.getVault("v1")).toBeUndefined();
           expect(await t.getCredential("uc")).toBeUndefined();
           expect(await t.getVault("host")).toBeDefined();

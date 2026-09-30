@@ -69,11 +69,10 @@ created), it keeps that key as `.nylorun/credentials.<tenantId>.json`, so
 A **Project** stores only:
 
 - `.nylorun/link.json`: `{ format, hostUrl, hostId, tenantId }`
-- `.nylorun/credentials.json`: application key and principal id (0600), no
-  executor tokens
+- `.nylorun/credentials.json`: application key and principal id (0600)
 - `.nylorun/.gitignore` containing `*`
 
-`connectAgents` in `@nylorun/agents` reads the link (or the three variables),
+`createActionHandler` and `createClient` in `@nylorun/agents` read the link (or the three variables),
 so the project's `npm run dev` and `npm start` need no Nylorun tool.
 
 ```sh

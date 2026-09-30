@@ -9,12 +9,10 @@
  *   deletes the basin (`deleteTenantStreams`); a reset never does (s2-lite keeps a deleted basin's
  *   name for about a minute).
  * - **Relay.** The outbox relay (`streams/relay.ts`) subscribes to the Session Store's commits,
- *   appends committed events to the session's stream, and appends `work_available` to
- *   `tenant/work` after a commit that called `t.signalWork()`. It is the only writer of either;
- *   business code never publishes or notifies.
+ *   appends committed events to the session's stream. It is their only writer; business code
+ *   never publishes or notifies.
  * - **Readers.** History and session SSE read the session's stream (`tenant/live.ts`). This
- *   module runs one `tenant/work` reader per Tenant per process, which wakes connected
- *   executors, and one `tenant/control` reader, which calls `ctx.abortLocal` for each
+ *   module runs one `tenant/control` reader per Tenant per process, which calls `ctx.abortLocal` for each
  *   `session.cancel` and checks the session feeds for each `sessions.reset`.
  * - **Incarnations.** A session's stream is `sessions/<id>/<incarnation>`, with the incarnation
  *   stored on the session when it is created (`streams/types.ts`). A reset abandons the
@@ -41,7 +39,6 @@ import {
 import {
   CONTROL_STREAM,
   SESSION_STREAM_PREFIX,
-  WORK_STREAM,
   parseSessionStream,
   streamOfSession,
   type ControlSignal,
@@ -50,7 +47,6 @@ import {
 } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
 import {
-  announceWork,
   checkFeeds,
   endSubjectStreams,
   sleep,
@@ -125,7 +121,7 @@ const messageOf = (error: unknown) =>
 
 /**
  * Wires the Tenant to Durable Streams: checks the basin, creates the relay (unless given),
- * starts the work and control readers, and records the handles on `ctx.live.wiring`. Call it
+ * starts the control reader, and records the handles on `ctx.live.wiring`. Call it
  * once, after `ctx` is built and before the Tenant serves requests.
  */
 export async function wireStreams(
@@ -162,14 +158,6 @@ export async function wireStreams(
       },
     });
 
-  const work = follow(
-    streams,
-    tenantId,
-    WORK_STREAM,
-    stop.signal,
-    () => announceWork(ctx.live),
-    report("work stream read failed; retrying")
-  );
   const control = follow(
     streams,
     tenantId,
@@ -191,7 +179,7 @@ export async function wireStreams(
     report("control stream read failed; retrying")
   );
   // Signals appended from here on reach this process.
-  await Promise.all([work, control]);
+  await control;
 
   // Feeds whose session was reset end on the `sessions.reset` signal; this catches lost ones.
   const feedCheck = setInterval(

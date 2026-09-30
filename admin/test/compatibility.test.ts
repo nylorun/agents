@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   HOST_PROTOCOL,
   PROTOCOL_FEATURES,
+  PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
 import { createAdmin } from "../src/index.js";
 import { ADMIN_KEY, healthBody, startStubServer } from "./helpers.js";
@@ -38,7 +39,7 @@ describe("B3 /health compatibility cache", () => {
       expect(authenticated.length).toBeGreaterThanOrEqual(2);
       for (const call of authenticated) {
         expect(call.headers.authorization).toBe(`Bearer ${ADMIN_KEY}`);
-        expect(call.headers["nylorun-protocol"]).toBe("2");
+        expect(call.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
       }
     } finally {
       await server.close();

@@ -27,7 +27,7 @@ import {
   tenantChildEnvironment,
 } from "../../src/host/environment.js";
 import { createHostLogger } from "../../src/host/logger.js";
-import { mintBearerToken } from "../../src/core/executors.js";
+import { mintBearerToken } from "../../src/core/bearer.js";
 import { createTenantModule } from "../../src/tenant/module.js";
 import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
 import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";

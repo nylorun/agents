@@ -24,7 +24,7 @@ let rt: EphemeralRuntime;
 const lines: string[] = [];
 
 const app = {
-  "nylorun-protocol": "2",
+  "nylorun-protocol": "3",
   "nylorun-tenant": TENANT,
   authorization: `Bearer ${APPLICATION_KEY}`,
 };
@@ -92,7 +92,7 @@ it("logs each request's outcome as recorded", async () => {
     body: "x",
   });
   await fetch(`${rt.url}/v1/agents`, { headers: { ...app, "nylorun-protocol": "1" } });
-  await fetch(`${rt.url}/v1/agents`, { headers: { "nylorun-protocol": "2" } });
+  await fetch(`${rt.url}/v1/agents`, { headers: { "nylorun-protocol": "3" } });
   await fetch(`${rt.url}/v1/agents`, {
     headers: { ...app, "nylorun-tenant": `tn_${"0".repeat(22)}dead` },
   });
@@ -103,10 +103,10 @@ it("logs each request's outcome as recorded", async () => {
     headers: { ...app, "nylorun-subject": "app:ann", "nylorun-scopes": "sessions:own" },
   });
   await fetch(`${rt.url}/v1/admin/status`, {
-    headers: { "nylorun-protocol": "2", authorization: `Bearer ${ADMIN_KEY}` },
+    headers: { "nylorun-protocol": "3", authorization: `Bearer ${ADMIN_KEY}` },
   });
   await fetch(`${rt.adminUrl}/v1/admin/status`, {
-    headers: { "nylorun-protocol": "2", authorization: `Bearer ${ADMIN_KEY}` },
+    headers: { "nylorun-protocol": "3", authorization: `Bearer ${ADMIN_KEY}` },
   });
   const stream = new AbortController();
   const events = await fetch(`${rt.url}/v1/sessions/s1/events`, {

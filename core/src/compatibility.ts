@@ -1,10 +1,11 @@
 export { hashManifest } from "./utils/hash.js";
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const PROTOCOL_FEATURES = [
   "runtime-tenants",
   "admin-status",
   "studio-principal",
+  "action-endpoints",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -25,9 +26,6 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * or by subject headers. `a2a-endpoint`:
  * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
- * `action-endpoints`: `PUT`/`GET`/`DELETE /v1/endpoints` register the URL that runs each agent's
- * Actions, and the Runtime delivers them there, signed with a delivery token
- * (`Nylorun-Signature`), instead of offering them to executors.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -38,7 +36,6 @@ export const OPTIONAL_HOST_FEATURES = [
   "browser-access",
   "ag-ui-endpoint",
   "a2a-endpoint",
-  "action-endpoints",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -47,8 +44,8 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 2,
-  max: 2,
+  min: 3,
+  max: 3,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;

@@ -1,7 +1,7 @@
 /**
  * Ownership and the Durable Execution seam on a real Tenant runtime (in memory or Postgres; architecture
  * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, duplicate and lost wakes,
- * and claim expiry through the Tenant sweep.
+ * and lapsed Action deliveries through the Tenant sweep.
  */
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
@@ -12,16 +12,12 @@ import type { DurableExecution, Wake } from "../../src/execution/types.js";
 import { openTestSessionStore } from "../support/store.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { TenantWorkers, type TenantExecution } from "../../src/tenant/worker.js";
+import { registerEndpoint, startEndpoint } from "../support/endpoint.js";
 import { startTestTenant } from "../support/tenant.js";
 
 const APP = "ownership-app-token-aaaaaaaaaaaa";
-const EXECUTOR = "ownership-executor-token-aaaaaa";
 const server = {
   authorization: `Bearer ${APP}`,
-  "content-type": "application/json",
-};
-const executor = {
-  authorization: `Bearer ${EXECUTOR}`,
   "content-type": "application/json",
 };
 
@@ -76,9 +72,6 @@ function hostExecution(): TenantExecution & { execution: MemoryExecution } {
 async function boot(options: Parameters<typeof startTestTenant>[0]) {
   const runtime = await startTestTenant({
     applicationKey: APP,
-    executors: [
-      { token: EXECUTOR, agentId: "bot", implementationVersion: "dev" },
-    ],
     ...options,
   });
   open.push(runtime);
@@ -345,7 +338,7 @@ it("recovers a wake lost between commit and send through the sweep", async () =>
   }
 });
 
-it("expires a lapsed tool claim through the sweep", async () => {
+it("makes a lapsed 202 tool delivery uncertain through the sweep", async () => {
   const runtime = await boot({
     leaseMs: 100,
     sweepIntervalMs: 20,
@@ -355,29 +348,20 @@ it("expires a lapsed tool claim through the sweep", async () => {
       ],
     }),
   });
-  await openTurn(runtime, withTool.manifest);
-  const [pending] = await until(
-    async () =>
-      (
-        (await (
-          await fetch(`${runtime.url}/v1/actions`, {
-            headers: { authorization: executor.authorization },
-          })
-        ).json()) as { actions: { actionId: string }[] }
-      ).actions,
-    (actions) => actions.length > 0,
-    "a pending action"
-  );
-  const claimed = await fetch(
-    `${runtime.url}/v1/actions/${pending!.actionId}/claim`,
-    {
-      method: "POST",
-      headers: executor,
-      body: JSON.stringify({ requestId: "claim-1", implementationVersion: "dev" }),
-    }
-  );
-  expect(claimed.ok).toBe(true);
-  // Nobody polls /v1/actions now: only the sweep can expire the claim.
-  await until(() => view(runtime), (v) => v.status === "uncertain", "uncertain");
-  expect(await types(runtime)).toContain("action.uncertain");
+  // The endpoint answers 202 and then never heartbeats or posts a result.
+  const endpoint = await startEndpoint({ runtime });
+  try {
+    await registerEndpoint(runtime, "bot", endpoint.url);
+    await openTurn(runtime, withTool.manifest);
+    const delivery = await endpoint.next();
+    expect(delivery.action).toMatchObject({ kind: "tool", toolName: "save" });
+    // Nothing delivers again now: only the sweep can find the delivery's deadline passed.
+    await until(() => view(runtime), (v) => v.status === "uncertain", "uncertain");
+    expect(await types(runtime)).toContain("action.uncertain");
+    expect(endpoint.deliveries).toHaveLength(1);
+    // The lost delivery's token no longer answers for the Action.
+    expect((await delivery.result({ kind: "completed", output: { saved: true } })).status).toBe(409);
+  } finally {
+    await endpoint.close();
+  }
 });

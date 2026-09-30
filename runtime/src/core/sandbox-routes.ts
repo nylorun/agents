@@ -67,7 +67,7 @@ function toolInput(body: unknown): unknown {
   if (typeof body !== "object" || Array.isArray(body))
     throw new SandboxRouteError(400, "Sandbox tool body must be an object");
   const record = body as Record<string, unknown>;
-  const { claimId: _c, generation: _g, requestId: _r, ...input } = record;
+  const { requestId: _r, ...input } = record;
   return input;
 }
 
@@ -110,8 +110,8 @@ export async function handleSessionSandboxTool(
 }
 
 /**
- * `POST /v1/actions/:id/sandbox/:tool` — executor, authorized by the live claim.
- * Body must include claimId and generation matching the claimed action.
+ * `POST /v1/actions/:id/sandbox/:tool` — the Action endpoint, authorized by the delivery token
+ * of the Action's current delivery (`delivery.generation`). The body is the tool's input.
  */
 export async function handleActionSandboxTool(
   deps: SandboxRouteDeps,
@@ -119,50 +119,22 @@ export async function handleActionSandboxTool(
   toolName: string,
   body: unknown,
   signal: AbortSignal,
-  /** Set when a delivery token authorizes the call: the delivery's generation, not a claim. */
-  delivery?: { generation: number }
+  delivery: { generation: number }
 ): Promise<SandboxToolOutcome> {
   if (!body || typeof body !== "object" || Array.isArray(body))
     throw new SandboxRouteError(400, "Sandbox tool body must be an object");
-  if (delivery) {
-    const action = await deps.getAction(actionId);
-    if (!action) throw new SandboxRouteError(404, "Action not found");
-    if (
-      action.status !== "delivering" ||
-      action.generation !== delivery.generation ||
-      Date.parse(action.deadlineAt ?? "") <= Date.now()
-    )
-      throw new SandboxRouteError(409, "The delivery was cancelled, lost or delivered again");
-    const read = await deps.session(action.sessionId);
-    if (read.session.activeTurnId !== action.turnId)
-      throw new SandboxRouteError(409, "Action unavailable");
-    return runTool(deps, read, parseTool(toolName), toolInput(body), signal);
-  }
-  const record = body as Record<string, unknown>;
-  const claimId = record.claimId;
-  const generation = record.generation;
-  if (typeof claimId !== "string" || claimId.length === 0)
-    throw new SandboxRouteError(400, "claimId is required");
-  if (typeof generation !== "number" || !Number.isInteger(generation) || generation < 1)
-    throw new SandboxRouteError(400, "generation must be a positive integer");
-
   const action = await deps.getAction(actionId);
   if (!action) throw new SandboxRouteError(404, "Action not found");
   if (
-    action.status !== "claimed" ||
-    action.claimId !== claimId ||
-    action.generation !== generation ||
-    !action.leaseExpiresAt ||
-    Date.parse(action.leaseExpiresAt) <= Date.now()
+    action.status !== "delivering" ||
+    action.generation !== delivery.generation ||
+    Date.parse(action.deadlineAt ?? "") <= Date.now()
   )
-    throw new SandboxRouteError(409, "Stale or expired claim");
-
+    throw new SandboxRouteError(409, "The delivery was cancelled, lost or delivered again");
   const read = await deps.session(action.sessionId);
   if (read.session.activeTurnId !== action.turnId)
     throw new SandboxRouteError(409, "Action unavailable");
-
-  const tool = parseTool(toolName);
-  return runTool(deps, read, tool, toolInput(body), signal);
+  return runTool(deps, read, parseTool(toolName), toolInput(body), signal);
 }
 
 /**

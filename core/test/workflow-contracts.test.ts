@@ -132,8 +132,6 @@ const actionBase = {
   context: {},
   status: "pending" as const,
   generation: 0,
-  claimId: null,
-  leaseExpiresAt: null,
 };
 
 it("ActionSchema accepts agent tools, workflow tools, fn and verify", () => {

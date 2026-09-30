@@ -1,6 +1,6 @@
 # Harness examples
 
-The default registry exports two agents from `agents/release/`: an SDK order-lookup assistant and a data analyst with a sandbox. Runtime and the connected tool executor run as separate processes; Studio uses the session HTTP/SSE API.
+The default registry exports two agents from `agents/release/`: an SDK order-lookup assistant and a data analyst with a sandbox. The Runtime delivers tool calls to the examples app's Action endpoint (`createActionHandler` in `src/main.ts`); Studio uses the session HTTP/SSE API.
 
 The ten older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host.
 
@@ -38,17 +38,20 @@ The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed
 [`src/ag-ui/`](./src/ag-ui/) is a web backend that puts the
 [support agent](./agents/ag-ui/support.ts) in front of its signed-in users. The
 browser speaks [AG-UI](https://docs.ag-ui.com) to the backend; the backend signs
-people in, hosts the handler and runs the agent's tools. The whole integration
-is [`app.ts`](./src/ag-ui/app.ts):
+people in, hosts the handler and serves the Action endpoint the Runtime delivers
+the agent's tool calls to. The whole integration is [`app.ts`](./src/ag-ui/app.ts):
 
 ```ts
-const connection = connectAgents({ agents: [support] }); // the tools run here
+const actions = createActionHandler({ agents: [support] }); // the tools run here
 const agui = createAgUiHandler({
   basePath: "/api/agui",
   agents: [support], // nothing else is reachable
   subject: (request) => userFromCookie(request)?.id, // your sign-in; undefined → 401
 });
-createServer(toNodeListener(agui)).listen(3000);
+const fetch = (request: Request) =>
+  new URL(request.url).pathname === "/nylorun/actions" ? actions.fetch(request) : agui.fetch(request);
+createServer(toNodeListener({ fetch })).listen(3000);
+await actions.register({ url: "http://localhost:3000/nylorun/actions" });
 ```
 
 Run it with the stack and the examples Tenant from `npm run dev`:
@@ -76,8 +79,8 @@ export const GET = agui.fetch, POST = agui.fetch;
 app.all("/api/agui/*", (c) => agui.fetch(c.req.raw));
 ```
 
-On a serverless platform, run `connectAgents` as its own long-lived process; the
-handler itself holds no state between requests.
+Both handlers hold no state between requests, so they run on a serverless
+platform too; register the deployed Action endpoint URL once from a deploy step.
 
 ## Pages that call the Runtime directly
 

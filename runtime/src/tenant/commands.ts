@@ -1,5 +1,5 @@
 /**
- * The session command service: `message`, `approve`/`respond`, `action_result` and `cancel`,
+ * The session command service: `message`, `approve`/`respond` and `cancel`,
  * with per-session idempotency keys. A command locks its session and commits its state
  * change, events and wakes in one transaction (the store publishes the events and runs the
  * `afterCommit` wakes), then aborts a cancelled advance and cascades workflow cancels to the
@@ -7,8 +7,9 @@
  *
  * Wakes (`ctx.wake`, architecture §12.3) carry the command type as the reason and a dedupe
  * key naming the cause: `<type>:<turnId>:<segment>` for `message`, `approve` and `respond`
- * (every accepted one writes a new checkpoint segment), and
- * `action_result:<turnId>:<actionId>:<generation>` for executor results.
+ * (every accepted one writes a new checkpoint segment). An Action's outcome
+ * (`recordActionOutcome`, from the deliverer) wakes with
+ * `action_result:<turnId>:<actionId>:<generation>`.
  *
  * Cancel commits `cancelled` first; the engine host sees it before its next effect and before
  * settlement on any Worker. It then aborts an advance running on this process
@@ -49,7 +50,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { accessOf, scoped } from "./auth.js";
+import { accessOf } from "./auth.js";
 import { chargeTurn } from "./subject-limits.js";
 import {
   actionTarget,
@@ -60,22 +61,13 @@ import {
 import { signalSessionCancel } from "./streams.js";
 import { toolIds } from "./transcript.js";
 
-/** A tool result whose output does not match the Action's stored output schema fails the tool. */
-function acceptedToolResult(
-  action: Action,
-  command: Extract<SessionCommand, { type: "action_result" }>
-): Extract<SessionCommand, { type: "action_result" }> {
-  const outcome = acceptedOutcome(action, command.outcome);
-  return outcome === command.outcome ? command : { ...command, outcome };
-}
-
 /** `outcome`, or a failed one when a tool's output does not match its stored output schema. */
 export function acceptedOutcome(action: Action, outcome: ActionOutcome): ActionOutcome {
   if (action.kind !== "tool" || !action.outputSchema) return outcome;
   const value = outcome.value;
   // Only a result carries output: failures, denials, interactions and deferrals pass as sent.
   if (!isResultToolValue(value)) return outcome;
-  // Executors wrap successful tool output as `{ kind: "completed", output }`.
+  // Endpoints wrap successful tool output as `{ kind: "completed", output }`.
   // Validate the tool payload, not the outcome envelope.
   const candidate = completedToolOutput(value);
   let matches = false;
@@ -142,16 +134,7 @@ export async function command(
   const cascadeCancelIds: string[] = [];
   const response = await store.tx(async (t) => {
     const s = await lockedSession(t, id, accessOf(scope));
-    let command = input;
-    if (command.type === "action_result") {
-      const a =
-        (await t.get<Action>("actions", command.actionId)) ??
-        fail(404, "Action not found");
-      if (a.sessionId !== id) fail(403, "Action belongs to another session");
-      scoped(scope, a);
-      command = acceptedToolResult(a, command);
-    } else if (scope.kind === "executor")
-      fail(403, "Application credential required");
+    const command = input;
     // A person's token may not replace the instructions of a turn.
     if (
       scope.kind === "token" &&
@@ -171,32 +154,7 @@ export async function command(
     let event: LiveEvent;
     // The turn a `cancel` ended, if one was active.
     let cancelledTurnId: string | null = null;
-    if (command.type === "action_result") {
-      const action = (await t.get<Action>("actions", command.actionId))!;
-      const prior = await t.get("effects", command.actionId);
-      if (action.status === "completed") {
-        if (
-          action.claimId !== command.claimId ||
-          action.generation !== command.generation ||
-          canonical(prior.outcome) !== canonical(command.outcome)
-        )
-          fail(409, "Conflicting action result");
-        await t.put("commands", key, { command, response: prior.receipt });
-        return prior.receipt;
-      }
-      if (
-        s.status === "cancelled" ||
-        s.activeTurnId !== action.turnId ||
-        action.status !== "claimed" ||
-        action.claimId !== command.claimId ||
-        action.generation !== command.generation ||
-        Date.parse(action.leaseExpiresAt!) <= Date.now()
-      )
-        fail(409, "Stale, expired, or cancelled claim");
-      ({ event } = await recordActionOutcome(t, ctx, s, action, command.outcome, {
-        requestId: command.requestId,
-      }));
-    } else if (command.type === "cancel") {
+    if (command.type === "cancel") {
       cancelledTurnId = s.activeTurnId;
       const workflowCancel = isWorkflowManifest(s.manifest);
       // Linked sessions this one started: a workflow's agents, or flow agents an agent
@@ -216,10 +174,9 @@ export async function command(
       } else if (cancelledTurnId !== null) {
         for (const a of await t.actionsForSession(id, {
           turnId: cancelledTurnId,
-          statuses: ["pending", "claimed", "delivering"],
+          statuses: ["pending", "delivering"],
         })) {
-          // Claimed or delivered work may already have an external effect. Preserve it for
-          // reconciliation.
+          // Delivered work may already have an external effect. Preserve it for reconciliation.
           a.status = a.status === "pending" ? "cancelled" : "uncertain";
           await t.put("actions", a.actionId, a);
           const effect = await t.get("effects", a.actionId);
@@ -423,12 +380,11 @@ export async function command(
 }
 
 /**
- * Completes a claimed or delivered Action with `outcome`, in the caller's transaction, which
+ * Completes a delivered Action with `outcome`, in the caller's transaction, which
  * holds the lock of the Action's session `s`: the Action and its effect, the
  * `action.completed` event (and `loop.verified` or `loop.decided`), the wake that resumes the
- * turn, and queued workflow effects. The executor's `action_result` command and the Action
- * deliverer both record outcomes here, so the two paths cannot drift. It sets `s.status`; the
- * caller writes `s`.
+ * turn, and queued workflow effects. The Action deliverer and the background-result callback
+ * both record outcomes here. It sets `s.status`; the caller writes `s`.
  */
 export async function recordActionOutcome(
   t: Tx,

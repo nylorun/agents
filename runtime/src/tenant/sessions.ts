@@ -300,7 +300,7 @@ async function pin(
   source: NonNullable<Session["sandboxSource"]>,
   backend: string | undefined
 ): Promise<SessionSandbox> {
-  // A workflow's manifest stays as registered: executors match workflow actions by its hash.
+  // A workflow's manifest stays as registered: Action endpoints match workflow actions by its hash.
   if (isWorkflowManifest(definition.manifest)) return { spec, source };
   const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec, backend);
   if (!sandboxed.ok) return fail(400, sandboxed.message);
@@ -327,7 +327,7 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     if (aggregated.length > 0) waits = aggregated;
   }
   const actions = await t.actionsForSession(s.id, {
-    statuses: ["pending", "claimed", "uncertain"],
+    statuses: ["pending", "delivering", "uncertain"],
   });
   const uncertain = await t.effectsForSession<any>(s.id, {
     statuses: ["uncertain"],
