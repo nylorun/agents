@@ -862,9 +862,14 @@ export function tenantStreamsSuite(
       const signal = { type: "session.cancel", sessionId: "gone" };
       await t.streams.append(t.tenantId, CONTROL_STREAM, [signal]);
       await t.reset(a);
-      const control = await t.records(CONTROL_STREAM);
+      // The reset appends `sessions.reset` without waiting for it.
+      const control = await eventually("the sessions.reset signal", async () => {
+        const records = await t.records(CONTROL_STREAM);
+        return records.some((r) => (r as { type?: string }).type === "sessions.reset")
+          ? records
+          : undefined;
+      });
       expect(control[0]).toEqual(signal);
-      expect(control).toContainEqual({ type: "sessions.reset" });
       expect(
         await contextOf(a.handle).store.tx((tx) => tx.getSetting(COLLECT_SETTING))
       ).toBeDefined();
