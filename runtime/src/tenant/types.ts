@@ -109,12 +109,6 @@ export interface TenantHandle {
    * dispatches. A response already written to `node.outgoing` is `RESPONSE_ALREADY_SENT`.
    */
   fetch(request: Request, node: NodeBindings): Promise<Response>;
-  /** @deprecated Use `fetch`. Removed once every Tenant route is on Hono. */
-  handle?(
-    request: IncomingMessage,
-    response: ServerResponse,
-    url: URL,
-  ): Promise<void>;
   summary(): Promise<TenantSummary>;
   /** Stop scheduling; wait for or cancel active turns. */
   drain(activeWork: "drain" | "cancel", timeoutMs?: number): Promise<void>;

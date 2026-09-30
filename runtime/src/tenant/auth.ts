@@ -127,112 +127,22 @@ export async function authenticate(
 
 /**
  * What a subject needs for a route: any one of the scopes, nothing grants it (`never`), or
- * any caller may (`any`, public data such as the JWKS).
+ * any caller may (`any`, public data such as the JWKS). Each route declares it
+ * (`api/http/define.ts`).
  */
-export type RouteAccess = readonly SubjectScope[] | "never" | "any";
-
-const SESSIONS: RouteAccess = ["sessions:own"];
-const VAULTS: RouteAccess = ["vaults:own"];
-const SETTINGS: RouteAccess = ["tenant:settings"];
+export type SubjectAccess = readonly SubjectScope[] | "never" | "any";
 
 /**
- * The scopes a subject needs for `method path` (`path` starts with `v1`). `undefined` for a
- * route that does not exist. Operator and executor routes are `never`: reset, config seed,
- * executors, actions and the sandbox tool routes.
+ * A subject, subject token or publishable key reaches a route only with one of the scopes it
+ * declares: `403 scope_required`, decided from the route alone before anything is read.
  */
-export function routeAccess(
-  method: string | undefined,
-  path: readonly string[]
-): RouteAccess | undefined {
-  const [v1, resource, id, sub] = path;
-  const n = path.length;
-  if (v1 !== "v1" || !resource) return undefined;
-  switch (resource) {
-    case "executors":
-    case "actions":
-    case "endpoints":
-    // Minting and access management belong to the application key alone.
-    case "tokens":
-      return "never";
-    case "access":
-      return n === 3 && id === "jwks" && method === "GET" ? "any" : "never";
-    case "agents":
-      if (n === 2 && method === "GET") return ["agents:read", "agents:write"];
-      if (n === 3 && method === "PUT") return ["agents:write"];
-      return undefined;
-    case "a2a":
-      if (id !== "agents" || !sub) return undefined;
-      if (n === 4 && method === "POST") return SESSIONS;
-      if (n === 5 && path[4] === "card" && method === "GET")
-        return ["agents:read", "sessions:own"];
-      return undefined;
-    case "sessions":
-      if (n === 2 && method === "GET") return SESSIONS;
-      if (n === 3 && (method === "GET" || method === "PUT")) return SESSIONS;
-      if (n === 4 && method === "GET" && (sub === "items" || sub === "events"))
-        return SESSIONS;
-      if (n === 4 && method === "POST" && sub === "commands") return SESSIONS;
-      if (n === 5 && method === "POST" && sub === "sandbox") return "never";
-      return undefined;
-    case "ag-ui": {
-      // `/v1/ag-ui/agents/:agent` and `…/threads/:thread/{messages,events,cancel}`.
-      const [, , , , threads, , action] = path;
-      if (id !== "agents") return undefined;
-      if (n === 4 && method === "POST") return SESSIONS;
-      if (n !== 7 || threads !== "threads") return undefined;
-      if (method === "GET" && (action === "messages" || action === "events"))
-        return SESSIONS;
-      if (method === "POST" && action === "cancel") return SESSIONS;
-      return undefined;
-    }
-    case "vaults":
-      if (n === 2) return method === "GET" || method === "POST" ? VAULTS : undefined;
-      if (n === 3) return method === "GET" || method === "DELETE" ? VAULTS : undefined;
-      if (sub !== "credentials") return undefined;
-      if (n === 4) return method === "GET" || method === "POST" ? VAULTS : undefined;
-      if (n === 5)
-        return method === "GET" || method === "POST" || method === "DELETE"
-          ? VAULTS
-          : undefined;
-      return undefined;
-    case "tenant":
-      if (n === 2 && method === "GET") return SETTINGS;
-      if (n === 3 && id === "reset" && method === "POST") return "never";
-      if (n === 4 && id === "config" && sub === "seed" && method === "PUT")
-        return "never";
-      if (n === 3 && method === "GET" && (id === "models" || id === "providers"))
-        return ["tenant:settings", "agents:write"];
-      if (n === 3 && (method === "GET" || method === "PUT") && id === "sandbox")
-        return SETTINGS;
-      if (n === 3 && id === "model" && (method === "GET" || method === "PUT"))
-        return SETTINGS;
-      if (n === 4 && id === "model" && sub === "selection" && method === "PUT")
-        return SETTINGS;
-      return undefined;
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Limits a subject (headers or token) to the routes its scopes allow. Decided from the route
- * alone, before any lookup, so a refusal reveals nothing about which resources exist. A route
- * the table does not know is a 404 for a subject: new routes stay closed until they are added
- * here. Application and executor scopes pass through to the checks each route makes today.
- */
-export function authorize(
-  scope: AuthScope,
-  method: string | undefined,
-  path: readonly string[]
-): void {
+export function requireScopes(scope: AuthScope, access: SubjectAccess): void {
   if (
     scope.kind !== "subject" &&
     scope.kind !== "token" &&
     scope.kind !== "publishable"
   )
     return;
-  const access = routeAccess(method, path);
-  if (access === undefined) fail(404, "Route not found");
   if (access === "any") return;
   if (access === "never")
     fail(403, "This route is not available when acting for a subject", {
@@ -246,11 +156,6 @@ export function authorize(
     });
 }
 
-/**
- * The sessions and vaults the request is limited to, if it acts for a person; undefined for
- * the whole Tenant. Exhaustive on purpose: a new scope kind must decide here, because
- * undefined means no owner filter at all.
- */
 export function accessOf(scope: AuthScope): SessionAccess | undefined {
   switch (scope.kind) {
     case "application":

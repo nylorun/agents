@@ -74,7 +74,6 @@ import {
   type TenantWorker,
 } from "./worker.js";
 import { authorize } from "./effects.js";
-import { handle } from "../api/http/routes.js";
 import { tenantApi } from "../api/http/app.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -338,14 +337,6 @@ export class TenantRuntime implements TenantHandle {
     return await tenantApi().fetch(request, { ...node, tenant: this.ctx });
   }
 
-  /** @deprecated Use `fetch`. */
-  handle(
-    request: IncomingMessage,
-    response: ServerResponse,
-    url?: URL
-  ): Promise<void> {
-    return handle(this.ctx, request, response, url);
-  }
 
   authorize(
     sessionId: string,

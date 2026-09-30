@@ -2,19 +2,19 @@
  * How a Tenant API route is declared: once, with who may call it, for serving and for the
  * OpenAPI document.
  *
- * `RouteAccess` says which credentials a route takes, which subject scopes reach it (as
- * `routeAccess` in `tenant/auth.ts` decides) and whether browsers may call it. The document
- * shows it as the operation's `security`, its `Nylorun-*` headers and `x-nylorun-*` fields.
- * Serving runs the Tenant's checks in the order the router it replaces ran them: the browser
- * client, the bearer, the subject's scopes, then the handler, which parses its body where it
- * always has.
+ * `RouteAccess` says which credentials a route takes, which subject scopes reach it and
+ * whether browsers may call it: the one statement of who may call a route. The document shows
+ * it as the operation's `security`, its `Nylorun-*` headers and `x-nylorun-*` fields; the Host
+ * answers browser preflights from it (`findTenantRoute`). Serving runs the Tenant's checks in
+ * order: the browser client, the bearer, the subject's scopes, then the handler, which parses
+ * its body.
  */
 import type { IncomingMessage } from "node:http";
 import type { OpenAPIHono, RouteConfig } from "@hono/zod-openapi";
-import type { Handler, MiddlewareHandler } from "hono";
+import type { Context, Handler, MiddlewareHandler } from "hono";
 import { z } from "zod";
 import type { SubjectScope } from "@nylorun/core/contracts";
-import { authenticate, authorize } from "../../tenant/auth.js";
+import { authenticate, requireScopes } from "../../tenant/auth.js";
 import { identifyClient } from "../../tenant/browser.js";
 import type { AuthScope } from "../../tenant/context.js";
 import { fail } from "../../tenant/http.js";
@@ -65,14 +65,44 @@ export function pathSegments(incoming: IncomingMessage): string[] {
     });
 }
 
+/** Who is calling: the browser client and the bearer, as every Tenant request checks them. */
+export async function authenticateCaller(c: Context<TenantEnv>) {
+  const { tenant, incoming, outgoing } = c.env;
+  // The client app first: a browser's origin is checked, and CORS headers set, before the
+  // bearer is looked at, so every answer from here on is readable by an allowed page.
+  const client = await identifyClient(tenant, incoming, outgoing);
+  return await authenticate(tenant, incoming, client);
+}
+
+/** A declared route: what `findTenantRoute` looks up. */
+interface Declared {
+  readonly method: string;
+  readonly segments: readonly string[];
+  readonly access: RouteAccess;
+}
+const declared: Declared[] = [];
+
+/** The declared route `method path` is, if any. `{param}` segments match any one segment. */
+export function declaredRoute(
+  method: string,
+  segments: readonly string[],
+): RouteAccess | undefined {
+  return declared.find(
+    (route) =>
+      route.method === method.toUpperCase() &&
+      route.segments.length === segments.length &&
+      route.segments.every(
+        (segment, index) =>
+          segment === segments[index] ||
+          (segment.startsWith("{") && segments[index] !== ""),
+      ),
+  )?.access;
+}
+
 function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
-    const { tenant, incoming, outgoing } = c.env;
-    // The client app first: a browser's origin is checked, and CORS headers set, before the
-    // bearer is looked at, so every answer from here on is readable by an allowed page.
-    const client = await identifyClient(tenant, incoming, outgoing);
-    const scope = await authenticate(tenant, incoming, client);
-    authorize(scope, incoming.method, pathSegments(incoming));
+    const scope = await authenticateCaller(c);
+    requireScopes(scope, access.scopes);
     if (scope.kind === "publishable" && !access.credentials.includes("publishable"))
       fail(403, "A publishable key alone reaches only the agent list", {
         code: "scope_required",
@@ -143,6 +173,11 @@ export function tenantRoute(
     "x-nylorun-scopes": access.scopes,
     "x-nylorun-browser": access.browser === true,
   } as RouteConfig);
+  declared.push({
+    method: route.method.toUpperCase(),
+    segments: route.path.split("/").filter(Boolean),
+    access,
+  });
   api.on(
     route.method.toUpperCase(),
     route.path.replaceAll(/\/{(.+?)}/g, "/:$1"),
