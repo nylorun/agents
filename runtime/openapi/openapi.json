@@ -6352,6 +6352,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -6368,6 +6369,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -6465,6 +6472,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -6481,6 +6489,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -6580,6 +6594,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -6596,6 +6611,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -6711,6 +6732,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -6727,6 +6749,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -6818,6 +6846,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -6834,6 +6863,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -6982,6 +7017,7 @@
                     "enum": [
                       "pending",
                       "claimed",
+                      "delivering",
                       "completed",
                       "uncertain",
                       "cancelled"
@@ -6998,6 +7034,12 @@
                     ]
                   },
                   "leaseExpiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "deadlineAt": {
                     "type": [
                       "string",
                       "null"
@@ -7095,6 +7137,7 @@
                     "enum": [
                       "pending",
                       "claimed",
+                      "delivering",
                       "completed",
                       "uncertain",
                       "cancelled"
@@ -7111,6 +7154,12 @@
                     ]
                   },
                   "leaseExpiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "deadlineAt": {
                     "type": [
                       "string",
                       "null"
@@ -7210,6 +7259,7 @@
                     "enum": [
                       "pending",
                       "claimed",
+                      "delivering",
                       "completed",
                       "uncertain",
                       "cancelled"
@@ -7226,6 +7276,12 @@
                     ]
                   },
                   "leaseExpiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "deadlineAt": {
                     "type": [
                       "string",
                       "null"
@@ -7341,6 +7397,7 @@
                     "enum": [
                       "pending",
                       "claimed",
+                      "delivering",
                       "completed",
                       "uncertain",
                       "cancelled"
@@ -7357,6 +7414,12 @@
                     ]
                   },
                   "leaseExpiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "deadlineAt": {
                     "type": [
                       "string",
                       "null"
@@ -7448,6 +7511,7 @@
                     "enum": [
                       "pending",
                       "claimed",
+                      "delivering",
                       "completed",
                       "uncertain",
                       "cancelled"
@@ -7464,6 +7528,12 @@
                     ]
                   },
                   "leaseExpiresAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "deadlineAt": {
                     "type": [
                       "string",
                       "null"
@@ -10836,6 +10906,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -10852,6 +10923,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -10949,6 +11026,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -10965,6 +11043,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -11064,6 +11148,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -11080,6 +11165,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -11195,6 +11286,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -11211,6 +11303,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"
@@ -11302,6 +11400,7 @@
                       "enum": [
                         "pending",
                         "claimed",
+                        "delivering",
                         "completed",
                         "uncertain",
                         "cancelled"
@@ -11318,6 +11417,12 @@
                       ]
                     },
                     "leaseExpiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deadlineAt": {
                       "type": [
                         "string",
                         "null"

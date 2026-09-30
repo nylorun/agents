@@ -61,3 +61,17 @@ it("definitionDeclaresSandbox detects agent and workflow sandboxes", () => {
   ).toBe(true);
   expect(definitionDeclaresSandbox({ kind: "workflow" })).toBe(false);
 });
+
+it("createActionSandbox sends no claim for a delivery, whose token is the credential", async () => {
+  const calls: unknown[] = [];
+  const sandbox = createActionSandbox({
+    transport: fakeTransport(calls),
+    actionId: "act-1",
+  });
+  await sandbox.bash({ command: "echo hi" });
+  expect(calls[0]).toEqual({
+    path: "/v1/actions/act-1/sandbox/bash",
+    method: "POST",
+    body: { command: "echo hi" },
+  });
+});
