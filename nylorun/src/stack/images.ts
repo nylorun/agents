@@ -20,6 +20,21 @@ export interface StackImages {
   s2: string;
 }
 
+function override(
+  env: Readonly<Record<string, string | undefined>>,
+  name: "NYLORUN_RUNTIME_IMAGE" | "NYLORUN_STUDIO_IMAGE",
+): string | undefined {
+  const value = env[name]?.trim();
+  return value ? value : undefined;
+}
+
+/** `NYLORUN_RUNTIME_IMAGE` names the Runtime image, so its version is unknown here. */
+export function runtimeImageOverridden(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return override(env, "NYLORUN_RUNTIME_IMAGE") !== undefined;
+}
+
 export function stackImages(
   env: Readonly<Record<string, string | undefined>>,
   versions: { runtime: string; studio: string } = {
@@ -27,16 +42,12 @@ export function stackImages(
     studio: pinnedVersion("studio"),
   },
 ): StackImages {
-  const override = (name: string) => {
-    const value = env[name]?.trim();
-    return value ? value : undefined;
-  };
   return {
     runtime:
-      override("NYLORUN_RUNTIME_IMAGE") ??
+      override(env, "NYLORUN_RUNTIME_IMAGE") ??
       `ghcr.io/nylorun/runtime:${versions.runtime}`,
     studio:
-      override("NYLORUN_STUDIO_IMAGE") ??
+      override(env, "NYLORUN_STUDIO_IMAGE") ??
       `ghcr.io/nylorun/studio:${versions.studio}`,
     ...PINNED_IMAGES,
   };

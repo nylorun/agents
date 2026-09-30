@@ -66,12 +66,13 @@ export async function readHostConfig(
 }
 
 /**
- * Write host.json with the published port. Keeps the hostId and unknown fields
- * of an existing file; refuses a newer format.
+ * Write host.json with the published port and the Runtime version that runs
+ * the Host. Keeps the hostId and unknown fields of an existing file, and its
+ * runtimeVersion when `runtimeVersion` is undefined; refuses a newer format.
  */
 export async function writeStackHostConfig(
   paths: StackPaths,
-  input: { port: number; adminPort?: number; runtimeVersion: string },
+  input: { port: number; adminPort?: number; runtimeVersion: string | undefined },
 ): Promise<HostConfigFile> {
   const existing = (await readHostConfig(paths)) ?? {};
   const format = existing.format;
@@ -94,7 +95,7 @@ export async function writeStackHostConfig(
     host: STACK_CLIENT_HOST,
     port: input.port,
     ...(input.adminPort === undefined ? {} : { adminPort: input.adminPort }),
-    runtimeVersion: input.runtimeVersion,
+    ...(input.runtimeVersion !== undefined ? { runtimeVersion: input.runtimeVersion } : {}),
   };
   await writeAtomic(paths.config, `${JSON.stringify(config, null, 2)}\n`);
   return config;

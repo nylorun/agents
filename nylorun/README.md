@@ -29,7 +29,7 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the stack
 ## Commands
 
 ```sh
-nylorun up|start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off]
+nylorun up|start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off] [--allow-downgrade]
                                    # set up (first run) and start the stack; print the Runtime and Studio URLs; open Studio signed in
 nylorun down|stop                  # stop the containers; keep volumes
 nylorun status [--json]            # services, endpoints, Runtime health
@@ -57,6 +57,14 @@ pinned by this release (`package.json` `nylorun.runtime` and `nylorun.studio`);
 CI). Ports publish on loopback only: the Runtime on `8787`, Studio on `4161`
 and the Restate UI on `9070`, or free ports chosen on the first start and kept
 in `.env`. While the Host has no Tenant, `up` says how to create one.
+
+`up` never downgrades the stack on its own. Every project and app on the
+machine shares it, and a Runtime older than a Tenant's schema quarantines that
+Tenant. `up` records the pinned Runtime version in `host.json`
+(`runtimeVersion`) and exits 5 when that version is older than the one recorded
+there or the one running. Update nylorun, or pass `--allow-downgrade` to start
+the older Runtime anyway. With `NYLORUN_RUNTIME_IMAGE` set, the image's version
+is unknown: `up` does not check it and keeps the recorded version.
 
 `up` prints Studio as `http://localhost:<port>`. Studio has no password: in a
 terminal (not in CI, and not with `--no-open`), `up` asks the Studio container
@@ -113,6 +121,7 @@ each with its own Tenant.
 | 2 | Usage error, or a removed or moved command |
 | 3 | `status`: the Runtime is not answering; `stop`/`logs`: no stack yet |
 | 4 | The Runtime port is held by another Host |
+| 5 | `up`/`start`/`studio`: this nylorun pins a Runtime older than the one the Host last ran or is running; update nylorun, or `up --allow-downgrade` |
 | 7 | The stack or Studio did not become ready |
 | 130 / 143 | SIGINT / SIGTERM |
 
@@ -122,6 +131,7 @@ each with its own Tenant.
 | --- | --- |
 | Docker missing or not running | Install or start Docker Desktop, OrbStack or Colima; `nylorun doctor` checks |
 | `426` from the Runtime | Upgrade nylorun (`npx nylorun@latest up`), or pin a matching older set |
+| `Refusing to downgrade` (exit 5) | Upgrade nylorun (`npx nylorun@latest up`); `--allow-downgrade` only if you accept quarantined Tenants |
 | Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `<Host root>/stack/.env` |
 | Logs | `nylorun logs runtime -f` |
 | Studio login expired | `nylorun studio` |

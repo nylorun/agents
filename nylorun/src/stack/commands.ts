@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
 import { readFile, rm, mkdir } from "node:fs/promises";
-import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import {
+  compareVersions,
+  PROTOCOL_HEADER,
+  PROTOCOL_VERSION,
+} from "@nylorun/core/compatibility";
 import { CliError } from "../errors.js";
 import { resolveHome } from "../home.js";
 import {
@@ -10,7 +14,7 @@ import {
   type DockerRunner,
 } from "./docker.js";
 import { readAdminKey, readHostConfig, STACK_CLIENT_HOST } from "./host-files.js";
-import { stackImages } from "./images.js";
+import { runtimeImageOverridden, stackImages } from "./images.js";
 import { stackPaths, type StackPaths } from "./paths.js";
 import type { PortProbe } from "./ports.js";
 import { prepareStack, readStackEnv } from "./prepare.js";
@@ -33,9 +37,10 @@ export const STACK_SERVICES = [
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  up|start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off]
+export const stackUsage = `  up|start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off] [--allow-downgrade]
                                       set up the stack on first run, then start it; print the Runtime and Studio URLs and open Studio signed in (in a terminal).
                                       --sandbox openshell also runs an OpenShell gateway for real sandboxes (kept for later starts)
+                                      refuses a Runtime older than the Host last ran unless --allow-downgrade
   down|stop                           stop the stack's containers; keep volumes
   status [--json] [--env]             services, endpoints and Runtime health (--env: the linked Project's variables)
   logs [service] [-f] [--tail <n>]    stack logs (${STACK_SERVICES.join(", ")})
@@ -240,6 +245,61 @@ function isUp(services: ComposeService[], name: string): boolean {
   return service?.state === "running" && (service.health === "" || service.health === "healthy");
 }
 
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** `version` is a SemVer older than `than` (prereleases sort before releases). */
+function isOlder(version: string, than: unknown): than is string {
+  return (
+    typeof than === "string" &&
+    SEMVER.test(version) &&
+    SEMVER.test(than) &&
+    compareVersions(version, than) < 0
+  );
+}
+
+/** The version of this Host's Runtime when it answers on the stack's port. */
+async function runningRuntimeVersion(
+  ctx: Context,
+  hostId: unknown,
+): Promise<string | undefined> {
+  const persisted = await readStackEnv(ctx.paths);
+  if (!persisted?.runtimePort || typeof hostId !== "string") return undefined;
+  const health = await fetchHealth(
+    ctx.deps,
+    `http://${STACK_CLIENT_HOST}:${persisted.runtimePort}`,
+  );
+  return health?.status === "ok" && health.hostId === hostId ? health.version : undefined;
+}
+
+/**
+ * Refuse to start a Runtime older than the one the Host last ran (host.json
+ * `runtimeVersion`) or the one running now: Compose would replace it, every
+ * client on the machine shares the stack, and a Runtime older than a Tenant's
+ * schema quarantines that Tenant. Skipped when `NYLORUN_RUNTIME_IMAGE` names
+ * the image.
+ */
+async function refuseDowngrade(ctx: Context, allowDowngrade: boolean): Promise<void> {
+  const pinned = ctx.deps.runtimeVersion;
+  const host = await readHostConfig(ctx.paths);
+  const newer: string[] = [];
+  if (isOlder(pinned, host?.runtimeVersion))
+    newer.push(`the Host last ran Runtime ${host.runtimeVersion} (${ctx.paths.config})`);
+  const running = await runningRuntimeVersion(ctx, host?.hostId);
+  if (isOlder(pinned, running) && running !== host?.runtimeVersion)
+    newer.push(`Runtime ${running} is running`);
+  if (newer.length === 0) return;
+  if (allowDowngrade) {
+    ctx.deps.err(
+      `Warning: downgrading to Runtime ${pinned}: ${newer.join(" and ")}. Tenants a newer Runtime migrated are quarantined.`,
+    );
+    return;
+  }
+  throw new CliError(
+    `Refusing to downgrade: this nylorun pins Runtime ${pinned}, but ${newer.join(" and ")}. Every project and app on this machine shares the stack, and a Runtime older than a Tenant's schema quarantines that Tenant. Update nylorun (npx nylorun@latest up), or run "nylorun start --allow-downgrade" to start Runtime ${pinned} anyway.`,
+    5,
+  );
+}
+
 interface Started {
   runtimeUrl: string;
   hostId: string;
@@ -250,10 +310,17 @@ interface Started {
 
 async function bringUp(
   ctx: Context,
-  options: { studio: boolean; sandbox?: StackSandbox; openshellTelemetry?: boolean },
+  options: {
+    studio: boolean;
+    sandbox?: StackSandbox;
+    openshellTelemetry?: boolean;
+    allowDowngrade?: boolean;
+  },
 ): Promise<Started> {
   const { deps } = ctx;
   await refuseLauncherRuntime(ctx);
+  const overridden = runtimeImageOverridden(deps.env);
+  if (!overridden) await refuseDowngrade(ctx, options.allowDowngrade ?? false);
   const prepared = await prepareStack({
     paths: ctx.paths,
     images: stackImages(deps.env, {
@@ -262,7 +329,8 @@ async function bringUp(
     }),
     uid: deps.uid,
     gid: deps.gid,
-    runtimeVersion: deps.runtimeVersion,
+    // An overriding image's version is unknown: keep the recorded one.
+    runtimeVersion: overridden ? undefined : deps.runtimeVersion,
     ports: deps.ports,
     project: ctx.project,
     ...(options.sandbox ? { sandbox: options.sandbox } : {}),
@@ -385,12 +453,12 @@ export const TENANT_HINT =
   "No Tenant yet. Create one in Studio, or run `npx @nylorun/cli tenant create` in your project.";
 
 const START_USAGE =
-  "nylorun start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off]";
+  "nylorun start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off] [--allow-downgrade]";
 
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
     args,
-    { booleans: ["--no-studio", "--no-open"], values: ["--sandbox", "--openshell-telemetry"] },
+    { booleans: ["--no-studio", "--no-open", "--allow-downgrade"], values: ["--sandbox", "--openshell-telemetry"] },
     START_USAGE,
   );
   if (flags.rest.length) throw usageError(`Usage: ${START_USAGE}`);
@@ -403,6 +471,7 @@ async function start(ctx: Context, args: readonly string[]): Promise<number> {
   await dockerPreflight(ctx.deps.docker);
   const started = await bringUp(ctx, {
     studio: !flags.booleans.has("--no-studio"),
+    allowDowngrade: flags.booleans.has("--allow-downgrade"),
     ...(sandbox ? { sandbox } : {}),
     ...(telemetry ? { openshellTelemetry: telemetry === "on" } : {}),
   });
