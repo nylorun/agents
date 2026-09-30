@@ -13,7 +13,7 @@ import {
 } from "@nylorun/agents";
 import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
 import type { ModelProvider } from "../src/core/provider.js";
-import { sessionIdFor } from "../src/ag-ui/session-id.js";
+import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
 import { startTestTenant } from "./support/tenant.js";
 
 /**

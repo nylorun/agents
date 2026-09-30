@@ -80,7 +80,9 @@ _Avoid_: "scope" or "database" as the name for this unit.
 
 **Tenant Runtime**: The in-process handler for one open Tenant. Created from a
 `TenantConfig` (paths, model, sandbox, child env, logger). It authenticates its
-own principals and never reads ambient environment, cwd, or home.
+own principals and never reads ambient environment, cwd, or home. Its Tenant
+API routes are in `api/`: the `/v1` HTTP routes (`api/http/`), the AG-UI
+endpoint (`api/ag-ui/`) and the A2A endpoint (`api/a2a/`).
 _Avoid_: equating "Runtime" alone with a single Project's process.
 
 **Host root**: The absolute directory that holds Host files, `tenants/`, and
@@ -149,10 +151,10 @@ subject's open streams end with `event: nylorun.closed` on every process
 (`subject.revoked` on `tenant/control`, `checkFeeds` as backstop).
 
 **Runtime AG-UI endpoint**: `/v1/ag-ui/agents/:agent` (feature
-`ag-ui-endpoint`, `tenant/ag-ui.ts`): run, thread messages, reattach and
+`ag-ui-endpoint`, `api/ag-ui/routes.ts`): run, thread messages, reattach and
 cancel, for a person named by a subject token or by subject headers. The SDK's
 `createAgUiHandler` forwards here. A **thread session** is
-`sessionIdFor(subject, agent, thread)` (`ag-ui/session-id.ts`), the same on
+`sessionIdFor(subject, agent, thread)` (`api/ag-ui/session-id.ts`), the same on
 every path; it is created on the thread's first run with the options in
 `forwardedProps.nylorun.session` and never changed by a later run.
 _Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
@@ -233,13 +235,13 @@ and tool calls, keyed by the model's `invocationId` and each call's `callId`),
 the effect, so a replay writes nothing (`tenant/transcript.ts`); payload
 schemas and `parseTranscriptEvent` are in `@nylorun/core/contracts`.
 The Runtime's AG-UI endpoint turns them into AG-UI events
-(`runtime/src/ag-ui/`).
+(`runtime/src/api/ag-ui/`).
 _Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
 formats.
 
 **A2A endpoint**: The Tenant routes `POST /v1/a2a/agents/:agent` (A2A 1.0
 JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,
-`tenant/a2a.ts`, protocol in `a2a/`). A request acts for a subject with
+`api/a2a/routes.ts`, protocol in `api/a2a/`). A request acts for a subject with
 `sessions:own`; an application key without one is `400 subject_required`. An
 A2A **context** is one session per subject, agent and `contextId`; an A2A
 **task** is one turn, named `t1.<base64url context>.<turnId>` and always

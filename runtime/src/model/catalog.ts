@@ -1,4 +1,5 @@
 import type { CredentialStore } from "@earendil-works/pi-ai";
+import type { HostModelCatalog } from "@nylorun/core/contracts";
 import { modelsFor } from "./models.js";
 
 const emptyStore: CredentialStore = {
@@ -14,9 +15,7 @@ const emptyStore: CredentialStore = {
   async delete() {},
 };
 
-export type HostModelCatalog = {
-  providers: { id: string; name: string; models: { id: string; name: string }[] }[];
-};
+export type { HostModelCatalog };
 
 /** Public provider and model names. No credentials. */
 export function hostModelCatalog(): HostModelCatalog {

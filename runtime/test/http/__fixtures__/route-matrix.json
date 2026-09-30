@@ -1,0 +1,4387 @@
+{
+  "GET /v1/executors/connect": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 200,
+      "contentType": "text/event-stream"
+    }
+  },
+  "GET /v1/actions": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 200,
+      "contentType": "application/json"
+    }
+  },
+  "POST /v1/actions/act-missing/sandbox/bash": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Action not found"
+    }
+  },
+  "POST /v1/actions/act-missing/claim": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Action not found"
+    }
+  },
+  "POST /v1/actions/act-missing/heartbeat": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Action not found"
+    }
+  },
+  "GET /v1/executors": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/executors": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "DELETE /v1/executors/ghost": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor not found"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/sessions/s1/commands": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    }
+  },
+  "GET /v1/agents": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 200,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/agents/bot": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/sessions/s2": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/s1": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/s1/items": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/s1/events": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "text/event-stream"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "text/event-stream"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "text/event-stream"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/sessions/s1/sandbox/bash": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Sandbox tool body must be an object"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/tenant": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/tenant/reset": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/tenant/config/seed": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/tenant/models": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings or agents:write required",
+      "details": {
+        "scopes": [
+          "tenant:settings",
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings or agents:write required",
+      "details": {
+        "scopes": [
+          "tenant:settings",
+          "agents:write"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings or agents:write required",
+      "details": {
+        "scopes": [
+          "tenant:settings",
+          "agents:write"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/tenant/sandbox": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/tenant/sandbox": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/tenant/providers": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings or agents:write required",
+      "details": {
+        "scopes": [
+          "tenant:settings",
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings or agents:write required",
+      "details": {
+        "scopes": [
+          "tenant:settings",
+          "agents:write"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings or agents:write required",
+      "details": {
+        "scopes": [
+          "tenant:settings",
+          "agents:write"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/tenant/model": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/tenant/model": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/tenant/model/selection": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/vaults": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/vaults?ownerUserId=app:ann": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/vaults/<vault>": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "DELETE /v1/vaults/vlt-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Vault not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Vault not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Vault not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/vaults/<vault>/credentials": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/vaults/<vault>/credentials": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/vaults/<vault>/credentials/crd-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Credential not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Credential not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Credential not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/vaults/<vault>/credentials/crd-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "DELETE /v1/vaults/<vault>/credentials/crd-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Credential not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Credential not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Credential not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope vaults:own required",
+      "details": {
+        "scopes": [
+          "vaults:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/access/jwks": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 200,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com"
+    },
+    "executor": {
+      "status": 200,
+      "contentType": "application/json"
+    }
+  },
+  "POST /v1/tokens": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/access/policy": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/access/policy": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/access/signing-keys": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/access/signing-keys/rotate": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/access/signing-keys/kid-missing/revoke": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/access/publishable-keys": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/access/publishable-keys": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "PUT /v1/access/publishable-keys/pk-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "DELETE /v1/access/publishable-keys/pk-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Publishable key not found"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/access/revocations": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/ag-ui/agents/bot": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "AG-UI runs act for a person: send a subject token, or Nylorun-Subject with the application key"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "Invalid RunAgentInput"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "Invalid RunAgentInput"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/ag-ui/agents/bot/threads/t1/messages": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "AG-UI runs act for a person: send a subject token, or Nylorun-Subject with the application key"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/ag-ui/agents/bot/threads/t1/events": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "AG-UI runs act for a person: send a subject token, or Nylorun-Subject with the application key"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "Last-Event-ID or ?cursor= is required"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "Last-Event-ID or ?cursor= is required"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/ag-ui/agents/bot/threads/t1/cancel": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "AG-UI runs act for a person: send a subject token, or Nylorun-Subject with the application key"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/a2a/agents/bot": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "subject_required",
+      "message": "Acting for a subject is required: send Nylorun-Subject and Nylorun-Scopes"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/a2a/agents/bot/card": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "A publishable key alone reaches only the agent list"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/sessions/s1/commands/x": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    }
+  },
+  "GET /v1/executors/connect/x": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 200,
+      "contentType": "text/event-stream"
+    }
+  },
+  "DELETE /v1/executors/connect": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor not found"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/s1/items/x": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/s1/events/x": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "text/event-stream"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "POST /v1/actions/act-missing/claim/x": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Action not found"
+    }
+  },
+  "GET /v1/actions/act-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Executor credential required"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "executor": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Invalid JSON"
+    }
+  },
+  "GET /v1/sessions/missing/unknown": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1//sessions": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/agents/": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 200,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/s%2F1": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/%E2%9C%93": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v1/sessions/%E0%A4%A": {
+    "none": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "wrong": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "subject-read": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "publishable": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "executor": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    }
+  },
+  "GET /v1/nothing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "GET /v2/agents": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    },
+    "executor": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    }
+  },
+  "PATCH /v1/sessions/s1": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  },
+  "HEAD /v1/agents": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json"
+    }
+  },
+  "HEAD /v1/sessions/s1": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json"
+    }
+  },
+  "HEAD /v1/sessions/s1/events": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com"
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json"
+    }
+  },
+  "OPTIONS /v1/agents": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "publishable": {
+      "status": 403
+    },
+    "executor": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    }
+  }
+}

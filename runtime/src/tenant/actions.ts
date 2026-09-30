@@ -9,7 +9,7 @@
  * of `executorStreams`.
  */
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   ActionClaimRequestSchema,
   ActionHeartbeatRequestSchema,
@@ -71,7 +71,8 @@ export async function actionSandboxTool(
   scope: AuthScope,
   actionId: string,
   toolName: string,
-  request: IncomingMessage
+  request: IncomingMessage,
+  response: ServerResponse
 ) {
   const action =
     (await ctx.store.tx((t) => t.get<Action>("actions", actionId))) ??
@@ -83,7 +84,7 @@ export async function actionSandboxTool(
       actionId,
       toolName,
       await readBody(request),
-      requestAborted(request)
+      requestAborted(response)
     );
   } catch (error) {
     if (error instanceof SandboxRouteError) fail(error.status, error.message);
