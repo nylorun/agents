@@ -356,6 +356,10 @@ describe("route matrix", () => {
       { method: "GET", path: "/v1/admin/status" },
       { method: "GET", path: "/v1/admin/host" },
       { method: "GET", path: "/v1/admin/nothing" },
+      { method: "GET", path: "/v1/admin/tenants/" },
+      { method: "GET", path: "/v1//admin/tenants" },
+      { method: "HEAD", path: "/v1/admin/status" },
+      { method: "PUT", path: "/v1/admin/status" },
     ];
     const matrix: Record<string, Record<string, Observed>> = {};
     for (const [listener, base] of [

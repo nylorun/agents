@@ -6,19 +6,9 @@ import {
 } from "node:http";
 import { getRequestListener, RequestError } from "@hono/node-server";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
-import {
-  AdminStatusSchema,
-  CreateTenantRequestSchema,
-} from "@nylorun/core/contracts";
-import {
-  TenantBusyError,
-  TenantConflictError,
-} from "../tenant/quarantine.js";
-import {
-  TenantNotFoundError,
-  type Logger,
-  type TenantModule,
-} from "../tenant/types.js";
+import { AdminStatusSchema } from "@nylorun/core/contracts";
+import type { Logger, TenantModule } from "../tenant/types.js";
+import { createAdminApi } from "./admin-api.js";
 import { createHostApp, type HostBindings } from "./app.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import type { ContainerListen } from "./stack-config.js";
@@ -29,12 +19,9 @@ import {
   HostListenError,
   isAllowedRequestHost,
   isLoopbackHost,
-  readJsonBody,
   pathnameIsLogged,
   redactRoutePath,
   rejectedResponse,
-  sendJson,
-  sendOpaqueNotFound,
   sendRejected,
 } from "./http.js";
 import { RUNTIME_VERSION } from "../version.js";
@@ -166,133 +153,11 @@ export function createHost(options: CreateHostOptions): HostServer {
     });
   };
 
-  const handleAdmin = async (
-    request: IncomingMessage,
-    response: ServerResponse,
-    urlObj: URL,
-    segments: string[],
-  ): Promise<void> => {
-    const method = request.method ?? "GET";
-    // /v1/admin/...
-    if (segments[2] === "tenants") {
-      if (segments.length === 3 && method === "GET") {
-        const tenants = await module.list();
-        return sendJson(response, 200, tenants);
-      }
-      if (segments.length === 3 && method === "POST") {
-        const body = CreateTenantRequestSchema.parse(
-          await readJsonBody(request),
-        );
-        try {
-          const result = await module.create({
-            tenantId: body.tenantId,
-            name: body.name,
-            principalId: body.principalId,
-            credentialHash: body.credentialHash,
-            idempotencyKey: body.idempotencyKey,
-            ...(body.studioCredentialHash
-              ? { studioCredentialHash: body.studioCredentialHash }
-              : {}),
-            ...(body.derivedPrincipals?.length
-              ? { derivedPrincipals: body.derivedPrincipals }
-              : {}),
-          });
-          return sendJson(
-            response,
-            result.created ? 201 : 200,
-            result.envelope,
-          );
-        } catch (error) {
-          const code = (error as { code?: string }).code;
-          if (
-            error instanceof TenantConflictError ||
-            (error as { name?: string }).name === "TenantConflictError" ||
-            code === "conflict" ||
-            code === "tenant_conflict"
-          ) {
-            return sendRejected(
-              response,
-              409,
-              "tenant_conflict",
-              error instanceof Error ? error.message : "Tenant conflict",
-            );
-          }
-          throw error;
-        }
-      }
-      if (segments.length === 4 && segments[3]) {
-        const id = segments[3]!;
-        if (method === "GET") {
-          const status = await module.status(id);
-          if (!status) return sendOpaqueNotFound(response);
-          return sendJson(response, 200, status);
-        }
-        if (method === "DELETE") {
-          const activeWork =
-            (urlObj.searchParams.get("activeWork") as
-              | "refuse"
-              | "drain"
-              | "cancel"
-              | null) ?? "refuse";
-          if (
-            activeWork !== "refuse" &&
-            activeWork !== "drain" &&
-            activeWork !== "cancel"
-          ) {
-            return sendRejected(
-              response,
-              400,
-              "invalid_request",
-              "activeWork must be refuse, drain, or cancel",
-            );
-          }
-          try {
-            await module.delete(id, activeWork);
-            response.writeHead(204);
-            response.end();
-            return;
-          } catch (error) {
-            if (error instanceof TenantNotFoundError)
-              return sendOpaqueNotFound(response);
-            const code = (error as { code?: string }).code;
-            if (
-              error instanceof TenantBusyError ||
-              (error as { name?: string }).name === "TenantBusyError" ||
-              code === "active_work" ||
-              code === "conflict"
-            ) {
-              return sendRejected(
-                response,
-                409,
-                "active_work",
-                error instanceof Error ? error.message : "Active work",
-              );
-            }
-            throw error;
-          }
-        }
-      }
-    }
-    // D12: /v1/admin/status and /v1/admin/host share one handler.
-    if (
-      (segments[2] === "host" || segments[2] === "status") &&
-      segments.length === 3 &&
-      method === "GET"
-    ) {
-      return sendJson(response, 200, await adminStatusBody());
-    }
-    if (
-      segments[2] === "host" &&
-      segments.length === 4 &&
-      segments[3] === "shutdown" &&
-      method === "POST"
-    ) {
-      sendJson(response, 200, { status: "shutting_down" });
-      void close();
-      return;
-    }
-    return sendRejected(response, 404, "not_found", "Route not found");
-  };
+  const adminApi = createAdminApi({
+    module,
+    status: adminStatusBody,
+    shutdown: () => void close(),
+  });
 
   const app = createHostApp({
     module,
@@ -306,7 +171,7 @@ export function createHost(options: CreateHostOptions): HostServer {
     listening: () =>
       Boolean(server?.listening) && (!operator || Boolean(operatorServer?.listening)),
     closing: () => closing,
-    admin: handleAdmin,
+    admin: async (request, node) => await adminApi.fetch(request, node),
   });
 
   /** Where a listener's requests go once their `Host` header checks out. */

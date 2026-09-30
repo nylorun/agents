@@ -8,7 +8,7 @@
  * `@hono/node-server` builds the request URL from it, and refuses a malformed one itself.
  * For the same reason paths here come from the Node request, never from the URL's host part.
  */
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage } from "node:http";
 import { Hono, type Context } from "hono";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import {
@@ -62,13 +62,8 @@ export interface HostAppOptions {
   /** Every listener is listening. */
   listening(): boolean;
   closing(): boolean;
-  /** The Admin API, answering on the Node response. */
-  admin(
-    request: IncomingMessage,
-    response: ServerResponse,
-    url: URL,
-    segments: string[],
-  ): Promise<void>;
+  /** The Admin API (`admin-api.ts`), for a request whose admin key checked out. */
+  admin(request: Request, node: NodeBindings): Promise<Response>;
 }
 
 export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
@@ -165,8 +160,7 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
         return protocolRejectedResponse();
       const token = readBearer(headerValue(incoming, "authorization"));
       if (!adminKeyMatches(token, options.adminKey)) return opaqueNotFoundResponse();
-      await options.admin(incoming, outgoing, url, segments);
-      return RESPONSE_ALREADY_SENT;
+      return await options.admin(c.req.raw, { incoming, outgoing });
     }
 
     // Tenant routes: header pattern → protocol → resolve → the Tenant. The Tenant is named by
