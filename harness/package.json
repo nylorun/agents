@@ -65,7 +65,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "eval:compaction": "vitest run test/compaction-eval.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",

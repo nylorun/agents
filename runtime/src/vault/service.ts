@@ -66,6 +66,7 @@ import type {
   HostModelProviderInfo,
   HostModelView,
   PutHostModelRequest,
+  CustomModelSettings,
   RotateCredentialRequest,
   SelectHostModelRequest,
   VaultInfo,
@@ -94,6 +95,8 @@ export type HostModelSecret = {
   provider: string;
   model: string;
   baseUrl?: string;
+  /** A custom endpoint's window, output limit, reasoning and pi-ai compat (Model Calls §7). */
+  settings?: CustomModelSettings;
   authType: "api_key" | "oauth";
   credential: {
     type: "api_key" | "oauth";
@@ -551,6 +554,7 @@ export class VaultService {
           model: binding.model,
           authType: binding.authType,
           ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
+          ...(binding.settings ? { settings: binding.settings } : {}),
           lastUpdated: row.rotatedAt ?? row.createdAt,
           active: binding.provider === active,
         };
@@ -580,6 +584,7 @@ export class VaultService {
           provider: body.provider,
           model: body.model,
           baseUrl: body.baseUrl,
+          settings: body.settings,
           authType: body.auth.type,
           payload,
         });
@@ -613,6 +618,8 @@ export class VaultService {
           provider: body.provider,
           model: body.model,
           baseUrl: body.baseUrl,
+          // Selecting a model keeps the endpoint's settings.
+          settings: binding.settings,
           authType: binding.authType,
           payload,
         });
@@ -647,6 +654,7 @@ export class VaultService {
       provider: binding.provider,
       model: binding.model,
       ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
+      ...(binding.settings ? { settings: binding.settings } : {}),
       authType: binding.authType,
       credential,
     };
@@ -858,7 +866,13 @@ export class VaultService {
     provider: string;
     model: string;
     baseUrl?: string;
+    settings?: CustomModelSettings;
   }): void {
+    if (body.settings && body.provider !== "custom")
+      throw new VaultError(
+        400,
+        "Model settings (context window, output limit, reasoning, compat) apply only to a custom provider.",
+      );
     if (body.provider === "custom") {
       if (!body.baseUrl)
         throw new VaultError(
@@ -896,6 +910,7 @@ export class VaultService {
       provider: string;
       model: string;
       baseUrl?: string;
+      settings?: CustomModelSettings;
       authType: "api_key" | "oauth";
       payload: HostSecretPayload;
     },
@@ -914,6 +929,9 @@ export class VaultService {
         provider: input.provider,
         model: input.model,
         ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+        ...(input.settings && Object.keys(input.settings).length
+          ? { settings: input.settings }
+          : {}),
         authType: input.authType,
       }),
       expiresAt: null,
@@ -933,6 +951,7 @@ export class VaultService {
       model: binding.model,
       authType: binding.authType,
       ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
+      ...(binding.settings ? { settings: binding.settings } : {}),
     };
   }
 
@@ -1181,6 +1200,7 @@ type ModelBinding = {
   provider: string;
   model: string;
   baseUrl?: string;
+  settings?: CustomModelSettings;
   authType: "api_key" | "oauth";
 };
 

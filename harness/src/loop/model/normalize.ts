@@ -23,6 +23,7 @@ const USAGE_TOKEN_KEYS = [
   "outputTokens",
   "totalTokens",
   "cachedTokens",
+  "cacheWriteTokens",
   "reasoningTokens",
 ] as const;
 

@@ -7,7 +7,7 @@ import type { InputEvent } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
 import type { JsonValue } from "@nylorun/core/define";
 import { normalizeCandidate } from "../model/normalize.js";
-import { HarnessError, isHarnessError } from "@nylorun/core/define";
+import { HarnessError, isHarnessError, isModelFailureOutcome } from "@nylorun/core/define";
 import { copyJson } from "@nylorun/core/define";
 import type { ObserveEmit } from "../observe.js";
 import { runMiddleware } from "./compose.js";
@@ -216,6 +216,14 @@ export async function runStep(input: {
           },
         });
         if (input.signal.aborted) throw input.signal.reason;
+        // A provider failure the adapter classified ends the step with `model.<code>`.
+        if (isModelFailureOutcome(outcome))
+          throw new HarnessError(`model.${outcome.code}`, outcome.message, {
+            details: {
+              retryable: outcome.retryable,
+              ...(outcome.retryAfterMs === undefined ? {} : { retryAfterMs: outcome.retryAfterMs }),
+            },
+          });
         const minted = context.mintFromModel(normalizeCandidate(outcome));
         const candidate = context.currentCandidate;
         if (!candidate)

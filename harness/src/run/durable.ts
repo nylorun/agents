@@ -80,7 +80,7 @@ export type DurableResult =
       readonly effectIds: readonly string[];
     }
   | {
-      readonly status: "completed" | "paused" | "cancelled" | "failed";
+      readonly status: "completed" | "paused" | "cancelled" | "failed" | "yielded";
       readonly checkpoint: DurableCheckpoint;
       readonly result: RunResult<unknown>;
     };
@@ -126,6 +126,8 @@ export async function runDurable(options: {
   host: DurableHost;
   signal?: AbortSignal;
   sessionTools?: readonly DurableSessionTool[];
+  /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
+  yieldAfter?: { readonly steps?: number; readonly ms?: number };
 }): Promise<DurableResult> {
   const { manifest, checkpoint, host } = options;
   AgentManifestSchema.parse(manifest);
@@ -296,7 +298,11 @@ export async function runDurable(options: {
         await effect(
           "model",
           call,
-          { request: ctx.request, invocationId: ctx.invocationId },
+          // The call already holds the whole prompt; journaling the request would store it twice.
+          {
+            invocationId: ctx.invocationId,
+            ...(ctx.compaction ? { compaction: ctx.compaction } : {}),
+          },
           scoped(ref, ctx.invocationId),
           ref ? { agent: ref } : {},
         )
@@ -341,7 +347,7 @@ export async function runDurable(options: {
           signal: options.signal,
           onModelCall: modelCall(),
         },
-        { delegation },
+        { delegation, ...(options.yieldAfter ? { yieldAfter: options.yieldAfter } : {}) },
       ),
     );
     return { status: result.status, checkpoint: { ...checkpoint, state: result.state }, result };

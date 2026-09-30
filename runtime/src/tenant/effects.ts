@@ -71,7 +71,14 @@ import {
 } from "./session.js";
 import { command } from "./commands.js";
 import { offerAction } from "./delivery.js";
-import { assistantMessage, toolCompleted, toolIds } from "./transcript.js";
+import {
+  assistantMessage,
+  contextCompacted,
+  modelFailed,
+  toolCompleted,
+  toolIds,
+} from "./transcript.js";
+import { classifyThrown } from "../model/classify.js";
 import { abortKind } from "./worker.js";
 import type { ModelProvider } from "../core/provider.js";
 
@@ -81,26 +88,37 @@ export interface SegmentOptions {
   model?: ModelProvider;
 }
 
-export function invokeModel(
+/**
+ * Call the model for one effect. A provider failure comes back as a failure outcome
+ * (Model Calls §6), whichever provider serves the call; only an abort throws, and the
+ * advance decides what the abort means.
+ */
+export async function invokeModel(
   ctx: TenantContext,
   request: HostEffect,
   signal: AbortSignal,
   model?: ModelProvider
-) {
-  if (model) return model(request, signal);
-  if (!ctx.useVaultModel) return ctx.modelProvider(request, signal);
-  const adapter = piModel({
-    root: ctx.config.paths.home,
-    readHostModel: () => ctx.vault.readHostModel(),
-    writeHostCredential: (credential) =>
-      ctx.vault.updateHostCredential(credential),
-  });
-  return adapter(request.input as any, {
-    request: request.context.request as any,
-    invocationId: String(request.context.invocationId),
-    signal,
-    reportPreparedCall() {},
-  });
+): Promise<unknown> {
+  try {
+    if (model) return await model(request, signal);
+    if (!ctx.useVaultModel) return await ctx.modelProvider(request, signal);
+    const adapter = piModel({
+      root: ctx.config.paths.home,
+      readHostModel: () => ctx.vault.readHostModel(),
+      writeHostCredential: (credential) =>
+        ctx.vault.updateHostCredential(credential),
+      ...(ctx.config.modelCall ? { settings: ctx.config.modelCall } : {}),
+    });
+    return await adapter(request.input as any, {
+      request: request.context.request as any,
+      invocationId: String(request.context.invocationId),
+      signal,
+      reportPreparedCall() {},
+    });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return classifyThrown(error);
+  }
 }
 
 /**
@@ -325,10 +343,21 @@ export async function resolveEffect(
       effect.status = "completed";
       effect.outcome = { value };
       await t.put("effects", request.effectId, effect);
+      const failed = invoke === "model" ? modelFailed(request, value) : undefined;
+      // A summary call is never an assistant message; the last one publishes context.compacted.
+      const summarizing =
+        invoke === "model" && Boolean((request.context as { compaction?: unknown }).compaction);
+      const compacted =
+        summarizing && !failed ? contextCompacted(request, value) : undefined;
       const transcript =
-        invoke === "model"
+        failed || summarizing
+          ? undefined
+          : invoke === "model"
           ? assistantMessage(request, value)
           : toolCompleted(request, value);
+      if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
+      if (compacted)
+        await t.event(s.id, request.turnId, "context.compacted", compacted);
       if (transcript)
         await t.event(
           s.id,

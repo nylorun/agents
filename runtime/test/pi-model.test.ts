@@ -91,9 +91,13 @@ it("loads configuration lazily and reports missing setup only on invocation", as
   const root = await mkdtemp(join(tmpdir(), "pi-lazy-"));
   roots.push(root);
   const adapter = piModel({ root });
-  await expect(adapter(call, { signal: signal() })).rejects.toThrow(
-    "Model provider is not configured",
-  );
+  // A missing provider is a known failure, not a lost call: the turn fails with model.auth.
+  await expect(adapter(call, { signal: signal() })).resolves.toMatchObject({
+    kind: "failed",
+    code: "auth",
+    retryable: false,
+    message: expect.stringContaining("Model provider is not configured"),
+  });
 });
 it("preserves context, assistant tool calls, tool results and model controls through the provider", async () => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-provider-secret");
@@ -222,11 +226,13 @@ it("redacts credentials read from the vault in provider failures", async () => {
         ),
     ),
   );
-  await expect(
-    piModel({ root, ...host({ key: "vault-test-secret" }) })(call, {
-      signal: signal(),
-    }),
-  ).rejects.toThrow("[redacted]");
+  const outcome = await piModel({ root, ...host({ key: "vault-test-secret" }) })(
+    call,
+    { signal: signal() },
+  );
+  expect(outcome).toMatchObject({ kind: "failed", code: "auth" });
+  expect(JSON.stringify(outcome)).toContain("[redacted]");
+  expect(JSON.stringify(outcome)).not.toContain("vault-test-secret");
 });
 it("keeps usage counters while redacting credential fields and inline images", () => {
   expect(
@@ -352,3 +358,247 @@ it.each(["tool", "text", "reasoning"])(
     expect(JSON.stringify(requests[2])).not.toContain("thoughtSignature");
   },
 );
+
+it("sends the session id as OpenAI's prompt cache key", async () => {
+  let body: Record<string, unknown> = {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      body = JSON.parse(options.body);
+      return new Response("{}", { status: 500 });
+    }),
+  );
+  await piModel({
+    ...host({ provider: "openai", model: "gpt-4.1-mini" }),
+    settings: { attempts: 1 },
+  })({ ...call, executionId: "session-123" }, { signal: signal() });
+  expect(body.prompt_cache_key).toBe("session-123");
+});
+
+it("streams one code path and maps every usage counter", async () => {
+  let body: Record<string, unknown> = {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      body = JSON.parse(options.body);
+      return new Response(
+        `data: ${JSON.stringify({
+          id: "test",
+          choices: [{ index: 0, delta: { role: "assistant", content: "ok" }, finish_reason: null }],
+        })}\n\ndata: ${JSON.stringify({
+          id: "test",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            total_tokens: 120,
+            prompt_tokens_details: { cached_tokens: 60 },
+            completion_tokens_details: { reasoning_tokens: 5 },
+          },
+        })}\n\ndata: [DONE]\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }),
+  );
+  const result = await piModel(host())(
+    { ...call, executionId: "session-123" },
+    { signal: signal() },
+  );
+  expect(body.stream).toBe(true);
+  expect(result).toMatchObject({
+    usage: { outputTokens: 20, cachedTokens: 60, reasoningTokens: 5 },
+    evidence: {
+      extras: {
+        producer: { provider: "custom", api: "openai-completions", model: "test-model" },
+      },
+    },
+  });
+});
+
+it("repairs a structured final answer instead of failing the call", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      response({ role: "assistant", content: '```json\n{"answer": "line one\nline two"}\n```' }),
+    ),
+  );
+  expect(
+    await piModel(host())(
+      { ...call, outputSchema: { type: "object" } },
+      { signal: signal() },
+    ),
+  ).toMatchObject({ output: [{ type: "json", value: { answer: "line one\nline two" } }] });
+});
+
+it("returns invalid_output when the structured answer cannot be repaired", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response({ role: "assistant", content: "not json at all" })),
+  );
+  expect(
+    await piModel(host())(
+      { ...call, outputSchema: { type: "object" } },
+      { signal: signal() },
+    ),
+  ).toMatchObject({ kind: "failed", code: "invalid_output", retryable: false });
+});
+
+it("marks OpenAI-compatible reasoning as replayed within its turn only", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      response({ role: "assistant", reasoning_content: "think", content: "done" }),
+    ),
+  );
+  const result = await piModel(host())(call, { signal: signal() });
+  expect(result).toMatchObject({
+    output: expect.arrayContaining([
+      {
+        type: "reasoning",
+        text: "think",
+        providerMetadata: {
+          replay: "turn",
+          pi: { provider: "custom", model: "test-model", signature: "reasoning_content" },
+        },
+      },
+      { type: "text", text: "done" },
+    ]),
+  });
+});
+
+it("replays another model's history with its own producer, without its signatures", async () => {
+  let body: Record<string, any> = {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      body = JSON.parse(options.body);
+      return response({ role: "assistant", content: "ok" });
+    }),
+  );
+  await piModel(host())(
+    {
+      ...call,
+      tools: [{ name: "lookup", inputSchema: { type: "object" } }],
+      prompt: [
+        ...call.prompt,
+        {
+          kind: "message",
+          role: "assistant",
+          producer: { provider: "anthropic", api: "anthropic-messages", model: "claude-x" },
+          content: [
+            {
+              type: "reasoning",
+              text: "private",
+              providerMetadata: {
+                pi: { provider: "anthropic", model: "claude-x", signature: "sig" },
+              },
+            },
+            { type: "tool-call", id: "toolu_01|weird", name: "lookup", args: {} },
+          ],
+        },
+        {
+          kind: "tool-result",
+          toolCallId: "toolu_01|weird",
+          toolName: "lookup",
+          status: "completed",
+          content: [{ type: "text", text: "found" }],
+        },
+      ],
+    },
+    { signal: signal() },
+  );
+  const text = JSON.stringify(body.messages);
+  expect(text).not.toContain('"sig"');
+  expect(text).not.toContain("|weird");
+  expect(text).toContain('"tool_calls"');
+});
+
+it("retries a rate-limited call and returns the answer", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls++;
+      if (calls <= 2)
+        return new Response(JSON.stringify({ error: { message: "Rate limit reached" } }), {
+          status: 429,
+          headers: { "retry-after-ms": "1" },
+        });
+      return response({ role: "assistant", content: "after retry" });
+    }),
+  );
+  const result = await piModel({ ...host(), settings: { retryBaseDelayMs: 1 } })(call, {
+    signal: signal(),
+  });
+  expect(result).toMatchObject({ output: [{ type: "text", text: "after retry" }] });
+  expect(calls).toBe(3);
+});
+
+it.each([
+  [503, "The server is overloaded", "overloaded", true],
+  [401, "Incorrect API key provided", "auth", false],
+  [400, "This model's maximum context length is 8192 tokens", "context_overflow", false],
+] as const)(
+  "classifies a %s response as %s",
+  async (status, message, code, retryable) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: { message } }), { status })),
+    );
+    expect(
+      await piModel({ ...host(), settings: { retryBaseDelayMs: 1 } })(call, {
+        signal: signal(),
+      }),
+    ).toMatchObject({ kind: "failed", code, retryable });
+  },
+);
+
+it("aborts an idle stream and reports a timeout after retrying", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      calls++;
+      const requestSignal = options.signal as AbortSignal;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            requestSignal.addEventListener("abort", () =>
+              controller.error(requestSignal.reason),
+            );
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }),
+  );
+  expect(
+    await piModel({
+      ...host(),
+      settings: { idleTimeoutMs: 30, retryBaseDelayMs: 1, attempts: 2 },
+    })(call, { signal: signal() }),
+  ).toMatchObject({ kind: "failed", code: "timeout", retryable: true });
+  expect(calls).toBe(2);
+});
+
+it("rethrows a cancellation during the call instead of reporting a failure", async () => {
+  const controller = new AbortController();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      const requestSignal = options.signal as AbortSignal;
+      queueMicrotask(() => controller.abort(new Error("cancelled")));
+      return new Response(
+        new ReadableStream({
+          start(stream) {
+            requestSignal.addEventListener("abort", () => stream.error(requestSignal.reason));
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }),
+  );
+  await expect(
+    piModel(host())(call, { signal: controller.signal }),
+  ).rejects.toThrow();
+});

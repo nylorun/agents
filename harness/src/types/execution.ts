@@ -143,4 +143,9 @@ export type RunResult<Output = string> =
       readonly pending: readonly SavedToolCall[];
     }
   | { readonly status: "cancelled"; readonly state: ExecutionState }
-  | { readonly status: "failed"; readonly state: ExecutionState; readonly error: Tripwire };
+  | { readonly status: "failed"; readonly state: ExecutionState; readonly error: Tripwire }
+  /**
+   * A durable segment ended at a step boundary so the turn continues in a new segment
+   * (Model Calls §10). The state is mid-turn; resume it with `{ kind: "continue" }`.
+   */
+  | { readonly status: "yielded"; readonly state: ExecutionState };

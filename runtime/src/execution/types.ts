@@ -52,7 +52,9 @@ export type WakeReason =
   /** Queued flow effects, pending agent effects reconciled. */
   | "flow"
   /** The Tenant sweep and `busy` re-wakes. */
-  | "recover";
+  | "recover"
+  /** A long turn ended a segment at a step boundary and continues in the next (Model Calls §10). */
+  | "rollover";
 
 export const WAKE_REASONS: readonly WakeReason[] = [
   "message",
@@ -62,6 +64,7 @@ export const WAKE_REASONS: readonly WakeReason[] = [
   "linked",
   "flow",
   "recover",
+  "rollover",
 ];
 
 export interface Wake {

@@ -3,6 +3,7 @@ import type { AgentDefinition } from "../definition/agent-definition.js";
 import type { ExecutionSnapshot } from "./step/runtime.js";
 import { HarnessError, isHarnessError } from "@nylorun/core/define";
 import { runStep } from "./step/run.js";
+import { compact, contextBudget, estimateTokens } from "./compaction/index.js";
 import type { RunOptions, RunResult, SavedToolCall, TurnHookState } from "../types/execution.js";
 import type { InputEvent } from "@nylorun/core/define";
 import type { JsonValue, Tripwire } from "@nylorun/core/define";
@@ -58,6 +59,31 @@ export async function execute(
     signal.throwIfAborted();
     let turnId: string;
     let stepNumber: number;
+    /** Steps run and when this invocation started, for segment rollover. */
+    let stepsRun = 0;
+    const started = Date.now();
+    /** One compaction and retry per overflow; reset once a step succeeds. */
+    let overflowCompacted = false;
+    /** Summarize older history into a compaction entry (Model Calls §8). */
+    const compactHistory = async (
+      trigger: "threshold" | "overflow",
+      stepId: string,
+    ): Promise<boolean> => {
+      const next = await compact({
+        transcript: invocation.state.transcript,
+        executionId: invocation.state.executionId,
+        turnId,
+        stepId,
+        trigger,
+        budget: contextBudget(invocation.state.transcript),
+        invoke: options.onModelCall,
+        signal,
+      });
+      if (!next) return false;
+      invocation.state = { ...invocation.state, transcript: next };
+      await record();
+      return true;
+    };
     let arrivals: readonly InputEvent[] = [];
     let toolResults: readonly ToolResult[] = [];
     const hooked = hasAnyHooks(agent);
@@ -85,6 +111,7 @@ export async function execute(
           (entry) => entry.kind === "candidate" && entry.turnId === turnId,
         ).length;
       invocation.state = { ...invocation.state, status: "active" };
+      toolResults = lastResults(invocation.state);
       await record();
     } else {
       turnId = createId("turn");
@@ -115,7 +142,28 @@ export async function execute(
     }
     for (; ; stepNumber++) {
       signal.throwIfAborted();
+      // Segment rollover: end this segment between steps; the host continues the turn.
+      const yieldAfter = internals.yieldAfter;
+      if (
+        yieldAfter &&
+        stepsRun > 0 &&
+        !invocation.state.plan &&
+        ((yieldAfter.steps !== undefined && stepsRun >= yieldAfter.steps) ||
+          (yieldAfter.ms !== undefined && Date.now() - started >= yieldAfter.ms))
+      ) {
+        if (!invocation.state.turn)
+          setTurn(() => ({ turnId, attempts: { afterStep: 0, afterTurn: 0 } }));
+        return finish({ status: "yielded" });
+      }
+      stepsRun++;
       const stepId = createId("step");
+      // Keep the next prompt inside the model's window, before it is sent.
+      const budget = contextBudget(invocation.state.transcript);
+      if (
+        budget &&
+        estimateTokens(invocation.state.transcript) > budget.contextWindow - budget.reserve
+      )
+        await compactHistory("threshold", stepId);
       const snapshot: ExecutionSnapshot = {
         id: invocation.state.executionId,
         status: "running",
@@ -172,6 +220,16 @@ export async function execute(
           ...turn,
           attempts: { ...turn.attempts, afterStep: turn.attempts.afterStep + 1 },
         }));
+      // The prompt did not fit: compact once and ask again with the same inputs.
+      if (
+        result.output.kind === "tripwire" &&
+        result.output.tripwire.code === "model.context_overflow" &&
+        !overflowCompacted
+      ) {
+        overflowCompacted = true;
+        if (await compactHistory("overflow", stepId)) continue;
+      }
+      if (result.output.kind !== "tripwire") overflowCompacted = false;
       let candidate = result.candidate;
       let finalOutput = result.output.kind === "final" ? result.output.output : undefined;
       let turnDecision: TurnDecision = {};
@@ -347,6 +405,7 @@ export async function execute(
 type FinishInput =
   | Omit<Extract<RunResult<JsonValue>, { status: "completed" }>, "state">
   | { status: "paused" }
+  | { status: "yielded" }
   | { status: "cancelled" }
   | { status: "failed"; error: Tripwire };
 
@@ -390,6 +449,12 @@ async function finishInvocation(
         },
       ],
     };
+  }
+  if (result.status === "yielded") {
+    // Mid-turn: the state keeps its turn and stays active, so `continue` picks it up.
+    invocation.state = { ...invocation.state, status: "active" };
+    await invocation.record();
+    return { status: "yielded", state: invocation.state };
   }
   if (result.status !== "paused" && invocation.state.turn) {
     const { turn: _turn, ...rest } = invocation.state;

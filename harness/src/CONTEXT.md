@@ -33,6 +33,16 @@ _Avoid_: Runtime, when referring to customer code execution; "executor"
 **SDK client**: The shared application interface for communicating with a host.
 Authoring and the Action endpoint handler accompany it in the agents SDK.
 
+**Failure outcome**: A model call that failed in a known way (`{kind: "failed", code, …}`),
+returned by the adapter instead of a candidate. The step fails with `model.<code>`; it is a
+completed outcome, never `uncertain`.
+
+**Compaction**: Replacing the older part of the transcript with a summary the model wrote,
+so the next prompt fits the model's window. Recorded as a `compaction` entry, always first.
+
+**Segment rollover**: A long turn ending its durable segment at a step boundary (`yielded`)
+and continuing in the next segment of the same turn.
+
 ## Flow (workflows)
 
 **Flow engine**: Interprets a workflow manifest (`harness/src/flow/`). It returns

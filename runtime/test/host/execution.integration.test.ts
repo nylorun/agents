@@ -154,6 +154,51 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     expect((await stored(runtime)).session.owner).toBeNull();
   });
 
+  it("rolls a long turn over into new segments through Restate (Model Calls §10)", async () => {
+    const { host, execution } = hostExecution({ offset: 10, prefix: "rollover" });
+    await host.start();
+    let calls = 0;
+    const runtime = await tenant({
+      execution: host.tenantExecution,
+      sandbox: { backend: "virtual" },
+      rollover: { steps: 2 },
+      modelProvider: async (effect) => {
+        const step = calls++;
+        if (step >= 7) return { output: [{ type: "text", text: "done" }] };
+        return {
+          output: [
+            {
+              type: "tool-call",
+              id: `call-${effect.turnId}-${step}`,
+              name: "write",
+              args: { path: `f${step}.txt`, content: "x" },
+            },
+          ],
+        };
+      },
+    });
+    await openSession(runtime, "s1", true);
+    // A second session with a sandbox, so the model's writes run in the Runtime.
+    const opened = await fetch(`${runtime.url}/v1/sessions/long`, {
+      method: "PUT",
+      headers: server,
+      body: JSON.stringify({ requestId: "session-long", agentId: "bot", ownerUserId: "u", sandbox: {} }),
+    });
+    expect(opened.ok).toBe(true);
+    await sendMessage(runtime, "long");
+    await until(() => view(runtime, "long"), (v) => v.status === "completed", "completed", 30_000);
+    expect(calls).toBe(8);
+    const events = await types(runtime, "long");
+    expect(count(events, "turn.completed")).toBe(1);
+    expect(count(events, "turn.paused")).toBe(0);
+    // 8 model calls at 2 steps per segment: segments 0–3, each its own advance.
+    expect(((await stored(runtime, "long")).session as any).checkpoint.segment).toBe(3);
+    await until(
+      async () => execution.results,
+      (r) => r.filter((result) => result.status === "done").length >= 4,
+      "an advance per segment"
+    );
+  });
   it("re-wakes a busy session through Restate once the other Worker's lease lapses", async () => {
     const { host, execution } = hostExecution({ offset: 1, prefix: "busy" });
     await host.start();

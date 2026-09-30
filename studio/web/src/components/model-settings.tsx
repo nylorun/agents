@@ -35,7 +35,16 @@ type HostModelView =
       model: string;
       authType: "api_key" | "oauth";
       baseUrl?: string;
+      settings?: CustomModelSettings;
     };
+
+/** A custom endpoint's window, output limit, reasoning and pi-ai compat (Model Calls §7). */
+type CustomModelSettings = {
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoning?: boolean;
+  compat?: Record<string, unknown>;
+};
 
 type CatalogProvider = {
   id: string;
@@ -49,6 +58,7 @@ type ConfiguredProvider = {
   model: string;
   authType: "api_key" | "oauth";
   baseUrl?: string;
+  settings?: CustomModelSettings;
   lastUpdated: string;
   active: boolean;
 };
@@ -78,6 +88,10 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [contextWindow, setContextWindow] = useState("");
+  const [maxTokens, setMaxTokens] = useState("");
+  const [reasoning, setReasoning] = useState(false);
+  const [compat, setCompat] = useState("");
 
   const refresh = useCallback(async () => {
     const [modelResponse, catalogResponse, providersResponse] =
@@ -135,11 +149,19 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       setProvider(next.id);
       setModel(next.model);
       setBaseUrl(next.baseUrl ?? "");
+      setContextWindow(next.settings?.contextWindow?.toString() ?? "");
+      setMaxTokens(next.settings?.maxTokens?.toString() ?? "");
+      setReasoning(next.settings?.reasoning ?? false);
+      setCompat(next.settings?.compat ? JSON.stringify(next.settings.compat) : "");
     } else {
       const first = addable[0];
       setProvider(first?.id ?? "custom");
       setModel(first?.models[0]?.id ?? "");
       setBaseUrl("");
+      setContextWindow("");
+      setMaxTokens("");
+      setReasoning(false);
+      setCompat("");
     }
     setPanelOpen(true);
   }
@@ -152,6 +174,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
     setPending(true);
     const key = apiKey;
     try {
+      const settings = custom ? customSettings() : undefined;
       const response = await runtime("/v1/tenant/model", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -161,6 +184,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
           provider,
           model,
           ...(custom && baseUrl ? { baseUrl } : {}),
+          ...(settings ? { settings } : {}),
           auth: { type: "api_key", key },
         }),
       });
@@ -186,6 +210,33 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
     } finally {
       setPending(false);
     }
+  }
+
+  /** The custom endpoint's settings from the form, or undefined when none is set. */
+  function customSettings(): CustomModelSettings | undefined {
+    const settings: CustomModelSettings = {};
+    const whole = (label: string, value: string) => {
+      const number = Number(value);
+      if (!Number.isInteger(number) || number < 1)
+        throw new Error(`${label} must be a whole number of tokens.`);
+      return number;
+    };
+    if (contextWindow.trim())
+      settings.contextWindow = whole("Context window", contextWindow.trim());
+    if (maxTokens.trim()) settings.maxTokens = whole("Max output tokens", maxTokens.trim());
+    if (reasoning) settings.reasoning = true;
+    if (compat.trim()) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(compat);
+      } catch {
+        throw new Error("Compatibility settings must be a JSON object.");
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        throw new Error("Compatibility settings must be a JSON object.");
+      settings.compat = parsed as Record<string, unknown>;
+    }
+    return Object.keys(settings).length ? settings : undefined;
   }
 
   async function activateSelection(event: FormEvent) {
@@ -410,6 +461,44 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
                     onChange={(event) => setModel(event.target.value)}
                     required
                     readOnly={panelMode === "view" ? false : undefined}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  Context window (tokens)
+                  <Input
+                    value={contextWindow}
+                    onChange={(event) => setContextWindow(event.target.value)}
+                    placeholder="32768"
+                    inputMode="numeric"
+                    readOnly={panelMode === "view"}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  Max output tokens
+                  <Input
+                    value={maxTokens}
+                    onChange={(event) => setMaxTokens(event.target.value)}
+                    placeholder="8192"
+                    inputMode="numeric"
+                    readOnly={panelMode === "view"}
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reasoning}
+                    onChange={(event) => setReasoning(event.target.checked)}
+                    disabled={panelMode === "view"}
+                  />
+                  The model reasons (thinking)
+                </label>
+                <label className="grid gap-1 text-sm">
+                  Compatibility settings (JSON, optional)
+                  <Input
+                    value={compat}
+                    onChange={(event) => setCompat(event.target.value)}
+                    placeholder='{"thinkingFormat":"qwen-chat-template"}'
+                    readOnly={panelMode === "view"}
                   />
                 </label>
               </>

@@ -153,3 +153,110 @@ describe("durable reconstruction", () => {
     expect(checkpoint.manifestHash).toBe(hashManifest(manifest));
   });
 });
+
+describe("model failure outcomes (Model Calls §6)", () => {
+  const agent = () => Agent({ id: "failing", name: "Failing" }).build();
+
+  it("fails the turn with model.<code> when the model effect completed with a failure", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    const host: DurableHost = {
+      async resolveEffect() {
+        return {
+          status: "completed",
+          outcome: {
+            value: {
+              kind: "failed",
+              code: "overloaded",
+              message: "The server is overloaded",
+              retryable: true,
+            },
+          },
+        };
+      },
+    };
+    const result = await runDurable({ manifest, checkpoint, host });
+    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({
+      result: {
+        status: "failed",
+        error: { code: "model.overloaded", message: "The server is overloaded" },
+      },
+    });
+  });
+
+  it("rejects a checkpoint from the previous engine version", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = {
+      ...createDurableCheckpoint({ manifest, sessionId: "session", turnId: "turn", input: "go" }),
+      engineVersion: "hosted-2",
+    } as unknown as Parameters<typeof runDurable>[0]["checkpoint"];
+    await expect(
+      runDurable({
+        manifest,
+        checkpoint,
+        host: { resolveEffect: async () => ({ status: "pending" }) },
+      }),
+    ).rejects.toMatchObject({ code: "execution.incompatible" });
+  });
+});
+
+describe("segment rollover (Model Calls §10)", () => {
+  it("yields between steps and continues the same turn in the next segment", async () => {
+    const manifest = Agent({ id: "roller", name: "Roller" })
+      .use({
+        id: "jobs",
+        tools: [{ name: "job", inputSchema: z.object({}), execute: async () => "unused" }],
+      })
+      .build().manifest;
+    const journal = new Map<string, EffectResolution>();
+    let modelCalls = 0;
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        const recorded = journal.get(effect.effectId);
+        if (recorded) return recorded;
+        const value =
+          effect.kind === "tool"
+            ? { kind: "completed", output: "ok" }
+            : modelCalls++ < 5
+              ? { output: [{ type: "tool-call", id: `c${modelCalls}`, name: "job", args: {} }] }
+              : "done";
+        const resolution: EffectResolution = { status: "completed", outcome: { value } };
+        journal.set(effect.effectId, resolution);
+        return resolution;
+      },
+    };
+    let checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    const statuses: string[] = [];
+    for (;;) {
+      const result = await runDurable({ manifest, checkpoint, host, yieldAfter: { steps: 2 } });
+      statuses.push(result.status);
+      if (result.status !== "yielded") {
+        expect(result.status).toBe("completed");
+        const transcript = (result as any).result.state.transcript as { turnId: string }[];
+        // One engine turn across every segment.
+        expect(new Set(transcript.map((entry) => entry.turnId)).size).toBe(1);
+        break;
+      }
+      checkpoint = {
+        ...result.checkpoint,
+        segment: result.checkpoint.segment + 1,
+        input: { kind: "continue" },
+      };
+    }
+    expect(statuses).toEqual(["yielded", "yielded", "completed"]);
+    expect(modelCalls).toBe(6);
+    // Effect ids carry the segment, so no segment reads another's journal.
+    expect(new Set([...journal.keys()].map((id) => id.split(":")[1])).size).toBe(3);
+  });
+});

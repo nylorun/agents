@@ -10523,6 +10523,27 @@
                   },
                   "baseUrl": {
                     "type": "string"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "contextWindow": {
+                        "type": "integer",
+                        "minimum": 1024
+                      },
+                      "maxTokens": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "reasoning": {
+                        "type": "boolean"
+                      },
+                      "compat": {
+                        "type": "object",
+                        "additionalProperties": {}
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -10943,6 +10964,27 @@
               "baseUrl": {
                 "type": "string",
                 "minLength": 1
+              },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "contextWindow": {
+                    "type": "integer",
+                    "minimum": 1024
+                  },
+                  "maxTokens": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reasoning": {
+                    "type": "boolean"
+                  },
+                  "compat": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "additionalProperties": false
               },
               "auth": {
                 "oneOf": [
@@ -11415,6 +11457,27 @@
                 "baseUrl": {
                   "type": "string"
                 },
+                "settings": {
+                  "type": "object",
+                  "properties": {
+                    "contextWindow": {
+                      "type": "integer",
+                      "minimum": 1024
+                    },
+                    "maxTokens": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "reasoning": {
+                      "type": "boolean"
+                    },
+                    "compat": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "lastUpdated": {
                   "type": "string"
                 },
@@ -11480,6 +11543,27 @@
               },
               "baseUrl": {
                 "type": "string"
+              },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "contextWindow": {
+                    "type": "integer",
+                    "minimum": 1024
+                  },
+                  "maxTokens": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reasoning": {
+                    "type": "boolean"
+                  },
+                  "compat": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "required": [
@@ -11515,6 +11599,27 @@
           "baseUrl": {
             "type": "string",
             "minLength": 1
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1024
+              },
+              "maxTokens": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "reasoning": {
+                "type": "boolean"
+              },
+              "compat": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "additionalProperties": false
           },
           "auth": {
             "oneOf": [

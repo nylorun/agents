@@ -55,6 +55,7 @@ import {
   turnManifestOf,
 } from "./session.js";
 import { prepareMcp, resolveEffect } from "./effects.js";
+import { slimModelEffects } from "./slim.js";
 import { command } from "./commands.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
@@ -273,6 +274,10 @@ function startHeartbeat(
   };
 }
 
+/** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
+const ROLLOVER_STEPS = 50;
+const ROLLOVER_MS = 20 * 60_000;
+
 /** Runs one segment and settles it. Throws only `ownership.lost` and infrastructure errors. */
 async function runSegment(
   ctx: TenantContext,
@@ -316,6 +321,10 @@ async function runSegment(
           signal,
           sessionTools: sessionToolsOf(current.mcpSnapshot),
           host,
+          yieldAfter: {
+            steps: ctx.config.rollover?.steps ?? ROLLOVER_STEPS,
+            ms: ctx.config.rollover?.ms ?? ROLLOVER_MS,
+          },
         });
     // The engine turns an abort into a `cancelled` (agents) or `failed` (workflows) result;
     // only a user cancel may settle that, and it already did.
@@ -419,6 +428,34 @@ async function settle(
         await t.put("sessions", id, current);
         return siblings;
       }
+      if (result.status === "yielded") {
+        // The turn goes on in a new segment: same turn, next checkpoint, woken right away.
+        const finished = result.checkpoint as DurableCheckpoint;
+        current.state = (result.result as any).state;
+        current.checkpoint = {
+          ...finished,
+          segment: finished.segment + 1,
+          input: { kind: "continue" },
+          state: current.state,
+        };
+        current.status = "runnable";
+        current.waits = undefined;
+        await t.put(
+          "checkpoints",
+          JSON.stringify([id, s.activeTurnId, finished.segment]),
+          { checkpoint: finished, status: "yielded" }
+        );
+        await slimModelEffects(t, id, s.activeTurnId);
+        await t.put("sessions", id, current);
+        const segment = finished.segment + 1;
+        t.afterCommit(() =>
+          ctx.wake(id, {
+            reason: "rollover",
+            dedupeKey: `rollover:${s.activeTurnId}:${segment}`,
+          })
+        );
+        return siblings;
+      }
       const flow = isWorkflowManifest(current.manifest);
       if (!flow) {
         current.state =
@@ -457,6 +494,7 @@ async function settle(
       if (result.status !== "paused") {
         current.activeTurnId = null;
         if (s.activeTurnId) current.lastTurnId = s.activeTurnId;
+        await slimModelEffects(t, id, s.activeTurnId);
       }
       const type = `turn.${result.status}`;
       const payload =
@@ -537,6 +575,7 @@ async function settleFailure(
     current.error = error instanceof Error ? error.message : String(error);
     const payload = { message: current.error };
     await t.event(id, current.activeTurnId, "turn.failed", payload);
+    await slimModelEffects(t, id, current.activeTurnId);
     if (current.activeTurnId) current.lastTurnId = current.activeTurnId;
     current.activeTurnId = null;
     await t.put("sessions", id, current);

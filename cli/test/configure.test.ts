@@ -8,6 +8,7 @@ import type { CredentialStore } from "@earendil-works/pi-ai";
 import {
   configureProvider,
   ConfigurationCancelled,
+  installationId,
 } from "../src/model/configure.js";
 
 const { login, state } = vi.hoisted(() => ({
@@ -141,7 +142,7 @@ it("defaults to API keys without writing secrets to dotenv", async () => {
       env: { PROVIDER_ACCOUNT: "account" },
     },
   });
-  expect(login).toHaveBeenCalledWith("fixture", "api_key", expect.anything());
+  expect(login).toHaveBeenCalledWith("fixture", "api_key", expect.anything(), expect.objectContaining({ getDeviceId: expect.any(Function) }));
   const text = await readFile(join(test.root, ".env"), "utf8");
   expect(text).toContain("# integration\nINTEGRATION=keep\n");
   expect(text).not.toContain("key-with");
@@ -176,7 +177,7 @@ it("keeps OAuth credentials out of dotenv", async () => {
     model: "fixture-model",
     auth: credential,
   });
-  expect(login).toHaveBeenCalledWith("fixture", "oauth", expect.anything());
+  expect(login).toHaveBeenCalledWith("fixture", "oauth", expect.anything(), expect.objectContaining({ getDeviceId: expect.any(Function) }));
   await expect(readFile(join(test.root, ".env"))).rejects.toThrow();
 });
 
@@ -244,4 +245,65 @@ it("preserves unrelated config files", async () => {
   expect(await readFile(join(test.root, "config/model.json"), "utf8")).toBe(
     '{"provider":"old","model":"old"}',
   );
+});
+
+it("passes this installation's id to OAuth logins", async () => {
+  const test = await fixture();
+  login.mockImplementation(async () =>
+    state.store!.modify("fixture", async () => ({
+      type: "oauth",
+      access: "access",
+      refresh: "refresh",
+      expires: Date.now() + 60_000,
+    })),
+  );
+  await configureProvider({
+    ...test,
+    catalog: test.catalog,
+    deviceId: () => "11111111-2222-4333-8444-555555555555",
+  });
+  const options = login.mock.calls[0]![3] as { getDeviceId: () => string };
+  expect(login.mock.calls[0]![1]).toBe("oauth");
+  expect(options.getDeviceId()).toBe("11111111-2222-4333-8444-555555555555");
+});
+
+it("keeps the installation id stable across calls", async () => {
+  const home = await mkdtemp(join(tmpdir(), "configure-home-"));
+  roots.push(home);
+  const first = installationId(home);
+  expect(first).toMatch(/^[0-9a-f-]{36}$/);
+  expect(installationId(home)).toBe(first);
+  expect((await readFile(join(home, "cli-installation-id"), "utf8")).trim()).toBe(first);
+});
+
+it("configures a custom endpoint with its context window and API key", async () => {
+  const root = await mkdtemp(join(tmpdir(), "configure-custom-"));
+  roots.push(root);
+  const input = new PassThrough();
+  const answers = new Map<string, string>([
+    ["Choose a provider: ", "0"],
+    ["OpenAI-compatible base URL: ", "http://127.0.0.1:8080/v1/"],
+    ["Model id: ", "qwen3-8b"],
+    ["Context window in tokens (Enter for 32768): ", "16384"],
+    ["Max output tokens (Enter for 8192): ", ""],
+    ["API key: ", "local-key"],
+  ]);
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      const answer = answers.get(String(chunk));
+      if (answer !== undefined) queueMicrotask(() => input.write(answer + "\n"));
+      done();
+    },
+  });
+  login.mockImplementation(async (id, _type, interaction) => {
+    const key = await interaction.prompt({ type: "secret", message: "API key" });
+    return state.store!.modify(id, async () => ({ type: "api_key", key }));
+  });
+  await expect(configureProvider({ input, output, root })).resolves.toEqual({
+    provider: "custom",
+    model: "qwen3-8b",
+    baseUrl: "http://127.0.0.1:8080/v1",
+    settings: { contextWindow: 16384 },
+    auth: { type: "api_key", key: "local-key" },
+  });
 });

@@ -34,6 +34,8 @@ export interface ModelUsage {
   readonly outputTokens?: number;
   readonly totalTokens?: number;
   readonly cachedTokens?: number;
+  /** Input tokens written to the provider's prompt cache. */
+  readonly cacheWriteTokens?: number;
   readonly reasoningTokens?: number;
   readonly costUsd?: number;
 }
@@ -57,6 +59,30 @@ export interface ModelCandidate {
   readonly finishReason?: ModelFinishReason;
   readonly usage?: ModelUsage;
   readonly evidence?: ModelEvidence;
+}
+
+/** Why a model call failed in a known way (Model Calls §6.1). */
+export type ModelFailureCode =
+  | "context_overflow"
+  | "rate_limited"
+  | "overloaded"
+  | "timeout"
+  | "transient"
+  | "content_policy"
+  | "auth"
+  | "invalid_request"
+  | "invalid_output";
+
+/**
+ * A model call that failed in a known way. It is a completed outcome, not a lost one:
+ * the engine fails the step with `model.<code>` instead of treating the call as uncertain.
+ */
+export interface ModelFailureOutcome {
+  readonly kind: "failed";
+  readonly code: ModelFailureCode;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly retryAfterMs?: number;
 }
 
 export interface ModelControls {
@@ -167,6 +193,13 @@ export type PromptContentPart =
       readonly args: JsonObject;
     };
 
+/** The provider, API and model that produced an assistant message (Model Calls §12). */
+export interface ModelProducer {
+  readonly provider: string;
+  readonly api?: string;
+  readonly model: string;
+}
+
 export type PromptItem =
   | {
       readonly kind: "instructions";
@@ -177,6 +210,8 @@ export type PromptItem =
       readonly kind: "message";
       readonly role: "user" | "assistant";
       readonly content: readonly PromptContentPart[];
+      /** For assistant messages: the model that produced it, when the adapter recorded one. */
+      readonly producer?: ModelProducer;
     }
   | {
       readonly kind: "tool-result";
@@ -210,6 +245,14 @@ export interface ModelAdapterContext {
   readonly request: ModelRequest;
   readonly invocationId: string;
   readonly signal: AbortSignal;
+  /** Set when the engine calls the model to summarize history (Model Calls §8). */
+  readonly compaction?: {
+    readonly trigger: "threshold" | "overflow";
+    readonly tokensBefore: number;
+    readonly keptTokens: number;
+    /** An intermediate call of a chunked summary; only the last one completes the compaction. */
+    readonly partial?: boolean;
+  };
   /** Publishes one JSON-safe provider request derived from the canonical ModelCall. */
   reportPreparedCall(prepared: ModelPreparedCall): void;
 }
@@ -222,4 +265,4 @@ export interface ModelPreparedCall {
 export type ModelAdapter = (
   call: ModelCall,
   context: ModelAdapterContext
-) => Promise<ModelCandidate | string>;
+) => Promise<ModelCandidate | ModelFailureOutcome | string>;
