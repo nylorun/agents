@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SubjectScope } from "@nylorun/core/contracts";
 import { Agent } from "@nylorun/core/define";
-import { routeAccess } from "../../src/tenant/auth.js";
+import { findTenantRoute } from "../../src/api/http/app.js";
 import {
   ALL_SCOPES,
   createVault,
@@ -131,17 +131,22 @@ const routes = (): Route[] => [
   { method: "POST", path: "/v1/sessions/owned/sandbox/read", needs: "never", body: () => ({}) },
 ];
 
-describe("routeAccess", () => {
-  it("matches the scope table for every route", () => {
+/** The subject scopes a route declares (`api/http/define.ts`), if it is a route. */
+function declaredScopes(method: string, path: readonly string[]) {
+  return findTenantRoute(method, path)?.scopes;
+}
+
+describe("route declarations", () => {
+  it("match the scope table for every route", () => {
     for (const route of routes()) {
       const path = new URL(route.path, "http://runtime").pathname.split("/").filter(Boolean);
-      expect(routeAccess(route.method, path), `${route.method} ${route.path}`).toEqual(
+      expect(declaredScopes(route.method, path), `${route.method} ${route.path}`).toEqual(
         route.needs
       );
     }
   });
 
-  it("knows no other routes", () => {
+  it("declare no other routes", () => {
     for (const [method, path] of [
       ["GET", "v1/nothing"],
       ["DELETE", "v1/agents/bot"],
@@ -151,7 +156,7 @@ describe("routeAccess", () => {
       ["GET", "v1/tenant/unknown"],
       ["GET", "health"],
     ] as const)
-      expect(routeAccess(method, path.split("/")), `${method} ${path}`).toBeUndefined();
+      expect(declaredScopes(method, path.split("/")), `${method} ${path}`).toBeUndefined();
   });
 });
 

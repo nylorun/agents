@@ -1,18 +1,20 @@
 /**
  * The Tenant API as a Hono app: one for every open Tenant, which arrives with each request as
- * the `tenant` binding. Routes move here group by group (`routes/`); a request no route here
- * matches exactly, `HEAD` included, goes to the router they replace (`routes.ts`), which
- * answers on the Node response as before.
+ * the `tenant` binding. Every route is declared once (`define.ts`) in `routes/`, `../ag-ui/`
+ * and `../a2a/`. A request no route matches exactly is authenticated like any other, then
+ * answered `404 Route not found`.
  */
 import type { Context } from "hono";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
-import type { TenantContext } from "../../tenant/context.js";
-import type { AuthScope } from "../../tenant/context.js";
+import type { AuthScope, TenantContext } from "../../tenant/context.js";
+import { fail } from "../../tenant/http.js";
 import type { NodeBindings } from "../../tenant/types.js";
-import { pathSegments } from "./define.js";
+import { a2aRoutes } from "../a2a/endpoint.js";
+import { agUiRoutes } from "../ag-ui/endpoint.js";
+import { authenticateCaller, declaredRoute, pathSegments, type RouteAccess } from "./define.js";
 import { jsonResponse, rejectionOf } from "./respond.js";
-import { handle } from "./routes.js";
+import { accessRoutes } from "./routes/access.js";
 import { endpointRoutes } from "./routes/endpoints.js";
 import { executorRoutes } from "./routes/executors.js";
 import { sessionRoutes } from "./routes/sessions.js";
@@ -35,16 +37,25 @@ export function tenantApi(): OpenAPIHono<TenantEnv> {
   return (app ??= build());
 }
 
-async function legacy(c: Context<TenantEnv>): Promise<Response> {
-  const { tenant, incoming, outgoing } = c.env;
-  await handle(tenant, incoming, outgoing, new URL(incoming.url ?? "/", "http://runtime"));
-  return RESPONSE_ALREADY_SENT;
+/** Who may call `method` on a Tenant path (its decoded segments), if it is a route. */
+export function findTenantRoute(
+  method: string,
+  segments: readonly string[],
+): RouteAccess | undefined {
+  tenantApi();
+  return declaredRoute(method, segments);
+}
+
+/** No route: authenticated first, so an unknown credential stays the opaque 404. */
+async function notFound(c: Context<TenantEnv>): Promise<Response> {
+  await authenticateCaller(c);
+  return fail(404, "Route not found");
 }
 
 function build(): OpenAPIHono<TenantEnv> {
   const api = new OpenAPIHono<TenantEnv>();
   // Hono serves HEAD with the GET route; the Tenant API has no HEAD routes.
-  api.use(async (c, next) => (c.req.method === "HEAD" ? await legacy(c) : await next()));
+  api.use(async (c, next) => (c.req.method === "HEAD" ? await notFound(c) : await next()));
   // A malformed path is rejected before anything else reads it.
   api.use(async (c, next) => {
     pathSegments(c.env.incoming);
@@ -55,7 +66,10 @@ function build(): OpenAPIHono<TenantEnv> {
   sessionRoutes(api);
   tenantRoutes(api);
   vaultRoutes(api);
-  api.notFound(legacy);
+  accessRoutes(api);
+  agUiRoutes(api);
+  a2aRoutes(api);
+  api.notFound(notFound);
   api.onError((error, c) => {
     const { outgoing } = c.env;
     // Once a response has started, the rejection can only end it.
