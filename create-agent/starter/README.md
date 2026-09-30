@@ -16,9 +16,11 @@ watching works.
 
 Agent and tool definitions live in `agents/`. The **Runtime** holds your
 sessions in isolated **Tenants**; this project attaches through a **Project
-link** and connects your tools through the SDK's authenticated SSE executor.
-Production entry is `src/main.ts`, which calls `connectAgents`. The project
-depends only on `@nylorun/agents`; the two Nylorun tools run with `npx`:
+link**. Your tools run in this app: `src/main.ts` serves them as an **Action
+endpoint** (`createActionHandler`) on `http://localhost:3001/nylorun/actions`
+and registers that URL, and the Runtime delivers each tool call there, signed.
+The project depends only on `@nylorun/agents`; the two Nylorun tools run with
+`npx`:
 
 - `nylorun` sets up and runs the local stack (Runtime and Studio).
 - `@nylorun/cli` (command `nylo`) talks to a Runtime: Tenants, the Project
@@ -45,8 +47,11 @@ Without them, set the provider in Studio's Model provider screen, or with
 `npx @nylorun/cli configure`. Model calls use the Tenant's provider and may
 incur its usual charges.
 
-`npm run dev` runs `src/main.ts` with `tsx watch`; `connectAgents` finds the
-Runtime through the Project link. `npx nylorun studio` opens Studio on this
+`npm run dev` runs `src/main.ts` with `tsx watch`: it serves the Action
+endpoint on port 3001 (`PORT` changes it) and registers it with the Runtime,
+which it finds through the Project link. The local stack's Runtime runs in
+Docker and reaches `localhost` on this machine. `npx @nylorun/cli tenant
+endpoints` shows the endpoint and how its deliveries are doing. `npx nylorun studio` opens Studio on this
 project's Tenant, and signs in a browser that is not signed in yet. In
 Studio, ask **Look up order demo-123**. The local tool returns `shipped`;
 Studio shows the tool call and assistant response. The Runtime listens on
@@ -58,11 +63,13 @@ npm run build
 npm start
 ```
 
-`npm start` runs `node dist/src/main.js`, the same `connectAgents` entry as
-development. Set `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT`, and
-`NYLORUN_SERVER_KEY` before starting, or keep the Project link beside this
-directory. `agents/index.ts` exports the registry. A source edit re-registers
-agents and reconnects executors; the Runtime is untouched. Start a new session
+`npm start` runs `node dist/src/main.js`, the same entry as development. Set
+`NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT`, and `NYLORUN_SERVER_KEY` before
+starting, or keep the Project link beside this directory, and set
+`NYLORUN_ACTIONS_URL` to the URL the Runtime reaches this app at (a public URL,
+or a tunnel such as ngrok for a remote Runtime). `agents/index.ts` exports the
+registry. A source edit restarts the app, which re-registers the agents and
+the endpoint; the Runtime is untouched. Start a new session
 after changing definitions or implementations; active-session upgrades are not
 supported.
 
@@ -79,7 +86,8 @@ admin key; Tenant data lives in the stack's Docker volumes. A fresh clone or
 second worktree does not reuse this link: run `tenant create` there, or
 `npx @nylorun/cli tenant use <name>` with that Tenant's credentials.
 Keep `.nylorun/` private. Application credentials are generated when the
-Tenant is created; executor tokens are derived at start. Ordinary
+Tenant is created. Each delivery carries a short-lived token the endpoint
+verifies with the Tenant's public keys. Ordinary
 shutdown/restart preserves completed session history; `npx nylorun reset`
 deletes every Tenant.
 `NYLORUN_IMPLEMENTATION_VERSION` defaults to `dev`; assign an explicit version
