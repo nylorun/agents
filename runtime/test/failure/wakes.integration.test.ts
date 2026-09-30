@@ -103,6 +103,7 @@ describe.skipIf(!FULL_STACK)("§17 wake failures on Postgres, Restate and S2", (
           if (wake.reason === "message") lost.push(wake);
           else await inner.wake(tenantId, sessionId, wake);
         },
+        deliver: (...args) => inner.deliver(...args),
         timer: (...args) => inner.timer(...args),
         armSweep: (tenantId) => inner.armSweep(tenantId),
         disarmSweep: (tenantId) => inner.disarmSweep(tenantId),
