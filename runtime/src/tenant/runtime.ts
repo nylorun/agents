@@ -37,6 +37,7 @@ import { QuarantineError } from "./quarantine-error.js";
 import { MemoryStreams } from "../streams/memory.js";
 import type { DurableStreams } from "../streams/types.js";
 import type {
+  NodeBindings,
   OpenedTenant,
   TenantConfig,
   TenantHandle,
@@ -73,6 +74,7 @@ import {
 } from "./worker.js";
 import { authorize } from "./effects.js";
 import { handle } from "../api/http/routes.js";
+import { tenantApi } from "../api/http/app.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -326,6 +328,11 @@ export class TenantRuntime implements TenantHandle {
     }
   }
 
+  async fetch(request: Request, node: NodeBindings): Promise<Response> {
+    return await tenantApi().fetch(request, { ...node, tenant: this.ctx });
+  }
+
+  /** @deprecated Use `fetch`. */
   handle(
     request: IncomingMessage,
     response: ServerResponse,

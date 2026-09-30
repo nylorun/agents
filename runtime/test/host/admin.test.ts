@@ -43,10 +43,9 @@ it("C4: admin routes never forward to Tenant handlers", async () => {
             updatedAt: "2026-01-01T00:00:00.000Z",
             schemaVersion: 1,
           },
-          async handle(_q, response) {
+          async fetch() {
             tenantHandled = true;
-            response.writeHead(200);
-            response.end("{}");
+            return new Response("{}");
           },
           summary: () => ({
             ready: true,
