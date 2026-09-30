@@ -12,15 +12,16 @@
  * - Builds (or reuses, see scripts/lib/stack.mjs) the Runtime and Studio
  *   images and, under a temporary NYLORUN_HOME, runs `nylorun up`, then
  *   `nylo tenant create` in the project (the Tenant and the Project link),
- *   then the project's `npm run dev`: the starter registers `assistant`, its
- *   executor connects, and `nylorun studio` lands on that Tenant (303 +
+ *   then the project's `npm run dev`: the starter registers `assistant` and its
+ *   Action endpoint, the Runtime in Docker reaches it (a ping), and `nylorun
+ *   studio` lands on that Tenant (303 +
  *   cookie, /_studio/tenants, the Tenant proxy).
  * - A source edit re-registers the agent; stopping dev keeps the stack; a
- *   second dev reuses the link; the compiled `npm start` connects with the
+ *   second dev reuses the link; the compiled `npm start` registers with the
  *   three Project variables.
  * - A temporary Tenant with the fixture model (scripts/lib/temporary-tenant.mjs)
  *   runs one turn through Studio's proxy that calls the starter's own
- *   `lookup_order` tool on its executor; the Tenant is deleted afterwards and
+ *   `lookup_order` tool through its Action endpoint; the Tenant is deleted afterwards and
  *   the Project's Tenant and link are untouched.
  * - Without Docker on PATH, `nylorun up` says so.
  *
@@ -40,6 +41,7 @@ import {
   eventually,
   studioSession,
   tenantGet,
+  tenantHeaders,
   withStack,
 } from "../../scripts/lib/stack.mjs";
 import { withTemporaryTenant } from "../../scripts/lib/temporary-tenant.mjs";
@@ -216,22 +218,24 @@ try {
             ),
           { timeout: 120_000, message: `agent "assistant" named ${name}` },
         );
+      // The Runtime (in Docker) reaches the app's Action endpoint on this machine: a ping
+      // through it answers 200 while dev runs, and 502 once dev stops.
+      const ping = async () =>
+        (
+          await fetch(`${runtimeUrl}/v1/endpoints/assistant/ping`, {
+            method: "POST",
+            headers: tenantHeaders(tenantId, key),
+            signal: AbortSignal.timeout(15_000),
+          })
+        ).status;
       const connected = () =>
-        eventually(
-          async () =>
-            (await tenantGet(runtimeUrl, tenantId, key, "/v1/executors")).executors?.some(
-              (executor) => executor.agentId === "assistant" && executor.connected,
-            ),
-          { message: "a connected assistant executor" },
-        );
+        eventually(async () => (await ping()) === 200, {
+          message: "the Runtime to reach the assistant's Action endpoint",
+        });
       const disconnected = () =>
-        eventually(
-          async () =>
-            !(await tenantGet(runtimeUrl, tenantId, key, "/v1/executors")).executors?.some(
-              (executor) => executor.connected,
-            ),
-          { message: "the executor to disconnect after dev stops" },
-        );
+        eventually(async () => (await ping()) === 502, {
+          message: "the Action endpoint to stop answering after dev stops",
+        });
 
       // 3. The project's own `npm run dev` finds the Runtime through the link.
       const dev = group.start("dev", process.execPath, [npmCli(), "run", "dev"], {

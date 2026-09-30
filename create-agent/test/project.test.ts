@@ -50,7 +50,7 @@ describe("starter template", () => {
     ]);
     expect(files[".env/auth.json"]).toBeUndefined();
     expect(files["src/index.ts"]).toBeUndefined();
-    expect(files["src/main.ts"]).toContain("connectAgents");
+    expect(files["src/main.ts"]).toContain("createActionHandler");
     expect(files["agents/assistant/agent.ts"]).toContain("lookup_order");
     expect(files["agents/assistant/agent.ts"]).toContain("@nylorun/agents");
     expect(files["agents/assistant/agent.ts"]).not.toMatch(/\bmodel\s*:/);

@@ -182,6 +182,12 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
     // A delivery token reaches its Action's callbacks, never a session or vault.
     case "delivery":
       return fail(404, "Not found");
+    // A delivery token reaches its Action's callbacks, never a session or vault.
+    case "delivery":
+      return fail(404, "Not found");
+    // A delivery token reaches its Action's callbacks, never a session or vault.
+    case "delivery":
+      return fail(404, "Not found");
     default: {
       const unknown: never = scope;
       return fail(404, `Unknown credential ${String((unknown as AuthScope).kind)}`);
