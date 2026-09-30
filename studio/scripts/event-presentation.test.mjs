@@ -104,3 +104,25 @@ test("names delegations and the agent behind child actions", () => {
     'researcher › Tool · search_orders: {"query":"7"}',
   );
 });
+
+test("labels and summarizes Action endpoint deliveries", () => {
+  assert.equal(eventLabel({ type: "action.delivered" }), "Action delivered");
+  assert.equal(eventLabel({ type: "action.delivery_failed" }), "Delivery failed");
+  assert.equal(
+    eventSummary({
+      type: "action.delivery_failed",
+      payload: {
+        actionId: "a1",
+        generation: 1,
+        reason: "endpoint.unreachable",
+        message: "connect ECONNREFUSED 127.0.0.1:3000",
+        retryInMs: 4000,
+      },
+    }),
+    "connect ECONNREFUSED 127.0.0.1:3000 (retrying in 4 s)",
+  );
+  assert.equal(
+    eventSummary({ type: "action.delivery_failed", payload: { reason: "endpoint.busy", retryInMs: 250 } }),
+    "endpoint.busy (retrying in 1 s)",
+  );
+});

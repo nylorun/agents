@@ -401,3 +401,94 @@ describe("createActionHandler: register", () => {
     expect((await actions.fetch(await delivery(body))).status).toBe(200);
   });
 });
+
+describe("createActionHandler: background tools", () => {
+  function backgroundHandler(heartbeat: (n: number) => Response) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const seen = { aborted: false, finished: false };
+    const slow = tool({
+      name: "slow",
+      input: z.object({ q: z.string() }),
+      background: true,
+      run: async ({ q }, ctx) => {
+        await Promise.race([
+          released,
+          new Promise<void>((resolve) => ctx.signal.addEventListener("abort", () => resolve(), { once: true })),
+        ]);
+        seen.aborted = ctx.signal.aborted;
+        seen.finished = true;
+        return `slow ${q}`;
+      },
+    });
+    const worker = Agent({ id: "worker", tools: [slow] }).build();
+    const calls: { path: string; auth: string | null; body?: unknown }[] = [];
+    let beats = 0;
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => (settle = resolve));
+    const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const path = url.startsWith(RUNTIME) ? url.slice(RUNTIME.length) : url;
+      const headers = new Headers(init?.headers);
+      if (path === "/v1/access/jwks") return Response.json({ keys: [jwk] });
+      if (path === "/health") return Response.json({ status: "ok", protocol: { ...HOST_PROTOCOL } });
+      calls.push({ path, auth: headers.get("authorization"), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
+      if (path.endsWith("/heartbeat")) {
+        beats += 1;
+        const answer = heartbeat(beats);
+        if (answer.status !== 200) settle();
+        return answer;
+      }
+      if (path.endsWith("/result")) {
+        settle();
+        return Response.json({ status: "accepted", turnId: "t1", cursor: "c" });
+      }
+      throw new Error(`unexpected ${path}`);
+    };
+    const works: Promise<unknown>[] = [];
+    const actions = createActionHandler({
+      agents: [worker],
+      runtime: { url: RUNTIME, tenant: TENANT, fetch },
+      url: ENDPOINT,
+      waitUntil: (work) => works.push(work),
+    });
+    const deliveryOf = () =>
+      delivery({
+        type: "action",
+        action: action({ q: "x" }, { agentId: "worker", toolName: "slow" }),
+        sandbox: false,
+      });
+    return { actions, calls, release, settled, seen, works, deliveryOf };
+  }
+
+  it("answers 202 at once, heartbeats with the newest token, and posts the result", async () => {
+    const t = backgroundHandler((n) =>
+      Response.json({ token: `token-${n}`, deadlineAt: new Date(Date.now() + 3_000).toISOString() }),
+    );
+    const request = await t.deliveryOf();
+    const first = request.headers.get(SIGNATURE_HEADER);
+    const response = await t.actions.fetch(request);
+    expect(response.status).toBe(202);
+    expect(t.works).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    t.release();
+    await t.settled;
+    await t.works[0];
+    expect(t.calls.map((c) => c.path)).toEqual(["/v1/actions/a1/heartbeat", "/v1/actions/a1/result"]);
+    expect(t.calls[0]!.auth).toBe(`Bearer ${first}`);
+    expect(t.calls[1]).toMatchObject({
+      auth: "Bearer token-1",
+      body: { value: { kind: "completed", output: "slow x" } },
+    });
+    expect(t.seen).toEqual({ aborted: false, finished: true });
+  });
+
+  it("stops the tool and posts nothing when a heartbeat says the delivery is over", async () => {
+    const t = backgroundHandler(() => Response.json({ status: "rejected", message: "cancelled" }, { status: 409 }));
+    expect((await t.actions.fetch(await t.deliveryOf())).status).toBe(202);
+    await t.settled;
+    await t.works[0];
+    expect(t.seen).toEqual({ aborted: true, finished: true });
+    expect(t.calls.map((c) => c.path)).toEqual(["/v1/actions/a1/heartbeat"]);
+  });
+});

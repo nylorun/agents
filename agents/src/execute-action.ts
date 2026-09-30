@@ -78,6 +78,28 @@ export async function executeAction(
   return runTool(action, tool, ref, signal, sandbox);
 }
 
+/**
+ * True when `action` runs a tool marked `background` (`ToolDefinition.background`): an Action
+ * endpoint answers its delivery at once and posts the outcome later. False for anything it
+ * cannot find; `executeAction` reports those.
+ */
+export function runsInBackground(action: Action, root: ExecutableDefinition): boolean {
+  if (action.kind !== "tool") return false;
+  try {
+    if (isBuiltWorkflow(root)) {
+      const key = (action as { key?: unknown }).key;
+      const impl = typeof key === "string" ? root.getBinding().nodes[key] : undefined;
+      return impl?.kind === "tool" && (impl.tool as { background?: boolean }).background === true;
+    }
+    if (!("capabilityId" in action)) return false;
+    const agent = action.agent ? delegatedAgent(root, action.agent.id) : root;
+    const raw = implementationsFor(agent)[action.capabilityId]?.tools?.[action.toolName];
+    return raw !== undefined && normalizeToolDefinition(raw).background === true;
+  } catch {
+    return false;
+  }
+}
+
 async function executeWorkflowTool(
   action: Extract<Action, { kind: "tool" }> & { key: string },
   binding: WorkflowBinding,

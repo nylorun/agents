@@ -31,6 +31,7 @@ export function bindTool(
     execute: prepared.execute!.bind(prepared) as BoundToolDefinition["execute"],
     ...(prepared.approval === undefined ? {} : { approval: prepared.approval }),
     ...(prepared.effects === undefined ? {} : { effects: prepared.effects }),
+    ...(prepared.background === undefined ? {} : { background: prepared.background }),
     owner: Object.freeze({ ...owner }),
     ...(delegate === undefined ? {} : { delegate }),
   });
