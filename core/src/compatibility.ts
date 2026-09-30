@@ -25,6 +25,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * or by subject headers. `a2a-endpoint`:
  * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
+ * `action-endpoints`: `PUT`/`GET`/`DELETE /v1/endpoints` register the URL that runs each agent's
+ * Actions, and the Runtime delivers them there, signed with a delivery token
+ * (`Nylorun-Signature`), instead of offering them to executors.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -35,6 +38,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "browser-access",
   "ag-ui-endpoint",
   "a2a-endpoint",
+  "action-endpoints",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -57,6 +61,10 @@ export const SUBJECT_HEADER = "Nylorun-Subject";
 export const SCOPES_HEADER = "Nylorun-Scopes";
 /** A publishable key: names the Tenant and the client app (Host feature `browser-access`). */
 export const PUBLISHABLE_KEY_HEADER = "Nylorun-Key";
+/** The delivery token on a request the Runtime sends to an Action endpoint. */
+export const SIGNATURE_HEADER = "Nylorun-Signature";
+/** Set to `1` on an Action endpoint's response whose body is a tagged `ActionOutcome`. */
+export const OUTCOME_HEADER = "Nylorun-Outcome";
 
 export const ERROR_CODES = [
   "not_found",

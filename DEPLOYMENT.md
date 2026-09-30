@@ -3,7 +3,8 @@
 This release supports one machine: the **local Docker stack** that
 `nylorun up` runs (the Runtime, Studio, Postgres, Restate and s2-lite, as
 Docker Compose project `nylorun`), with **Tenants** served by that Runtime and
-customer executors running on the same machine. Vocabulary:
+the application's **Action endpoints** (the tools it serves) on the same machine
+or reachable from it. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ```sh
@@ -15,9 +16,12 @@ npm start
 
 `nylorun up` starts the stack, or leaves it running when it already is, and
 prints the Runtime and Studio URLs. `npm start` runs
-`node dist/src/main.js`, which connects the application's executor to the
-Runtime with three variables: `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` and
-`NYLORUN_SERVER_KEY`, or through the Project link. `nylo env`
+`node dist/src/main.js`, which serves the application's Action endpoint and
+registers it with the Runtime using three variables: `NYLORUN_RUNTIME_URL`,
+`NYLORUN_TENANT` and `NYLORUN_SERVER_KEY`, or through the Project link. The
+Runtime calls that endpoint for every tool call, so its URL
+(`NYLORUN_ACTIONS_URL` in the starter) must be reachable from the Runtime: the
+local stack maps `localhost` to this machine. `nylo env`
 (`npx @nylorun/cli env`) prints them for the Project that `nylo tenant create`
 linked; a supervisor can set them directly instead. The application does not
 start the stack, Studio or a file watcher; start the stack first
@@ -155,8 +159,10 @@ On the app server's machine:
   run outside a Project: it prints the three variables once. Keep the key in
   the app server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
-  for both the client and the executor (`connectAgents`); keep
-  `NYLORUN_TENANT` and `NYLORUN_SERVER_KEY` as printed.
+  for the client and the Action endpoint's `register`; keep
+  `NYLORUN_TENANT` and `NYLORUN_SERVER_KEY` as printed. Register the app's
+  Action endpoint at a URL the Runtime's machine can reach (the app server's
+  address on the network, or a tunnel), and allow that traffic.
 - To check a placement end to end, run the remote check from a checkout of this
   repository on the app server's machine, against a Tenant made for it:
 

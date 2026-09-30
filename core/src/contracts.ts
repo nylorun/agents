@@ -22,16 +22,20 @@ import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
 export const IdempotencyKeySchema = z.string().min(1).max(256);
 const jsonObject = z.record(z.string(), z.unknown());
-const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValue),
-    z.record(z.string(), jsonValue),
-  ])
-);
+// Recursive schemas carry an `id`: a document generated from them (the Runtime's OpenAPI)
+// refers back to the named schema instead of expanding it forever.
+const jsonValue: z.ZodType<JsonValue> = z
+  .lazy(() =>
+    z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(jsonValue),
+      z.record(z.string(), jsonValue),
+    ])
+  )
+  .meta({ id: "JsonValue" });
 const mcpServerSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -110,6 +114,7 @@ const toolManifestSchema = z
     outputSchema: jsonObject.optional(),
     agent: z
       .lazy(() => z.union([workflowV2ManifestSchema, AgentManifestSchema]))
+      .meta({ id: "ToolAgentManifest" })
       .optional(),
   })
   .strict();
@@ -370,7 +375,7 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
       })
       .strict(),
   ])
-);
+).meta({ id: "WorkflowNode" });
 const workflowV1ManifestSchema = z
   .object({
     kind: z.literal("workflow"),
@@ -450,7 +455,7 @@ const workflowNodeV2Schema: z.ZodTypeAny = z.lazy(() =>
       })
       .strict(),
   ])
-);
+).meta({ id: "WorkflowNodeV2" });
 const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
   z
     .object({
@@ -488,7 +493,7 @@ const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
           });
       }
     })
-);
+).meta({ id: "WorkflowV2Manifest" });
 function referencedAgents(node: WorkflowNodeV2): string[] {
   const out: string[] = [];
   const visit = (child: WorkflowNodeV2): void => {
@@ -916,10 +921,20 @@ const actionBase = {
   implementationVersion: z.string(),
   input: z.unknown(),
   context: jsonObject,
-  status: z.enum(["pending", "claimed", "completed", "uncertain", "cancelled"]),
+  /** `claimed` is an executor's claim; `delivering` is a delivery to an Action endpoint. */
+  status: z.enum([
+    "pending",
+    "claimed",
+    "delivering",
+    "completed",
+    "uncertain",
+    "cancelled",
+  ]),
   generation: z.number().int().nonnegative(),
   claimId: z.string().nullable(),
   leaseExpiresAt: z.string().nullable(),
+  /** When an unanswered delivery counts as lost. Set only while `delivering`. */
+  deadlineAt: z.string().nullable().optional(),
   agent: AgentRefSchema.optional(),
 };
 /** The hook point an action runs, and the capabilities that registered it (manifest order). */
@@ -2161,3 +2176,162 @@ export const AgUiRunErrorCodeSchema = z.enum([
   "runtime_error",
 ]);
 export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;
+
+// --- Action endpoints: the Runtime delivers Actions over HTTP ------------------------------
+
+/** The JWT `typ` of a delivery token (RFC 8725 explicit typing). */
+export const DELIVERY_TOKEN_TYPE = "nylorun-delivery+jwt";
+/**
+ * A delivery token lives no longer than a subject token: rotating signing keys revokes the
+ * previous key once the longest token it may have signed has expired.
+ */
+export const DELIVERY_TOKEN_MAX_TTL_SECONDS = TOKEN_TTL_MAX_SECONDS;
+/** Inline delivery timeouts, in milliseconds. The maximum keeps a token within its lifetime. */
+export const ENDPOINT_TIMEOUT_DEFAULT_MS = 60_000;
+export const ENDPOINT_TIMEOUT_MAX_MS = (DELIVERY_TOKEN_MAX_TTL_SECONDS - 60) * 1000;
+/** In-flight deliveries per endpoint when the registration does not say. */
+export const ENDPOINT_MAX_CONCURRENT_DEFAULT = 16;
+
+const isEndpointUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+};
+const EndpointUrlSchema = z
+  .string()
+  .max(2048)
+  .refine(isEndpointUrl, {
+    message: "An endpoint URL is an http or https URL without credentials or a fragment",
+  });
+
+/** One agent's or workflow's Action endpoint, as the application registers it. */
+export const EndpointRegistrationSchema = z
+  .object({
+    agentId: z.string().min(1),
+    url: EndpointUrlSchema,
+    implementationVersion: z.string().min(1),
+    manifestHash: z.string().min(1).optional(),
+    timeoutMs: z.number().int().min(1000).max(ENDPOINT_TIMEOUT_MAX_MS).optional(),
+    maxConcurrent: z.number().int().min(1).max(256).optional(),
+  })
+  .strict();
+export type EndpointRegistration = z.infer<typeof EndpointRegistrationSchema>;
+
+export const PutEndpointsRequestSchema = z
+  .object({
+    endpoints: z
+      .array(EndpointRegistrationSchema)
+      .min(1)
+      .max(64)
+      .refine(
+        (endpoints) => new Set(endpoints.map((e) => e.agentId)).size === endpoints.length,
+        { message: "Endpoint registrations must be unique per agent" },
+      ),
+  })
+  .strict();
+export type PutEndpointsRequest = z.infer<typeof PutEndpointsRequestSchema>;
+
+/** What recent deliveries and the last ping say about an endpoint. */
+export const EndpointHealthSchema = z
+  .object({
+  lastDeliveryAt: z.string().optional(),
+  lastSuccessAt: z.string().optional(),
+  lastError: z.object({ code: z.string(), message: z.string() }).optional(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  /** What the handler reported serving on the last ping. */
+  served: z
+    .object({
+      implementationVersion: z.string(),
+      manifestHash: z.string().optional(),
+    })
+    .strict()
+    .optional(),
+  })
+  .strict();
+export type EndpointHealth = z.infer<typeof EndpointHealthSchema>;
+
+export const EndpointSchema = z
+  .object({
+    agentId: z.string(),
+    url: z.string(),
+    implementationVersion: z.string(),
+    manifestHash: z.string().optional(),
+    timeoutMs: z.number().int(),
+    maxConcurrent: z.number().int(),
+    health: EndpointHealthSchema,
+    updatedAt: z.string(),
+  })
+  .strict();
+export type Endpoint = z.infer<typeof EndpointSchema>;
+export const ListEndpointsResponseSchema = z
+  .object({
+    endpoints: z.array(EndpointSchema),
+  })
+  .strict();
+export type ListEndpointsResponse = z.infer<typeof ListEndpointsResponseSchema>;
+export const DeleteEndpointResponseSchema = z
+  .object({ agentId: z.string(), deleted: z.literal(true) })
+  .strict();
+export type DeleteEndpointResponse = z.infer<typeof DeleteEndpointResponseSchema>;
+
+/** The body the Runtime POSTs to an Action endpoint. */
+export const ActionDeliverySchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("action"),
+      action: ActionSchema,
+      /** The Action's session has a sandbox, so `ctx.sandbox` is available. */
+      sandbox: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("ping"),
+      agentId: z.string().min(1),
+      manifestHash: z.string().min(1).optional(),
+    })
+    .strict(),
+]);
+export type ActionDelivery = z.infer<typeof ActionDeliverySchema>;
+
+/** An Action endpoint's answer to a ping. */
+export const EndpointPingResponseSchema = z.object({
+  agentId: z.string(),
+  implementationVersion: z.string(),
+  manifestHash: z.string().optional(),
+});
+export type EndpointPingResponse = z.infer<typeof EndpointPingResponseSchema>;
+
+/** The answer to a background delivery's heartbeat: a fresh token and the new deadline. */
+export const DeliveryHeartbeatResponseSchema = z.object({
+  token: z.string().min(1),
+  deadlineAt: z.string(),
+});
+export type DeliveryHeartbeatResponse = z.infer<typeof DeliveryHeartbeatResponseSchema>;
+
+/** `action.delivered`: the Runtime sent an Action to its endpoint. */
+export const ActionDeliveredPayloadSchema = z
+  .object({
+    actionId: z.string().min(1),
+    generation: z.number().int().positive(),
+    ...eventAgent,
+  })
+  .passthrough();
+/** `action.delivery_failed`: a delivery did not reach its endpoint, or was refused; it is retried. */
+export const ActionDeliveryFailedPayloadSchema = z
+  .object({
+    actionId: z.string().min(1),
+    generation: z.number().int().positive(),
+    reason: z.string(),
+    message: z.string().optional(),
+    retryInMs: z.number().int().nonnegative(),
+  })
+  .passthrough();

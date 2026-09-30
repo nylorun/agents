@@ -43,6 +43,8 @@ const LABELS: Readonly<Record<string, string>> = {
   "turn.runnable": "Turn runnable",
   "action.pending": "Action pending",
   "action.claimed": "Action claimed",
+  "action.delivered": "Action delivered",
+  "action.delivery_failed": "Delivery failed",
   "action.completed": "Action completed",
   "action.uncertain": "Action uncertain",
   "effect.uncertain": "Effect uncertain",
@@ -117,8 +119,16 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
     case "turn.uncertain":
     case "turn.runnable":
       return compact(payload.waits ?? payload);
+    case "action.delivery_failed": {
+      const retry = Number(payload.retryInMs);
+      const reason = text(payload.message, text(payload.reason, "The endpoint did not answer"));
+      return Number.isFinite(retry)
+        ? `${reason} (retrying in ${Math.max(1, Math.round(retry / 1000))} s)`
+        : reason;
+    }
     case "action.pending":
     case "action.claimed":
+    case "action.delivered":
     case "action.completed":
     case "action.uncertain": {
       const name = actionLabel(payload);

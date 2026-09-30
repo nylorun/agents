@@ -164,6 +164,11 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/executors" },
     { method: "PUT", path: "/v1/executors", body: INVALID },
     { method: "DELETE", path: "/v1/executors/ghost" },
+    { method: "GET", path: "/v1/endpoints" },
+    { method: "PUT", path: "/v1/endpoints", body: INVALID },
+    { method: "DELETE", path: "/v1/endpoints/ghost" },
+    { method: "POST", path: "/v1/endpoints/ghost/ping" },
+    { method: "POST", path: "/v1/actions/act-missing/result", body: INVALID },
     { method: "POST", path: "/v1/sessions/s1/commands", body: INVALID },
     { method: "GET", path: "/v1/agents" },
     { method: "PUT", path: "/v1/agents/bot", body: INVALID },
@@ -314,7 +319,8 @@ afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-describe("route matrix", () => {
+// Hundreds of requests each: more than the default 5 seconds on a busy machine.
+describe("route matrix", { timeout: 60_000 }, () => {
   it("answers every Tenant operation, as every caller, as recorded", async () => {
     const matrix: Record<string, Record<string, Observed>> = {};
     for (const operation of [...tenantOperations(), ...edgeOperations()]) {

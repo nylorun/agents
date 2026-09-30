@@ -31,6 +31,7 @@ it("documents every Admin operation once, under the admin key", () => {
   expect(operations.sort()).toEqual([
     "DELETE /v1/admin/tenants/{tenantId}",
     "GET /v1/admin/host",
+    "GET /v1/admin/openapi.json",
     "GET /v1/admin/status",
     "GET /v1/admin/tenants",
     "GET /v1/admin/tenants/{tenantId}",

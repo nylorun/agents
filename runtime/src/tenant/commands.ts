@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   Action,
+  ActionOutcome,
   LiveEvent,
   SessionCommand,
 } from "@nylorun/core/contracts";
@@ -40,6 +41,7 @@ import {
 } from "../core/flow-host.js";
 import { resolveMessageManifest } from "../core/turn-manifest.js";
 import { canonical } from "../store/canonical.js";
+import type { Tx } from "../store/types.js";
 import {
   lockedSession,
   type AuthScope,
@@ -64,10 +66,16 @@ function acceptedToolResult(
   action: Action,
   command: Extract<SessionCommand, { type: "action_result" }>
 ): Extract<SessionCommand, { type: "action_result" }> {
-  if (action.kind !== "tool" || !action.outputSchema) return command;
-  const value = command.outcome.value;
+  const outcome = acceptedOutcome(action, command.outcome);
+  return outcome === command.outcome ? command : { ...command, outcome };
+}
+
+/** `outcome`, or a failed one when a tool's output does not match its stored output schema. */
+export function acceptedOutcome(action: Action, outcome: ActionOutcome): ActionOutcome {
+  if (action.kind !== "tool" || !action.outputSchema) return outcome;
+  const value = outcome.value;
   // Only a result carries output: failures, denials, interactions and deferrals pass as sent.
-  if (!isResultToolValue(value)) return command;
+  if (!isResultToolValue(value)) return outcome;
   // Executors wrap successful tool output as `{ kind: "completed", output }`.
   // Validate the tool payload, not the outcome envelope.
   const candidate = completedToolOutput(value);
@@ -79,17 +87,13 @@ function acceptedToolResult(
   } catch {
     matches = false;
   }
-  if (matches) return command;
+  if (matches) return outcome;
   return {
-    ...command,
-    outcome: {
-      ...command.outcome,
-      value: {
-        kind: "failed",
-        code: "tool.invalid-output",
-        message:
-          "Tool result does not match the output schema stored on the action",
-      },
+    ...outcome,
+    value: {
+      kind: "failed",
+      code: "tool.invalid-output",
+      message: "Tool result does not match the output schema stored on the action",
     },
   };
 }
@@ -190,74 +194,9 @@ export async function command(
         Date.parse(action.leaseExpiresAt!) <= Date.now()
       )
         fail(409, "Stale, expired, or cancelled claim");
-      action.status = "completed";
-      await t.put("actions", action.actionId, action);
-      prior.status = "completed";
-      prior.outcome = command.outcome;
-      s.status = "runnable";
-      const resultWake = {
-        reason: "action_result" as const,
-        dedupeKey: `action_result:${action.turnId}:${action.actionId}:${action.generation}`,
-      };
-      t.afterCommit(() => ctx.wake(id, resultWake));
-      event = await t.event(id, s.activeTurnId, "action.completed", {
-        actionId: action.actionId,
-        ...actionTarget(action),
-        kind: action.kind,
-        ...(action.kind === "tool" ? toolIds(action.context) : {}),
-        result: command.outcome.value,
-      });
-      if (action.kind === "verify") {
-        const verdict = command.outcome.value as {
-          pass?: boolean;
-          feedback?: string;
-          data?: unknown;
-          kind?: string;
-        };
-        if (verdict?.kind !== "failed") {
-          await t.event(id, s.activeTurnId, "loop.verified", {
-            path: String(action.context?.loopPath ?? action.path ?? ""),
-            n: Number(action.context?.n ?? 1),
-            pass: Boolean(verdict?.pass),
-            ...(verdict?.feedback !== undefined
-              ? { feedback: verdict.feedback }
-              : {}),
-            ...(verdict?.data !== undefined ? { data: verdict.data } : {}),
-          });
-        }
-      } else if (action.kind === "fn" && action.context?.role === "decide") {
-        const decision = command.outcome.value as {
-          input?: unknown;
-          output?: unknown;
-          agent?: unknown;
-        };
-        await t.event(id, s.activeTurnId, "loop.decided", {
-          path: String(action.context?.loopPath ?? action.path ?? ""),
-          n: Number(action.context?.n ?? 1),
-          next:
-            "output" in decision && !("input" in decision)
-              ? "output"
-              : "input",
-          patched: Boolean(decision.agent),
-        });
-      }
-      const receipt = {
-        status: "accepted",
-        turnId: s.activeTurnId,
-        cursor: event.cursor,
+      ({ event } = await recordActionOutcome(t, ctx, s, action, command.outcome, {
         requestId: command.requestId,
-      };
-      prior.receipt = receipt;
-      await t.put("effects", action.actionId, prior);
-      if (isWorkflowManifest(s.manifest) && s.activeTurnId) {
-        await wakeForQueuedEffects({
-          t,
-          workflowSessionId: id,
-          turnId: s.activeTurnId,
-          limits: ctx.flowLimits,
-          schedule: ctx.wake,
-        });
-      }
+      }));
     } else if (command.type === "cancel") {
       cancelledTurnId = s.activeTurnId;
       const workflowCancel = isWorkflowManifest(s.manifest);
@@ -278,10 +217,11 @@ export async function command(
       } else if (cancelledTurnId !== null) {
         for (const a of await t.actionsForSession(id, {
           turnId: cancelledTurnId,
-          statuses: ["pending", "claimed"],
+          statuses: ["pending", "claimed", "delivering"],
         })) {
-          // Claimed work may already have an external effect. Preserve it for reconciliation.
-          a.status = a.status === "claimed" ? "uncertain" : "cancelled";
+          // Claimed or delivered work may already have an external effect. Preserve it for
+          // reconciliation.
+          a.status = a.status === "pending" ? "cancelled" : "uncertain";
           await t.put("actions", a.actionId, a);
           const effect = await t.get("effects", a.actionId);
           if (effect) {
@@ -482,4 +422,93 @@ export async function command(
     }
   }
   return response;
+}
+
+/**
+ * Completes a claimed or delivered Action with `outcome`, in the caller's transaction, which
+ * holds the lock of the Action's session `s`: the Action and its effect, the
+ * `action.completed` event (and `loop.verified` or `loop.decided`), the wake that resumes the
+ * turn, and queued workflow effects. The executor's `action_result` command and the Action
+ * deliverer both record outcomes here, so the two paths cannot drift. It sets `s.status`; the
+ * caller writes `s`.
+ */
+export async function recordActionOutcome(
+  t: Tx,
+  ctx: TenantContext,
+  s: Session,
+  action: Action,
+  received: ActionOutcome,
+  options: { requestId?: string } = {},
+): Promise<{ event: LiveEvent; receipt: Record<string, unknown> }> {
+  const outcome = acceptedOutcome(action, received);
+  const prior = await t.get("effects", action.actionId);
+  action.status = "completed";
+  await t.put("actions", action.actionId, action);
+  prior.status = "completed";
+  prior.outcome = outcome;
+  s.status = "runnable";
+  const resultWake = {
+    reason: "action_result" as const,
+    dedupeKey: `action_result:${action.turnId}:${action.actionId}:${action.generation}`,
+  };
+  t.afterCommit(() => ctx.wake(s.id, resultWake));
+  const event = await t.event(s.id, s.activeTurnId, "action.completed", {
+    actionId: action.actionId,
+    ...actionTarget(action),
+    kind: action.kind,
+    ...(action.kind === "tool" ? toolIds(action.context) : {}),
+    result: outcome.value,
+  });
+  if (action.kind === "verify") {
+    const verdict = outcome.value as {
+      pass?: boolean;
+      feedback?: string;
+      data?: unknown;
+      kind?: string;
+    };
+    if (verdict?.kind !== "failed") {
+      await t.event(s.id, s.activeTurnId, "loop.verified", {
+        path: String(action.context?.loopPath ?? action.path ?? ""),
+        n: Number(action.context?.n ?? 1),
+        pass: Boolean(verdict?.pass),
+        ...(verdict?.feedback !== undefined
+          ? { feedback: verdict.feedback }
+          : {}),
+        ...(verdict?.data !== undefined ? { data: verdict.data } : {}),
+      });
+    }
+  } else if (action.kind === "fn" && action.context?.role === "decide") {
+    const decision = outcome.value as {
+      input?: unknown;
+      output?: unknown;
+      agent?: unknown;
+    };
+    await t.event(s.id, s.activeTurnId, "loop.decided", {
+      path: String(action.context?.loopPath ?? action.path ?? ""),
+      n: Number(action.context?.n ?? 1),
+      next:
+        "output" in decision && !("input" in decision)
+          ? "output"
+          : "input",
+      patched: Boolean(decision.agent),
+    });
+  }
+  const receipt = {
+    status: "accepted",
+    turnId: s.activeTurnId,
+    cursor: event.cursor,
+    ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+  };
+  prior.receipt = receipt;
+  await t.put("effects", action.actionId, prior);
+  if (isWorkflowManifest(s.manifest) && s.activeTurnId) {
+    await wakeForQueuedEffects({
+      t,
+      workflowSessionId: s.id,
+      turnId: s.activeTurnId,
+      limits: ctx.flowLimits,
+      schedule: ctx.wake,
+    });
+  }
+  return { event, receipt };
 }

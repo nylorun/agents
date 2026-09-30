@@ -66,6 +66,7 @@ import {
 } from "./scheduler.js";
 import { advance } from "./advance.js";
 import { sweep } from "./sweep.js";
+import { deliverAction } from "./delivery.js";
 import {
   TenantWorkers,
   WORKER_ID,
@@ -73,7 +74,6 @@ import {
   type TenantWorker,
 } from "./worker.js";
 import { authorize } from "./effects.js";
-import { handle } from "../api/http/routes.js";
 import { tenantApi } from "../api/http/app.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -278,6 +278,10 @@ export class TenantRuntime implements TenantHandle {
           await execution.wake(config.tenantId, sessionId, wake);
         },
         abortLocal: (sessionId) => abortLocal(ctx, sessionId),
+        deliver: async (actionId) => {
+          if (ctx.closing || ctx.closed) return;
+          await execution.deliver(config.tenantId, actionId);
+        },
         ...(hooks.execution?.stuckInvocations
           ? {
               stuckInvocations: () =>
@@ -306,6 +310,7 @@ export class TenantRuntime implements TenantHandle {
       let afterOpen = true;
       const worker: TenantWorker = {
         advance: (sessionId, signal) => advance(ctx, sessionId, signal),
+        deliver: (actionId, signal) => deliverAction(ctx, actionId, signal),
         sweep: async () => {
           const first = afterOpen;
           afterOpen = false;
@@ -332,14 +337,6 @@ export class TenantRuntime implements TenantHandle {
     return await tenantApi().fetch(request, { ...node, tenant: this.ctx });
   }
 
-  /** @deprecated Use `fetch`. */
-  handle(
-    request: IncomingMessage,
-    response: ServerResponse,
-    url?: URL
-  ): Promise<void> {
-    return handle(this.ctx, request, response, url);
-  }
 
   authorize(
     sessionId: string,

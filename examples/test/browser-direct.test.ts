@@ -50,15 +50,14 @@ beforeAll(async () => {
   // Running setup again keeps the same key.
   expect((await setUpAccess(client)).publishableKey).toBe(publishableKey);
   app = createDirectApp({ client, runtimeUrl: runtime.url, publishableKey });
-  await app.connection.ready;
   server = createServer(app.listener);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   appOrigin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await app.register(appOrigin);
 });
 afterAll(async () => {
   server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
-  await app?.connection.close();
   await runtime?.close();
   await rm(root, { recursive: true, force: true });
 });

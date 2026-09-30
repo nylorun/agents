@@ -75,6 +75,16 @@ export interface StackConfig {
    * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
    */
   operator?: ContainerListen;
+  /**
+   * How the Runtime may call Action endpoints: `NYLORUN_ENDPOINT_LOOPBACK=docker-host` (the local
+   * stack: `localhost` means the machine that runs Docker), `NYLORUN_ENDPOINT_PRIVATE`
+   * (`allow` or `refuse`) and `NYLORUN_ENDPOINT_HTTP` (`allow` or `refuse`).
+   */
+  delivery?: {
+    loopback?: "docker-host";
+    privateAddresses?: "allow" | "refuse";
+    allowHttp?: boolean;
+  };
 }
 
 export class StackConfigError extends Error {
@@ -304,6 +314,7 @@ export function parseStackConfig(
     throw new StackConfigError(
       `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
     );
+  const delivery = parseDelivery(env);
   return {
     role,
     ...(listen ? { listen } : {}),
@@ -311,6 +322,28 @@ export function parseStackConfig(
     ...(publicUrl ? { publicUrl } : {}),
     ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
     ...(operator ? { operator } : {}),
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+/** `StackConfig.delivery` from `NYLORUN_ENDPOINT_*`, or `undefined` when none is set. */
+function parseDelivery(env: Readonly<Record<string, string | undefined>>): StackConfig["delivery"] {
+  const loopback = read(env, "NYLORUN_ENDPOINT_LOOPBACK");
+  if (loopback !== undefined && loopback !== "docker-host")
+    throw new StackConfigError(`NYLORUN_ENDPOINT_LOOPBACK must be docker-host, not ${loopback}`);
+  const choice = (name: string) => {
+    const value = read(env, name);
+    if (value !== undefined && value !== "allow" && value !== "refuse")
+      throw new StackConfigError(`${name} must be allow or refuse, not ${value}`);
+    return value as "allow" | "refuse" | undefined;
+  };
+  const privateAddresses = choice("NYLORUN_ENDPOINT_PRIVATE");
+  const http = choice("NYLORUN_ENDPOINT_HTTP");
+  if (!loopback && !privateAddresses && !http) return undefined;
+  return {
+    ...(loopback ? { loopback } : {}),
+    ...(privateAddresses ? { privateAddresses } : {}),
+    ...(http ? { allowHttp: http === "allow" } : {}),
   };
 }
 

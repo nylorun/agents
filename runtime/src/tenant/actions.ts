@@ -9,7 +9,6 @@
  * of `executorStreams`.
  */
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   ActionClaimRequestSchema,
   ActionHeartbeatRequestSchema,
@@ -34,7 +33,7 @@ import {
   type AuthScope,
   type TenantContext,
 } from "./context.js";
-import { fail, readBody, requestAborted } from "./http.js";
+import { fail } from "./http.js";
 import { scoped } from "./auth.js";
 import { endExecutorStreams, executorConnected } from "./live.js";
 
@@ -65,14 +64,17 @@ export async function listPendingActions(
   };
 }
 
-/** `POST /v1/actions/:id/sandbox/:tool`: a claim-scoped sandbox tool call. */
+/**
+ * `POST /v1/actions/:id/sandbox/:tool`: a claim-scoped sandbox tool call. The body is read
+ * once the Action is known to be the caller's; `signal` aborts when the caller leaves.
+ */
 export async function actionSandboxTool(
   ctx: TenantContext,
   scope: AuthScope,
   actionId: string,
   toolName: string,
-  request: IncomingMessage,
-  response: ServerResponse
+  body: () => Promise<unknown>,
+  signal: AbortSignal
 ) {
   const action =
     (await ctx.store.tx((t) => t.get<Action>("actions", actionId))) ??
@@ -83,8 +85,9 @@ export async function actionSandboxTool(
       sandboxRouteDeps(ctx),
       actionId,
       toolName,
-      await readBody(request),
-      requestAborted(response)
+      await body(),
+      signal,
+      scope.kind === "delivery" ? { generation: scope.generation } : undefined
     );
   } catch (error) {
     if (error instanceof SandboxRouteError) fail(error.status, error.message);
@@ -219,6 +222,13 @@ export async function registerExecutors(
   }
   // Persist the whole batch first; the in-memory registry must never run ahead of the store.
   await store.tx(async (t) => {
+    // An agent is served by an Action endpoint or an executor, never both.
+    for (const record of records)
+      if (await t.getEndpoint(record.agentId))
+        fail(
+          409,
+          `Agent '${record.agentId}' is served by an Action endpoint; remove it first (DELETE /v1/endpoints/${record.agentId})`,
+        );
     for (const record of records)
       await t.putExecutor({
         agentId: record.agentId,

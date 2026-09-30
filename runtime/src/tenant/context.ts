@@ -114,6 +114,73 @@ export type AuthScope =
       scopes: ReadonlySet<SubjectScope>;
     }
   | { kind: "executor"; executor: ExecutorRecord }
+  /** No credential, on a route that serves public data (`RouteAccess.anonymous`). */
+  | { kind: "anonymous" }
+  /**
+   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
+   * Action, presented back by the Action endpoint on that Action's callbacks only.
+   */
+  | {
+      kind: "delivery";
+      actionId: string;
+      agentId: string;
+      generation: number;
+      expiresAt: number;
+      tokenId: string;
+      keyId: string;
+    }
+  /**
+   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
+   * Action, presented back by the Action endpoint on that Action's callbacks only.
+   */
+  | {
+      kind: "delivery";
+      actionId: string;
+      agentId: string;
+      generation: number;
+      expiresAt: number;
+      tokenId: string;
+      keyId: string;
+    }
+  /**
+   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
+   * Action, presented back by the Action endpoint on that Action's callbacks only.
+   */
+  | {
+      kind: "delivery";
+      actionId: string;
+      agentId: string;
+      generation: number;
+      expiresAt: number;
+      tokenId: string;
+      keyId: string;
+    }
+  /**
+   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
+   * Action, presented back by the Action endpoint on that Action's callbacks only.
+   */
+  | {
+      kind: "delivery";
+      actionId: string;
+      agentId: string;
+      generation: number;
+      expiresAt: number;
+      tokenId: string;
+      keyId: string;
+    }
+  /**
+   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
+   * Action, presented back by the Action endpoint on that Action's callbacks only.
+   */
+  | {
+      kind: "delivery";
+      actionId: string;
+      agentId: string;
+      generation: number;
+      expiresAt: number;
+      tokenId: string;
+      keyId: string;
+    }
   /**
    * A publishable key with no bearer (Host feature `browser-access`): what the policy grants
    * `anon`, at most `agents:read`. It owns no session or vault.
@@ -159,6 +226,11 @@ export interface TenantContext {
   wake(sessionId: string, wake: Wake): Promise<void>;
   /** Seam: abort the advance of a session running in this process, if any. */
   abortLocal(sessionId: string): void;
+  /**
+   * Seam: deliver an Action to its agent's Action endpoint (`DurableExecution.deliver`). Call it
+   * from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends it.
+   */
+  deliver(actionId: string): Promise<void>;
   /** This Tenant's execution invocations that need an operator, for Tenant status. */
   readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */

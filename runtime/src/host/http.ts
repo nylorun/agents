@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { jsonResponse } from "../api/http/respond.js";
 import {
   HOST_PROTOCOL,
   type ErrorCode,
@@ -37,11 +38,8 @@ export function sendJson(
   response.end(payload);
 }
 
-/** `sendJson` as a Response, byte for byte: what the Host's Hono app answers with. */
-export function jsonResponse(status: number, body: unknown): Response {
-  const payload = JSON.stringify(body);
-  return new Response(payload, { status, headers: jsonHeaders(payload) });
-}
+/** `sendJson` as a Response, byte for byte (with any extra headers): the Host's answers. */
+export { jsonResponse };
 
 function jsonHeaders(payload: string) {
   return {
@@ -90,10 +88,6 @@ export function rejectedResponse(
   details?: unknown,
 ): Response {
   return jsonResponse(status, rejection(code, message, details));
-}
-
-export function sendOpaqueNotFound(response: ServerResponse): void {
-  sendJson(response, 404, OPAQUE_NOT_FOUND);
 }
 
 export function opaqueNotFoundResponse(): Response {

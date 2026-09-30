@@ -1,6 +1,7 @@
 /**
- * Claim-scoped sandbox client for executor actions (`ctx.sandbox`).
- * Calls `POST /v1/actions/:id/sandbox/:tool` with the live claim.
+ * Action-scoped sandbox client (`ctx.sandbox`). Calls `POST /v1/actions/:id/sandbox/:tool`
+ * with an executor's live claim, or, for a delivery to an Action endpoint, over a transport
+ * whose credential is the delivery token.
  */
 import {
   SANDBOX_TOOL_NAMES,
@@ -48,12 +49,14 @@ export type ActionSandbox = {
 export type CreateActionSandboxOptions = {
   readonly transport: Transport;
   readonly actionId: string;
-  readonly claimId: string;
-  readonly generation: number;
   readonly signal?: AbortSignal;
-};
+} & (
+  | { readonly claimId: string; readonly generation: number }
+  /** A delivery: the transport's key is the delivery token, which names the generation. */
+  | { readonly claimId?: undefined; readonly generation?: undefined }
+);
 
-/** Build `ctx.sandbox` for one claimed action. Undefined callers skip when the session has none. */
+/** Build `ctx.sandbox` for one claimed or delivered action. Callers skip it when the session has none. */
 export function createActionSandbox(
   options: CreateActionSandboxOptions
 ): ActionSandbox {
@@ -61,11 +64,9 @@ export function createActionSandbox(
     options.transport.json<ActionSandboxToolResult>(
       `/v1/actions/${segment(options.actionId)}/sandbox/${tool}`,
       "POST",
-      {
-        claimId: options.claimId,
-        generation: options.generation,
-        ...input,
-      },
+      options.claimId === undefined
+        ? input
+        : { claimId: options.claimId, generation: options.generation, ...input },
       options.signal
     );
 

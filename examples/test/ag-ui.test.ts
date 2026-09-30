@@ -11,13 +11,12 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { HttpAgent } from "@ag-ui/client";
-import { createClient, type AgentConnection } from "@nylorun/agents";
+import { createClient } from "@nylorun/agents";
 import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
 import { createSupportApp } from "../src/ag-ui/app.js";
 
 let hostRoot: string;
 let runtime: EphemeralRuntime;
-let connection: AgentConnection;
 let server: Server;
 let base: string;
 /** Every body and header the browser received, for the leak check. */
@@ -32,17 +31,16 @@ beforeAll(async () => {
     tenant: runtime.tenantId,
   });
   const app = createSupportApp({ client });
-  connection = app.connection;
-  await connection.ready;
   server = createServer(app.listener);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/agui`;
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await app.register(origin);
+  base = `${origin}/api/agui`;
 }, 60_000);
 
 afterAll(async () => {
   server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
-  await connection?.close();
   await runtime?.close();
   await rm(hostRoot, { recursive: true, force: true });
 });

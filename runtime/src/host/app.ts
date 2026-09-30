@@ -23,6 +23,8 @@ import {
 } from "@nylorun/core/compatibility";
 import type { Logger, NodeBindings, TenantModule } from "../tenant/types.js";
 import { RUNTIME_VERSION } from "../version.js";
+import { findTenantRoute } from "../api/http/app.js";
+import { tenantDocument } from "../api/openapi.js";
 import { answerPreflight } from "./cors.js";
 import {
   adminKeyMatches,
@@ -102,7 +104,7 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
           "Browser Origin headers are not accepted",
         );
       if (incoming.method === "OPTIONS") {
-        c.set("status", answerPreflight(incoming, outgoing, route));
+        c.set("status", answerPreflight(incoming, outgoing, route, browserRoute));
         return RESPONSE_ALREADY_SENT;
       }
     }
@@ -151,6 +153,10 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
         checks: { listener, discovery, ...infra?.checks },
       });
     }
+
+    // This API's own description: public, as the npm package that ships it.
+    if (pathname === "/openapi.json" && incoming.method === "GET")
+      return jsonResponse(200, tenantDocument(), { "cache-control": "no-cache" });
 
     const segments = pathname.split("/").filter(Boolean);
     if (segments[0] === "v1" && segments[1] === "admin") {
@@ -225,6 +231,11 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   });
 
   return app;
+}
+
+/** A route a browser page may call, decided from the route alone (`api/http/define.ts`). */
+function browserRoute(method: string, segments: readonly string[]): boolean {
+  return findTenantRoute(method, segments)?.browser === true;
 }
 
 /** The answer's status: a Response's, or the Node response's when it was written there. */

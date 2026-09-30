@@ -8,6 +8,7 @@ import { getRequestListener, RequestError } from "@hono/node-server";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { AdminStatusSchema } from "@nylorun/core/contracts";
 import type { Logger, TenantModule } from "../tenant/types.js";
+import { adminDocument } from "../api/openapi.js";
 import { createAdminApi } from "./admin-api.js";
 import { createHostApp, type HostBindings } from "./app.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
@@ -157,6 +158,7 @@ export function createHost(options: CreateHostOptions): HostServer {
     module,
     status: adminStatusBody,
     shutdown: () => void close(),
+    document: adminDocument,
   });
 
   const app = createHostApp({

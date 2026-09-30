@@ -37,6 +37,7 @@ COPY core/src core/src
 COPY harness/tsconfig.json harness/
 COPY harness/src harness/src
 COPY runtime/tsconfig.json runtime/
+COPY runtime/scripts/build-openapi.mjs runtime/scripts/
 COPY runtime/src runtime/src
 RUN npm run build --workspace core \
  && npm run build --workspace harness \
