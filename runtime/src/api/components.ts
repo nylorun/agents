@@ -6,6 +6,16 @@
  */
 import type { z } from "zod";
 import {
+  ListAgentsResponseSchema,
+  ListPublicAgentsResponseSchema,
+  ListSessionsResponseSchema,
+  LiveEventSchema,
+  PutAgentRequestSchema,
+  PutAgentResponseSchema,
+  PutSessionRequestSchema,
+  SessionItemsResponseSchema,
+  SessionViewSchema,
+  StreamClosedFrameSchema,
   AcceptedResponseSchema,
   ActionClaimRequestSchema,
   ActionClaimResponseSchema,
@@ -64,3 +74,17 @@ export const RegisterExecutorsResponse = named(
 export const DeleteExecutorResponse = named("DeleteExecutorResponse", DeleteExecutorResponseSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
+
+export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
+export const ListPublicAgentsResponse = named(
+  "ListPublicAgentsResponse",
+  ListPublicAgentsResponseSchema,
+);
+export const PutAgentRequest = named("PutAgentRequest", PutAgentRequestSchema);
+export const PutAgentResponse = named("PutAgentResponse", PutAgentResponseSchema);
+export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
+export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);
+export const SessionView = named("SessionView", SessionViewSchema);
+export const SessionItemsResponse = named("SessionItemsResponse", SessionItemsResponseSchema);
+export const LiveEvent = named("LiveEvent", LiveEventSchema);
+export const StreamClosedFrame = named("StreamClosedFrame", StreamClosedFrameSchema);

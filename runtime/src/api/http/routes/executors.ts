@@ -37,12 +37,10 @@ import {
 } from "../../../tenant/actions.js";
 import { requirePrincipal } from "../../../tenant/auth.js";
 import { command } from "../../../tenant/commands.js";
-import type { AuthScope } from "../../../tenant/context.js";
-import { fail } from "../../../tenant/http.js";
 import { streamExecutorWork } from "../../../tenant/live.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
-import { tenantRoute, type RouteAccess } from "../define.js";
+import { executorOf, notExecutor, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 
 const EXECUTOR: RouteAccess = { credentials: ["executor"], scopes: "never" };
@@ -58,16 +56,6 @@ const body = (schema: z.ZodType) => ({
 });
 const actionId = z.object({ actionId: z.string() });
 const SANDBOX_TOOLS = ["bash", "read", "write", "edit", "grep", "glob"] as const;
-
-function executorOf(scope: AuthScope) {
-  if (scope.kind !== "executor") return fail(403, "Executor credential required");
-  return scope.executor;
-}
-
-/** The executor gate of the router these replace: past it, only application routes. */
-function notExecutor(scope: AuthScope): void {
-  if (scope.kind === "executor") fail(403, "Application credential required");
-}
 
 export function executorRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
