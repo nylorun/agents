@@ -24,6 +24,7 @@ import {
 import type { Logger, NodeBindings, TenantModule } from "../tenant/types.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { findTenantRoute } from "../api/http/app.js";
+import { tenantDocument } from "../api/openapi.js";
 import { answerPreflight } from "./cors.js";
 import {
   adminKeyMatches,
@@ -152,6 +153,10 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
         checks: { listener, discovery, ...infra?.checks },
       });
     }
+
+    // This API's own description: public, as the npm package that ships it.
+    if (pathname === "/openapi.json" && incoming.method === "GET")
+      return jsonResponse(200, tenantDocument(), { "cache-control": "no-cache" });
 
     const segments = pathname.split("/").filter(Boolean);
     if (segments[0] === "v1" && segments[1] === "admin") {

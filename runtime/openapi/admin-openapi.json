@@ -1,0 +1,1032 @@
+{
+  "openapi": "3.2.0",
+  "info": {
+    "title": "Nylorun Runtime: Admin API",
+    "version": "0.0.0",
+    "description": "Tenants and the Host's status, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
+    "x-nylorun-protocol": {
+      "min": 2,
+      "max": 2,
+      "features": [
+        "runtime-tenants",
+        "admin-status",
+        "studio-principal",
+        "tenant-fixture-model",
+        "transcript-events",
+        "derived-principals",
+        "subject-headers",
+        "subject-tokens",
+        "browser-access",
+        "ag-ui-endpoint",
+        "a2a-endpoint"
+      ]
+    }
+  },
+  "servers": [
+    {
+      "url": "{origin}",
+      "description": "The operator listener: the local stack's, or where yours runs",
+      "variables": {
+        "origin": {
+          "default": "http://localhost:8788"
+        }
+      }
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "adminKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The Host's admin key (`host-credentials.json`). Never a Tenant bearer."
+      }
+    },
+    "schemas": {
+      "AdminTenantList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "open",
+                "quarantined"
+              ]
+            },
+            "envelope": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "createdAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "schemaVersion": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "createdAt",
+                "updatedAt",
+                "schemaVersion"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "state",
+            "envelope"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "Rejected": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "rejected"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "not_found",
+              "protocol_unsupported",
+              "host_rejected",
+              "origin_rejected",
+              "unsupported_media_type",
+              "tenant_conflict",
+              "active_work",
+              "connection_missing",
+              "incompatible_host",
+              "subject_invalid",
+              "scope_required",
+              "token_expired",
+              "limit_exceeded",
+              "request_rejected",
+              "invalid_request",
+              "subject_required",
+              "internal_error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {},
+          "activeTurnId": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "code",
+          "message"
+        ]
+      },
+      "ProtocolRejected": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "rejected"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "protocol_unsupported"
+            ]
+          },
+          "protocol": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "integer"
+              },
+              "max": {
+                "type": "integer"
+              },
+              "features": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "min",
+              "max",
+              "features"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "status",
+          "code",
+          "protocol"
+        ],
+        "additionalProperties": false
+      },
+      "TenantEnvelope": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "updatedAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schemaVersion": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "updatedAt",
+          "schemaVersion"
+        ],
+        "additionalProperties": false
+      },
+      "CreateTenantRequest": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "principalId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "credentialHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "studioCredentialHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "derivedPrincipals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,31}$"
+                },
+                "credentialHash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "id",
+                "credentialHash"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "tenantId",
+          "name",
+          "principalId",
+          "credentialHash",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "AdminTenantStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "quarantined"
+            ]
+          },
+          "envelope": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "createdAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "updatedAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "schemaVersion": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "createdAt",
+              "updatedAt",
+              "schemaVersion"
+            ],
+            "additionalProperties": false
+          },
+          "quarantine": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "kek-missing",
+                  "corrupt",
+                  "schema-too-new",
+                  "migration-failed",
+                  "envelope-invalid",
+                  "open-timeout",
+                  "open-failed"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "repair": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "repair"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "envelope"
+        ],
+        "additionalProperties": false
+      },
+      "AdminStatus": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "protocol": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "integer"
+              },
+              "max": {
+                "type": "integer"
+              },
+              "features": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "min",
+              "max",
+              "features"
+            ],
+            "additionalProperties": false
+          },
+          "tenants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "quarantined"
+                  ]
+                },
+                "envelope": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "schemaVersion": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "createdAt",
+                    "updatedAt",
+                    "schemaVersion"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "envelope"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "aggregate": {
+            "type": "object",
+            "properties": {
+              "runningSessions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "connectedExecutors": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pendingActions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "uncertainEffects": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outboxDepth": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "relayLagMs": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "runningSessions",
+              "connectedExecutors",
+              "pendingActions",
+              "uncertainEffects"
+            ],
+            "additionalProperties": false
+          },
+          "host": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pid": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "hostId",
+              "url",
+              "pid"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "service",
+          "version",
+          "protocol",
+          "tenants",
+          "aggregate"
+        ],
+        "additionalProperties": false
+      },
+      "HostShutdownResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "shutting_down"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/v1/admin/tenants": {
+      "get": {
+        "summary": "List Tenants",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every Tenant on the Host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminTenantList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a Tenant",
+        "description": "Idempotent on `idempotencyKey`: a replay answers 200 with the same Tenant.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Tenant, created earlier by the same request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantEnvelope"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The Tenant, created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or request body (`invalid_request`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another Tenant has this id or idempotency key (`tenant_conflict`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body over 1 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/tenants/{tenantId}": {
+      "get": {
+        "summary": "Get a Tenant's status",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "tn_0123456789abcdefghjkmnpqrs"
+            },
+            "required": true,
+            "name": "tenantId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Tenant and its state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminTenantStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a Tenant",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "tn_0123456789abcdefghjkmnpqrs"
+            },
+            "required": true,
+            "name": "tenantId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "refuse",
+                "drain",
+                "cancel"
+              ],
+              "description": "What to do with turns in progress: refuse to delete (default), wait for them, or cancel them"
+            },
+            "required": false,
+            "description": "What to do with turns in progress: refuse to delete (default), wait for them, or cancel them",
+            "name": "activeWork",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "description": "`activeWork` is not refuse, drain or cancel (`invalid_request`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Tenant has work in progress and `activeWork` is refuse (`active_work`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/status": {
+      "get": {
+        "summary": "Get the Host's status",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Version, protocol, Tenants and the Host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/host": {
+      "get": {
+        "summary": "Get the Host's status (alias)",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Version, protocol, Tenants and the Host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/host/shutdown": {
+      "post": {
+        "summary": "Shut the Host down",
+        "description": "Answers, then stops the Host. Served by a self-hosted Runtime only.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Host is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostShutdownResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/openapi.json": {
+      "get": {
+        "summary": "Get this document",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Admin API's OpenAPI document"
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, the public listener, or an unknown Tenant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}
