@@ -6,12 +6,15 @@ import {
   type WorkerHandlers,
 } from "./types.js";
 
+/** What a key runs: a session's advance, or an Action's delivery. */
+type Kind = "advance" | "deliver";
+
 export interface MemoryExecutionOptions {
   /** Delay between sweep passes of one Tenant. Default 5000. */
   sweepIntervalMs?: number;
-  /** First retry delay after `advance` throws; doubles per attempt. Default 50. */
+  /** First retry delay after `advance` or `deliver` throws; doubles per attempt. Default 50. */
   retryDelayMs?: number;
-  /** Attempts before giving up on a throwing `advance` and reporting it. Default 5. */
+  /** Attempts before giving up on a throwing handler and reporting it. Default 5. */
   maxAttempts?: number;
   /** How long a dedupe key merges repeated wakes. Default 24 hours. */
   dedupeRetentionMs?: number;
@@ -20,8 +23,10 @@ export interface MemoryExecutionOptions {
 }
 
 interface KeyState {
+  kind: Kind;
   tenantId: string;
-  sessionId: string;
+  /** The session id (`advance`) or the Action id (`deliver`). */
+  id: string;
   running: boolean;
   queued: boolean;
   attempts: number;
@@ -84,7 +89,11 @@ export class MemoryExecution implements DurableExecution {
       if (this.seen.has(dedupe)) return;
       this.seen.set(dedupe, now);
     }
-    this.enqueue(tenantId, sessionId);
+    this.enqueue("advance", tenantId, sessionId);
+  }
+
+  async deliver(tenantId: string, actionId: string): Promise<void> {
+    this.enqueue("deliver", tenantId, actionId);
   }
 
   async timer(tenantId: string, key: string, at: Date): Promise<void> {
@@ -132,8 +141,8 @@ export class MemoryExecution implements DurableExecution {
   }
 
   /**
-   * Resolves once no advance is running or queued and no busy or retry
-   * re-wake is pending. Timers and sweeps are not waited for. Test helper.
+   * Resolves once no advance or delivery is running or queued and no busy or
+   * retry re-run is pending. Timers and sweeps are not waited for. Test helper.
    */
   async idle(): Promise<void> {
     while (
@@ -144,15 +153,16 @@ export class MemoryExecution implements DurableExecution {
       await new Promise((resolve) => setTimeout(resolve, 1));
   }
 
-  private enqueue(tenantId: string, sessionId: string): void {
-    const key = sessionKey(tenantId, sessionId);
+  private enqueue(kind: Kind, tenantId: string, id: string): void {
+    const key = stateKey(kind, tenantId, id);
     let state = this.keys.get(key);
     if (!state)
       this.keys.set(
         key,
         (state = {
+          kind,
           tenantId,
-          sessionId,
+          id,
           running: false,
           queued: false,
           attempts: 0,
@@ -169,13 +179,13 @@ export class MemoryExecution implements DurableExecution {
         try {
           while (state.queued && this.handlers) {
             state.queued = false;
-            await this.advanceOnce(state, this.handlers);
+            await this.runOnce(state, this.handlers);
           }
         } finally {
           state.running = false;
           // Idle keys hold nothing (a retry keeps its attempt count); forget them so
           // long-lived processes stay small.
-          const key = sessionKey(state.tenantId, state.sessionId);
+          const key = stateKey(state.kind, state.tenantId, state.id);
           if (!state.queued && state.attempts === 0 && this.keys.get(key) === state)
             this.keys.delete(key);
         }
@@ -191,35 +201,42 @@ export class MemoryExecution implements DurableExecution {
     }
   }
 
-  private async advanceOnce(
+  private async runOnce(
     state: KeyState,
     handlers: WorkerHandlers,
   ): Promise<void> {
     const controller = new AbortController();
     state.controller = controller;
+    const again = () => this.enqueue(state.kind, state.tenantId, state.id);
     try {
-      const result = await handlers.advance(
-        state.tenantId,
-        state.sessionId,
-        controller.signal,
-      );
+      const retryAfterMs = await this.call(state, handlers, controller.signal);
       state.attempts = 0;
-      if (result.status === "busy")
-        this.later(result.retryAfterMs, () =>
-          this.enqueue(state.tenantId, state.sessionId),
-        );
+      if (retryAfterMs !== undefined) this.later(retryAfterMs, again);
     } catch (error) {
       state.attempts += 1;
       if (state.attempts >= this.maxAttempts || controller.signal.aborted) {
         state.attempts = 0;
         this.onError(error);
-      } else
-        this.later(this.retryDelayMs * 2 ** (state.attempts - 1), () =>
-          this.enqueue(state.tenantId, state.sessionId),
-        );
+      } else this.later(this.retryDelayMs * 2 ** (state.attempts - 1), again);
     } finally {
       state.controller = undefined;
     }
+  }
+
+  /** Runs the key's handler; resolves to a delay when the key must run again. */
+  private async call(
+    state: KeyState,
+    handlers: WorkerHandlers,
+    signal: AbortSignal,
+  ): Promise<number | undefined> {
+    if (state.kind === "advance") {
+      const result = await handlers.advance(state.tenantId, state.id, signal);
+      return result.status === "busy" ? result.retryAfterMs : undefined;
+    }
+    if (!handlers.deliver)
+      throw new Error("WorkerHandlers.deliver is required for deliveries");
+    const result = await handlers.deliver(state.tenantId, state.id, signal);
+    return result.status === "retry" ? result.retryAfterMs : undefined;
   }
 
   private armTimer(id: string, timer: PendingTimer): void {
@@ -273,4 +290,9 @@ export class MemoryExecution implements DurableExecution {
     this.inflight.add(promise);
     void promise.finally(() => this.inflight.delete(promise));
   }
+}
+
+/** Advances and deliveries are queued apart: a session id and an Action id may be equal. */
+function stateKey(kind: Kind, tenantId: string, id: string): string {
+  return `${kind}\u0000${sessionKey(tenantId, id)}`;
 }

@@ -320,6 +320,7 @@ it("recovers a wake lost between commit and send through the sweep", async () =>
       }
       await inner.wake(tenantId, sessionId, wake);
     },
+    deliver: (...args) => inner.deliver(...args),
     timer: (...args) => inner.timer(...args),
     armSweep: (tenantId) => inner.armSweep(tenantId),
     disarmSweep: (tenantId) => inner.disarmSweep(tenantId),
