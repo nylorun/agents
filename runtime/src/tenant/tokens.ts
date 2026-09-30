@@ -8,8 +8,7 @@
  * `401 token_expired`, so clients always react the same way: get a new token.
  */
 import { randomUUID } from "node:crypto";
-import { decodeProtectedHeader, errors, jwtVerify, SignJWT } from "jose";
-import { SIGNING_KEY_ID_PATTERN } from "@nylorun/core/compatibility";
+import { errors, jwtVerify, SignJWT } from "jose";
 import {
   isSubject,
   SUBJECT_TOKEN_AUDIENCE,
@@ -25,18 +24,12 @@ import {
 import { agentAllowed, readPolicy, resolveRole } from "./access-policy.js";
 import type { AuthScope, TenantContext } from "./context.js";
 import { fail, failOpaque, HttpError } from "./http.js";
+import { CLOCK_TOLERANCE_SECONDS, tokenKeyId } from "./jwt.js";
 
-const MAX_TOKEN_BYTES = 4096;
-const CLOCK_TOLERANCE_SECONDS = 30;
 /** Allowed spread between `iat` and `exp` beyond the policy's longest lifetime. */
 const LIFETIME_SLACK_SECONDS = 60;
-const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "x5t", "crit"];
 
-/** True when `bearer` has the shape of a JWT; application and executor keys never do. */
-export function looksLikeToken(bearer: string): boolean {
-  return JWT_SHAPE.test(bearer);
-}
+export { looksLikeToken } from "./jwt.js";
 
 /** The 401 every "get a new token" case answers. The reason is logged, never returned. */
 function expired(ctx: TenantContext, reason: string, jti?: string): never {
@@ -143,23 +136,10 @@ export async function verifySubjectToken(
   ctx: TenantContext,
   raw: string
 ): Promise<TokenScopeAuth> {
-  if (Buffer.byteLength(raw) > MAX_TOKEN_BYTES || !JWT_SHAPE.test(raw))
-    return rejected(ctx, "token_malformed");
-  let header: ReturnType<typeof decodeProtectedHeader>;
-  try {
-    header = decodeProtectedHeader(raw);
-  } catch {
-    return rejected(ctx, "token_malformed");
-  }
-  if (
-    header.alg !== "ES256" ||
-    header.typ !== SUBJECT_TOKEN_TYPE ||
-    typeof header.kid !== "string" ||
-    !SIGNING_KEY_ID_PATTERN.test(header.kid) ||
-    FORBIDDEN_HEADERS.some((name) => name in header)
-  )
-    return rejected(ctx, "token_header");
-  const kid = header.kid;
+  const checked = tokenKeyId(raw, SUBJECT_TOKEN_TYPE);
+  if ("refused" in checked)
+    return rejected(ctx, checked.refused === "malformed" ? "token_malformed" : "token_header");
+  const { kid } = checked;
   const { row, policy } = await ctx.store.tx(async (t) => ({
     row: await t.signingKey(kid),
     policy: await readPolicy(t),

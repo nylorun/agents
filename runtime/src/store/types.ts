@@ -221,6 +221,53 @@ export interface ExecutorRow {
   updatedAt: string;
 }
 
+/**
+ * An Action endpoint: the URL the Runtime delivers one agent's Actions to, and what recent
+ * deliveries and the last ping say about it.
+ */
+export interface EndpointRow {
+  agentId: string;
+  url: string;
+  implementationVersion: string;
+  manifestHash?: string;
+  timeoutMs: number;
+  maxConcurrent: number;
+  /** Application principal that registered it, when known. */
+  principalId?: string;
+  lastDeliveryAt?: string;
+  lastSuccessAt?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  consecutiveFailures: number;
+  /** What the endpoint reported serving on the last ping. */
+  servedImplementationVersion?: string;
+  servedManifestHash?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The registration part of an endpoint, as `putEndpoint` writes it. */
+export type EndpointRegistrationRow = Pick<
+  EndpointRow,
+  | "agentId"
+  | "url"
+  | "implementationVersion"
+  | "manifestHash"
+  | "timeoutMs"
+  | "maxConcurrent"
+  | "principalId"
+  | "updatedAt"
+>;
+
+/** One observation about an endpoint (`recordEndpointHealth`). */
+export type EndpointHealthUpdate =
+  /** A delivery was answered. */
+  | { kind: "success"; at: string }
+  /** A delivery failed: not reached, refused, or lost. */
+  | { kind: "failure"; at: string; code: string; message: string }
+  /** A ping was answered with what the endpoint serves. */
+  | { kind: "served"; implementationVersion: string; manifestHash?: string };
+
 export interface PrincipalRow {
   id: string;
   role: "application" | (string & {});
@@ -510,6 +557,12 @@ export interface Tx {
   expiredClaims(now: Date, limit: number): Promise<ActionDoc[]>;
   /** `pending` actions offered to one agent's executor. */
   pendingActions(agentId: string): Promise<ActionDoc[]>;
+  /** How many of one agent's actions are `delivering` (Action endpoints). */
+  deliveringCount(agentId: string): Promise<number>;
+  /** `pending` actions of agents that have an Action endpoint, by id. */
+  pendingActionsWithEndpoint(limit: number): Promise<ActionDoc[]>;
+  /** `delivering` actions whose deadline is at or before `now`, earliest first. */
+  expiredDeliveries(now: Date, limit: number): Promise<ActionDoc[]>;
   actionsForSession(
     sessionId: string,
     filter?: SessionActionFilter,
@@ -572,6 +625,19 @@ export interface Tx {
    */
   putExecutor(row: Omit<ExecutorRow, "createdAt">): Promise<void>;
   deleteExecutor(agentId: string): Promise<void>;
+
+  // --- Action endpoints -----------------------------------------------------
+
+  listEndpoints(): Promise<EndpointRow[]>;
+  getEndpoint(agentId: string): Promise<EndpointRow | undefined>;
+  /**
+   * Inserts or updates by `agentId`, keeping `createdAt`. Health is kept, except that a new
+   * `url` starts with none.
+   */
+  putEndpoint(row: EndpointRegistrationRow): Promise<void>;
+  deleteEndpoint(agentId: string): Promise<void>;
+  /** Records one observation. Nothing happens when the endpoint does not exist. */
+  recordEndpointHealth(agentId: string, update: EndpointHealthUpdate): Promise<void>;
 
   // --- principals ----------------------------------------------------------
 
@@ -687,7 +753,7 @@ export interface Tx {
    * - `sessions`: sessions, commands, checkpoints, effects, actions, links, the outbox and
    *   subject turn buckets;
    * - `sandboxes`: sandbox records;
-   * - `all`: both, plus definitions, executors and user vaults with their
+   * - `all`: both, plus definitions, executors, Action endpoints and user vaults with their
    *   credentials. The host vault, principals, signing keys, subject epochs, publishable
    *   keys, settings,
    *   audit and vault idempotency rows stay.
