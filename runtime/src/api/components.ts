@@ -6,6 +6,19 @@
  */
 import type { z } from "zod";
 import {
+  AcceptedResponseSchema,
+  ActionClaimRequestSchema,
+  ActionClaimResponseSchema,
+  ActionHeartbeatRequestSchema,
+  ActionHeartbeatResponseSchema,
+  DeleteExecutorResponseSchema,
+  ExecutorNotificationSchema,
+  ListActionsResponseSchema,
+  ListExecutorsResponseSchema,
+  RegisterExecutorsRequestSchema,
+  RegisterExecutorsResponseSchema,
+  SandboxToolOutcomeSchema,
+  SessionCommandSchema,
   AdminStatusSchema,
   AdminTenantListSchema,
   AdminTenantStatusSchema,
@@ -28,3 +41,26 @@ export const AdminTenantList = named("AdminTenantList", AdminTenantListSchema);
 export const AdminTenantStatus = named("AdminTenantStatus", AdminTenantStatusSchema);
 export const AdminStatus = named("AdminStatus", AdminStatusSchema);
 export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
+
+export const ExecutorNotification = named("ExecutorNotification", ExecutorNotificationSchema);
+export const ListActionsResponse = named("ListActionsResponse", ListActionsResponseSchema);
+export const ActionClaimRequest = named("ActionClaimRequest", ActionClaimRequestSchema);
+export const ActionClaimResponse = named("ActionClaimResponse", ActionClaimResponseSchema);
+export const ActionHeartbeatRequest = named("ActionHeartbeatRequest", ActionHeartbeatRequestSchema);
+export const ActionHeartbeatResponse = named(
+  "ActionHeartbeatResponse",
+  ActionHeartbeatResponseSchema,
+);
+export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
+export const ListExecutorsResponse = named("ListExecutorsResponse", ListExecutorsResponseSchema);
+export const RegisterExecutorsRequest = named(
+  "RegisterExecutorsRequest",
+  RegisterExecutorsRequestSchema,
+);
+export const RegisterExecutorsResponse = named(
+  "RegisterExecutorsResponse",
+  RegisterExecutorsResponseSchema,
+);
+export const DeleteExecutorResponse = named("DeleteExecutorResponse", DeleteExecutorResponseSchema);
+export const SessionCommand = named("SessionCommand", SessionCommandSchema);
+export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);

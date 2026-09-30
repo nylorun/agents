@@ -22,16 +22,20 @@ import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
 export const IdempotencyKeySchema = z.string().min(1).max(256);
 const jsonObject = z.record(z.string(), z.unknown());
-const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValue),
-    z.record(z.string(), jsonValue),
-  ])
-);
+// Recursive schemas carry an `id`: a document generated from them (the Runtime's OpenAPI)
+// refers back to the named schema instead of expanding it forever.
+const jsonValue: z.ZodType<JsonValue> = z
+  .lazy(() =>
+    z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(jsonValue),
+      z.record(z.string(), jsonValue),
+    ])
+  )
+  .meta({ id: "JsonValue" });
 const mcpServerSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -110,6 +114,7 @@ const toolManifestSchema = z
     outputSchema: jsonObject.optional(),
     agent: z
       .lazy(() => z.union([workflowV2ManifestSchema, AgentManifestSchema]))
+      .meta({ id: "ToolAgentManifest" })
       .optional(),
   })
   .strict();
@@ -370,7 +375,7 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
       })
       .strict(),
   ])
-);
+).meta({ id: "WorkflowNode" });
 const workflowV1ManifestSchema = z
   .object({
     kind: z.literal("workflow"),
@@ -450,7 +455,7 @@ const workflowNodeV2Schema: z.ZodTypeAny = z.lazy(() =>
       })
       .strict(),
   ])
-);
+).meta({ id: "WorkflowNodeV2" });
 const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
   z
     .object({
@@ -488,7 +493,7 @@ const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
           });
       }
     })
-);
+).meta({ id: "WorkflowV2Manifest" });
 function referencedAgents(node: WorkflowNodeV2): string[] {
   const out: string[] = [];
   const visit = (child: WorkflowNodeV2): void => {
