@@ -59,6 +59,9 @@ export async function execute(
     signal.throwIfAborted();
     let turnId: string;
     let stepNumber: number;
+    /** Steps run and when this invocation started, for segment rollover. */
+    let stepsRun = 0;
+    const started = Date.now();
     /** One compaction and retry per overflow; reset once a step succeeds. */
     let overflowCompacted = false;
     /** Summarize older history into a compaction entry (Model Calls §8). */
@@ -108,6 +111,7 @@ export async function execute(
           (entry) => entry.kind === "candidate" && entry.turnId === turnId,
         ).length;
       invocation.state = { ...invocation.state, status: "active" };
+      toolResults = lastResults(invocation.state);
       await record();
     } else {
       turnId = createId("turn");
@@ -138,6 +142,20 @@ export async function execute(
     }
     for (; ; stepNumber++) {
       signal.throwIfAborted();
+      // Segment rollover: end this segment between steps; the host continues the turn.
+      const yieldAfter = internals.yieldAfter;
+      if (
+        yieldAfter &&
+        stepsRun > 0 &&
+        !invocation.state.plan &&
+        ((yieldAfter.steps !== undefined && stepsRun >= yieldAfter.steps) ||
+          (yieldAfter.ms !== undefined && Date.now() - started >= yieldAfter.ms))
+      ) {
+        if (!invocation.state.turn)
+          setTurn(() => ({ turnId, attempts: { afterStep: 0, afterTurn: 0 } }));
+        return finish({ status: "yielded" });
+      }
+      stepsRun++;
       const stepId = createId("step");
       // Keep the next prompt inside the model's window, before it is sent.
       const budget = contextBudget(invocation.state.transcript);
@@ -387,6 +405,7 @@ export async function execute(
 type FinishInput =
   | Omit<Extract<RunResult<JsonValue>, { status: "completed" }>, "state">
   | { status: "paused" }
+  | { status: "yielded" }
   | { status: "cancelled" }
   | { status: "failed"; error: Tripwire };
 
@@ -430,6 +449,12 @@ async function finishInvocation(
         },
       ],
     };
+  }
+  if (result.status === "yielded") {
+    // Mid-turn: the state keeps its turn and stays active, so `continue` picks it up.
+    invocation.state = { ...invocation.state, status: "active" };
+    await invocation.record();
+    return { status: "yielded", state: invocation.state };
   }
   if (result.status !== "paused" && invocation.state.turn) {
     const { turn: _turn, ...rest } = invocation.state;

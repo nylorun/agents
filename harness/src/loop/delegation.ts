@@ -45,6 +45,11 @@ export interface ExecuteInternals {
   readonly delegation?: DelegationHost;
   /** Set when this invocation is an agent used as a tool. */
   readonly delegated?: AgentRef;
+  /**
+   * Segment rollover (Model Calls §10): end the invocation with `yielded` at the next step
+   * boundary once this many steps ran, or this much time passed, in this invocation.
+   */
+  readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
 }
 
 /** Codes are curated: a child's provider error bodies never reach the parent's context. */
@@ -196,6 +201,9 @@ function settle(result: RunResult<JsonValue>): ToolOutcome {
       code: "delegation.interaction-unsupported",
       message: INTERACTION_UNSUPPORTED,
     };
+  // Agents used as tools run inside one step of their parent and never roll over.
+  if (result.status === "yielded")
+    return { kind: "failed", code: "delegation.failed", message: "The agent stopped early." };
   const reason = result.error.code;
   const curated = reason.startsWith("execution.") ? reason : `${reason}: ${result.error.message}`;
   const partial = lastText(result);

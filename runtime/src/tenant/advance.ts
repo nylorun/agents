@@ -274,6 +274,10 @@ function startHeartbeat(
   };
 }
 
+/** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
+const ROLLOVER_STEPS = 50;
+const ROLLOVER_MS = 20 * 60_000;
+
 /** Runs one segment and settles it. Throws only `ownership.lost` and infrastructure errors. */
 async function runSegment(
   ctx: TenantContext,
@@ -317,6 +321,10 @@ async function runSegment(
           signal,
           sessionTools: sessionToolsOf(current.mcpSnapshot),
           host,
+          yieldAfter: {
+            steps: ctx.config.rollover?.steps ?? ROLLOVER_STEPS,
+            ms: ctx.config.rollover?.ms ?? ROLLOVER_MS,
+          },
         });
     // The engine turns an abort into a `cancelled` (agents) or `failed` (workflows) result;
     // only a user cancel may settle that, and it already did.
@@ -418,6 +426,34 @@ async function settle(
       }
       if (!("result" in result)) {
         await t.put("sessions", id, current);
+        return siblings;
+      }
+      if (result.status === "yielded") {
+        // The turn goes on in a new segment: same turn, next checkpoint, woken right away.
+        const finished = result.checkpoint as DurableCheckpoint;
+        current.state = (result.result as any).state;
+        current.checkpoint = {
+          ...finished,
+          segment: finished.segment + 1,
+          input: { kind: "continue" },
+          state: current.state,
+        };
+        current.status = "runnable";
+        current.waits = undefined;
+        await t.put(
+          "checkpoints",
+          JSON.stringify([id, s.activeTurnId, finished.segment]),
+          { checkpoint: finished, status: "yielded" }
+        );
+        await slimModelEffects(t, id, s.activeTurnId);
+        await t.put("sessions", id, current);
+        const segment = finished.segment + 1;
+        t.afterCommit(() =>
+          ctx.wake(id, {
+            reason: "rollover",
+            dedupeKey: `rollover:${s.activeTurnId}:${segment}`,
+          })
+        );
         return siblings;
       }
       const flow = isWorkflowManifest(current.manifest);

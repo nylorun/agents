@@ -197,6 +197,7 @@ export async function startTestTenant(
       ? {}
       : { vaultFetch: options.vaultFetch }),
     ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
+    ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
     logger,
   };
 

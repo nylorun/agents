@@ -47,6 +47,12 @@ export interface TenantConfig {
     openshell?: { readonly gateway: string };
   };
   model: TenantModelConfig;
+  /**
+   * Segment rollover (Model Calls §10): a turn ends its segment at a step boundary after this
+   * many steps or milliseconds and continues in a new one, so no advance reaches its
+   * deadline. Default 50 steps or 20 minutes.
+   */
+  rollover?: { steps?: number; ms?: number };
   /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
   modelCall?: import("../model/pi-model.js").ModelCallSettings;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR

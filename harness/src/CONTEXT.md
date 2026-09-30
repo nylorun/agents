@@ -38,6 +38,9 @@ completed outcome, never `uncertain`.
 **Compaction**: Replacing the older part of the transcript with a summary the model wrote,
 so the next prompt fits the model's window. Recorded as a `compaction` entry, always first.
 
+**Segment rollover**: A long turn ending its durable segment at a step boundary (`yielded`)
+and continuing in the next segment of the same turn.
+
 ## Flow (workflows)
 
 **Flow engine**: Interprets a workflow manifest (`harness/src/flow/`). It returns

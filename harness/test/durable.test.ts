@@ -205,3 +205,58 @@ describe("model failure outcomes (Model Calls §6)", () => {
     ).rejects.toMatchObject({ code: "execution.incompatible" });
   });
 });
+
+describe("segment rollover (Model Calls §10)", () => {
+  it("yields between steps and continues the same turn in the next segment", async () => {
+    const manifest = Agent({ id: "roller", name: "Roller" })
+      .use({
+        id: "jobs",
+        tools: [{ name: "job", inputSchema: z.object({}), execute: async () => "unused" }],
+      })
+      .build().manifest;
+    const journal = new Map<string, EffectResolution>();
+    let modelCalls = 0;
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        const recorded = journal.get(effect.effectId);
+        if (recorded) return recorded;
+        const value =
+          effect.kind === "tool"
+            ? { kind: "completed", output: "ok" }
+            : modelCalls++ < 5
+              ? { output: [{ type: "tool-call", id: `c${modelCalls}`, name: "job", args: {} }] }
+              : "done";
+        const resolution: EffectResolution = { status: "completed", outcome: { value } };
+        journal.set(effect.effectId, resolution);
+        return resolution;
+      },
+    };
+    let checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    const statuses: string[] = [];
+    for (;;) {
+      const result = await runDurable({ manifest, checkpoint, host, yieldAfter: { steps: 2 } });
+      statuses.push(result.status);
+      if (result.status !== "yielded") {
+        expect(result.status).toBe("completed");
+        const transcript = (result as any).result.state.transcript as { turnId: string }[];
+        // One engine turn across every segment.
+        expect(new Set(transcript.map((entry) => entry.turnId)).size).toBe(1);
+        break;
+      }
+      checkpoint = {
+        ...result.checkpoint,
+        segment: result.checkpoint.segment + 1,
+        input: { kind: "continue" },
+      };
+    }
+    expect(statuses).toEqual(["yielded", "yielded", "completed"]);
+    expect(modelCalls).toBe(6);
+    // Effect ids carry the segment, so no segment reads another's journal.
+    expect(new Set([...journal.keys()].map((id) => id.split(":")[1])).size).toBe(3);
+  });
+});
