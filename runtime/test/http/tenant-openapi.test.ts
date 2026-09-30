@@ -130,3 +130,19 @@ it("documents the public keys for every caller, and access management for applic
     expect(operation(method, path)["x-nylorun-scopes"]).toBe("never");
   }
 });
+
+it("documents the AG-UI endpoint with AG-UI's own schemas", () => {
+  const run = operation("post", "/v1/ag-ui/agents/{agentId}");
+  expect(run.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+  expect(run.requestBody.content["application/json"].schema).toEqual({
+    $ref: "#/components/schemas/AgUiRunAgentInput",
+  });
+  expect(run.responses["200"].content["text/event-stream"].itemSchema).toEqual({
+    $ref: "#/components/schemas/AgUiEvent",
+  });
+  for (const name of ["AgUiRunAgentInput", "AgUiEvent", "AgUiMessage"])
+    expect(document.components?.schemas?.[name], name).toMatchObject({});
+  expect(
+    operation("get", "/v1/ag-ui/agents/{agentId}/threads/{threadId}/events").responses["204"],
+  ).toBeDefined();
+});
