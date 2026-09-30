@@ -37,7 +37,13 @@ import { SSE_CONTENT_TYPE, SSE_HEARTBEAT, sseFrame } from "./sse.js";
 import { RunTranslator } from "./translate.js";
 import { accessOf } from "../../tenant/auth.js";
 import { command } from "../../tenant/commands.js";
-import { loadSession, sessionOf, type AuthScope, type TenantContext } from "../../tenant/context.js";
+import {
+  loadSession,
+  sessionOf,
+  type AuthScope,
+  type SessionAccess,
+  type TenantContext,
+} from "../../tenant/context.js";
 import { fail, HttpError, readBody } from "../../tenant/http.js";
 import {
   observeSession,
@@ -304,6 +310,134 @@ async function historyFrom(
   return items;
 }
 
+/**
+ * Who an AG-UI request acts for, once its agent is known: a person (a subject token's subject,
+ * or `Nylorun-Subject`), who may use the agent; else 400, or the 404 of a missing agent.
+ */
+export function agUiCaller(
+  scope: AuthScope,
+  agentId: string
+): { subject: string; access: SessionAccess | undefined } {
+  const subject = personOf(scope);
+  // An agent the token may not use is the 404 of a missing one.
+  if (!mayUseAgent(scope, agentId)) return fail(404, "Not found");
+  return { subject, access: accessOf(scope) };
+}
+
+/** `POST /v1/ag-ui/agents/:agent`: start a run, and stream it on `response`. */
+export async function startRun(
+  ctx: TenantContext,
+  scope: AuthScope,
+  agentId: string,
+  caller: { subject: string; access: SessionAccess | undefined },
+  body: unknown,
+  response: ServerResponse
+): Promise<void> {
+  const parsed = RunAgentInputSchema.safeParse(body);
+  if (!parsed.success)
+    return fail(400, "Invalid RunAgentInput", { code: "invalid_request" });
+  const input = parsed.data as RunAgentInput;
+  // Nylorun tools run in the Runtime or the app's executor; the browser runs none.
+  if (input.tools?.length)
+    return fail(400, "Frontend tools are not supported", { code: "invalid_request" });
+  const id = sessionIdFor(caller.subject, agentId, input.threadId);
+  await putSession(
+    ctx,
+    id,
+    {
+      requestId: randomUUID(),
+      agentId,
+      ownerUserId: caller.subject,
+      ...sessionOptions(input, scope),
+    } as never,
+    caller.access,
+    { createOnly: true }
+  );
+  const translator = new RunTranslator(input.threadId, input.runId);
+  let cursor: string | null;
+  try {
+    cursor = await submit(ctx, id, input, scope);
+  } catch (error) {
+    // A busy session or a limit is a run that could not start, not a transport failure.
+    if (error instanceof HttpError && (error.status === 409 || error.status === 429))
+      return stream(response, translator, undefined, [runError(error)]);
+    throw error;
+  }
+  const holder = holderOf(scope);
+  return stream(response, translator, (signal) =>
+    observeSession(ctx, id, cursor ?? undefined, {
+      signal,
+      ...(holder ? { holder } : {}),
+    })
+  );
+}
+
+/** `GET …/threads/:thread/messages`: the thread's messages; none before its first run. */
+export async function threadMessages(
+  ctx: TenantContext,
+  id: string,
+  access: SessionAccess | undefined
+): Promise<Message[]> {
+  try {
+    await loadSession(ctx, id, access);
+  } catch (error) {
+    // A thread that never ran has no session yet.
+    if (error instanceof HttpError && error.status === 404) return [];
+    throw error;
+  }
+  return messagesFromEvents(await historyFrom(ctx, id, undefined));
+}
+
+/**
+ * `GET …/threads/:thread/events`: the rest of a run after a dropped connection, streamed on
+ * `response`, or 204 when there is nothing to send.
+ */
+export async function reattachRun(
+  ctx: TenantContext,
+  scope: AuthScope,
+  access: SessionAccess | undefined,
+  thread: { threadId: string; id: string },
+  resume: { lastEventId: string | undefined; cursor: string | undefined; runId: string | undefined },
+  response: ServerResponse
+): Promise<void> {
+  const cursor =
+    resume.lastEventId ??
+    resume.cursor ??
+    fail(400, "Last-Event-ID or ?cursor= is required", { code: "invalid_request" });
+  const session = await loadSession(ctx, thread.id, access);
+  const runId =
+    resume.runId ?? session.activeTurnId ?? session.lastTurnId ?? randomUUID();
+  const translator = new RunTranslator(thread.threadId, runId, { reattached: true });
+  if (session.activeTurnId) {
+    const holder = holderOf(scope);
+    return stream(response, translator, (signal) =>
+      observeSession(ctx, thread.id, cursor, { signal, ...(holder ? { holder } : {}) })
+    );
+  }
+  // No turn is running: send what the client missed, if the run ended after the cursor.
+  const missed = await historyFrom(ctx, thread.id, cursor);
+  if (!missed.some((event) => TERMINAL.has(event.type))) {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  return stream(response, translator, () => iterate(missed));
+}
+
+/** `POST …/threads/:thread/cancel`: cancel the running turn. */
+export async function cancelRun(
+  ctx: TenantContext,
+  id: string,
+  scope: AuthScope
+): Promise<void> {
+  await accepted(
+    ctx,
+    id,
+    { type: "cancel", requestId: randomUUID(), idempotencyKey: `cancel:${randomUUID()}` },
+    scope
+  );
+}
+
 export async function dispatchAgUi(
   ctx: TenantContext,
   scope: AuthScope,
@@ -316,102 +450,36 @@ export async function dispatchAgUi(
 ): Promise<void> {
   const [, , collection, agentId, threads, threadId, action] = path;
   if (collection !== "agents" || !agentId) return fail(404, "Route not found");
-  const subject = personOf(scope);
-  // An agent the token may not use is the 404 of a missing one.
-  if (!mayUseAgent(scope, agentId)) return fail(404, "Not found");
-  const access = accessOf(scope);
+  const caller = agUiCaller(scope, agentId);
 
-  if (path.length === 4 && method === "POST") {
-    const parsed = RunAgentInputSchema.safeParse(await readBody(request));
-    if (!parsed.success)
-      return fail(400, "Invalid RunAgentInput", { code: "invalid_request" });
-    const input = parsed.data as RunAgentInput;
-    // Nylorun tools run in the Runtime or the app's executor; the browser runs none.
-    if (input.tools?.length)
-      return fail(400, "Frontend tools are not supported", { code: "invalid_request" });
-    const id = sessionIdFor(subject, agentId, input.threadId);
-    await putSession(
-      ctx,
-      id,
-      {
-        requestId: randomUUID(),
-        agentId,
-        ownerUserId: subject,
-        ...sessionOptions(input, scope),
-      } as never,
-      access,
-      { createOnly: true }
-    );
-    const translator = new RunTranslator(input.threadId, input.runId);
-    let cursor: string | null;
-    try {
-      cursor = await submit(ctx, id, input, scope);
-    } catch (error) {
-      // A busy session or a limit is a run that could not start, not a transport failure.
-      if (error instanceof HttpError && (error.status === 409 || error.status === 429))
-        return stream(response, translator, undefined, [runError(error)]);
-      throw error;
-    }
-    const holder = holderOf(scope);
-    return stream(response, translator, (signal) =>
-      observeSession(ctx, id, cursor ?? undefined, {
-        signal,
-        ...(holder ? { holder } : {}),
-      })
-    );
-  }
+  if (path.length === 4 && method === "POST")
+    return startRun(ctx, scope, agentId, caller, await readBody(request), response);
 
   if (path.length !== 7 || threads !== "threads" || !threadId)
     return fail(404, "Route not found");
-  const id = sessionIdFor(subject, agentId, threadId);
+  const id = sessionIdFor(caller.subject, agentId, threadId);
 
-  if (action === "messages" && method === "GET") {
-    try {
-      await loadSession(ctx, id, access);
-    } catch (error) {
-      // A thread that never ran has no session yet.
-      if (error instanceof HttpError && error.status === 404) return json([]);
-      throw error;
-    }
-    return json(messagesFromEvents(await historyFrom(ctx, id, undefined)));
-  }
+  if (action === "messages" && method === "GET")
+    return json(await threadMessages(ctx, id, caller.access));
 
   if (action === "events" && method === "GET") {
     const header = request.headers["last-event-id"];
-    const cursor =
-      (typeof header === "string" ? header : undefined) ??
-      url.searchParams.get("cursor") ??
-      fail(400, "Last-Event-ID or ?cursor= is required", { code: "invalid_request" });
-    const session = await loadSession(ctx, id, access);
-    const runId =
-      url.searchParams.get("runId") ??
-      session.activeTurnId ??
-      session.lastTurnId ??
-      randomUUID();
-    const translator = new RunTranslator(threadId, runId, { reattached: true });
-    if (session.activeTurnId) {
-      const holder = holderOf(scope);
-      return stream(response, translator, (signal) =>
-        observeSession(ctx, id, cursor, { signal, ...(holder ? { holder } : {}) })
-      );
-    }
-    // No turn is running: send what the client missed, if the run ended after the cursor.
-    const missed = await historyFrom(ctx, id, cursor);
-    if (!missed.some((event) => TERMINAL.has(event.type))) {
-      response.writeHead(204);
-      response.end();
-      return;
-    }
-    return stream(response, translator, () => iterate(missed));
+    return reattachRun(
+      ctx,
+      scope,
+      caller.access,
+      { threadId, id },
+      {
+        lastEventId: typeof header === "string" ? header : undefined,
+        cursor: url.searchParams.get("cursor") ?? undefined,
+        runId: url.searchParams.get("runId") ?? undefined,
+      },
+      response
+    );
   }
 
   if (action === "cancel" && method === "POST") {
-    await accepted(
-      ctx,
-      id,
-      { type: "cancel", requestId: randomUUID(), idempotencyKey: `cancel:${randomUUID()}` },
-      scope
-    );
+    await cancelRun(ctx, id, scope);
     response.writeHead(204);
     response.end();
     return;
