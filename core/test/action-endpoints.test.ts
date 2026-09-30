@@ -169,9 +169,9 @@ describe("delivery tokens", () => {
     expect(ENDPOINT_TIMEOUT_MAX_MS).toBeLessThan(DELIVERY_TOKEN_MAX_TTL_SECONDS * 1000);
   });
 
-  it("names the headers, and the Host does not advertise the feature yet", () => {
+  it("names the headers and the Host feature", () => {
     expect(SIGNATURE_HEADER).toBe("Nylorun-Signature");
     expect(OUTCOME_HEADER).toBe("Nylorun-Outcome");
-    expect(HOST_PROTOCOL.features).not.toContain("action-endpoints");
+    expect(HOST_PROTOCOL.features).toContain("action-endpoints");
   });
 });

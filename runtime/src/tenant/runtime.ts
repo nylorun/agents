@@ -66,6 +66,7 @@ import {
 } from "./scheduler.js";
 import { advance } from "./advance.js";
 import { sweep } from "./sweep.js";
+import { deliverAction } from "./delivery.js";
 import {
   TenantWorkers,
   WORKER_ID,
@@ -277,6 +278,10 @@ export class TenantRuntime implements TenantHandle {
           await execution.wake(config.tenantId, sessionId, wake);
         },
         abortLocal: (sessionId) => abortLocal(ctx, sessionId),
+        deliver: async (actionId) => {
+          if (ctx.closing || ctx.closed) return;
+          await execution.deliver(config.tenantId, actionId);
+        },
         ...(hooks.execution?.stuckInvocations
           ? {
               stuckInvocations: () =>
@@ -305,6 +310,7 @@ export class TenantRuntime implements TenantHandle {
       let afterOpen = true;
       const worker: TenantWorker = {
         advance: (sessionId, signal) => advance(ctx, sessionId, signal),
+        deliver: (actionId, signal) => deliverAction(ctx, actionId, signal),
         sweep: async () => {
           const first = afterOpen;
           afterOpen = false;
