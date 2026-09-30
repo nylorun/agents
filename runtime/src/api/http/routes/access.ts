@@ -35,7 +35,12 @@ import {
   SigningKeyView,
   UpdatePublishableKeyRequest,
 } from "../../components.js";
+import type { PublishableKey as PublishableKeyBody } from "@nylorun/core/contracts";
+import type { PublishableKeyRow } from "../../../store/types.js";
+import { signalSubjectRevoked } from "../../../streams/relay.js";
 import { readPolicy, writePolicy } from "../../../tenant/access-policy.js";
+import { endSubjectStreams } from "../../../tenant/live.js";
+import type { TenantContext } from "../../../tenant/context.js";
 import { requireApplication } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
 import { publicJwk, signingKeyView } from "../../../tenant/signing-keys.js";
@@ -44,7 +49,6 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
-import { publishableKeyView, revokeSubject } from "../routes-access.js";
 
 const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
 
@@ -342,3 +346,43 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
   );
 }
+
+/** A publishable key as the API shows it. */
+export function publishableKeyView(row: PublishableKeyRow): PublishableKeyBody {
+  return {
+    id: row.id,
+    name: row.name,
+    key: row.key,
+    origins: JSON.parse(row.originsJson) as string[],
+    createdAt: row.createdAt,
+    revokedAt: row.revokedAt,
+  };
+}
+
+/**
+ * Ends every token of `subject` minted so far: bumps its epoch, then ends its open streams
+ * here and, through `tenant/control`, on every other process. Running turns continue.
+ */
+export async function revokeSubject(
+  ctx: TenantContext,
+  subject: string
+): Promise<{ subject: string; epoch: number }> {
+  const epoch = await ctx.store.tx(async (t) => {
+    const next = await t.bumpSubjectEpoch(subject, new Date().toISOString());
+    t.afterCommit(async () => {
+      endSubjectStreams(ctx.live, subject, next);
+      const streams = ctx.live.wiring?.streams;
+      if (streams)
+        await signalSubjectRevoked(streams, ctx.config.tenantId, subject, next).catch(
+          (error: unknown) =>
+            ctx.config.logger.warn("subject revocation signal failed", {
+              message: error instanceof Error ? error.message : String(error),
+            })
+        );
+    });
+    return next;
+  });
+  ctx.config.logger.info("subject revoked", { epoch });
+  return { subject, epoch };
+}
+
