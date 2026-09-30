@@ -70,7 +70,7 @@ function acceptedToolResult(
 }
 
 /** `outcome`, or a failed one when a tool's output does not match its stored output schema. */
-function acceptedOutcome(action: Action, outcome: ActionOutcome): ActionOutcome {
+export function acceptedOutcome(action: Action, outcome: ActionOutcome): ActionOutcome {
   if (action.kind !== "tool" || !action.outputSchema) return outcome;
   const value = outcome.value;
   // Only a result carries output: failures, denials, interactions and deferrals pass as sent.

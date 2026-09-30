@@ -29,14 +29,17 @@ import {
   EndpointPingResponseSchema,
   type Action,
   type ActionOutcome,
+  type DeliveryHeartbeatResponse,
   type EndpointPingResponse,
 } from "@nylorun/core/contracts";
 import type { DeliverResult } from "../execution/types.js";
 import { sessionHasSandbox } from "../sandbox/share.js";
 import type { EndpointRow, Tx } from "../store/types.js";
-import { recordActionOutcome } from "./commands.js";
+import { canonical } from "../store/canonical.js";
+import { scoped } from "./auth.js";
+import { acceptedOutcome, recordActionOutcome } from "./commands.js";
 import { sandboxLookup, type Session, type TenantContext } from "./context.js";
-import { mintDeliveryToken } from "./delivery-token.js";
+import { mintDeliveryToken, type DeliveryScope } from "./delivery-token.js";
 import { fail } from "./http.js";
 import { post, type OutboundResult } from "./outbound.js";
 
@@ -478,4 +481,94 @@ export async function pingEndpoint(
     });
   });
   return answer;
+}
+
+const STALE_DELIVERY = "The delivery was cancelled, lost or delivered again";
+
+/**
+ * The Action a delivery token's callback is about, read under its session's lock, and whether
+ * that delivery is still the live one: `delivering` at the token's generation, before its
+ * deadline, in the session's active turn.
+ */
+async function deliveredAction(
+  t: Tx,
+  scope: DeliveryScope,
+  actionId: string,
+): Promise<{ s: Session; action: Action; live: boolean }> {
+  const found = (await t.get<Action>("actions", actionId)) ?? fail(404, "Action not found");
+  scoped(scope, found);
+  const s = (await t.lockSession<Session>(found.sessionId)) ?? fail(404, "Action not found");
+  const action = (await t.get<Action>("actions", actionId))!;
+  const live =
+    action.status === "delivering" &&
+    action.generation === scope.generation &&
+    Date.parse(action.deadlineAt ?? "") > Date.now() &&
+    s.status !== "cancelled" &&
+    s.activeTurnId === action.turnId;
+  return { s, action, live };
+}
+
+/**
+ * `POST /v1/actions/:id/heartbeat` with a delivery token: an endpoint that answered `202` keeps
+ * its delivery alive for another lease, and gets a fresh token for its next callbacks. `409`
+ * when the delivery was cancelled, lost or sent again, which tells the endpoint to stop.
+ */
+export async function deliveryHeartbeat(
+  ctx: TenantContext,
+  scope: DeliveryScope,
+  actionId: string,
+): Promise<DeliveryHeartbeatResponse> {
+  const leaseMs = ctx.config.leaseMs ?? 30_000;
+  const renewed = await ctx.store.tx(async (t) => {
+    const { action, live } = await deliveredAction(t, scope, actionId);
+    if (!live) fail(409, STALE_DELIVERY);
+    action.deadlineAt = new Date(Date.now() + leaseMs).toISOString();
+    await t.put("actions", action.actionId, action);
+    return { action, endpoint: await t.getEndpoint(action.agentId) };
+  });
+  const minted = await mintDeliveryToken(ctx, {
+    for: {
+      kind: "action",
+      actionId,
+      agentId: renewed.action.agentId,
+      generation: renewed.action.generation,
+    },
+    audience: renewed.endpoint?.url ?? "",
+    body: "",
+    ttlSeconds: Math.ceil(leaseMs / 1000) + TOKEN_SLACK_SECONDS,
+  });
+  return { token: minted.token, deadlineAt: renewed.action.deadlineAt! };
+}
+
+/**
+ * `POST /v1/actions/:id/result` with a delivery token: the outcome of a delivery answered with
+ * `202`. The same result again returns the first receipt; a different one is `409`.
+ */
+export async function deliveryResult(
+  ctx: TenantContext,
+  scope: DeliveryScope,
+  actionId: string,
+  outcome: ActionOutcome,
+): Promise<Record<string, unknown>> {
+  return ctx.store.tx(async (t) => {
+    const { s, action, live } = await deliveredAction(t, scope, actionId);
+    if (action.status === "completed") {
+      const prior = await t.get("effects", actionId);
+      if (
+        action.generation === scope.generation &&
+        prior?.receipt &&
+        canonical(prior.outcome) === canonical(acceptedOutcome(action, outcome))
+      )
+        return prior.receipt as Record<string, unknown>;
+      return fail(409, "The Action already has another result");
+    }
+    if (!live) return fail(409, STALE_DELIVERY);
+    const { receipt } = await recordActionOutcome(t, ctx, s, action, outcome);
+    await t.put("sessions", s.id, s);
+    await t.recordEndpointHealth(action.agentId, {
+      kind: "success",
+      at: new Date().toISOString(),
+    });
+    return receipt;
+  });
 }

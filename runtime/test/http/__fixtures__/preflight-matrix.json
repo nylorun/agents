@@ -35,6 +35,9 @@
   "POST /v1/endpoints/ghost/ping": {
     "status": 403
   },
+  "POST /v1/actions/act-missing/result": {
+    "status": 403
+  },
   "POST /v1/sessions/s1/commands": {
     "status": 204,
     "allowOrigin": "https://app.example.com"
