@@ -86,7 +86,7 @@ export async function handle(
     const path = url.pathname
       .split("/")
       .filter(Boolean)
-      .map(decodeURIComponent);
+      .map(decodeSegment);
     const method = request.method;
     // The client app first: a browser's origin is checked, and CORS headers set, before the
     // bearer is looked at, so every answer from here on is readable by an allowed page.
@@ -126,7 +126,7 @@ export async function handle(
         path.length === 5
       )
         return json(
-          await actionSandboxTool(ctx, scope, actionId!, path[4], request)
+          await actionSandboxTool(ctx, scope, actionId!, path[4], request, response)
         );
       const body = await readBody(request);
       return json(
@@ -264,7 +264,7 @@ export async function handle(
             id,
             path[4],
             await readBody(request),
-            requestAborted(request)
+            requestAborted(response)
           );
           return json(outcome);
         } catch (error) {
@@ -311,5 +311,14 @@ export async function handle(
       status,
       headers
     );
+  }
+}
+
+/** A path segment, decoded; malformed percent-encoding is the client's error, not ours. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return fail(400, "Malformed path");
   }
 }
