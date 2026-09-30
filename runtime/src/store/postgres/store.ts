@@ -50,6 +50,9 @@ import type {
   DocTable,
   EffectDoc,
   EffectKind,
+  EndpointHealthUpdate,
+  EndpointRegistrationRow,
+  EndpointRow,
   ExecutorRow,
   LinkDoc,
   LinkedSession,
@@ -238,6 +241,29 @@ function executorRow(row: Row): ExecutorRow {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function endpointRow(row: Row): EndpointRow {
+  const optional = (key: keyof EndpointRow, value: unknown) =>
+    value === null ? {} : { [key]: value };
+  return {
+    agentId: row.agent_id,
+    url: row.url,
+    implementationVersion: row.implementation_version,
+    ...optional("manifestHash", row.manifest_hash),
+    timeoutMs: row.timeout_ms,
+    maxConcurrent: row.max_concurrent,
+    ...optional("principalId", row.principal_id),
+    ...optional("lastDeliveryAt", row.last_delivery_at),
+    ...optional("lastSuccessAt", row.last_success_at),
+    ...optional("lastErrorCode", row.last_error_code),
+    ...optional("lastErrorMessage", row.last_error_message),
+    consecutiveFailures: row.consecutive_failures,
+    ...optional("servedImplementationVersion", row.served_implementation_version),
+    ...optional("servedManifestHash", row.served_manifest_hash),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  } as EndpointRow;
 }
 
 function principalRow(row: Row): PrincipalRow {
@@ -628,6 +654,36 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.body as ActionDoc);
   }
 
+  async deliveringCount(agentId: string): Promise<number> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT count(*)::int AS n FROM ${this.t("actions")}
+      WHERE agent_id = ${agentId} AND status = 'delivering'`;
+    return row!.n as number;
+  }
+
+  async pendingActionsWithEndpoint(limit: number): Promise<ActionDoc[]> {
+    this.check();
+    const rows = await this.sql`
+      SELECT a.body FROM ${this.t("actions")} a
+      JOIN ${this.t("endpoints")} e ON e.agent_id = a.agent_id
+      WHERE a.status = 'pending'
+      ORDER BY a.id
+      LIMIT ${limit}`;
+    return rows.map((row) => row.body as ActionDoc);
+  }
+
+  async expiredDeliveries(now: Date, limit: number): Promise<ActionDoc[]> {
+    this.check();
+    const rows = await this.sql`
+      SELECT body FROM ${this.t("actions")}
+      WHERE status = 'delivering' AND deadline_at IS NOT NULL
+        AND deadline_at::timestamptz <= ${now}
+      ORDER BY deadline_at::timestamptz, id
+      LIMIT ${limit}`;
+    return rows.map((row) => row.body as ActionDoc);
+  }
+
   async actionsForSession(
     sessionId: string,
     filter: SessionActionFilter = {},
@@ -826,6 +882,87 @@ class PostgresTx implements Tx {
   async deleteExecutor(agentId: string): Promise<void> {
     this.check();
     await this.sql`DELETE FROM ${this.t("executors")} WHERE agent_id = ${agentId}`;
+  }
+
+  // --- Action endpoints -----------------------------------------------------
+
+  async listEndpoints(): Promise<EndpointRow[]> {
+    this.check();
+    const rows = await this.sql`SELECT * FROM ${this.t("endpoints")} ORDER BY agent_id`;
+    return rows.map(endpointRow);
+  }
+
+  async getEndpoint(agentId: string): Promise<EndpointRow | undefined> {
+    this.check();
+    const [row] = await this.sql`
+      SELECT * FROM ${this.t("endpoints")} WHERE agent_id = ${agentId}`;
+    return row && endpointRow(row);
+  }
+
+  async putEndpoint(row: EndpointRegistrationRow): Promise<void> {
+    this.check();
+    // Health belongs to a URL: a new URL starts with none.
+    await this.sql`
+      INSERT INTO ${this.t("endpoints")} AS e (
+        agent_id, url, implementation_version, manifest_hash, timeout_ms,
+        max_concurrent, principal_id, consecutive_failures, created_at, updated_at
+      ) VALUES (
+        ${row.agentId}, ${row.url}, ${row.implementationVersion}, ${row.manifestHash ?? null},
+        ${row.timeoutMs}, ${row.maxConcurrent}, ${row.principalId ?? null}, 0,
+        ${row.updatedAt}, ${row.updatedAt}
+      )
+      ON CONFLICT (agent_id) DO UPDATE SET
+        url = excluded.url,
+        implementation_version = excluded.implementation_version,
+        manifest_hash = excluded.manifest_hash,
+        timeout_ms = excluded.timeout_ms,
+        max_concurrent = excluded.max_concurrent,
+        principal_id = excluded.principal_id,
+        updated_at = excluded.updated_at,
+        last_delivery_at = CASE WHEN e.url = excluded.url THEN e.last_delivery_at END,
+        last_success_at = CASE WHEN e.url = excluded.url THEN e.last_success_at END,
+        last_error_code = CASE WHEN e.url = excluded.url THEN e.last_error_code END,
+        last_error_message = CASE WHEN e.url = excluded.url THEN e.last_error_message END,
+        consecutive_failures =
+          CASE WHEN e.url = excluded.url THEN e.consecutive_failures ELSE 0 END,
+        served_implementation_version =
+          CASE WHEN e.url = excluded.url THEN e.served_implementation_version END,
+        served_manifest_hash =
+          CASE WHEN e.url = excluded.url THEN e.served_manifest_hash END`;
+  }
+
+  async deleteEndpoint(agentId: string): Promise<void> {
+    this.check();
+    await this.sql`DELETE FROM ${this.t("endpoints")} WHERE agent_id = ${agentId}`;
+  }
+
+  async recordEndpointHealth(
+    agentId: string,
+    update: EndpointHealthUpdate,
+  ): Promise<void> {
+    this.check();
+    const table = this.t("endpoints");
+    switch (update.kind) {
+      case "success":
+        await this.sql`
+          UPDATE ${table} SET last_delivery_at = ${update.at}, last_success_at = ${update.at},
+            consecutive_failures = 0, last_error_code = NULL, last_error_message = NULL
+          WHERE agent_id = ${agentId}`;
+        return;
+      case "failure":
+        await this.sql`
+          UPDATE ${table} SET last_delivery_at = ${update.at}, last_error_code = ${update.code},
+            last_error_message = ${update.message},
+            consecutive_failures = consecutive_failures + 1
+          WHERE agent_id = ${agentId}`;
+        return;
+      case "served":
+        await this.sql`
+          UPDATE ${table} SET served_implementation_version = ${update.implementationVersion},
+            served_manifest_hash = ${update.manifestHash ?? null}
+          WHERE agent_id = ${agentId}`;
+        return;
+    }
   }
 
   // --- principals ----------------------------------------------------------
@@ -1214,6 +1351,7 @@ class PostgresTx implements Tx {
     if (scope === "all") {
       await sql`DELETE FROM ${this.t("definitions")}`;
       await sql`DELETE FROM ${this.t("executors")}`;
+      await sql`DELETE FROM ${this.t("endpoints")}`;
       await sql`DELETE FROM ${this.t("vaults")} WHERE scope <> 'host'`;
     }
   }

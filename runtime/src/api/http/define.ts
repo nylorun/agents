@@ -21,7 +21,13 @@ import { fail } from "../../tenant/http.js";
 import { ProtocolRejected, Rejected } from "../components.js";
 import type { TenantEnv } from "./app.js";
 
-export type Credential = "application" | "subject" | "token" | "publishable" | "executor";
+export type Credential =
+  | "application"
+  | "subject"
+  | "token"
+  | "publishable"
+  | "executor"
+  | "delivery";
 
 export interface RouteAccess {
   readonly credentials: readonly Credential[];
@@ -37,6 +43,7 @@ const SCHEMES: Record<Credential, string> = {
   token: "subjectToken",
   publishable: "publishableKey",
   executor: "executorKey",
+  delivery: "deliveryToken",
 };
 
 const rejected = (description: string) => ({
@@ -100,6 +107,10 @@ function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
       fail(403, "A publishable key alone reaches only the agent list", {
         code: "scope_required",
       });
+    // Handlers tell callers apart by kind, and a delivery token is none of theirs: only the
+    // routes that list it may see one.
+    if (scope.kind === "delivery" && !access.credentials.includes("delivery"))
+      fail(403, "A delivery token reaches only its Action's callbacks");
     c.set("scope", scope);
     await next();
   };

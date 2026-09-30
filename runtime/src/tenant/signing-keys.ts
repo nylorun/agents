@@ -28,6 +28,7 @@ import type {
   SigningKeyView,
 } from "@nylorun/core/contracts";
 import type { SigningKeyRow, Tx } from "../store/types.js";
+import { DELIVERY_TOKEN_MAX_TTL_SECONDS } from "@nylorun/core/contracts";
 import { decryptSecret, encryptSecret } from "../vault/crypto.js";
 import { fail } from "./http.js";
 
@@ -141,8 +142,9 @@ export class SigningKeys {
 
   /**
    * Rotates: previous → revoked, current → previous, standby → current, new standby. Refused
-   * with 409 while the previous key may still verify live tokens (retired less than
-   * `maxTtlSeconds` plus a minute ago), unless `force`.
+   * with 409 while the previous key may still verify live tokens (retired less than the
+   * longest token lifetime, `maxTtlSeconds` or a delivery token's, plus a minute ago), unless
+   * `force`.
    */
   async rotate(
     t: Tx,
@@ -156,7 +158,9 @@ export class SigningKeys {
     const [previous] = await t.signingKeys(["previous"]);
     if (previous && !force) {
       const retired = Date.parse(previous.retiredAt ?? previous.createdAt);
-      const until = retired + maxTtlSeconds * 1000 + ROTATION_GRACE_MS;
+      // Delivery tokens may outlive the policy's subject tokens.
+      const longest = Math.max(maxTtlSeconds, DELIVERY_TOKEN_MAX_TTL_SECONDS);
+      const until = retired + longest * 1000 + ROTATION_GRACE_MS;
       if (until > now.getTime())
         fail(409, "The previous key may still verify live tokens", {
           code: "request_rejected",

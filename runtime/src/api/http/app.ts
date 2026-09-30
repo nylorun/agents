@@ -15,6 +15,7 @@ import { agUiRoutes } from "../ag-ui/endpoint.js";
 import { authenticateCaller, declaredRoute, pathSegments, type RouteAccess } from "./define.js";
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
+import { endpointRoutes } from "./routes/endpoints.js";
 import { executorRoutes } from "./routes/executors.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { tenantRoutes } from "./routes/tenant.js";
@@ -61,6 +62,7 @@ function build(): OpenAPIHono<TenantEnv> {
     await next();
   });
   executorRoutes(api);
+  endpointRoutes(api);
   sessionRoutes(api);
   tenantRoutes(api);
   vaultRoutes(api);

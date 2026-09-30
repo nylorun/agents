@@ -2185,7 +2185,8 @@ export const PutEndpointsRequestSchema = z
 export type PutEndpointsRequest = z.infer<typeof PutEndpointsRequestSchema>;
 
 /** What recent deliveries and the last ping say about an endpoint. */
-export const EndpointHealthSchema = z.object({
+export const EndpointHealthSchema = z
+  .object({
   lastDeliveryAt: z.string().optional(),
   lastSuccessAt: z.string().optional(),
   lastError: z.object({ code: z.string(), message: z.string() }).optional(),
@@ -2196,25 +2197,35 @@ export const EndpointHealthSchema = z.object({
       implementationVersion: z.string(),
       manifestHash: z.string().optional(),
     })
+    .strict()
     .optional(),
-});
+  })
+  .strict();
 export type EndpointHealth = z.infer<typeof EndpointHealthSchema>;
 
-export const EndpointSchema = z.object({
-  agentId: z.string(),
-  url: z.string(),
-  implementationVersion: z.string(),
-  manifestHash: z.string().optional(),
-  timeoutMs: z.number().int(),
-  maxConcurrent: z.number().int(),
-  health: EndpointHealthSchema,
-  updatedAt: z.string(),
-});
+export const EndpointSchema = z
+  .object({
+    agentId: z.string(),
+    url: z.string(),
+    implementationVersion: z.string(),
+    manifestHash: z.string().optional(),
+    timeoutMs: z.number().int(),
+    maxConcurrent: z.number().int(),
+    health: EndpointHealthSchema,
+    updatedAt: z.string(),
+  })
+  .strict();
 export type Endpoint = z.infer<typeof EndpointSchema>;
-export const ListEndpointsResponseSchema = z.object({
-  endpoints: z.array(EndpointSchema),
-});
+export const ListEndpointsResponseSchema = z
+  .object({
+    endpoints: z.array(EndpointSchema),
+  })
+  .strict();
 export type ListEndpointsResponse = z.infer<typeof ListEndpointsResponseSchema>;
+export const DeleteEndpointResponseSchema = z
+  .object({ agentId: z.string(), deleted: z.literal(true) })
+  .strict();
+export type DeleteEndpointResponse = z.infer<typeof DeleteEndpointResponseSchema>;
 
 /** The body the Runtime POSTs to an Action endpoint. */
 export const ActionDeliverySchema = z.discriminatedUnion("type", [
