@@ -279,6 +279,8 @@ _Avoid_: "A2A proxy"; parsing A2A messages in the app server.
 
 One line each; the module named is where the term lives in code.
 
+- **Route declaration**: A Tenant or Admin route declared once with who may call it (`RouteAccess`: credentials, subject scopes, browser access), which serves it, checks subject scopes (`requireScopes`), answers its browser preflight and describes it (`api/http/define.ts`, `api/route.ts`). A path or method no route declares is `404 Route not found` once the caller is known.
+- **OpenAPI document**: The Tenant API's and the Admin API's OpenAPI 3.2 descriptions, generated from the route declarations (`api/openapi.ts`): served (`/openapi.json`, `/v1/admin/openapi.json`), packed (`@nylorun/runtime/openapi.json`, `/admin-openapi.json`), attached to each release; `runtime/openapi/` is their committed snapshot.
 - **Profile**: Who operates the Runtime's infrastructure, OSS or Cloud; not a code switch, since only endpoints (`host/stack-config.ts`) and the vault key differ.
 - **Tenant handle**: The `TenantHandle` of one open Tenant Runtime, bound to its schema, basin and vault key (`tenant/types.ts`, opened by `tenant/store-pg.ts`).
 - **API node**: A Runtime process with `--role api` or `all` serving the Tenant API, Admin API and SSE (`host/stack-config.ts`, `infra/workers.ts`).

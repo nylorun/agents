@@ -90,10 +90,6 @@ export function rejectedResponse(
   return jsonResponse(status, rejection(code, message, details));
 }
 
-export function sendOpaqueNotFound(response: ServerResponse): void {
-  sendJson(response, 404, OPAQUE_NOT_FOUND);
-}
-
 export function opaqueNotFoundResponse(): Response {
   return jsonResponse(404, OPAQUE_NOT_FOUND);
 }

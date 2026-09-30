@@ -69,9 +69,11 @@ the stack). What stays on the Host is under `tenants/<tenantId>/`.
 | --- | --- | --- |
 | `GET /health` | none | `service: "nylorun-runtime"`, `hostId`, protocol `{min,max,features}`, pid |
 | `GET /ready` | none | Listener up, Tenants discovered, and Postgres, Restate and S2 answer (`checks`) |
+| `GET /openapi.json` | none | The Tenant API's OpenAPI 3.2 document (below); refuses an `Origin` |
 | `GET /v1/admin/status` | admin key | `AdminStatusSchema`; alias `GET /v1/admin/host`. On the operator listener when there is one |
 | `/v1/admin/tenants*` | admin key | Create / list / get / delete Tenants |
 | `POST /v1/admin/host/shutdown` | admin key | Host-private; not in `@nylorun/admin` |
+| `GET /v1/admin/openapi.json` | admin key | The Admin API's OpenAPI 3.2 document |
 | `/v1/*` Tenant routes | application key, subject token or delivery token | Require `Nylorun-Tenant` (or `Nylorun-Key`) + `Nylorun-Protocol` |
 
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
@@ -84,7 +86,41 @@ key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant keys
 and delivery tokens are refused from browsers before they are looked up. A
 publishable key also names the Tenant, so `Nylorun-Tenant` may be left out. Missing or unsupported protocol → `426` before
 authentication. Unknown, quarantined or rejected Tenant credentials → opaque
-`404` with identical body.
+`404` with identical body. A path or method no route serves is `404 Route not found`
+once the caller is known.
+
+## API reference (OpenAPI)
+
+The Runtime describes its APIs as OpenAPI 3.2 documents, generated from the routes it serves,
+so they cannot drift from its answers:
+
+| Document | In the package | Served | On each release |
+| --- | --- | --- | --- |
+| Tenant API | `@nylorun/runtime/openapi.json` | `GET /openapi.json` | `openapi.json` |
+| Admin API | `@nylorun/runtime/admin-openapi.json` | `GET /v1/admin/openapi.json` (admin key) | `admin-openapi.json` |
+
+The release assets are on the `@nylorun/runtime@<version>` GitHub Release. Point any OpenAPI 3.2
+tool at one of them; for [Scalar](https://scalar.com), the package file of a version works as is:
+
+```text
+https://cdn.jsdelivr.net/npm/@nylorun/runtime@<version>/dist/openapi.json
+```
+
+Each operation's `security` says which credentials it takes (application key, subject token,
+publishable key, delivery token, admin key), and its `x-nylorun-credentials`,
+`x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields say who
+may call it. Event streams are `text/event-stream` with an `itemSchema`. `runtime/openapi/` holds the committed snapshots: a change to a route changes
+them (`node scripts/build-openapi.mjs --write`), and `check-package` fails until they are
+updated.
+
+## HTTP layer
+
+Routes are Hono routes (`@hono/zod-openapi`), each declared once with who may call it
+(`api/http/define.ts`): that declaration serves the route, checks subject scopes, answers
+browser preflights and makes the OpenAPI document. `host/` holds the listeners, the `Host`
+check (in Node, before Hono) and the Host pipeline (`host/app.ts`); `api/` the Tenant and
+Admin routes (`api/http/routes/`, `api/ag-ui/`, `api/a2a/`, `host/admin-api.ts`). Only `host/`
+and `api/` import Hono.
 
 ## Embedding and tests
 
