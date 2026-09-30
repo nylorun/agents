@@ -29,6 +29,14 @@
  * - **Sweeps.** `armSweep` arms one self-re-arming sweep per Tenant; arming an
  *   armed Tenant is a no-op. The sweep expires claims, re-wakes orphaned
  *   `runnable` sessions and relays outbox rows left behind.
+ * - **One delivery per Action at a time.** `deliver` runs
+ *   `WorkerHandlers.deliver` for the key `<tenantId>:<actionId>` at least once
+ *   after it resolves. Two deliveries for one key never overlap; repeated
+ *   `deliver` calls may each run it, so the handler reads the Action's state
+ *   and does nothing when there is nothing to deliver.
+ * - **Retry after `retry`.** A delivery that returns `retry` is run again for
+ *   the same key after `retryAfterMs`. This is how an Action endpoint that is
+ *   down or busy is retried; the handler throws only on infrastructure errors.
  */
 
 /** Why a session is woken (§12.3, "Where wakes come from"). */
@@ -70,6 +78,11 @@ export type AdvanceResult =
   /** Another Worker holds a live lease; run again for this key after `retryAfterMs`. */
   | { status: "busy"; retryAfterMs: number };
 
+export type DeliverResult =
+  | { status: "done" }
+  /** The Action is still to be delivered; run again for this key after `retryAfterMs`. */
+  | { status: "retry"; retryAfterMs: number };
+
 /** What a Worker runs when Durable Session Execution calls it. */
 export interface WorkerHandlers {
   /**
@@ -86,6 +99,15 @@ export interface WorkerHandlers {
   sweep(tenantId: string): Promise<void>;
   /** A durable timer set with `timer` fired. Required when `timer` is used. */
   fire?(tenantId: string, key: string): Promise<void>;
+  /**
+   * Delivers one Action to its Action endpoint. `signal` aborts when the Worker
+   * stops. Throw only on infrastructure errors. Required when `deliver` is used.
+   */
+  deliver?(
+    tenantId: string,
+    actionId: string,
+    signal: AbortSignal,
+  ): Promise<DeliverResult>;
 }
 
 export interface DurableExecution {
@@ -97,6 +119,12 @@ export interface DurableExecution {
    * implementation can; `fire` must be idempotent either way.
    */
   timer(tenantId: string, key: string, at: Date): Promise<void>;
+  /**
+   * At-least-once: `WorkerHandlers.deliver(tenantId, actionId)` runs after this
+   * resolves, never overlapping another delivery of the same Action. Send it
+   * after the transaction that made the Action pending commits.
+   */
+  deliver(tenantId: string, actionId: string): Promise<void>;
   /** Arms the Tenant's self-re-arming sweep. Idempotent. */
   armSweep(tenantId: string): Promise<void>;
   /** Stops re-arming the Tenant's sweep (Tenant deleted). A pass already running finishes. */
@@ -126,7 +154,10 @@ export interface StuckInvocation {
   /** Service name without any prefix, e.g. `NylorunSession`. */
   service: string;
   handler: string;
-  /** Object key: `<tenantId>:<sessionId>`, `<tenantId>` or `<tenantId>:<timer key>`. */
+  /**
+   * Object key: `<tenantId>:<sessionId>`, `<tenantId>`, `<tenantId>:<timer key>` or
+   * `<tenantId>:<actionId>`.
+   */
   key: string;
   tenantId?: string;
   retryCount: number;
@@ -134,7 +165,7 @@ export interface StuckInvocation {
   modifiedAt?: string;
 }
 
-/** The key one advance at a time is serialized on. */
+/** The key one advance (or one delivery, with an Action id) at a time is serialized on. */
 export function sessionKey(tenantId: string, sessionId: string): string {
   return `${tenantId}:${sessionId}`;
 }
