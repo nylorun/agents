@@ -95,7 +95,7 @@ eval "$(npx @nylorun/cli env)"
 | [`@nylorun/harness`](./harness)           | Execution engine and checkpoints                                  |
 | [`nylorun`](./nylorun)                    | `npx nylorun up`: sets up and runs the local Docker stack         |
 | [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): Tenants, Project link, model provider    |
-| [`@nylorun/agents`](./agents)             | Session SDK, authoring and authenticated SSE customer executor    |
+| [`@nylorun/agents`](./agents)             | Session SDK, authoring, and the Action endpoint that runs your tools |
 | [`@nylorun/admin`](./admin)               | Admin API client: Tenants and Host status                         |
 | [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
 | [`@nylorun/studio`](./studio)             | Dashboard and trusted proxy; the `ghcr.io/nylorun/studio` image   |
