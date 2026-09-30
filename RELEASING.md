@@ -135,7 +135,10 @@ package has no tarball there.
    environment once. Images and npm publication then run without further
    approval.
 5. Check the workflow summary, the images on `ghcr.io/nylorun`, npm
-   versions/dist-tags, and package GitHub releases.
+   versions/dist-tags, and package GitHub releases. The Runtime's release carries
+   its OpenAPI documents (`openapi.json`, `admin-openapi.json`), taken from the
+   tarball npm published; a rerun or a channel promotion uploads only a missing one
+   and never replaces one (`scripts/release/assets.mjs`).
 
 The jobs run in this order:
 

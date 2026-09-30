@@ -73,16 +73,9 @@ it("G6: credential-rejected matches unknown status and body (D5)", async () => {
   expect(unknown.headers.get("content-type")).toBe(
     rejected.headers.get("content-type"),
   );
-  // Host `sendOpaqueNotFound` sets Content-Length; Tenant OpaqueAuthError uses
-  // chunked transfer. Status + body + content-type match; framing headers differ
-  // until Tenant uses the same sendJson helper (CCR below).
-  const hostHeaders = comparableHeaders(unknown.headers);
-  const tenantHeadersCmp = comparableHeaders(rejected.headers);
-  delete hostHeaders["content-length"];
-  delete hostHeaders["transfer-encoding"];
-  delete tenantHeadersCmp["content-length"];
-  delete tenantHeadersCmp["transfer-encoding"];
-  expect(hostHeaders).toEqual(tenantHeadersCmp);
+  // The Host and the Tenant answer through the same helper (`api/http/respond.ts`): every
+  // header, framing included, is the same.
+  expect(comparableHeaders(unknown.headers)).toEqual(comparableHeaders(rejected.headers));
 
   const ok = await hostGetJson(`${host.url}/v1/agents`, {
     headers: a.headers(),
