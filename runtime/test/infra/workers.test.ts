@@ -7,6 +7,7 @@ function recordingExecution(): DurableExecution & { calls: string[] } {
   return {
     calls,
     wake: async () => {},
+    deliver: async () => {},
     timer: async () => {},
     armSweep: async () => {},
     disarmSweep: async () => {},

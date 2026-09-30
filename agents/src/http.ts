@@ -160,6 +160,15 @@ export class Transport {
     });
   }
 
+  /**
+   * The same destination with another bearer (a delivery token for an Action endpoint's
+   * callbacks). Like `withHeaders`, the copy shares this transport's compatibility check.
+   */
+  withKey(key: string): Transport {
+    const copy = Object.create(Transport.prototype) as Transport;
+    return Object.assign(copy, this, { key });
+  }
+
   /** Clears the cached Host compatibility result (used after a 426). */
   clearCompatibilityCache(): void {
     this.check.compatible = false;
