@@ -94,6 +94,14 @@ export async function putEndpoints(
     const executor = ctx.registry.remove(endpoint.agentId);
     if (executor) endExecutorStreams(ctx.live, executor.tokenHash);
   }
+  // Actions already waiting for these agents go to their endpoint now.
+  const waiting = await ctx.store.tx(async (t) => {
+    const actions = [];
+    for (const endpoint of body.endpoints)
+      actions.push(...(await t.pendingActions(endpoint.agentId)));
+    return actions;
+  });
+  for (const action of waiting) await ctx.deliver(action.actionId);
   return { endpoints: rows.map(endpointView) };
 }
 

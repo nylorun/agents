@@ -200,7 +200,8 @@ export type FlowEffect = EffectDoc & {
   error?: string;
 };
 
-const OPEN_ACTION: Action["status"][] = ["pending", "claimed"];
+/** Actions still to be settled: offered, claimed by an executor, or being delivered. */
+const OPEN_ACTION: Action["status"][] = ["pending", "claimed", "delivering"];
 
 function scheduleAfterCommit(
   t: Tx,
@@ -478,8 +479,8 @@ export async function planCancelCascade(input: {
   });
   for (const action of actions) {
     if (action.status === "pending") pendingActionIds.push(action.actionId);
-    else if (action.status === "claimed")
-      claimedActionIds.push(action.actionId);
+    // Claimed or being delivered: the code may already be running.
+    else claimedActionIds.push(action.actionId);
   }
 
   return {
@@ -554,7 +555,8 @@ export async function cancelSiblingWork(input: {
   });
   for (const action of actions) {
     if (!matchesSibling((action as { path?: string }).path)) continue;
-    const next = action.status === "claimed" ? "uncertain" : "cancelled";
+    // Claimed or delivered work may already have had an external effect.
+    const next = action.status === "pending" ? "cancelled" : "uncertain";
     action.status = next;
     await t.put("actions", action.actionId, action);
     const effect = await t.get<FlowEffect>("effects", action.actionId);
@@ -570,7 +572,8 @@ export async function cancelSiblingWork(input: {
 }
 
 /**
- * Apply cancel fencing to workflow-session actions (pending→cancelled, claimed→uncertain).
+ * Apply cancel fencing to workflow-session actions (pending→cancelled, claimed or
+ * delivering→uncertain).
  */
 export async function fenceWorkflowActions(input: {
   readonly t: Tx;
@@ -587,7 +590,8 @@ export async function fenceWorkflowActions(input: {
     statuses: OPEN_ACTION,
   });
   for (const action of actions) {
-    const next = action.status === "claimed" ? "uncertain" : "cancelled";
+    // Claimed or delivered work may already have had an external effect.
+    const next = action.status === "pending" ? "cancelled" : "uncertain";
     action.status = next;
     await t.put("actions", action.actionId, action);
     const effect = await t.get<FlowEffect>("effects", action.actionId);

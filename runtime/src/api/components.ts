@@ -12,6 +12,7 @@ import {
   ActionHeartbeatRequestSchema,
   ActionHeartbeatResponseSchema,
   DeleteEndpointResponseSchema,
+  EndpointPingResponseSchema,
   DeleteExecutorResponseSchema,
   ListEndpointsResponseSchema,
   PutEndpointsRequestSchema,
@@ -68,5 +69,6 @@ export const DeleteExecutorResponse = named("DeleteExecutorResponse", DeleteExec
 export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
 export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
 export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);
+export const EndpointPingResponse = named("EndpointPingResponse", EndpointPingResponseSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);

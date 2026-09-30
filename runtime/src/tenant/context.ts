@@ -172,6 +172,11 @@ export interface TenantContext {
   wake(sessionId: string, wake: Wake): Promise<void>;
   /** Seam: abort the advance of a session running in this process, if any. */
   abortLocal(sessionId: string): void;
+  /**
+   * Seam: deliver an Action to its agent's Action endpoint (`DurableExecution.deliver`). Call it
+   * from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends it.
+   */
+  deliver(actionId: string): Promise<void>;
   /** This Tenant's execution invocations that need an operator, for Tenant status. */
   readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */

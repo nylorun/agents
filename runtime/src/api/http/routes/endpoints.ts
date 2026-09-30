@@ -7,9 +7,11 @@ import { z } from "zod";
 import { PutEndpointsRequestSchema } from "@nylorun/core/contracts";
 import {
   DeleteEndpointResponse,
+  EndpointPingResponse,
   ListEndpointsResponse,
   PutEndpointsRequest,
 } from "../../components.js";
+import { pingEndpoint } from "../../../tenant/delivery.js";
 import { requireApplication } from "../../../tenant/auth.js";
 import {
   deleteEndpoint,
@@ -93,6 +95,30 @@ export function endpointRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       requireApplication(c.get("scope"));
       return jsonResponse(200, await deleteEndpoint(c.env.tenant, c.req.param("agentId")!));
+    },
+  );
+
+  tenantRoute(
+    api,
+    APPLICATION,
+    {
+      method: "post",
+      path: "/v1/endpoints/{agentId}/ping",
+      tags: ["Action endpoints"],
+      summary: "Ping an agent's Action endpoint",
+      description:
+        "Sends a signed ping through the endpoint and records what it answers it serves. A " +
+        "wrong URL, a tunnel that is down or a handler that does not serve the agent answers 502.",
+      request: { params: z.object({ agentId: z.string() }) },
+      responses: {
+        200: json(EndpointPingResponse, "What the endpoint serves"),
+        404: { description: "The agent has no endpoint" },
+        502: { description: "The endpoint did not answer the ping" },
+      },
+    },
+    async (c) => {
+      requireApplication(c.get("scope"));
+      return jsonResponse(200, await pingEndpoint(c.env.tenant, c.req.param("agentId")!));
     },
   );
 }
