@@ -13,6 +13,7 @@ import type { NodeBindings } from "../../tenant/types.js";
 import { pathSegments } from "./define.js";
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { handle } from "./routes.js";
+import { endpointRoutes } from "./routes/endpoints.js";
 import { executorRoutes } from "./routes/executors.js";
 
 export type TenantBindings = NodeBindings & { readonly tenant: TenantContext };
@@ -47,6 +48,7 @@ function build(): OpenAPIHono<TenantEnv> {
     await next();
   });
   executorRoutes(api);
+  endpointRoutes(api);
   api.notFound(legacy);
   api.onError((error, c) => {
     const { outgoing } = c.env;

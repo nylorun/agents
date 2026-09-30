@@ -135,6 +135,7 @@ export function routeAccess(
   switch (resource) {
     case "executors":
     case "actions":
+    case "endpoints":
     // Minting and access management belong to the application key alone.
     case "tokens":
       return "never";
