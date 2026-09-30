@@ -1,8 +1,9 @@
 /**
  * The Tenant HTTP router: authenticates the bearer token, matches `/v1/...` routes and
- * delegates to the service modules (commands, actions, sessions, live, routes-tenant). It
- * maps typed errors to responses and owns no business logic of its own. History, SSE and
- * executor work streams read Durable Streams (`live.ts`).
+ * delegates to the Tenant's service modules (`tenant/`: commands, actions, sessions, live),
+ * `routes-tenant.ts`, `routes-access.ts` and the AG-UI and A2A endpoints (`api/ag-ui/`,
+ * `api/a2a/`). It maps typed errors to responses and owns no business logic of its own.
+ * History, SSE and executor work streams read Durable Streams (`tenant/live.ts`).
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -11,30 +12,30 @@ import {
   RegisterExecutorsRequestSchema,
   SessionCommandSchema,
 } from "@nylorun/core/contracts";
-import { VaultError } from "../vault/error.js";
+import { VaultError } from "../../vault/error.js";
 import {
   SandboxRouteError,
   handleSessionSandboxTool,
-} from "../core/sandbox-routes.js";
-import { loadSession, sessionOf, type TenantContext } from "./context.js";
+} from "../../core/sandbox-routes.js";
+import { loadSession, sessionOf, type TenantContext } from "../../tenant/context.js";
 import {
   HttpError,
   OpaqueAuthError,
   fail,
   readBody,
   requestAborted,
-} from "./http.js";
+} from "../../tenant/http.js";
 import {
   accessOf,
   authenticate,
   authorize,
   requireApplication,
   requirePrincipal,
-} from "./auth.js";
+} from "../../tenant/auth.js";
 import { dispatchAccess } from "./routes-access.js";
-import { identifyClient } from "./browser.js";
-import { dispatchAgUi } from "./ag-ui.js";
-import { command } from "./commands.js";
+import { identifyClient } from "../../tenant/browser.js";
+import { dispatchAgUi } from "../ag-ui/routes.js";
+import { command } from "../../tenant/commands.js";
 import {
   actionSandboxTool,
   deleteExecutor,
@@ -43,7 +44,7 @@ import {
   registerExecutors,
   sandboxRouteDeps,
   updateAction,
-} from "./actions.js";
+} from "../../tenant/actions.js";
 import {
   listAgentsPublic,
   listDefinitions,
@@ -51,15 +52,15 @@ import {
   putDefinition,
   putSession,
   sessionView,
-} from "./sessions.js";
+} from "../../tenant/sessions.js";
 import {
   readHistory,
   requestCursor,
   streamExecutorWork,
   streamSessionEvents,
-} from "./live.js";
+} from "../../tenant/live.js";
 import { dispatchTenant, dispatchVault } from "./routes-tenant.js";
-import { dispatchA2a } from "./a2a.js";
+import { dispatchA2a } from "../a2a/routes.js";
 
 export async function handle(
   ctx: TenantContext,

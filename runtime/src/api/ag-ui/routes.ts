@@ -31,22 +31,22 @@ import {
   PutSessionRequestSchema,
   type LiveEvent,
 } from "@nylorun/core/contracts";
-import { messagesFromEvents } from "../ag-ui/history.js";
-import { sessionIdFor } from "../ag-ui/session-id.js";
-import { SSE_CONTENT_TYPE, SSE_HEARTBEAT, sseFrame } from "../ag-ui/sse.js";
-import { RunTranslator } from "../ag-ui/translate.js";
-import { accessOf } from "./auth.js";
-import { command } from "./commands.js";
-import { loadSession, sessionOf, type AuthScope, type TenantContext } from "./context.js";
-import { fail, HttpError, readBody } from "./http.js";
+import { messagesFromEvents } from "./history.js";
+import { sessionIdFor } from "./session-id.js";
+import { SSE_CONTENT_TYPE, SSE_HEARTBEAT, sseFrame } from "./sse.js";
+import { RunTranslator } from "./translate.js";
+import { accessOf } from "../../tenant/auth.js";
+import { command } from "../../tenant/commands.js";
+import { loadSession, sessionOf, type AuthScope, type TenantContext } from "../../tenant/context.js";
+import { fail, HttpError, readBody } from "../../tenant/http.js";
 import {
   observeSession,
   readHistory,
   StreamClosed,
   type StreamHolder,
-} from "./live.js";
-import { putSession, sessionView } from "./sessions.js";
-import { mayUseAgent } from "./tokens.js";
+} from "../../tenant/live.js";
+import { putSession, sessionView } from "../../tenant/sessions.js";
+import { mayUseAgent } from "../../tenant/tokens.js";
 
 const HEARTBEAT_MS = 15_000;
 const TERMINAL = new Set([

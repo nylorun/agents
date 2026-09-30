@@ -17,8 +17,8 @@ import {
   type LiveEvent,
   type SessionCommand,
 } from "@nylorun/core/contracts";
-import { commandKey } from "../core/flow-host.js";
-import { agentCard, type CardDefinition } from "../a2a/card.js";
+import { commandKey } from "../../core/flow-host.js";
+import { agentCard, type CardDefinition } from "./card.js";
 import {
   A2aError,
   a2aFail,
@@ -30,7 +30,7 @@ import {
   parseTaskParams,
   type JsonRpcRequest,
   type Task,
-} from "../a2a/protocol.js";
+} from "./protocol.js";
 import {
   SETTLED_EVENTS,
   buildTask,
@@ -39,19 +39,19 @@ import {
   parseTaskId,
   pendingInteraction,
   taskIdOf,
-} from "../a2a/tasks.js";
-import { accessOf } from "./auth.js";
-import { command } from "./commands.js";
+} from "./tasks.js";
+import { accessOf } from "../../tenant/auth.js";
+import { command } from "../../tenant/commands.js";
 import {
   loadSession,
   type AuthScope,
   type Session,
   type SessionAccess,
   type TenantContext,
-} from "./context.js";
-import { HttpError, fail, readText } from "./http.js";
-import { observeSession, readHistory } from "./live.js";
-import { putSession } from "./sessions.js";
+} from "../../tenant/context.js";
+import { HttpError, fail, readText } from "../../tenant/http.js";
+import { observeSession, readHistory } from "../../tenant/live.js";
+import { putSession } from "../../tenant/sessions.js";
 
 /**
  * How long a blocking `SendMessage` waits for the task to end or ask for input. After it, the

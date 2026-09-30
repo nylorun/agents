@@ -40,7 +40,7 @@ function collectMatches(source, pattern) {
 
 /**
  * Fail on ambient process/OS reads under runtime/src (except host/main.ts)
- * and on console.* under runtime/src/tenant.
+ * and on console.* under runtime/src/tenant and runtime/src/api.
  *
  * @param {{ runtimeSrc?: string }} [options]
  * @returns {{ ok: true } | { ok: false, violations: string[] }}
@@ -63,10 +63,11 @@ export function checkAmbient(options = {}) {
       }
     }
 
-    if (rel === "tenant" || rel.startsWith("tenant/")) {
+    const area = rel.split("/")[0];
+    if (area === "tenant" || area === "api") {
       for (const match of collectMatches(source, CONSOLE_PATTERN)) {
         violations.push(
-          `${rel}:${match.line}: ${match.text} forbidden under runtime/src/tenant`,
+          `${rel}:${match.line}: ${match.text} forbidden under runtime/src/${area}`,
         );
       }
     }

@@ -5,10 +5,10 @@
  */
 import { describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
-import { messagesFromEvents } from "../../src/ag-ui/history.js";
-import { sessionIdFor } from "../../src/ag-ui/session-id.js";
-import { sseFrame } from "../../src/ag-ui/sse.js";
-import { RunTranslator } from "../../src/ag-ui/translate.js";
+import { messagesFromEvents } from "../../src/api/ag-ui/history.js";
+import { sessionIdFor } from "../../src/api/ag-ui/session-id.js";
+import { sseFrame } from "../../src/api/ag-ui/sse.js";
+import { RunTranslator } from "../../src/api/ag-ui/translate.js";
 
 const TENANT = "tn_00000000000000000000000001";
 
