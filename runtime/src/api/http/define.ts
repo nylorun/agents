@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { SubjectScope } from "@nylorun/core/contracts";
 import { authenticate, authorize } from "../../tenant/auth.js";
 import { identifyClient } from "../../tenant/browser.js";
+import type { AuthScope } from "../../tenant/context.js";
 import { fail } from "../../tenant/http.js";
 import { ProtocolRejected, Rejected } from "../components.js";
 import type { TenantEnv } from "./app.js";
@@ -148,4 +149,15 @@ export function tenantRoute(
     authenticated(access),
     handler,
   );
+}
+
+/** The executor a route's caller is, or 403. */
+export function executorOf(scope: AuthScope) {
+  if (scope.kind !== "executor") return fail(403, "Executor credential required");
+  return scope.executor;
+}
+
+/** The router's executor gate: past it, executors reach nothing. */
+export function notExecutor(scope: AuthScope): void {
+  if (scope.kind === "executor") fail(403, "Application credential required");
 }

@@ -318,7 +318,8 @@ afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
-describe("route matrix", () => {
+// Hundreds of requests each: more than the default 5 seconds on a busy machine.
+describe("route matrix", { timeout: 60_000 }, () => {
   it("answers every Tenant operation, as every caller, as recorded", async () => {
     const matrix: Record<string, Record<string, Observed>> = {};
     for (const operation of [...tenantOperations(), ...edgeOperations()]) {

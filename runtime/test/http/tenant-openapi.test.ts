@@ -64,3 +64,48 @@ it("documents session commands for every caller that sends them, with their head
     expect.arrayContaining(["200", "400", "401", "403", "404", "409", "426", "429", "503"]),
   );
 });
+
+it("documents session events as server-sent LiveEvents, ending with the closed frame", () => {
+  const op = operation("get", "/v1/sessions/{sessionId}/events");
+  expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+  expect(op["x-nylorun-browser"]).toBe(true);
+  expect(op.responses["200"].content["text/event-stream"].itemSchema).toEqual({
+    anyOf: [
+      { $ref: "#/components/schemas/LiveEvent" },
+      { $ref: "#/components/schemas/StreamClosedFrame" },
+    ],
+  });
+});
+
+it("documents the agent list for publishable keys too, and agent puts for application keys", () => {
+  expect(operation("get", "/v1/agents").security).toEqual([
+    { applicationKey: [] },
+    { subjectToken: [] },
+    { publishableKey: [] },
+  ]);
+  expect(operation("put", "/v1/agents/{agentId}").security).toEqual([{ applicationKey: [] }]);
+  expect(operation("post", "/v1/sessions/{sessionId}/sandbox/{tool}")["x-nylorun-scopes"]).toBe(
+    "never",
+  );
+});
+
+it("documents vaults for a person's own credentials, and Tenant settings for application keys", () => {
+  for (const [method, path] of [
+    ["post", "/v1/vaults"],
+    ["get", "/v1/vaults/{vaultId}/credentials/{credentialId}"],
+    ["delete", "/v1/vaults/{vaultId}"],
+  ] as const) {
+    const op = operation(method, path);
+    expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+    expect(op["x-nylorun-scopes"]).toEqual(["vaults:own"]);
+    expect(op["x-nylorun-browser"]).toBe(true);
+  }
+  expect(operation("post", "/v1/tenant/reset")["x-nylorun-scopes"]).toBe("never");
+  expect(operation("get", "/v1/tenant/models")["x-nylorun-scopes"]).toEqual([
+    "tenant:settings",
+    "agents:write",
+  ]);
+  expect(operation("put", "/v1/tenant/sandbox").requestBody.content["application/json"].schema).toEqual({
+    $ref: "#/components/schemas/PutTenantSandboxRequest",
+  });
+});
