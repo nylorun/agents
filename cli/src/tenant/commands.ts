@@ -118,7 +118,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb || verb === "--help" || verb === "-h") {
     console.log(
-      `nylo tenant create [name]|current|list [--json]|use <name-or-id>|status [--json]|reset [--sessions|--sandboxes|--all] [--yes]|delete <name-or-id> [--yes]`,
+      `nylo tenant create [name]|current|list [--json]|use <name-or-id>|status [--json]|endpoints [--json]|endpoints ping <agent>|reset [--sessions|--sandboxes|--all] [--yes]|delete <name-or-id> [--yes]`,
     );
     return;
   }
@@ -188,7 +188,7 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     const tenants = await admin.listTenants();
     const selected = matchTenant(tenants, nameOrId);
     console.warn(
-      "Sharing a Tenant shares executor registrations across Projects that link to it.",
+      "Sharing a Tenant shares executor and Action endpoint registrations across Projects that link to it.",
     );
     const authorizes = async (key: string): Promise<boolean> => {
       try {
@@ -246,6 +246,11 @@ export async function tenantCommand(args: readonly string[]): Promise<void> {
     console.log(
       `Linked to ${selected.name ?? selected.id}  ${selected.id}`,
     );
+    return;
+  }
+
+  if (verb === "endpoints") {
+    await endpointsCommand(rest);
     return;
   }
 
@@ -437,4 +442,78 @@ async function confirmOrThrow(prompt: string): Promise<void> {
   } finally {
     rl.close();
   }
+}
+
+/** The Project's application client, from its link and credentials. */
+async function projectClient() {
+  const root = requireProjectRoot();
+  const link = await readLink(root);
+  const credentials = await readCredentials(root);
+  if (!link || !credentials)
+    throw new CliError("No Project link. Run nylo tenant create to create one.", 1);
+  return createClient({ url: link.hostUrl, key: credentials.applicationKey, tenant: link.tenantId });
+}
+
+/** `nylo tenant endpoints [--json]` and `nylo tenant endpoints ping <agent>`. */
+async function endpointsCommand(args: readonly string[]): Promise<void> {
+  const client = await projectClient();
+  if (args[0] === "ping") {
+    const agentId = args[1];
+    if (!agentId || args.length > 2)
+      throw new CliError("Usage: nylo tenant endpoints ping <agent>", 2);
+    const answer = await client.transport.json<{
+      agentId: string;
+      implementationVersion: string;
+      manifestHash?: string;
+    }>(`/v1/endpoints/${encodeURIComponent(agentId)}/ping`, "POST");
+    console.log(
+      `${answer.agentId}  serves ${answer.implementationVersion}${answer.manifestHash ? `  ${answer.manifestHash}` : ""}`,
+    );
+    return;
+  }
+  const json = args.includes("--json");
+  if (args.some((a) => a !== "--json"))
+    throw new CliError("Usage: nylo tenant endpoints [--json] | nylo tenant endpoints ping <agent>", 2);
+  const body = await client.transport.json<{
+    endpoints: {
+      agentId: string;
+      url: string;
+      implementationVersion: string;
+      health: {
+        consecutiveFailures: number;
+        lastSuccessAt?: string;
+        lastError?: { code: string; message: string };
+      };
+    }[];
+  }>("/v1/endpoints", "GET");
+  if (json) {
+    console.log(JSON.stringify(body, null, 2));
+    return;
+  }
+  if (body.endpoints.length === 0) {
+    console.log("No Action endpoints. Register one with createActionHandler(...).register({ url }).");
+    return;
+  }
+  for (const endpoint of body.endpoints) console.log(endpointLine(endpoint));
+}
+
+/** One line of `nylo tenant endpoints`: the agent, its URL and version, and how it is doing. */
+export function endpointLine(endpoint: {
+  agentId: string;
+  url: string;
+  implementationVersion: string;
+  health: {
+    consecutiveFailures: number;
+    lastSuccessAt?: string;
+    lastError?: { code: string; message: string };
+  };
+}): string {
+  const { health } = endpoint;
+  const state =
+    health.consecutiveFailures > 0
+      ? `failing (${health.consecutiveFailures}): ${health.lastError?.message || health.lastError?.code || "unknown"}`
+      : health.lastSuccessAt
+        ? `ok (last ${health.lastSuccessAt})`
+        : "no deliveries yet";
+  return `${endpoint.agentId}  ${endpoint.url}  ${endpoint.implementationVersion}  ${state}`;
 }

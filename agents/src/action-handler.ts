@@ -15,8 +15,11 @@ import {
 } from "@nylorun/core/compatibility";
 import {
   ActionDeliverySchema,
+  DeliveryHeartbeatResponseSchema,
   EndpointPingResponseSchema,
   PutEndpointsRequestSchema,
+  type Action,
+  type ActionOutcome,
   type EndpointPingResponse,
   type EndpointRegistration,
 } from "@nylorun/core/contracts";
@@ -28,8 +31,12 @@ import {
   JwksCache,
   verifyDeliveryToken,
 } from "./delivery-token.js";
-import { executeAction } from "./execute-action.js";
-import { Transport, segment } from "./http.js";
+import {
+  executeAction,
+  runsInBackground,
+  type ExecutableDefinition,
+} from "./execute-action.js";
+import { RuntimeError, Transport, delay, segment } from "./http.js";
 import { createActionSandbox } from "./sandbox/client.js";
 import {
   buildAgents,
@@ -65,6 +72,12 @@ export interface ActionHandlerOptions {
   implementationVersion?: string;
   /** Receives errors that are answered with a status instead of thrown. */
   onError?: (error: unknown) => void;
+  /**
+   * Keeps the process alive for a background tool's work after its `202` answer, on platforms
+   * that end a request's work with its response (for example a serverless platform's
+   * `waitUntil`). A Node server needs nothing.
+   */
+  waitUntil?: (work: Promise<unknown>) => void;
 }
 
 export interface RegisterOptions {
@@ -167,6 +180,18 @@ export function createActionHandler(options: ActionHandlerOptions): ActionHandle
         "version_mismatch",
         `Action ${action.actionId} belongs to manifest ${action.manifestHash} of '${action.agentId}'; this endpoint serves ${served}`,
       );
+    if (runsInBackground(action, agent)) {
+      const work = runInBackground({
+        action,
+        agent,
+        token: token!,
+        sandbox: delivery.sandbox,
+        runtime: { url, tenant, ...(fetch ? { fetch } : {}) },
+        report,
+      });
+      options.waitUntil?.(work);
+      return new Response(null, { status: 202 });
+    }
     const sandbox = delivery.sandbox
       ? createActionSandbox({
           transport: (callbacks = callbacks
@@ -252,6 +277,97 @@ export function createActionHandler(options: ActionHandlerOptions): ActionHandle
       return answers;
     },
   };
+}
+
+/** How long a background tool waits before its first heartbeat, and after a failed one. */
+const HEARTBEAT_RETRY_MS = 1_000;
+
+/**
+ * A background tool (`ToolDefinition.background`): runs after the `202` answer, heartbeats on
+ * the deadline the Runtime returns, stops when a heartbeat answers `409` (cancelled, lost or
+ * sent again), and posts its outcome. Every callback uses the newest delivery token.
+ */
+async function runInBackground(input: {
+  action: Action;
+  agent: ExecutableDefinition;
+  token: string;
+  sandbox: boolean;
+  runtime: { url: string; tenant: string; fetch?: typeof fetch };
+  report: (error: unknown) => void;
+}): Promise<void> {
+  const { action, report } = input;
+  let current = new Transport({ ...input.runtime, key: input.token });
+  const live = {
+    json: (...args: Parameters<Transport["json"]>) => current.json(...args),
+  } as unknown as Transport;
+  const path = `/v1/actions/${segment(action.actionId)}`;
+  const stop = new AbortController();
+  const done = new AbortController();
+  const heartbeats = (async () => {
+    let wait = HEARTBEAT_RETRY_MS;
+    while (!done.signal.aborted && !stop.signal.aborted) {
+      try {
+        await delay(wait, done.signal);
+      } catch {
+        return;
+      }
+      try {
+        const renewed = DeliveryHeartbeatResponseSchema.parse(
+          await current.json(`${path}/heartbeat`, "POST", undefined, done.signal),
+        );
+        current = current.withKey(renewed.token);
+        wait = Math.max(
+          HEARTBEAT_RETRY_MS,
+          Math.floor((Date.parse(renewed.deadlineAt) - Date.now()) / 3),
+        );
+      } catch (error) {
+        if (done.signal.aborted) return;
+        if (error instanceof RuntimeError && error.status === 409) {
+          stop.abort(error);
+          return;
+        }
+        report(error);
+        wait = HEARTBEAT_RETRY_MS;
+      }
+    }
+  })();
+  let outcome: ActionOutcome;
+  try {
+    outcome = await executeAction(action, input.agent, stop.signal, {
+      ...(input.sandbox
+        ? { sandbox: createActionSandbox({ transport: live, actionId: action.actionId, signal: stop.signal }) }
+        : {}),
+    });
+  } catch (error) {
+    // Not served here: say so rather than leave the Runtime waiting for the deadline.
+    report(error);
+    outcome = {
+      value: {
+        kind: "failed",
+        code: "action_not_served",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  } finally {
+    done.abort();
+  }
+  await heartbeats;
+  if (stop.signal.aborted) return;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await current.json(`${path}/result`, "POST", outcome);
+      return;
+    } catch (error) {
+      if (
+        attempt >= 4 ||
+        (error instanceof RuntimeError && error.status < 500 && error.status !== 429)
+      ) {
+        report(error);
+        return;
+      }
+      await delay(Math.min(4_000, 250 * 2 ** attempt), new AbortController().signal);
+    }
+  }
 }
 
 interface Verification {
