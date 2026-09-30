@@ -22,7 +22,7 @@ try {
   if (nodeOnly.length)
     throw new Error(`Browser entry loaded Node-only modules: ${nodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
-  for (const name of ["Agent", "createClient", "connectAgents"])
+  for (const name of ["Agent", "createClient", "connectAgents", "createActionHandler"])
     if (typeof sdk[name] !== "function")
       throw new Error(`Missing SDK export ${name}`);
   const execution = loaded.filter((url) =>

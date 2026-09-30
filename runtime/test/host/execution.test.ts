@@ -57,6 +57,7 @@ function recordingExecution(
     calls,
     failArm,
     wake: async () => {},
+    deliver: async () => {},
     timer: async () => {},
     armSweep: async (tenantId) => {
       calls.push(`arm:${tenantId}`);
@@ -160,6 +161,14 @@ describe("createHostExecution roles", () => {
       sweep: async () => {
         calls.push(`${name}:sweep`);
       },
+      ...(name === "registered"
+        ? {
+            deliver: async (actionId: string) => {
+              calls.push(`${name}:deliver:${actionId}`);
+              return { status: "retry" as const, retryAfterMs: 5 };
+            },
+          }
+        : {}),
     });
     const created = host({
       execution: recordingExecution(),
@@ -175,10 +184,20 @@ describe("createHostExecution roles", () => {
       status: "done",
     });
     await workers.handlers.sweep("tenant_b");
+    expect(await workers.handlers.deliver!("tenant_a", "a1", signal)).toEqual({
+      status: "retry",
+      retryAfterMs: 5,
+    });
+    // A Tenant that does not deliver, or is not open here, has nothing to deliver.
+    for (const tenantId of ["tenant_b", "tenant_c"])
+      expect(await workers.handlers.deliver!(tenantId, "a2", signal)).toEqual({
+        status: "done",
+      });
     expect(calls).toEqual([
       "registered:advance:s1",
       "resolved:advance:s2",
       "resolved:sweep",
+      "registered:deliver:a1",
     ]);
   });
 });
