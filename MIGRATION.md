@@ -1,3 +1,35 @@
+# Action endpoints replace executors
+
+Protocol 3 removes executors. The Runtime no longer offers Actions for a process to claim.
+It POSTs each Action (tool, hook, `fn`, `verify`) to the URL your app registers, signed with a
+short-lived delivery token, and your app answers with the outcome. A Runtime and SDK must both
+speak protocol 3; upgrade them together.
+
+| Before | After |
+| --- | --- |
+| `connectAgents({ agents })` | `const actions = createActionHandler({ agents, url })`, served by your HTTP server (`actions.node` or `actions.fetch`), then `await actions.register({ url })` |
+| `@nylorun/agents/executor` | `createActionHandler` from `@nylorun/agents` |
+| Executor keys: `NYLORUN_EXECUTOR_KEY`, derived keys, `PUT /v1/executors` | None. `register()` sends `PUT /v1/endpoints` with the application key; each delivery carries its own token |
+| `GET /v1/executors`, `DELETE /v1/executors/:agentId` | `GET /v1/endpoints`, `DELETE /v1/endpoints/:agentId`, `POST /v1/endpoints/:agentId/ping`, `nylo tenant endpoints` |
+| `GET /v1/executors/connect`, `GET /v1/actions`, `POST /v1/actions/:id/claim` | None: the Runtime POSTs to the endpoint |
+| The `action_result` session command | The endpoint's answer. A tool marked `background: true` answers `202` and posts `POST /v1/actions/:id/result` |
+| `POST /v1/actions/:id/heartbeat` with a claim | The same route with the delivery token, for background tools. It returns a fresh token |
+| `POST /v1/actions/:id/sandbox/:tool` with `claimId` and `generation` | The same route with the delivery token. `ctx.sandbox` is unchanged |
+| Action status `claimed`, `claimId`, `leaseExpiresAt` | `delivering`, `deadlineAt` |
+| `action.claimed` events | `action.delivered`, and `action.delivery_failed` while the endpoint can't be reached |
+| Tenant summary `connectedExecutors` | `inFlightDeliveries` |
+
+- **Reachability.** The Runtime must reach the URL. On the local stack, `localhost` means the
+  machine running Docker. A Runtime elsewhere needs a public URL, such as a tunnel. A Runtime
+  that refuses private addresses (Cloud) refuses `localhost` URLs.
+- **Long tools.** An inline delivery lasts `timeoutMs` (default 60 s, at most 840 s). Mark
+  longer tools `background: true`; the handler heartbeats and posts the result.
+- **In flight during the upgrade.** Postgres migration 6 treats Actions that an executor had
+  claimed as lost deliveries. A tool becomes `uncertain`. A hook, `fn` or `verify` is
+  delivered again once the agent's endpoint is registered.
+- **Status.** `GET /v1/tenant/status` lists `endpoint` per agent instead of `connected`, and
+  checks `endpoints` instead of `executors`.
+
 # Sandboxes are chosen when a session is opened
 
 Agent and flow agent definitions no longer declare a sandbox. A session gets one when

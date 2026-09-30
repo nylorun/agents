@@ -74,7 +74,7 @@ the stack). What stays on the Host is under `tenants/<tenantId>/`.
 | `/v1/admin/tenants*` | admin key | Create / list / get / delete Tenants |
 | `POST /v1/admin/host/shutdown` | admin key | Host-private; not in `@nylorun/admin` |
 | `GET /v1/admin/openapi.json` | admin key | The Admin API's OpenAPI 3.2 document |
-| `/v1/*` Tenant routes | application, executor or subject token | Require `Nylorun-Tenant` (or `Nylorun-Key`) + `Nylorun-Protocol` |
+| `/v1/*` Tenant routes | application key, subject token or delivery token | Require `Nylorun-Tenant` (or `Nylorun-Key`) + `Nylorun-Protocol` |
 
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
 with `415 unsupported_media_type`. An `Origin` is `403 origin_rejected` on
@@ -82,8 +82,8 @@ with `415 unsupported_media_type`. An `Origin` is `403 origin_rejected` on
 With browser access on (feature `browser-access`: the stack's default, or
 `browserAccess` in `host.json`), the Host answers preflights for browser routes
 from the route alone, and the Tenant admits an `Origin` only with a publishable
-key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant and
-executor keys are refused from browsers before they are looked up. A
+key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant keys
+and delivery tokens are refused from browsers before they are looked up. A
 publishable key also names the Tenant, so `Nylorun-Tenant` may be left out. Missing or unsupported protocol → `426` before
 authentication. Unknown, quarantined or rejected Tenant credentials → opaque
 `404` with identical body. A path or method no route serves is `404 Route not found`
@@ -107,10 +107,9 @@ https://cdn.jsdelivr.net/npm/@nylorun/runtime@<version>/dist/openapi.json
 ```
 
 Each operation's `security` says which credentials it takes (application key, subject token,
-publishable key, executor key, admin key), and its `x-nylorun-credentials`,
+publishable key, delivery token, admin key), and its `x-nylorun-credentials`,
 `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields say who
-may call it. Event streams are `text/event-stream` with an `itemSchema`. The executor routes
-are deprecated. `runtime/openapi/` holds the committed snapshots: a change to a route changes
+may call it. Event streams are `text/event-stream` with an `itemSchema`. `runtime/openapi/` holds the committed snapshots: a change to a route changes
 them (`node scripts/build-openapi.mjs --write`), and `check-package` fails until they are
 updated.
 
@@ -132,8 +131,10 @@ its Tenants live in memory and are gone after `close()`. The smoke checks'
 temporary Tenants (`scripts/lib/temporary-tenant.mjs`) do not use it; they are
 created on the Docker stack.
 
-Register executors with `PUT /v1/executors` using the application principal
-(application-mode `connectAgents` does this with derived tokens). Model gateway
+Register Action endpoints with `PUT /v1/endpoints` using the application principal
+(`createActionHandler(...).register({ url })` in `@nylorun/agents` does this). The
+Runtime delivers each Action there with an `http` or `https` POST, so the URL must be
+reachable from the Runtime. Model gateway
 and sandbox backend are Tenant configuration (vault / seed), not Host process
 env.
 
@@ -141,9 +142,9 @@ env.
 
 The session-first `/v1` API is specified in
 [HOST_CONTRACT.md](../harness/HOST_CONTRACT.md). Application tokens authorize
-definition/session APIs; executor credentials authorize authenticated SSE
-connect, action discovery, claims, renewal and results. Session observers cannot
-claim actions.
+definition/session APIs. The Runtime delivers Actions to Action endpoints, and a
+delivery token authorizes only its own Action's heartbeat, result and sandbox calls.
+Session observers cannot submit action results.
 
 Postgres transactions persist session checkpoints, command receipts, individual
 effects/actions, waits and the event outbox — **per Tenant schema**; history is

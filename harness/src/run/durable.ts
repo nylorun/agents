@@ -276,7 +276,7 @@ export async function runDurable(options: {
             },
       ),
     );
-    // All capabilities registered at a hook point share one effect, so one executor round trip.
+    // All capabilities registered at a hook point share one effect, so one Action delivery.
     const runHooks: HookRunner = async ({ point, capabilityIds, args, identity }) => {
       const outcome = await effect("hook", args, { info: checkpoint.info }, scoped(ref, identity), {
         hook: { at: point.at, scope: point.scope, capabilityIds },

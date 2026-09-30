@@ -7,8 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import {
   CONTROL_STREAM,
-  WORK_AVAILABLE,
-  WORK_STREAM,
   sessionStream,
   type DurableStreams,
   type StreamRecord,
@@ -70,7 +68,6 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
 
     it("names streams", () => {
       expect(sessionStream("abc", "i1")).toBe("sessions/abc/i1");
-      expect(WORK_STREAM).toBe("tenant/work");
       expect(CONTROL_STREAM).toBe("tenant/control");
     });
 
@@ -174,14 +171,14 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
       const controller = new AbortController();
       const seen: number[][] = [[], []];
       const readers = seen.map(async (into) => {
-        for await (const record of streams.read<{ type: string }>(tenantId, WORK_STREAM, 0, {
+        for await (const record of streams.read<{ type: string }>(tenantId, CONTROL_STREAM, 0, {
           signal: controller.signal,
         }))
           into.push(record.seq);
       });
       await sleep(50);
-      await streams.append(tenantId, WORK_STREAM, [WORK_AVAILABLE]);
-      await streams.append(tenantId, WORK_STREAM, [WORK_AVAILABLE]);
+      await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
+      await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
       await withTimeout(
         (async () => {
           while (seen.some((s) => s.length < 2)) await sleep(10);
@@ -225,8 +222,8 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
 
     it("rejects an empty append and an append for a Tenant without a basin", async () => {
       const { streams, tenantId } = await fresh();
-      await expect(streams.append(tenantId, WORK_STREAM, [])).rejects.toThrow();
-      await expect(streams.append(newTenantId(), WORK_STREAM, [1])).rejects.toThrow();
+      await expect(streams.append(tenantId, CONTROL_STREAM, [])).rejects.toThrow();
+      await expect(streams.append(newTenantId(), CONTROL_STREAM, [1])).rejects.toThrow();
     });
 
     it("lists a Tenant's streams by prefix, without deleted ones", async () => {
@@ -235,7 +232,8 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
       await streams.append(tenantId, sessionStream("s2", "b"), [1]);
       await streams.append(tenantId, sessionStream("s1", "a"), [1]);
       await streams.append(tenantId, sessionStream("s10", "c"), [1]);
-      await streams.append(tenantId, WORK_STREAM, [WORK_AVAILABLE]);
+      await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
+      expect(await streams.listStreams(tenantId, "tenant/")).toEqual(["tenant/control"]);
       expect(await streams.listStreams(tenantId, "sessions/")).toEqual([
         "sessions/s1/a",
         "sessions/s10/c",

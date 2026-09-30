@@ -6,10 +6,9 @@ import { afterEach, expect, it } from "vitest";
 import {
   Agent,
   createClient,
-  connectAgents,
-  type AgentConnection,
 } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
 const APP = "sandbox-inherit-app-token-aaaaaaaa";
@@ -44,7 +43,7 @@ it("gives the flow's agents the sandbox the flow session was opened with", { tim
   const desk = Agent({ id: "desk" })
     .step(Agent({ id: "drafter" }).instructions("Write a draft to draft.txt."))
     .build();
-  const connection: AgentConnection = connectAgents({
+  const connection: ServedAgents = serveAgents({
     agents: [desk],
     application: client,
     implementationVersion: "v1",

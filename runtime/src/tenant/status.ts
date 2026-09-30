@@ -4,7 +4,6 @@ import type {
   TenantStatus,
 } from "@nylorun/core/contracts";
 import type { SessionStore } from "../store/types.js";
-import type { ExecutorRegistry } from "../core/executors.js";
 import type { VaultService } from "../vault/service.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantConfig } from "./types.js";
@@ -18,12 +17,10 @@ export interface TenantStatusContext {
   envelope: TenantEnvelope;
   config: TenantConfig;
   store: SessionStore;
-  registry: ExecutorRegistry;
   vault: VaultService;
   sandbox: SandboxManager;
   closing: boolean;
   modelConfigured: boolean;
-  executorStreams: Map<string, Set<unknown>>;
   /**
    * This Tenant's execution invocations that need an operator (`TenantExecution`). Absent
    * when the execution cannot report them.
@@ -98,18 +95,15 @@ export async function buildTenantStatus(
       .map((d) => (d.manifest as { id?: unknown } | undefined)?.id)
       .filter((id): id is string => typeof id === "string"),
   );
-  const executorIds = new Set(ctx.registry.list().map((e) => e.agentId));
-  const agentIds = new Set([...definitionIds, ...executorIds]);
-  const agents = [...agentIds].sort().map((agentId) => {
-    const record = ctx.registry.get(agentId);
-    return {
-      agentId,
-      registered: definitionIds.has(agentId),
-      connected:
-        !!record &&
-        (ctx.executorStreams.get(record.tokenHash)?.size ?? 0) > 0,
-    };
-  });
+  const endpointIds = new Set(
+    (await ctx.store.tx((t) => t.listEndpoints())).map((e) => e.agentId),
+  );
+  const agentIds = new Set([...definitionIds, ...endpointIds]);
+  const agents = [...agentIds].sort().map((agentId) => ({
+    agentId,
+    registered: definitionIds.has(agentId),
+    endpoint: endpointIds.has(agentId),
+  }));
 
   return {
     tenant: ctx.envelope,
@@ -118,7 +112,7 @@ export async function buildTenantStatus(
       store: health.schemaVersion > 0,
       scheduler: !ctx.closing,
       model: ctx.modelConfigured || modelView.configured,
-      executors: true,
+      endpoints: true,
       schema: health.ok,
     },
     model: modelView,

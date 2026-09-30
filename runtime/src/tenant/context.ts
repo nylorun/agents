@@ -5,7 +5,7 @@
  *
  * Business code changes state only inside `ctx.store.tx(async (t) => …)` and follows the
  * seam rules: events through `t.event(...)` (the relay appends them to Durable Streams after
- * commit), executor wakes through `t.signalWork()`, and advances through
+ * commit), deliveries through `t.afterCommit(() => ctx.deliver(actionId))`, and advances through
  * `t.afterCommit(() => ctx.wake(id, { reason, dedupeKey }))`. It never publishes or notifies
  * itself; `runtime.ts` wires the streams with `wireStreams()`. No external I/O runs inside a
  * tx.
@@ -25,7 +25,6 @@ import type {
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import type { CredentialSelection } from "@nylorun/core/contracts";
 import type { SessionStore, StoredSession, Tx } from "../store/types.js";
-import type { ExecutorRecord, ExecutorRegistry } from "../core/executors.js";
 import type { FlowLimits } from "../core/limits.js";
 import type { ModelProvider } from "../core/provider.js";
 import type { VaultService } from "../vault/service.js";
@@ -113,61 +112,8 @@ export type AuthScope =
       subject: string;
       scopes: ReadonlySet<SubjectScope>;
     }
-  | { kind: "executor"; executor: ExecutorRecord }
   /** No credential, on a route that serves public data (`RouteAccess.anonymous`). */
   | { kind: "anonymous" }
-  /**
-   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
-   * Action, presented back by the Action endpoint on that Action's callbacks only.
-   */
-  | {
-      kind: "delivery";
-      actionId: string;
-      agentId: string;
-      generation: number;
-      expiresAt: number;
-      tokenId: string;
-      keyId: string;
-    }
-  /**
-   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
-   * Action, presented back by the Action endpoint on that Action's callbacks only.
-   */
-  | {
-      kind: "delivery";
-      actionId: string;
-      agentId: string;
-      generation: number;
-      expiresAt: number;
-      tokenId: string;
-      keyId: string;
-    }
-  /**
-   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
-   * Action, presented back by the Action endpoint on that Action's callbacks only.
-   */
-  | {
-      kind: "delivery";
-      actionId: string;
-      agentId: string;
-      generation: number;
-      expiresAt: number;
-      tokenId: string;
-      keyId: string;
-    }
-  /**
-   * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
-   * Action, presented back by the Action endpoint on that Action's callbacks only.
-   */
-  | {
-      kind: "delivery";
-      actionId: string;
-      agentId: string;
-      generation: number;
-      expiresAt: number;
-      tokenId: string;
-      keyId: string;
-    }
   /**
    * A delivery token (Action endpoints): the Runtime's own token for one delivery of one
    * Action, presented back by the Action endpoint on that Action's callbacks only.
@@ -197,7 +143,6 @@ export interface TenantContext {
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
   readonly vault: VaultService;
-  readonly registry: ExecutorRegistry;
   readonly mcp: McpPool;
   readonly sandbox: SandboxManager;
   readonly flowLimits: FlowLimits;
@@ -210,7 +155,7 @@ export interface TenantContext {
   closed: boolean;
   /** Advances running on this process, for `abortLocal`, drain and close. */
   readonly work: WorkState;
-  /** Live delivery over Durable Streams: session feeds, executor streams, the streams wiring. */
+  /** Live delivery over Durable Streams: session feeds and the streams wiring. */
   readonly live: LiveHub;
   /** The Tenant's signing keys for subject tokens. */
   readonly signingKeys: SigningKeys;

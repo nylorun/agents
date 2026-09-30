@@ -36,9 +36,6 @@
  * selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>
  * readHostModel(): Promise<HostModelSecret | undefined>
  * updateHostCredential(credential): Promise<void>
- *
- * // Rejected caller audit: opens its own transaction.
- * reject(route: string): Promise<void>
  * ```
  *
  * ## Transactions and I/O
@@ -687,19 +684,6 @@ export class VaultService {
         rotatedAt: new Date().toISOString(),
       });
     });
-  }
-
-  // --- rejected callers ---------------------------------------------------------
-
-  async reject(route: string): Promise<void> {
-    await this.store.tx((t) =>
-      this.audit(t, {
-        actor: "executor",
-        action: "reject",
-        target: route,
-        outcome: "rejected",
-      }),
-    );
   }
 
   // --- internals -----------------------------------------------------------------

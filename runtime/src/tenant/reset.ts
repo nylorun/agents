@@ -7,7 +7,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { ResetScope, SessionStore } from "../store/types.js";
-import type { ExecutorRegistry } from "../core/executors.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantPaths } from "./types.js";
 
@@ -15,13 +14,10 @@ export type { ResetScope } from "../store/types.js";
 
 export interface ResetTenantContext {
   store: SessionStore;
-  registry: ExecutorRegistry;
   sandbox: SandboxManager;
   paths: TenantPaths;
   /** Clear in-memory session observers after the store wipe. */
   clearSessionState: () => void;
-  /** Clear executor SSE streams when registrations are removed. */
-  clearExecutorStreams: () => void;
 }
 
 /**
@@ -70,10 +66,7 @@ export async function resetTenant(
 
   await ctx.store.tx((t) => t.reset(scope));
 
-  if (clearAll)
-    for (const row of ctx.registry.list()) ctx.registry.remove(row.agentId);
   if (clearSessions) ctx.clearSessionState();
-  if (clearAll) ctx.clearExecutorStreams();
 
   if (clearSandboxes) replaceDirectory(ctx.paths.sandboxes);
 

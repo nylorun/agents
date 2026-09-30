@@ -1,7 +1,4 @@
-/**
- * The definitions an application serves Actions for, shared by `connectAgents` (executors) and
- * `createActionHandler` (Action endpoints).
- */
+/** The definitions an application serves Actions for (`createActionHandler`). */
 import { AgentManifestSchema } from "@nylorun/core/contracts";
 import {
   agentFrom,

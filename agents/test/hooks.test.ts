@@ -14,10 +14,8 @@ const hookAction = (capabilityIds: string[]): Action => ({
   hook: { at: "before", scope: "step", capabilityIds },
   input: { step: 0, state: {}, messages: [] },
   context: {},
-  status: "claimed",
+  status: "delivering",
   generation: 1,
-  claimId: "claim",
-  leaseExpiresAt: null,
 });
 
 it("runs every capability's hook in one action and isolates failures", async () => {

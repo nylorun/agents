@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { Agent } from "@nylorun/agents";
+import { z } from "zod";
+import { Agent, tool } from "@nylorun/agents";
 import {
   createAdmin,
   deriveStudioToken,
@@ -26,6 +27,7 @@ import {
 } from "@nylorun/core/contracts";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { startEndpoint } from "../support/endpoint.js";
 import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
 
 const closers: { close(): Promise<void> }[] = [];
@@ -75,7 +77,7 @@ async function getJson(
   return { status: response.status, body, headers: response.headers };
 }
 
-async function startHost() {
+async function startHost(options: { model?: { kind: "fixture" } } = {}) {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
   // On Postgres the Host sees every Tenant in its database: give it its own.
@@ -85,6 +87,7 @@ async function startHost() {
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
+    ...(options.model ? { model: options.model } : {}),
     ...(database ? { database: database.sql } : {}),
   });
   closers.push(runtime);
@@ -115,7 +118,8 @@ function createBody(overrides?: {
 }
 
 it("A7: Admin API conformance — create, lost response, conflict, list, get, quarantine, delete modes, status", async () => {
-  const runtime = await startHost();
+  // The fixture model calls `lookup_order`, so the busy Tenant has a delivery in flight.
+  const runtime = await startHost({ model: { kind: "fixture" } });
   const { url, adminKey, database } = runtime;
   const headers = adminHeaders(adminKey);
 
@@ -230,10 +234,24 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
   });
   expect(busyCreated.status).toBe(201);
 
-  const agent = Agent({ id: "conf-agent", name: "Conf" }).build();
+  const agent = Agent({ id: "conf-agent", name: "Conf" })
+    .use({
+      id: "orders",
+      tools: [
+        tool({
+          name: "lookup_order",
+          input: z.object({ orderId: z.string() }),
+          async run() {
+            return "found";
+          },
+        }),
+      ],
+    })
+    .build();
+  const busyApi = tenantApiHeaders(busy.request.tenantId, busy.applicationKey);
   const saved = await getJson(`${url}/v1/agents/${agent.manifest.id}`, {
     method: "PUT",
-    headers: tenantApiHeaders(busy.request.tenantId, busy.applicationKey),
+    headers: busyApi,
     body: JSON.stringify({
       requestId: randomBytes(8).toString("hex"),
       implementationVersion: "dev",
@@ -242,38 +260,45 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
   });
   expect(saved.status).toBe(200);
 
-  const executorToken = randomBytes(32).toString("hex");
-  const registered = await getJson(`${url}/v1/executors`, {
+  // An endpoint that never answers keeps the delivery in flight.
+  const endpoint = await startEndpoint({ runtime: { url }, answer: () => "hang" });
+  closers.push(endpoint);
+  const registered = await getJson(`${url}/v1/endpoints`, {
     method: "PUT",
-    headers: tenantApiHeaders(busy.request.tenantId, busy.applicationKey),
+    headers: busyApi,
     body: JSON.stringify({
-      executors: [
-        {
-          token: executorToken,
-          agentId: agent.manifest.id,
-          implementationVersion: "dev",
-        },
-      ],
+      endpoints: [{ agentId: agent.manifest.id, url: endpoint.url, implementationVersion: "dev" }],
     }),
   });
   expect(registered.status).toBe(200);
+  expect(
+    (
+      await getJson(`${url}/v1/sessions/busy-session`, {
+        method: "PUT",
+        headers: busyApi,
+        body: JSON.stringify({ requestId: "busy-session", agentId: agent.manifest.id, ownerUserId: "user" }),
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await getJson(`${url}/v1/sessions/busy-session/commands`, {
+        method: "POST",
+        headers: busyApi,
+        body: JSON.stringify({ type: "message", requestId: "m1", idempotencyKey: "m1", content: "look it up" }),
+      })
+    ).status,
+  ).toBe(200);
+  await endpoint.next();
 
-  const stream = await fetch(`${url}/v1/executors/connect`, {
-    headers: {
-      authorization: `Bearer ${executorToken}`,
-      [TENANT_HEADER]: busy.request.tenantId,
-      [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
-    },
-  });
-  expect(stream.status).toBe(200);
-
-  // Wait until the Host sees the connected executor.
-  for (let i = 0; i < 50; i++) {
+  // Wait until the Host sees the delivery in flight.
+  let inFlight = 0;
+  for (let i = 0; i < 50 && inFlight === 0; i++) {
     const snap = await getJson(`${url}/v1/admin/status`, { headers });
-    const agg = AdminStatusSchema.parse(snap.body).aggregate;
-    if (agg.connectedExecutors > 0) break;
-    await new Promise((r) => setTimeout(r, 20));
+    inFlight = AdminStatusSchema.parse(snap.body).aggregate.inFlightDeliveries;
+    if (inFlight === 0) await new Promise((r) => setTimeout(r, 20));
   }
+  expect(inFlight).toBe(1);
 
   const refused = await getJson(
     `${url}/v1/admin/tenants/${busy.request.tenantId}?activeWork=refuse`,
@@ -282,8 +307,6 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
   expect(refused.status).toBe(409);
   const refusedBody = RejectedResponseSchema.parse(refused.body);
   expect(refusedBody.code).toBe("active_work");
-
-  await stream.body?.cancel();
 
   const cancelled = await getJson(
     `${url}/v1/admin/tenants/${busy.request.tenantId}?activeWork=cancel`,

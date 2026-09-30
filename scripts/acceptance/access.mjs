@@ -16,19 +16,14 @@
  *     resources, answers the 404 or 403 of the scope and owner tables, and no
  *     body names another subject's ids
  * A4  a stub app server strips the Nylorun-* headers its client sends; the
- *     Runtime sees the signed-in person. An executor key naming a subject is 403
+ *     Runtime sees the signed-in person
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { z } from "zod";
-import {
-  Agent,
-  connectAgents,
-  createClient,
-  deriveExecutorToken,
-  tool,
-} from "@nylorun/agents";
+import { Agent, createClient, tool } from "@nylorun/agents";
+import { serveActionEndpoint } from "../lib/action-endpoint.mjs";
 import { ensureImages, eventually, tenantHeaders, withStack } from "../lib/stack.mjs";
 import { withTemporaryTenant } from "../lib/temporary-tenant.mjs";
 
@@ -172,9 +167,8 @@ const SCOPED = [
   ["GET", "/v1/tenant/model", { admin: 200, builder: 403, member: 403 }],
   ["POST", "/v1/tenant/reset", { admin: 403, builder: 403, member: 403 }],
   ["PUT", "/v1/tenant/config/seed", { admin: 403, builder: 403, member: 403 }],
-  ["GET", "/v1/executors", { admin: 403, builder: 403, member: 403 }],
-  ["PUT", "/v1/executors", { admin: 403, builder: 403, member: 403 }],
-  ["GET", "/v1/actions", { admin: 403, builder: 403, member: 403 }],
+  ["GET", "/v1/endpoints", { admin: 403, builder: 403, member: 403 }],
+  ["PUT", "/v1/endpoints", { admin: 403, builder: 403, member: 403 }],
 ];
 
 async function a3(runtime, tenant, people) {
@@ -294,17 +288,6 @@ async function a4(runtime, tenant, people) {
     await new Promise((resolve) => server.close(resolve));
   }
   pass("A4", "an app server that strips client Nylorun-* headers acts only for the signed-in person");
-
-  const executorKey = deriveExecutorToken(tenant.env.NYLORUN_SERVER_KEY, tenant.id, "desk");
-  const executor = await fetch(`${runtime}/v1/actions`, {
-    headers: tenantHeaders(tenant.id, executorKey, subjectHeaders(people.member)),
-  });
-  assert.equal(executor.status, 403, await executor.text());
-  const plain = await fetch(`${runtime}/v1/actions`, {
-    headers: tenantHeaders(tenant.id, executorKey),
-  });
-  assert.equal(plain.status, 200, "the executor key itself works");
-  pass("A4", "an executor key that names a subject is 403");
 }
 
 try {
@@ -322,13 +305,8 @@ try {
         (await app.hostFeatures()).includes("subject-headers"),
         "the Runtime advertises subject-headers",
       );
-      const connection = connectAgents({
-        agents: [desk],
-        application: app,
-        implementationVersion: "dev",
-      });
+      const endpoint = await serveActionEndpoint({ agents: [desk], client: app });
       try {
-        await connection.ready;
         const people = await a1(runtime, tenant, app);
 
         // A2: every subject streams its own session while all three turns run.
@@ -368,7 +346,7 @@ try {
 
         await a4(runtime, tenant, people);
       } finally {
-        await connection.close();
+        await endpoint.close();
       }
     });
   });

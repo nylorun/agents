@@ -1,13 +1,12 @@
 /**
  * An Action endpoint (design: Action endpoints): the application mounts this handler at a URL
  * and registers the URL; the Runtime POSTs each Action for the served agents to it and records
- * the answer as the Action's outcome. It replaces `connectAgents`: no stream, no claim, no key
- * needed to serve.
+ * the answer as the Action's outcome. No stream, no claim, no key needed to serve.
  *
  * Each request is checked before any code runs: the delivery token must be signed by the
  * Tenant's signing key, be for this Tenant, this URL (once known), this Action and this
- * generation, and cover the exact body. The Action then runs through `executeAction`, the same
- * code executors use, with the request's signal as `ctx.signal`.
+ * generation, and cover the exact body. The Action then runs through `executeAction`, with the
+ * request's signal as `ctx.signal`.
  */
 import {
   OUTCOME_HEADER,
@@ -83,7 +82,7 @@ export interface ActionHandlerOptions {
 export interface RegisterOptions {
   /** The URL the Runtime calls, e.g. `http://localhost:3000/nylorun/actions`. */
   url: string;
-  /** Save the definitions first, as `connectAgents` did. Default true. */
+  /** Save the definitions first. Default true. */
   saveDefinitions?: boolean;
   /** How long one inline delivery may take, in milliseconds. */
   timeoutMs?: number;

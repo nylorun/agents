@@ -91,7 +91,7 @@ describe("Wave 0 schemas", () => {
       tenants: [],
       aggregate: {
         runningSessions: 0,
-        connectedExecutors: 0,
+        inFlightDeliveries: 0,
         pendingActions: 0,
         uncertainEffects: 0,
       },
@@ -157,7 +157,7 @@ describe("checkCompatibility", () => {
   it("rejects missing required features", () => {
     expect(
       checkCompatibility(
-        { version: 2, required: ["runtime-tenants", "missing-feature"] },
+        { version: 3, required: ["runtime-tenants", "missing-feature"] },
         HOST_PROTOCOL,
       ),
     ).toEqual({

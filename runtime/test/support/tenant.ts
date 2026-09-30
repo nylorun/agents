@@ -12,7 +12,7 @@ import {
   TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
-import { hashToken, mintBearerToken } from "../../src/core/executors.js";
+import { hashToken, mintBearerToken } from "../../src/core/bearer.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { bootstrapPrincipal } from "../../src/tenant/principals.js";
 import { createTenantLogger } from "../../src/tenant/logger.js";
@@ -37,11 +37,14 @@ import {
 } from "./store.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
-  executors?: readonly {
-    token: string;
+  /** Action endpoints registered once the Tenant is up (`PUT /v1/endpoints`). */
+  endpoints?: readonly {
     agentId: string;
+    url: string;
     implementationVersion: string;
     manifestHash?: string;
+    timeoutMs?: number;
+    maxConcurrent?: number;
   }[];
   modelProvider?: ModelProvider;
   vaultKek?: Buffer | string | null;
@@ -189,7 +192,7 @@ export async function startTestTenant(
     ...(options.ownerLeaseMs === undefined
       ? {}
       : { ownerLeaseMs: options.ownerLeaseMs }),
-    // A short sweep so lapsed claims and lost wakes are picked up promptly in tests.
+    // A short sweep so lapsed deliveries and lost wakes are picked up promptly in tests.
     sweepIntervalMs: options.sweepIntervalMs ?? 50,
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
@@ -269,15 +272,15 @@ export async function startTestTenant(
     "content-type": "application/json",
   });
 
-  if (options.executors?.length) {
-    const response = await fetch(`${url}/v1/executors`, {
+  if (options.endpoints?.length) {
+    const response = await fetch(`${url}/v1/endpoints`, {
       method: "PUT",
       headers: headers(),
-      body: JSON.stringify({ executors: options.executors }),
+      body: JSON.stringify({ endpoints: options.endpoints }),
     });
     if (!response.ok)
       throw new Error(
-        `Failed to seed test executors: ${
+        `Failed to register test endpoints: ${
           response.status
         } ${await response.text()}`
       );

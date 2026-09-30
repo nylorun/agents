@@ -363,7 +363,7 @@ try {
           }),
         });
         assert.ok(sent.ok, `send message: ${sent.status} ${await sent.clone().text()}`);
-        // The fixture model calls lookup_order; the starter's executor runs it
+        // The fixture model calls lookup_order; the starter's Action endpoint runs it
         // and the model answers with its result.
         const answer = await eventually(
           async () => {
@@ -395,7 +395,7 @@ try {
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on the stack: nylorun up starts the stack without a Tenant, nylo tenant create creates and links it, npm run dev registers and connects the executor, nylorun studio lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, a temporary fixture-model Tenant's turn and its deletion, Docker missing.",
+    "PASS: packed starter (agents + core only) on the stack: nylorun up starts the stack without a Tenant, nylo tenant create creates and links it, npm run dev serves and registers the Action endpoint, nylorun studio lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, a temporary fixture-model Tenant's turn and its deletion, Docker missing.",
   );
 } catch (error) {
   console.error(error);

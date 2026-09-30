@@ -95,8 +95,11 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
   );
   registry.registerComponent(
     "securitySchemes",
-    "executorKey",
-    bearer("An executor's token, scoped to its agent. Deprecated with the executor routes."),
+    "deliveryToken",
+    bearer(
+      "The delivery token the Runtime signs each Action delivery with (`Nylorun-Signature`), sent back by the Action endpoint. It reaches only that Action's heartbeat, result and sandbox routes, while that delivery is current, for at most 15 minutes.",
+      "JWT",
+    ),
   );
   registry.registerComponent("securitySchemes", "publishableKey", {
     type: "apiKey",

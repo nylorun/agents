@@ -14,13 +14,11 @@ function fakeTransport(calls: unknown[]): Transport {
   } as unknown as Transport;
 }
 
-it("createActionSandbox posts claim-scoped tool calls for all six built-ins", async () => {
+it("createActionSandbox posts Action-scoped tool calls for all six built-ins", async () => {
   const calls: unknown[] = [];
   const sandbox = createActionSandbox({
     transport: fakeTransport(calls),
     actionId: "act-1",
-    claimId: "claim-1",
-    generation: 2,
   });
   await sandbox.bash({ command: "echo hi" });
   await sandbox.write({ path: "a.txt", content: "x" });
@@ -37,7 +35,7 @@ it("createActionSandbox posts claim-scoped tool calls for all six built-ins", as
   expect(calls[0]).toMatchObject({
     path: "/v1/actions/act-1/sandbox/bash",
     method: "POST",
-    body: { claimId: "claim-1", generation: 2, command: "echo hi" },
+    body: { command: "echo hi" },
   });
   expect(calls.map((c: any) => c.path.split("/").at(-1))).toEqual([
     "bash",
@@ -62,7 +60,7 @@ it("definitionDeclaresSandbox detects agent and workflow sandboxes", () => {
   expect(definitionDeclaresSandbox({ kind: "workflow" })).toBe(false);
 });
 
-it("createActionSandbox sends no claim for a delivery, whose token is the credential", async () => {
+it("createActionSandbox sends only the tool input; the delivery token is the credential", async () => {
   const calls: unknown[] = [];
   const sandbox = createActionSandbox({
     transport: fakeTransport(calls),

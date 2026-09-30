@@ -40,15 +40,14 @@ test("SD-I5: studio package deps stay admin and agents among @nylorun/*", () => 
   assert.deepEqual(nylorun, ["@nylorun/admin", "@nylorun/agents"]);
 });
 
-test("SD-I5: browser sources exclude engine, host and executor", () => {
+test("SD-I5: browser sources exclude engine, host and Action execution", () => {
   const webSrc = join(studioRoot, "web/src");
   const forbidden = [
     /@nylorun\/harness/,
     /@nylorun\/runtime/,
     /@nylorun\/core/,
     /@nylorun\/admin/,
-    /@nylorun\/agents\/executor/,
-    /agents\/(?:dist|src)\/(?:executor|execute-action)/,
+    /agents\/(?:dist|src)\/(?:action-handler|execute-action)/,
     /from\s+["'][^"']*harness\/src\/flow/,
   ];
   for (const path of files(webSrc)) {
@@ -58,7 +57,7 @@ test("SD-I5: browser sources exclude engine, host and executor", () => {
       assert.equal(
         pattern.test(source),
         false,
-        `${path} must not import engine/host/executor (${pattern})`,
+        `${path} must not import engine/host/Action execution (${pattern})`,
       );
   }
 });

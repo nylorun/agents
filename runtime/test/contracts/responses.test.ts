@@ -12,6 +12,7 @@ import type { ZodType } from "zod";
 import {
   ERROR_CODES,
   AcceptedResponseSchema,
+  ActionResultReceiptSchema,
   AccessPolicyResponseSchema,
   AdminStatusSchema,
   AdminTenantListSchema,
@@ -19,17 +20,16 @@ import {
   CreateTokenResponseSchema,
   CredentialInfoSchema,
   DeleteEndpointResponseSchema,
-  DeleteExecutorResponseSchema,
+  DeliveryHeartbeatResponseSchema,
   ListEndpointsResponseSchema,
   DeletedResponseSchema,
   HealthResponseSchema,
   HostModelCatalogSchema,
   HostModelViewSchema,
   JwksSchema,
-  ListActionsResponseSchema,
+  EndpointPingResponseSchema,
   ListAgentsResponseSchema,
   ListCredentialsResponseSchema,
-  ListExecutorsResponseSchema,
   ListProvidersResponseSchema,
   ListPublicAgentsResponseSchema,
   ListPublishableKeysResponseSchema,
@@ -38,7 +38,6 @@ import {
   PublishableKeySchema,
   PutAgentResponseSchema,
   ReadyResponseSchema,
-  RegisterExecutorsResponseSchema,
   ResetTenantResponseSchema,
   RevokeSubjectResponseSchema,
   SandboxToolOutcomeSchema,
@@ -49,20 +48,21 @@ import {
   TenantStatusSchema,
   VaultInfoSchema,
 } from "@nylorun/core/contracts";
-import { Agent } from "@nylorun/core/define";
+import { z } from "zod";
+import { Agent, tool } from "@nylorun/core/define";
 import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
-
-const EXECUTOR_TOKEN = "responses-executor-token-000000000";
+import { startEndpoint, type TestEndpoint } from "../support/endpoint.js";
 const ORIGIN = "https://app.example.com";
 let root: string;
 let rt: EphemeralRuntime;
+let endpoint: TestEndpoint | undefined;
 
 function app(extra: Record<string, string> = {}): Record<string, string> {
   return {
-    "nylorun-protocol": "2",
+    "nylorun-protocol": "3",
     "nylorun-tenant": rt.tenantId,
     authorization: `Bearer ${rt.applicationKey}`,
     ...extra,
@@ -105,12 +105,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await endpoint?.close();
   await rt?.close();
   if (root) await rm(root, { recursive: true, force: true });
 });
 
 it("Host and Admin answers", async () => {
-  const admin = { "nylorun-protocol": "2", authorization: `Bearer ${rt.adminKey}` };
+  const admin = { "nylorun-protocol": "3", authorization: `Bearer ${rt.adminKey}` };
   await answer(HealthResponseSchema, "GET", "/health", { headers: {} });
   await answer(ReadyResponseSchema, "GET", "/ready", { headers: {} });
   await answer(AdminTenantListSchema, "GET", "/v1/admin/tenants", {
@@ -125,7 +126,7 @@ it("Host and Admin answers", async () => {
   await answer(AdminStatusSchema, "GET", "/v1/admin/host", { headers: admin, base: rt.adminUrl });
 });
 
-it("agents, sessions and executors", async () => {
+it("agents, sessions and Action endpoints", async () => {
   const manifest = Agent({ id: "bot", name: "Bot", description: "Helps" }).build().manifest;
   await answer(PutAgentResponseSchema, "PUT", "/v1/agents/bot", {
     body: { requestId: "bot", manifest, implementationVersion: "dev" },
@@ -139,20 +140,6 @@ it("agents, sessions and executors", async () => {
   });
   await answer(ListAgentsResponseSchema, "GET", "/v1/agents");
 
-  await answer(RegisterExecutorsResponseSchema, "PUT", "/v1/executors", {
-    body: {
-      executors: [
-        { agentId: "bot", implementationVersion: "dev", token: EXECUTOR_TOKEN },
-        { agentId: "spare", implementationVersion: "dev", token: `${EXECUTOR_TOKEN}-spare` },
-      ],
-    },
-  });
-  await answer(ListExecutorsResponseSchema, "GET", "/v1/executors");
-  await answer(DeleteExecutorResponseSchema, "DELETE", "/v1/executors/spare");
-  await answer(ListActionsResponseSchema, "GET", "/v1/actions", {
-    headers: app({ authorization: `Bearer ${EXECUTOR_TOKEN}` }),
-  });
-
   await answer(ListEndpointsResponseSchema, "PUT", "/v1/endpoints", {
     body: {
       endpoints: [
@@ -162,6 +149,41 @@ it("agents, sessions and executors", async () => {
   });
   await answer(ListEndpointsResponseSchema, "GET", "/v1/endpoints");
   await answer(DeleteEndpointResponseSchema, "DELETE", "/v1/endpoints/hooked");
+
+  // A delivery to a local endpoint that answers 202, then its callbacks with the delivery token.
+  // The fixture model calls `lookup_order`.
+  const orders = Agent({ id: "orders", name: "Orders" })
+    .use({
+      id: "orders",
+      tools: [tool({ name: "lookup_order", input: z.object({ orderId: z.string() }), async run() { return "found"; } })],
+    })
+    .build();
+  await answer(PutAgentResponseSchema, "PUT", "/v1/agents/orders", {
+    body: { requestId: "orders", manifest: orders.manifest, implementationVersion: "dev" },
+  });
+  endpoint = await startEndpoint({ runtime: { url: rt.url } });
+  await answer(ListEndpointsResponseSchema, "PUT", "/v1/endpoints", {
+    body: { endpoints: [{ agentId: "orders", url: endpoint.url, implementationVersion: "dev" }] },
+  });
+  await answer(EndpointPingResponseSchema, "POST", "/v1/endpoints/orders/ping");
+  await answer(SessionViewSchema, "PUT", "/v1/sessions/o1", {
+    body: { requestId: "o1", agentId: "orders", ownerUserId: "app:ann" },
+  });
+  await answer(AcceptedResponseSchema, "POST", "/v1/sessions/o1/commands", {
+    body: { type: "message", requestId: "o1-m1", idempotencyKey: "o1-m1", content: "Where is it?" },
+  });
+  const delivery = await endpoint.next();
+  const callback = (token: string) => app({ authorization: `Bearer ${token}` });
+  const beat = await answer(
+    DeliveryHeartbeatResponseSchema,
+    "POST",
+    `/v1/actions/${delivery.action.actionId}/heartbeat`,
+    { headers: callback(delivery.token) },
+  );
+  await answer(ActionResultReceiptSchema, "POST", `/v1/actions/${delivery.action.actionId}/result`, {
+    headers: callback(beat.token),
+    body: { value: { kind: "completed", output: "found" } },
+  });
 
   await answer(SessionViewSchema, "PUT", "/v1/sessions/s1", {
     body: { requestId: "s1", agentId: "bot", ownerUserId: "app:ann" },
@@ -253,7 +275,7 @@ it("access: policy, tokens, signing keys, publishable keys and revocations", asy
     body: { requestId: "key", name: "web", origins: [ORIGIN] },
   });
   await answer(ListPublicAgentsResponseSchema, "GET", "/v1/agents", {
-    headers: { "nylorun-protocol": "2", "nylorun-key": key.key, origin: ORIGIN },
+    headers: { "nylorun-protocol": "3", "nylorun-key": key.key, origin: ORIGIN },
   });
   await answer(ListPublishableKeysResponseSchema, "GET", "/v1/access/publishable-keys");
   await answer(PublishableKeySchema, "PUT", `/v1/access/publishable-keys/${key.id}`, {

@@ -22,7 +22,7 @@ const PREFLIGHT_MAX_AGE_SECONDS = 600;
 
 /**
  * Tenant routes a browser may call: agents (list), sessions (not the sandbox tool route),
- * vaults, AG-UI and the JWKS. Tokens, access management, executors, actions and Tenant
+ * vaults, AG-UI and the JWKS. Tokens, access management, endpoints, actions and Tenant
  * settings never are.
  */
 

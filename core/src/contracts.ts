@@ -813,16 +813,6 @@ export const ActionOutcomeSchema = z
   })
   .strict();
 export type ActionOutcome = z.infer<typeof ActionOutcomeSchema>;
-export const ActionResultCommandSchema = z
-  .object({
-    ...commandBase,
-    type: z.literal("action_result"),
-    actionId: z.string().min(1),
-    claimId: z.string().min(1),
-    generation: z.number().int().positive(),
-    outcome: ActionOutcomeSchema,
-  })
-  .strict();
 export const SessionCommandSchema = z.union([
   MessageEventBodySchema,
   z
@@ -848,7 +838,6 @@ export const SessionCommandSchema = z.union([
       reason: z.string().optional(),
     })
     .strict(),
-  ActionResultCommandSchema,
 ]);
 export const SessionEventBodySchema = SessionCommandSchema;
 export type SessionCommand = z.infer<typeof SessionCommandSchema>;
@@ -905,18 +894,10 @@ const actionBase = {
   implementationVersion: z.string(),
   input: z.unknown(),
   context: jsonObject,
-  /** `claimed` is an executor's claim; `delivering` is a delivery to an Action endpoint. */
-  status: z.enum([
-    "pending",
-    "claimed",
-    "delivering",
-    "completed",
-    "uncertain",
-    "cancelled",
-  ]),
+  /** `delivering`: sent to the agent's Action endpoint, not answered yet. */
+  status: z.enum(["pending", "delivering", "completed", "uncertain", "cancelled"]),
+  /** How many times it was delivered; a delivery token names the one it is for. */
   generation: z.number().int().nonnegative(),
-  claimId: z.string().nullable(),
-  leaseExpiresAt: z.string().nullable(),
   /** When an unanswered delivery counts as lost. Set only while `delivering`. */
   deadlineAt: z.string().nullable().optional(),
   agent: AgentRefSchema.optional(),
@@ -1120,77 +1101,6 @@ export function parseTranscriptEvent(
     ? ({ ...event, payload: parsed.data } as TranscriptEvent)
     : undefined;
 }
-export const ActionClaimRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    implementationVersion: z.string().min(1),
-  })
-  .strict();
-export const ActionHeartbeatRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    claimId: z.string().min(1),
-    generation: z.number().int().positive(),
-  })
-  .strict();
-export const ActionClaimResponseSchema = z.object({
-  action: ActionSchema,
-  claimId: z.string(),
-  generation: z.number().int().positive(),
-  leaseExpiresAt: z.string(),
-  /**
-   * The action's session has a sandbox (declared by its definition, chosen when it was opened,
-   * or shared), so `ctx.sandbox` is available. Absent from Runtimes before Sandboxes v3.
-   */
-  sandbox: z.boolean().optional(),
-});
-export type ActionClaim = z.infer<typeof ActionClaimResponseSchema>;
-export interface ExecutorScope {
-  readonly agentId: string;
-  readonly manifestHash?: string;
-  readonly implementationVersion: string;
-}
-export const ExecutorNotificationSchema = z.object({
-  type: z.literal("work_available"),
-});
-export const ExecutorRegistrationSchema = z
-  .object({
-    agentId: z.string().min(1),
-    implementationVersion: z.string().min(1),
-    manifestHash: z.string().min(1).optional(),
-    token: z.string().min(16),
-  })
-  .strict();
-export const RegisterExecutorsRequestSchema = z
-  .object({
-    executors: z.array(ExecutorRegistrationSchema).min(1).max(64),
-  })
-  .strict();
-export const RegisterExecutorsResponseSchema = z.object({
-  executors: z.array(
-    z.object({
-      agentId: z.string(),
-      implementationVersion: z.string(),
-      rotated: z.boolean(),
-      replacedBy: z.literal("different-credential").optional(),
-    })
-  ),
-});
-export const ExecutorSummarySchema = z.object({
-  agentId: z.string(),
-  implementationVersion: z.string(),
-  manifestHash: z.string().optional(),
-  connected: z.boolean(),
-  updatedAt: z.string(),
-});
-export const ListExecutorsResponseSchema = z.object({
-  executors: z.array(ExecutorSummarySchema),
-});
-export type ExecutorRegistration = z.infer<typeof ExecutorRegistrationSchema>;
-export type RegisterExecutorsResponse = z.infer<
-  typeof RegisterExecutorsResponseSchema
->;
-export type ExecutorSummary = z.infer<typeof ExecutorSummarySchema>;
 export const ProtocolRangeSchema = z
   .object({
     min: z.number().int(),
@@ -1334,7 +1244,8 @@ export type AdminTenantStatus = z.infer<typeof AdminTenantStatusSchema>;
 export const HostAggregateSchema = z
   .object({
     runningSessions: z.number().int().nonnegative(),
-    connectedExecutors: z.number().int().nonnegative(),
+    /** Deliveries to Action endpoints in flight on this Host's open Tenants. */
+    inFlightDeliveries: z.number().int().nonnegative(),
     pendingActions: z.number().int().nonnegative(),
     uncertainEffects: z.number().int().nonnegative(),
     /** Events committed but not yet relayed to Durable Streams, over the open Tenants. */
@@ -1421,7 +1332,7 @@ export const TenantStatusSchema = z
         store: z.boolean(),
         scheduler: z.boolean(),
         model: z.boolean(),
-        executors: z.boolean(),
+        endpoints: z.boolean(),
         schema: z.boolean(),
       })
       .strict(),
@@ -1431,7 +1342,8 @@ export const TenantStatusSchema = z
         .object({
           agentId: z.string(),
           registered: z.boolean(),
-          connected: z.boolean(),
+          /** The agent has a registered Action endpoint. */
+          endpoint: z.boolean(),
         })
         .strict(),
     ),
@@ -1973,7 +1885,7 @@ export const SessionViewSchema = z
     /** What the session waits on: interactions, approvals, timers. */
     waits: z.unknown().optional(),
     error: z.string().optional(),
-    /** Its Actions that are pending, claimed or uncertain. */
+    /** Its Actions that are pending, being delivered or uncertain. */
     actions: z.array(ActionSchema),
     uncertainEffects: z.array(
       z
@@ -1989,16 +1901,6 @@ export const SessionViewSchema = z
   .strict();
 export type SessionView = z.infer<typeof SessionViewSchema>;
 
-export const ListActionsResponseSchema = z.object({ actions: z.array(ActionSchema) }).strict();
-export type ListActionsResponse = z.infer<typeof ListActionsResponseSchema>;
-export const ActionHeartbeatResponseSchema = z
-  .object({ leaseExpiresAt: z.string() })
-  .strict();
-export type ActionHeartbeatResponse = z.infer<typeof ActionHeartbeatResponseSchema>;
-export const DeleteExecutorResponseSchema = z
-  .object({ agentId: z.string(), deleted: z.literal(true) })
-  .strict();
-export type DeleteExecutorResponse = z.infer<typeof DeleteExecutorResponseSchema>;
 /** A sandbox tool call's answer (`POST …/sandbox/:tool`): its output, or why it failed. */
 export const SandboxToolOutcomeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("completed"), output: z.unknown() }).strict(),
@@ -2261,6 +2163,13 @@ export const DeliveryHeartbeatResponseSchema = z.object({
   deadlineAt: z.string(),
 });
 export type DeliveryHeartbeatResponse = z.infer<typeof DeliveryHeartbeatResponseSchema>;
+
+/**
+ * The receipt of a background result (`POST /v1/actions/:id/result`): a session command's
+ * receipt without `requestId`, since the result carries none. The same result again returns it.
+ */
+export const ActionResultReceiptSchema = AcceptedResponseSchema.omit({ requestId: true });
+export type ActionResultReceipt = z.infer<typeof ActionResultReceiptSchema>;
 
 /** `action.delivered`: the Runtime sent an Action to its endpoint. */
 export const ActionDeliveredPayloadSchema = z

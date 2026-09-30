@@ -131,7 +131,7 @@ export function createFakeModule(options?: {
       return {
         ready: true,
         runningSessions: 0,
-        connectedExecutors: 0,
+        inFlightDeliveries: 0,
         pendingActions: 0,
         uncertainEffects: 0,
       };
@@ -225,20 +225,20 @@ export function createFakeModule(options?: {
     },
     async summarize(): Promise<HostAggregate> {
       let runningSessions = 0;
-      let connectedExecutors = 0;
+      let inFlightDeliveries = 0;
       let pendingActions = 0;
       let uncertainEffects = 0;
       for (const t of tenants.values()) {
         const s = t.summary ?? (await t.handle?.summary());
         if (!s) continue;
         runningSessions += s.runningSessions;
-        connectedExecutors += s.connectedExecutors;
+        inFlightDeliveries += s.inFlightDeliveries;
         pendingActions += s.pendingActions;
         uncertainEffects += s.uncertainEffects;
       }
       return {
         runningSessions,
-        connectedExecutors,
+        inFlightDeliveries,
         pendingActions,
         uncertainEffects,
       };

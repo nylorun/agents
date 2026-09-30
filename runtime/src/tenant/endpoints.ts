@@ -1,10 +1,6 @@
 /**
  * Action endpoints (design: Action endpoints §4.2): where the Runtime delivers each agent's
  * Actions, registered with the application key.
- *
- * While executors still exist, an agent is served by exactly one of them: registering an
- * endpoint removes the agent's executor and ends its streams, and `registerExecutors` refuses
- * an agent that has an endpoint (`actions.ts`).
  */
 import {
   ENDPOINT_MAX_CONCURRENT_DEFAULT,
@@ -15,7 +11,6 @@ import {
 import type { EndpointRow } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { fail } from "./http.js";
-import { endExecutorStreams } from "./live.js";
 
 /** An endpoint as the Tenant API answers it. */
 export function endpointView(row: EndpointRow): Endpoint {
@@ -60,8 +55,8 @@ export async function listEndpoints(ctx: TenantContext) {
 }
 
 /**
- * `PUT /v1/endpoints`: upsert the batch in one transaction and remove the executors of the
- * agents it covers. Answers every registered endpoint of the batch.
+ * `PUT /v1/endpoints`: upsert the batch in one transaction, then send the Actions already
+ * waiting for these agents. Answers every registered endpoint of the batch.
  */
 export async function putEndpoints(
   ctx: TenantContext,
@@ -84,16 +79,10 @@ export async function putEndpoints(
         principalId,
         updatedAt,
       });
-      await t.deleteExecutor(endpoint.agentId);
       saved.push((await t.getEndpoint(endpoint.agentId))!);
     }
     return saved;
   });
-  // The executors table committed without these agents; the registry follows it.
-  for (const endpoint of body.endpoints) {
-    const executor = ctx.registry.remove(endpoint.agentId);
-    if (executor) endExecutorStreams(ctx.live, executor.tokenHash);
-  }
   // Actions already waiting for these agents go to their endpoint now.
   const waiting = await ctx.store.tx(async (t) => {
     const actions = [];

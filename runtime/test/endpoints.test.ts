@@ -1,15 +1,17 @@
 /**
  * Action endpoint registration (design: Action endpoints §4.2): `PUT`, `GET` and
- * `DELETE /v1/endpoints`, the application-key rule, and one path per agent while executors
- * still exist.
+ * `DELETE /v1/endpoints`, and the application-key rule. Endpoints are the only way an agent
+ * is served: the executor routes are gone.
  */
 import { afterEach, expect, it } from "vitest";
+import { z } from "zod";
+import { Agent, tool } from "@nylorun/core/define";
 import { ListEndpointsResponseSchema } from "@nylorun/core/contracts";
 import type { TenantContext } from "../src/tenant/context.js";
+import { startEndpoint } from "./support/endpoint.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
-const EXECUTOR = "executor-token-value-bbbbbbbb";
 const live: { close(): Promise<void> }[] = [];
 
 afterEach(async () => {
@@ -19,8 +21,11 @@ afterEach(async () => {
 async function host() {
   const runtime = await startTestTenant({
     applicationKey: APP,
-    executors: [{ token: EXECUTOR, agentId: "support", implementationVersion: "dev" }],
-    modelProvider: async () => ({ output: [{ type: "text", text: "ok" }] }),
+    modelProvider: async (effect) => {
+      const call = effect.input as { prompt?: { kind?: string }[] };
+      if (call.prompt?.at(-1)?.kind === "tool-result") return { output: [{ type: "text", text: "ok" }] };
+      return { output: [{ type: "tool-call", id: "call-1", name: "save", args: {} }] };
+    },
   });
   live.push(runtime);
   return runtime;
@@ -106,33 +111,47 @@ it("refuses bad registrations with the reason", async () => {
 // route matrix and `security/subject-scopes.test.ts`.
 it("is for the application key only", async () => {
   const runtime = await host();
+  // A delivery token, the one other credential an endpoint holds, cannot manage endpoints.
+  const agent = Agent({ id: "support" })
+    .use({ id: "notes", tools: [tool({ name: "save", input: z.object({}), async run() { return "saved"; } })] })
+    .build();
+  await call(runtime.url, "PUT", "/v1/agents/support", {
+    requestId: "put",
+    manifest: agent.manifest,
+    implementationVersion: "dev",
+  });
+  const endpoint = await startEndpoint({ runtime });
+  live.push(endpoint);
+  await call(runtime.url, "PUT", "/v1/endpoints", { endpoints: [registration("support", { url: endpoint.url })] });
+  await call(runtime.url, "PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "support", ownerUserId: "user" });
+  await call(runtime.url, "POST", "/v1/sessions/s1/commands", {
+    type: "message",
+    requestId: "m1",
+    idempotencyKey: "m1",
+    content: "save",
+  });
+  const { token } = await endpoint.next();
   const body = { endpoints: [registration("triage")] };
   for (const [method, path] of [["PUT", "/v1/endpoints"], ["GET", "/v1/endpoints"], ["DELETE", "/v1/endpoints/triage"]]) {
-    const executor = await call(runtime.url, method!, path!, method === "PUT" ? body : undefined, EXECUTOR);
-    expect(executor.status, `${method} ${path}`).toBe(403);
-    expect(await executor.json()).toMatchObject({ message: "Application credential required" });
+    const refused = await call(runtime.url, method!, path!, method === "PUT" ? body : undefined, token);
+    expect(refused.status, `${method} ${path}`).toBe(403);
   }
   const anonymous = await fetch(`${runtime.url}/v1/endpoints`);
   expect(anonymous.status).toBe(404);
 });
 
-it("serves an agent by an endpoint or an executor, never both", async () => {
+it("has no executor routes any more", async () => {
   const runtime = await host();
-  // Registering an endpoint removes the agent's executor, whose key stops working.
-  expect((await call(runtime.url, "GET", "/v1/actions", undefined, EXECUTOR)).status).toBe(200);
-  await call(runtime.url, "PUT", "/v1/endpoints", { endpoints: [registration("support")] });
-  expect((await call(runtime.url, "GET", "/v1/executors")).status).toBe(200);
-  expect(await (await call(runtime.url, "GET", "/v1/executors")).json()).toEqual({ executors: [] });
-  expect((await call(runtime.url, "GET", "/v1/actions", undefined, EXECUTOR)).status).toBe(404);
-  // And an executor for an agent with an endpoint is refused until the endpoint is removed.
-  const executor = { executors: [{ token: EXECUTOR, agentId: "support", implementationVersion: "dev" }] };
-  const refused = await call(runtime.url, "PUT", "/v1/executors", executor);
-  expect(refused.status).toBe(409);
-  expect(await refused.json()).toMatchObject({
-    message: "Agent 'support' is served by an Action endpoint; remove it first (DELETE /v1/endpoints/support)",
-  });
-  await call(runtime.url, "DELETE", "/v1/endpoints/support");
-  expect((await call(runtime.url, "PUT", "/v1/executors", executor)).status).toBe(200);
+  for (const [method, path] of [
+    ["GET", "/v1/executors"],
+    ["PUT", "/v1/executors"],
+    ["GET", "/v1/executors/connect"],
+    ["GET", "/v1/actions"],
+    ["POST", "/v1/actions/a1/claim"],
+  ]) {
+    const response = await call(runtime.url, method!, path!, method === "GET" ? undefined : {});
+    expect(response.status, `${method} ${path}`).toBe(404);
+  }
 });
 
 it("keeps health for the same URL and starts over for a new one", async () => {

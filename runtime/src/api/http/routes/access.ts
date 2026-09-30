@@ -66,7 +66,7 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
     {
-      credentials: ["application", "subject", "token", "publishable", "executor"],
+      credentials: ["application", "subject", "token", "publishable"],
       scopes: "any",
       browser: true,
       // Public keys: an Action endpoint verifies delivery tokens with them and holds no key.

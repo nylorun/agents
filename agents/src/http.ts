@@ -115,20 +115,14 @@ export class Transport {
   readonly headers: Readonly<Record<string, string>> = {};
   private readonly check: HostCheck = { compatible: false, features: [] };
 
-  constructor(
-    options: Destination = {},
-    role: "server" | "executor" = "server",
-  ) {
+  constructor(options: Destination = {}) {
     const url = options.url ?? env("NYLORUN_RUNTIME_URL");
     const token = options.token;
-    const key = token
-      ? ""
-      : options.key ??
-        env(role === "server" ? "NYLORUN_SERVER_KEY" : "NYLORUN_EXECUTOR_KEY");
+    const key = token ? "" : options.key ?? env("NYLORUN_SERVER_KEY");
     const tenant = options.tenant ?? (token ? undefined : env("NYLORUN_TENANT"));
     if (!url || (!token && !key))
       throw new Error(
-        `Set Runtime url and ${role} key explicitly or via NYLORUN_RUNTIME_URL / NYLORUN_${role.toUpperCase()}_KEY`,
+        "Set Runtime url and server key explicitly or via NYLORUN_RUNTIME_URL / NYLORUN_SERVER_KEY",
       );
     if (token && options.key)
       throw new Error("Use a Tenant key or subject tokens, not both");

@@ -5,12 +5,13 @@
     "version": "0.0.0",
     "description": "Tenants and the Host's status, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
     "x-nylorun-protocol": {
-      "min": 2,
-      "max": 2,
+      "min": 3,
+      "max": 3,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
+        "action-endpoints",
         "tenant-fixture-model",
         "transcript-events",
         "derived-principals",
@@ -497,7 +498,7 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "connectedExecutors": {
+              "inFlightDeliveries": {
                 "type": "integer",
                 "minimum": 0
               },
@@ -520,7 +521,7 @@
             },
             "required": [
               "runningSessions",
-              "connectedExecutors",
+              "inFlightDeliveries",
               "pendingActions",
               "uncertainEffects"
             ],

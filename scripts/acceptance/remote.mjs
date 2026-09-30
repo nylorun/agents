@@ -5,20 +5,23 @@
  *
  *   NYLORUN_RUNTIME_URL=https://runtime.example.com \
  *   NYLORUN_TENANT=tn_… NYLORUN_SERVER_KEY=… \
- *   node scripts/acceptance/remote.mjs --placement lan --fixture-model
+ *   node scripts/acceptance/remote.mjs --placement lan --fixture-model \
+ *     --actions-url https://tunnel.example.com/nylorun/actions --actions-port 3000
  *
  * Use a Tenant made for this check (`npx @nylorun/cli tenant create
  * remote-check` on the Runtime's machine, outside a Project): `--fixture-model`
  * switches its model calls to the Runtime's deterministic fixture model.
+ * `--actions-url` is where the remote Runtime reaches this machine's Action
+ * endpoint (a tunnel such as ngrok or Cloudflare Tunnel to `--actions-port`).
  *
  * R1  the proxy serves /health over TLS, answers the Admin API with 403 and
  *     passes Origin through, so the Runtime still refuses browsers
  * R2  a chat with an approval through the AG-UI handler: the connection is
- *     dropped mid-run, reattach sends the rest, and the approved tool runs in
- *     this machine's executor
- * R3  an event stream and the executor's connection stay open through
- *     `--idle-minutes` (default 10) of silence, with keepalives arriving
- *     unbuffered, and both work afterwards
+ *     dropped mid-run, reattach sends the rest, and the approved tool is
+ *     delivered to this machine's Action endpoint
+ * R3  an event stream stays open through `--idle-minutes` (default 10) of
+ *     silence, with keepalives arriving unbuffered, and afterwards it carries
+ *     a new turn and the Runtime delivers a tool call to this machine again
  *
  * Prints a summary to paste into the PR. It never prints the key.
  */
@@ -28,7 +31,7 @@ import { createServer } from "node:http";
 import { connect as tlsConnect } from "node:tls";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { Agent, connectAgents, createClient, tool } from "@nylorun/agents";
+import { Agent, PROTOCOL_VERSION, createActionHandler, createClient, tool } from "@nylorun/agents";
 import { createAgUiHandler, toNodeListener } from "@nylorun/agents/ag-ui";
 
 const { values: flags } = parseArgs({
@@ -36,8 +39,17 @@ const { values: flags } = parseArgs({
     placement: { type: "string", default: "unspecified" },
     "idle-minutes": { type: "string", default: "10" },
     "fixture-model": { type: "boolean", default: false },
+    "actions-url": { type: "string" },
+    "actions-port": { type: "string", default: "3000" },
   },
 });
+const actionsUrl = flags["actions-url"];
+const actionsPort = Number(flags["actions-port"]);
+if (!actionsUrl)
+  throw new Error(
+    "Pass --actions-url: the URL the remote Runtime reaches this machine's Action endpoint at (a tunnel to --actions-port).",
+  );
+assert.ok(Number.isInteger(actionsPort) && actionsPort > 0, "--actions-port must be a port number");
 const idleMinutes = Number(flags["idle-minutes"]);
 assert.ok(Number.isFinite(idleMinutes) && idleMinutes >= 0, "--idle-minutes must be a number");
 
@@ -79,7 +91,7 @@ function interruptOf(events) {
 const runtimeHeaders = (extra = {}) => ({
   authorization: `Bearer ${key}`,
   "Nylorun-Tenant": tenant,
-  "Nylorun-Protocol": "2",
+  "Nylorun-Protocol": String(PROTOCOL_VERSION),
   ...extra,
 });
 
@@ -172,18 +184,19 @@ async function main() {
   });
   assert.ok(seed.ok, `seeding the fixture model: ${seed.status} ${await seed.text()}`);
 
-  // The executor's own connection, counted so a reconnect during the idle window shows.
-  let executorConnects = 0;
-  const client = createClient({
-    url,
-    key,
-    tenant,
-    fetch: (input, init) => {
-      if (new URL(String(input)).pathname === "/v1/executors/connect") executorConnects += 1;
-      return fetch(input, init);
-    },
-  });
-  const connection = connectAgents({ agents: [agent], application: client });
+  const client = createClient({ url, key, tenant });
+  // The Action endpoint, counting the deliveries that reach this machine through the tunnel.
+  let deliveries = 0;
+  const actions = createActionHandler({ agents: [agent], client });
+  const endpoint = createServer(
+    toNodeListener({
+      fetch: (request) => {
+        deliveries += 1;
+        return actions.fetch(request);
+      },
+    }),
+  );
+  await new Promise((resolve) => endpoint.listen(actionsPort, resolve));
   const handler = createAgUiHandler({
     agents: [agent],
     client,
@@ -194,7 +207,7 @@ async function main() {
   const base = `http://127.0.0.1:${app.address().port}`;
   const idleStream = new AbortController();
   try {
-    await connection.ready;
+    await actions.register({ url: actionsUrl });
     const post = (body, signal) =>
       fetch(`${base}/remote-check`, {
         method: "POST",
@@ -248,6 +261,7 @@ async function main() {
       .map((e) => e.delta)
       .join("");
     assert.ok(resumed.some((e) => e.type === "TOOL_CALL_RESULT"), "the approved tool ran");
+    assert.ok(deliveries > 0, "the Runtime delivered the tool call to this machine's Action endpoint");
     assert.ok(text.includes("shipped"), `the answer carries the tool's result: ${text}`);
     pass(
       "R2",
@@ -290,7 +304,7 @@ async function main() {
         streamEnded = true;
       }
     })();
-    const connectsBefore = executorConnects;
+    const deliveriesBefore = deliveries;
     const idleStart = Date.now();
     for (let minute = 1; minute <= idleMinutes; minute += 1) {
       await new Promise((resolve) => setTimeout(resolve, 60_000));
@@ -302,9 +316,7 @@ async function main() {
     const maxGap = Math.max(0, ...gaps, keepalives.length ? Date.now() - keepalives.at(-1) : idleMs);
     if (idleMinutes > 0)
       assert.ok(maxGap < 30_000, `keepalives arrive unbuffered (largest gap ${seconds(maxGap)})`);
-    assert.equal(executorConnects, connectsBefore, "the executor stayed connected (no reconnect while idle)");
-
-    // After the silence: the open stream delivers a new turn, and the executor runs a tool.
+    // After the silence: the open stream carries a new turn, and a tool call is delivered here.
     const t1 = Date.now();
     await collect(
       await post({
@@ -335,12 +347,13 @@ async function main() {
         resume: [{ interruptId: next.id, status: "resolved", payload: { approved: true } }],
       }),
     );
-    assert.ok(done.some((e) => e.type === "TOOL_CALL_RESULT"), "the executor ran the tool after the idle window");
+    assert.ok(done.some((e) => e.type === "TOOL_CALL_RESULT"), "the tool ran after the idle window");
+    assert.ok(deliveries > deliveriesBefore, "the Runtime delivered the tool call to this machine after the idle window");
     idleStream.abort();
     await watching;
     pass(
       "R3",
-      `${seconds(idleMs)} idle: the event stream stayed open (${keepalives.length} keepalives, largest gap ${seconds(maxGap)}), the executor never reconnected, and both worked in ${seconds(Date.now() - t1)} afterwards`,
+      `${seconds(idleMs)} idle: the event stream stayed open (${keepalives.length} keepalives, largest gap ${seconds(maxGap)}), and the stream and a delivery to this machine worked in ${seconds(Date.now() - t1)} afterwards`,
     );
 
     const cert = await certificate();
@@ -348,6 +361,7 @@ async function main() {
 Remote access check (paste into the PR)
   placement     ${flags.placement}
   proxy         ${target.origin}
+  actions       ${new URL(actionsUrl).origin}
   certificate   ${cert}
   runtime       ${version}
   idle window   ${idleMinutes} min
@@ -356,9 +370,10 @@ Remote access check (paste into the PR)
 ${results.map((r) => `  PASS ${r.id}  ${r.message}`).join("\n")}`);
   } finally {
     idleStream.abort();
-    await connection.close();
     app.closeAllConnections();
     await new Promise((resolve) => app.close(resolve));
+    endpoint.closeAllConnections();
+    await new Promise((resolve) => endpoint.close(resolve));
   }
 }
 

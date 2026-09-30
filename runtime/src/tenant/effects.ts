@@ -1,6 +1,6 @@
 /**
  * The engine host: `resolveEffect` journals each effect before it is invoked and dispatches it
- * to the model service, the MCP pool, the SandboxManager, or an Action for the executor.
+ * to the model service, the MCP pool, the SandboxManager, or an Action for the agent's endpoint.
  * `resolveNewFlowEffect` does the same for workflow effects (linked agent sessions, tool
  * nodes, fn, verify). Also MCP preparation and vault authorization for MCP servers.
  *
@@ -264,8 +264,6 @@ export async function resolveEffect(
       context: request.context,
       status: "pending" as const,
       generation: 0,
-      claimId: null,
-      leaseExpiresAt: null,
       ...(request.agent ? { agent: request.agent } : {}),
     };
     const action: Action =
@@ -440,8 +438,6 @@ export async function resolveNewFlowEffect(
               context: request.context,
               status: "pending" as const,
               generation: 0,
-              claimId: null,
-              leaseExpiresAt: null,
               kind: request.kind,
               path: request.path!,
               key: request.key!,
@@ -457,8 +453,6 @@ export async function resolveNewFlowEffect(
               context: request.context,
               status: "pending" as const,
               generation: 0,
-              claimId: null,
-              leaseExpiresAt: null,
               kind: "tool" as const,
               path: request.path!,
               key: request.key!,

@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { startEphemeralRuntime, type EphemeralRuntime } from "../../src/tenant/ephemeral.js";
 
 let root: string;
@@ -24,7 +25,7 @@ afterAll(async () => {
 
 const get = (path: string, headers: Record<string, string> = {}) =>
   fetch(`${rt.url}${path}`, {
-    headers: { "nylorun-protocol": "2", "nylorun-tenant": rt.tenantId, ...headers },
+    headers: { "nylorun-protocol": String(PROTOCOL_VERSION), "nylorun-tenant": rt.tenantId, ...headers },
   });
 
 it("serves the JWKS with only the Tenant header", async () => {

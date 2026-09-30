@@ -63,7 +63,7 @@ if (runtimeDeps.join(",") !== "@nylorun/admin,@nylorun/agents")
     "Studio runtime dependencies must be only @nylorun/admin and @nylorun/agents (plus Node built-ins).",
   );
 
-/** SD-I5: browser sources must not pull engine, host or executor. */
+/** SD-I5: browser sources must not pull engine, host or Action execution. */
 function walk(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
@@ -77,11 +77,11 @@ for (const path of walk("web/src")) {
     /@nylorun\/runtime/,
     /@nylorun\/core/,
     /@nylorun\/admin/,
-    /@nylorun\/agents\/executor/,
+    /action-handler/,
     /execute-action/,
   ])
     if (pattern.test(source))
-      throw new Error(`SD-I5: ${path} must not import engine/host/executor (${pattern})`);
+      throw new Error(`SD-I5: ${path} must not import engine/host/Action execution (${pattern})`);
 }
 
 // What the image copies: the server entry and the built dashboard.

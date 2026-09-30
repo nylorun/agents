@@ -12,7 +12,7 @@ import {
   PutEndpointsRequest,
 } from "../../components.js";
 import { ActionOutcomeSchema } from "@nylorun/core/contracts";
-import { AcceptedResponse, ActionOutcome } from "../../components.js";
+import { ActionOutcome, ActionResultReceipt } from "../../components.js";
 import { deliveryResult, pingEndpoint } from "../../../tenant/delivery.js";
 import { requireApplication } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
@@ -60,8 +60,8 @@ export function endpointRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Action endpoints"],
       summary: "Register Action endpoints",
       description:
-        "Points the Runtime at the URL that runs each agent's Actions. Registering an endpoint " +
-        "removes the agent's executor; a new URL starts with no health.",
+        "Points the Runtime at the URL that runs each agent's Actions. A new URL starts with no " +
+        "health.",
       request: {
         body: { required: true, content: { "application/json": { schema: PutEndpointsRequest } } },
       },
@@ -141,7 +141,7 @@ export function endpointRoutes(api: OpenAPIHono<TenantEnv>): void {
         body: { required: true, content: { "application/json": { schema: ActionOutcome } } },
       },
       responses: {
-        200: json(AcceptedResponse, "The outcome was recorded"),
+        200: json(ActionResultReceipt, "The outcome was recorded"),
         409: {
           description:
             "The delivery was cancelled, lost or sent again, or the Action has another result",

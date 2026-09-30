@@ -15,7 +15,6 @@ import {
   planCancelCascade,
   pendingAgentEffects,
   reconcilePendingAgentEffect,
-  reofferFnVerifyClaim,
   wakeForQueuedEffects,
   wakeLinkedWorkflow,
   type FlowHostSession,
@@ -74,8 +73,6 @@ function flowAction(
     input: {},
     context: {},
     generation: 0,
-    claimId: null,
-    leaseExpiresAt: null,
     path: "p",
     key: "p",
     ...overrides,
@@ -248,37 +245,7 @@ it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot 
   );
 });
 
-it("SD-P7: reofferFnVerifyClaim offers a claimed verify again", async () => {
-  const { store, put, get } = memoryStore();
-  await put(
-    "actions",
-    "v1",
-    flowAction({
-      actionId: "v1",
-      turnId: "t",
-      status: "claimed",
-      generation: 2,
-      claimId: "c",
-      leaseExpiresAt: new Date().toISOString(),
-      kind: "verify",
-      path: "loop",
-      key: "loop",
-    })
-  );
-  await put("sessions", "wf-1", {
-    id: "wf-1",
-    status: "waiting",
-    activeTurnId: "t",
-  });
-  expect(await store.tx((t) => reofferFnVerifyClaim(t, "v1"))).toBe(true);
-  const action = await get<Action>("actions", "v1");
-  expect(action?.status).toBe("pending");
-  expect(action?.claimId).toBeNull();
-  // A second call finds nothing claimed.
-  expect(await store.tx((t) => reofferFnVerifyClaim(t, "v1"))).toBe(false);
-});
-
-it("PAR-R6: cancelSiblingWork cancels pending, uncertains claimed, lists agents", async () => {
+it("PAR-R6: cancelSiblingWork cancels pending, uncertains delivering, lists agents", async () => {
   const { store, put, get } = memoryStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -311,17 +278,17 @@ it("PAR-R6: cancelSiblingWork cancels pending, uncertains claimed, lists agents"
   );
   await put(
     "actions",
-    "claimed-1",
+    "delivering-1",
     flowAction({
-      actionId: "claimed-1",
-      status: "claimed",
+      actionId: "delivering-1",
+      status: "delivering",
       kind: "tool",
       path: "review/tests/x",
       key: "review/tests",
     })
   );
   await put("effects", "pending-1", { status: "pending" });
-  await put("effects", "claimed-1", { status: "pending" });
+  await put("effects", "delivering-1", { status: "pending" });
 
   const result = await store.tx((t) =>
     cancelSiblingWork({
@@ -333,14 +300,14 @@ it("PAR-R6: cancelSiblingWork cancels pending, uncertains claimed, lists agents"
   );
   expect(result.agentSessionIds).toContain(agentId);
   expect(result.cancelledActions).toContain("pending-1");
-  expect(result.uncertainActions).toContain("claimed-1");
+  expect(result.uncertainActions).toContain("delivering-1");
   expect((await get<Action>("actions", "pending-1"))?.status).toBe(
     "cancelled"
   );
-  expect((await get<Action>("actions", "claimed-1"))?.status).toBe(
+  expect((await get<Action>("actions", "delivering-1"))?.status).toBe(
     "uncertain"
   );
-  expect((await get("effects", "claimed-1"))?.status).toBe("uncertain");
+  expect((await get("effects", "delivering-1"))?.status).toBe("uncertain");
 });
 
 it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () => {
@@ -363,7 +330,7 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
     turnId: "t",
   });
   await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "fn" }));
-  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "claimed", kind: "fn" }));
+  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "fn" }));
   await put("actions", "o", flowAction({ actionId: "o", turnId: "other", status: "pending", kind: "fn" }));
   expect(pathDepth("a/b/c")).toBe(3);
   const plan = await store.tx((t) =>
@@ -371,7 +338,7 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
   );
   expect(plan.agentSessionIds).toEqual([deep, shallow]);
   expect(plan.pendingActionIds).toEqual(["p"]);
-  expect(plan.claimedActionIds).toEqual(["c"]);
+  expect(plan.deliveringActionIds).toEqual(["c"]);
 
   const anyTurn = await store.tx((t) =>
     planCancelCascade({ t, workflowSessionId: "wf-1", turnId: null })
@@ -379,10 +346,10 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
   expect(anyTurn.pendingActionIds).toEqual(["o", "p"]);
 });
 
-it("WF-R53: fenceWorkflowActions pending→cancelled, claimed→uncertain", async () => {
+it("WF-R53: fenceWorkflowActions pending→cancelled, delivering→uncertain", async () => {
   const { store, put, get } = memoryStore();
   await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "fn" }));
-  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "claimed", kind: "fn" }));
+  await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "fn" }));
   await put("effects", "p", { status: "pending", request: { effectId: "p" } });
   await put("effects", "c", { status: "pending", request: { effectId: "c" } });
   await put("effects", "q", {

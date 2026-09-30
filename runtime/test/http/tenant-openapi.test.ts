@@ -1,7 +1,7 @@
 /**
  * The Tenant API's routes, as declared for serving, make an OpenAPI 3.2 document: security
- * from who may call each route, the `Nylorun-*` headers, `x-nylorun-*` access fields, event
- * streams as `itemSchema`, and deprecated routes marked.
+ * from who may call each route, the `Nylorun-*` headers, `x-nylorun-*` access fields, and event
+ * streams as `itemSchema`.
  */
 import { OpenApiGeneratorV32 } from "@asteasolutions/zod-to-openapi";
 import { expect, it } from "vitest";
@@ -14,48 +14,37 @@ const document = new OpenApiGeneratorV32(tenantApi().openAPIRegistry.definitions
 const operation = (method: string, path: string) =>
   (document.paths?.[path] as Record<string, any> | undefined)?.[method];
 
-it("documents the executor routes as deprecated, for executor or application keys", () => {
-  for (const [method, path, scheme] of [
-    ["get", "/v1/executors/connect", "executorKey"],
-    ["get", "/v1/actions", "executorKey"],
-    ["post", "/v1/actions/{actionId}/claim", "executorKey"],
-    ["get", "/v1/executors", "applicationKey"],
-    ["put", "/v1/executors", "applicationKey"],
-    ["delete", "/v1/executors/{agentId}", "applicationKey"],
-  ] as const) {
-    const op = operation(method, path);
-    expect(op, `${method} ${path}`).toBeDefined();
-    expect(op.deprecated).toBe(true);
-    expect(op.security).toEqual([{ [scheme]: [] }]);
-    expect(op["x-nylorun-scopes"]).toBe("never");
-  }
+it("documents no executor routes: Action endpoints replaced them", () => {
+  for (const [method, path] of [
+    ["get", "/v1/executors/connect"],
+    ["get", "/v1/actions"],
+    ["post", "/v1/actions/{actionId}/claim"],
+    ["get", "/v1/executors"],
+    ["put", "/v1/executors"],
+    ["delete", "/v1/executors/{agentId}"],
+  ] as const)
+    expect(operation(method, path), `${method} ${path}`).toBeUndefined();
+  expect(document.components?.schemas?.ExecutorNotification).toBeUndefined();
 });
 
-it("documents an Action's callbacks for its delivery token, and the executor's where it has one", () => {
-  for (const [method, path, security] of [
-    ["post", "/v1/actions/{actionId}/heartbeat", [{ executorKey: [] }, { deliveryToken: [] }]],
-    ["post", "/v1/actions/{actionId}/sandbox/{tool}", [{ executorKey: [] }, { deliveryToken: [] }]],
-    ["post", "/v1/actions/{actionId}/result", [{ deliveryToken: [] }]],
+it("documents an Action's callbacks for its delivery token only", () => {
+  for (const [method, path] of [
+    ["post", "/v1/actions/{actionId}/heartbeat"],
+    ["post", "/v1/actions/{actionId}/sandbox/{tool}"],
+    ["post", "/v1/actions/{actionId}/result"],
   ] as const) {
     const op = operation(method, path);
     expect(op, `${method} ${path}`).toBeDefined();
     expect(op.deprecated).toBeUndefined();
-    expect(op.security).toEqual(security);
+    expect(op.security).toEqual([{ deliveryToken: [] }]);
     expect(op["x-nylorun-scopes"]).toBe("never");
   }
-});
-
-it("documents the work stream as server-sent events of ExecutorNotification", () => {
-  const stream = operation("get", "/v1/executors/connect").responses["200"].content;
-  expect(stream["text/event-stream"].itemSchema).toEqual({
-    $ref: "#/components/schemas/ExecutorNotification",
-  });
 });
 
 it("documents session commands for every caller that sends them, with their headers", () => {
   const op = operation("post", "/v1/sessions/{sessionId}/commands");
   expect(op.deprecated).toBeUndefined();
-  expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }, { executorKey: [] }]);
+  expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
   expect(op["x-nylorun-scopes"]).toEqual(["sessions:own"]);
   expect(op["x-nylorun-browser"]).toBe(true);
   expect(op.requestBody.content["application/json"].schema).toEqual({
@@ -130,7 +119,6 @@ it("documents the public keys for every caller or none, and access management fo
     { applicationKey: [] },
     { subjectToken: [] },
     { publishableKey: [] },
-    { executorKey: [] },
     {},
   ]);
   for (const [method, path] of [

@@ -24,12 +24,14 @@ validates and applies. All capabilities registered at one point run as one host 
 **Host**: The OSS or Cloud runtime that owns persistence, scheduling,
 authentication and provider access around the shared engine.
 
-**Executor**: The customer process that claims host-issued actions and runs the
-developer's tool and hook implementations.
-_Avoid_: Runtime, when referring to customer code execution.
+**Action endpoint**: The URL of the customer's process that the host delivers
+actions to, signed with a delivery token; it runs the developer's tool, hook,
+`fn` and `verify` implementations (`createActionHandler`).
+_Avoid_: Runtime, when referring to customer code execution; "executor"
+(removed in protocol 3).
 
 **SDK client**: The shared application interface for communicating with a host.
-Authoring and executor capabilities accompany it in the agents SDK.
+Authoring and the Action endpoint handler accompany it in the agents SDK.
 
 ## Flow (workflows)
 
@@ -62,7 +64,7 @@ reshape data between nodes. Manifest v2 has no slots: any node carries `id` and 
 `[index]`. v2 (**leaf path**): an agent's or tool's id, `[index]` per enclosing Map
 item, under the ids of nested flow agents; control stages add nothing.
 
-**Key**: What the executor routes `tool`, `fn`, and `verify` actions by, with the
+**Key**: What the Action endpoint routes `tool`, `fn`, and `verify` actions by, with the
 workflow id. v1: the path without Map indices. v2 (**stage key**): a leaf's id, a
 control stage's `id`, or its position from the flow root (`@1.default.1`), plus
 `:input`, `:on`, `:verify` or `:decide` for functions.

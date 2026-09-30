@@ -19,6 +19,7 @@ import { sessionOwner } from "./002_session_owner.js";
 import { subjectTokens } from "./003_subject_tokens.js";
 import { publishableKeys } from "./004_publishable_keys.js";
 import { actionEndpoints } from "./005_action_endpoints.js";
+import { dropExecutors } from "./006_drop_executors.js";
 
 export interface Migration {
   /** 1, 2, 3, … without gaps. */
@@ -34,6 +35,7 @@ export const MIGRATIONS: readonly Migration[] = [
   subjectTokens,
   publishableKeys,
   actionEndpoints,
+  dropExecutors,
 ];
 
 /** The schema version this Runtime writes and expects. */

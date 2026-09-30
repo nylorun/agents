@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import { accepted, outcome, registerEndpoint, startEndpoint } from "./support/endpoint.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -8,11 +9,6 @@ const server = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-const executor = {
-  authorization: "Bearer executor-token-value",
-  "content-type": "application/json",
-};
-
 const hooked = Agent({ id: "hooked", name: "Hooked" })
   .use({ id: "one", before: { step: () => ({}) } })
   .use({ id: "two", before: { step: () => ({}) } })
@@ -21,9 +17,6 @@ const hooked = Agent({ id: "hooked", name: "Hooked" })
 async function start(leaseMs?: number) {
   return startTestTenant({
     applicationKey: APP,
-    executors: [
-      { token: "executor-token-value", agentId: "hooked", implementationVersion: "dev" },
-    ],
     modelProvider: async () => ({ output: [{ type: "text", text: "done" }] }),
     ...(leaseMs === undefined ? {} : { leaseMs }),
   });
@@ -57,68 +50,30 @@ async function openTurn(url: string) {
   expect(message.ok).toBe(true);
 }
 
-async function pendingActions(url: string) {
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    const listed = await fetch(`${url}/v1/actions`, {
-      headers: { authorization: executor.authorization },
-    });
-    const { actions } = (await listed.json()) as {
-      actions: { actionId: string; kind: string; status: string; hook?: unknown }[];
-    };
-    const pending = actions.filter((action) => action.status === "pending");
-    if (pending.length) return pending;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  return [];
-}
-
-async function claim(url: string, actionId: string, requestId: string) {
-  const response = await fetch(`${url}/v1/actions/${actionId}/claim`, {
-    method: "POST",
-    headers: executor,
-    body: JSON.stringify({ requestId, implementationVersion: "dev" }),
+it("sends one hook action per point and re-delivers it when a 202 delivery's deadline passes", async () => {
+  // A 202 delivery's deadline is the lease; the sweep runs at least that often.
+  const runtime = await start(300);
+  // Never answer the first delivery after its 202: the deadline passes, the hook goes back to
+  // pending and is delivered again. The second one is answered inline.
+  const endpoint = await startEndpoint({
+    runtime,
+    answer: (delivery) =>
+      delivery.action.generation > 1 ? outcome({ results: { one: {}, two: {} } }) : accepted,
   });
-  expect(response.ok).toBe(true);
-  return (await response.json()) as { claimId: string; generation: number };
-}
-
-it("sends one hook action per point and re-delivers it when a lease expires", async () => {
-  // 150ms is enough locally but flakes under CI load (consumers 24.15.0): the
-  // second claim's lease can expire before action_result is posted.
-  const runtime = await start(2_000);
   try {
+    await registerEndpoint(runtime, "hooked", endpoint.url);
     await openTurn(runtime.url);
-    const [action, ...rest] = await pendingActions(runtime.url);
-    expect(rest).toHaveLength(0);
-    expect(action).toMatchObject({
+    const first = await endpoint.next();
+    expect(first.action).toMatchObject({
       kind: "hook",
       hook: { at: "before", scope: "step", capabilityIds: ["one", "two"] },
     });
-    const first = await claim(runtime.url, action!.actionId, "claim-1");
 
-    // Never answer the first claim: the lease expires and the hook is delivered again.
-    const again = await pendingActions(runtime.url);
-    expect(again.map((item) => item.actionId)).toEqual([action!.actionId]);
-    const second = await claim(runtime.url, action!.actionId, "claim-2");
-    expect(second.generation).toBeGreaterThan(first.generation);
-
-    const result = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
-      method: "POST",
-      headers: executor,
-      body: JSON.stringify({
-        type: "action_result",
-        requestId: "result-1",
-        idempotencyKey: "result-1",
-        actionId: action!.actionId,
-        claimId: second.claimId,
-        generation: second.generation,
-        outcome: { value: { results: { one: {}, two: {} } } },
-      }),
-    });
-    if (!result.ok) {
-      const body = await result.text();
-      expect.fail(`action_result ${result.status}: ${body.slice(0, 500)}`);
-    }
+    const second = await endpoint.next((delivery) => delivery !== first);
+    expect(second.action.actionId).toBe(first.action.actionId);
+    expect(second.action.generation).toBeGreaterThan(first.action.generation);
+    // The lost delivery's token no longer answers for the Action.
+    expect((await first.result({ results: { one: {}, two: {} } })).status).toBe(409);
 
     let types: string[] = [];
     for (let attempt = 0; attempt < 150 && !types.includes("turn.completed"); attempt += 1) {
@@ -133,7 +88,10 @@ it("sends one hook action per point and re-delivers it when a lease expires", as
     }
     expect(types).toContain("turn.completed");
     expect(types).not.toContain("action.uncertain");
+    // Every hook point sent exactly one Action.
+    expect(new Set(endpoint.deliveries.map((d) => d.action.actionId)).size).toBe(1);
   } finally {
+    await endpoint.close();
     await runtime.close();
   }
 });

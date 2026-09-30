@@ -11,7 +11,7 @@ export const CLOCK_TOLERANCE_SECONDS = 30;
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "x5t", "crit"];
 
-/** True when `bearer` has the shape of a JWT; application and executor keys never do. */
+/** True when `bearer` has the shape of a JWT; application keys never do. */
 export function looksLikeToken(bearer: string): boolean {
   return JWT_SHAPE.test(bearer);
 }

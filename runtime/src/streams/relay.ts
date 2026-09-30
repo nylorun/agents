@@ -34,17 +34,13 @@
  * many processes relay the same rows. Within one process the relay also runs
  * one relay at a time per session.
  *
- * `work_available`, `session.cancel` and `sessions.reset` are signals, not
- * canonical events: they skip the outbox (`signalWork`, `signalCancel`,
- * `signalSessionsReset`). A commit that called `t.signalWork()` is signalled
- * by the relay after its events.
+ * `session.cancel`, `sessions.reset` and `subject.revoked` are signals, not
+ * canonical events: they skip the outbox (`signalCancel`, `signalSessionsReset`).
  */
 import { decodeCursor } from "../store/cursor.js";
 import type { Commit, OutboxRow, SessionStore } from "../store/types.js";
 import {
   CONTROL_STREAM,
-  WORK_AVAILABLE,
-  WORK_STREAM,
   streamOfSession,
   type ControlSignal,
   type DurableStreams,
@@ -229,13 +225,6 @@ export function createRelay(options: RelayOptions): Relay {
         onError,
       );
     });
-    if (commit.workAvailable) {
-      const signalled = Promise.all(relays)
-        .then(() => signalWork(streams, tenantId))
-        .catch(onError);
-      pending.add(signalled);
-      void signalled.then(() => pending.delete(signalled));
-    }
   }
 
   const unsubscribe = store.onCommit(onCommit);
@@ -271,11 +260,6 @@ export function createRelay(options: RelayOptions): Relay {
       await idle();
     },
   };
-}
-
-/** Appends a `work_available` signal to `tenant/work`. Not relayed through the outbox. */
-export async function signalWork(streams: DurableStreams, tenantId: string): Promise<void> {
-  await streams.append(tenantId, WORK_STREAM, [WORK_AVAILABLE]);
 }
 
 /** Appends a `session.cancel` signal to `tenant/control`. Not relayed through the outbox. */

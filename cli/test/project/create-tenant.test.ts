@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { PROTOCOL_FEATURES } from "@nylorun/core/compatibility";
+import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { createProjectTenant } from "../../src/project/create-tenant.js";
 import { readCredentials } from "../../src/project/credentials.js";
 import { readLink } from "../../src/project/link.js";
@@ -30,8 +30,8 @@ it("F2-2: createProjectTenant uses admin.createTenant and writes format 1 files"
         JSON.stringify({
           hostId: "host_01habcdefghijklmnopqrstuv",
           protocol: {
-            min: 2,
-            max: 2,
+            min: PROTOCOL_VERSION,
+            max: PROTOCOL_VERSION,
             features: [...PROTOCOL_FEATURES],
           },
         }),

@@ -15,7 +15,7 @@ const lookupOrder = tool({
 
 /**
  * The agent the AG-UI example (`src/ag-ui/`) serves to a web app's users. Not in the release
- * registry: the AG-UI server runs its own executor for it.
+ * registry: the AG-UI server serves its own Action endpoint for it.
  */
 export const support = Agent({
   id: "support",

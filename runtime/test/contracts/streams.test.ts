@@ -15,7 +15,7 @@ it("names session streams by incarnation and maps them back", () => {
     sessionId: "s:1",
     incarnation: "abc",
   });
-  expect(parseSessionStream("tenant/work")).toBeUndefined();
+  expect(parseSessionStream("tenant/control")).toBeUndefined();
   expect(parseSessionStream("sessions/")).toBeUndefined();
   expect(parseSessionStream("sessions/s1")).toBeUndefined();
   expect(parseSessionStream("sessions/s1/")).toBeUndefined();
@@ -37,10 +37,10 @@ it("ends live readers when the Tenant is deleted", async () => {
   await streams.ensureTenant("tn_x");
   const reading = (async () => {
     const seen: number[] = [];
-    for await (const record of streams.read("tn_x", "tenant/work", 0)) seen.push(record.seq);
+    for await (const record of streams.read("tn_x", "tenant/control", 0)) seen.push(record.seq);
     return seen;
   })();
-  await streams.append("tn_x", "tenant/work", [1]);
+  await streams.append("tn_x", "tenant/control", [1]);
   await new Promise((resolve) => setTimeout(resolve, 10));
   await streams.deleteTenant("tn_x");
   expect(await reading).toEqual([0]);

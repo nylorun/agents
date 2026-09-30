@@ -10,8 +10,8 @@
  * 1. **One transaction per `tx` call, READ COMMITTED or stronger.** Nothing a
  *    transaction wrote is visible to others before it commits, and nothing is
  *    kept when `fn` throws: document writes, event sequences, outbox rows,
- *    `afterCommit` callbacks and `signalWork` are all discarded, and `tx`
- *    rejects with the error `fn` threw.
+ *    and `afterCommit` callbacks are all discarded, and `tx` rejects with the
+ *    error `fn` threw.
  * 2. **Session-scoped writes lock the session row first.** `lockSession` takes
  *    a row lock (`SELECT … FOR UPDATE`) held until the transaction ends. Effect
  *    intent and outcome, Action transitions, checkpoint settlement and event
@@ -25,14 +25,13 @@
  *    `streams/types.ts`), and the cursor is `base64url("<sessionId>:<seq>")`
  *    (see `store/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
- *    S2 call, and no `fetch`, runs inside a transaction. Wakes go through
- *    `afterCommit`, executor notifications through `signalWork`, and events are
- *    delivered to commit listeners after commit (seam rule 1 and 2).
+ *    S2 call, and no `fetch`, runs inside a transaction. Wakes and deliveries go
+ *    through `afterCommit`, and events are delivered to commit listeners after
+ *    commit (seam rule 1 and 2).
  * 5. **No nested transactions.** Calling `store.tx` from inside `fn` rejects.
  *    A `Tx` must not be used after its `tx` call settles.
  * 6. **Post-commit order.** After a commit, the store first calls every commit
- *    listener once with the transaction's events (in allocation order) and its
- *    `signalWork` flag, then runs the `afterCommit` callbacks in registration
+ *    listener once with the transaction's events (in allocation order), then runs the `afterCommit` callbacks in registration
  *    order and awaits them. Listener and callback failures are reported to the
  *    store's error hook; they never reject `tx`, because the commit stands.
  *    Recovery from a lost post-commit step is the Tenant sweep's job.
@@ -46,9 +45,9 @@
  * ## Typed queries, no scans
  *
  * There is no generic table scan. Every read the Runtime needs is a typed
- * method on `Tx` (`sessionsWithStatus`, `expiredClaims`, `pendingActions`,
+ * method on `Tx` (`sessionsWithStatus`, `expiredDeliveries`, `pendingActions`,
  * `effectsForTurn`, `linkedSessions`, `counts`, …) that an implementation can
- * back with an index, and principals, executors, vaults and Tenant settings
+ * back with an index, and principals, endpoints, vaults and Tenant settings
  * have their own methods rather than raw SQL outside the store. Session history
  * is not read from the store: the relay moves events from the outbox to
  * Durable Streams, and history and SSE read them there (`tenant/streams.ts`).
@@ -142,7 +141,7 @@ export interface EffectDoc {
   status: EffectStatus | (string & {});
 }
 
-/** Actions are stored as the wire `Action`. Indexed: `sessionId`, `turnId`, `agentId`, `status`, `kind`, `leaseExpiresAt`. */
+/** Actions are stored as the wire `Action`. Indexed: `sessionId`, `turnId`, `agentId`, `status`, `kind`, `deadlineAt`. */
 export type ActionDoc = Action;
 
 /** A workflow → agent session link, keyed by the linked agent session id. Indexed: `workflowSessionId`. */
@@ -201,25 +200,12 @@ export interface Commit {
    * each event to that incarnation's stream.
    */
   readonly incarnations: readonly (string | null)[];
-  /** True when the transaction called `signalWork()`. */
-  readonly workAvailable: boolean;
 }
 
 export type CommitListener = (commit: Commit) => void;
 
 // ---------------------------------------------------------------------------
 // Typed tables
-
-/** Executors carry a bearer secret hash, so they use typed columns with a unique token hash. */
-export interface ExecutorRow {
-  agentId: string;
-  tokenHash: string;
-  implementationVersion: string;
-  manifestHash?: string;
-  principalId?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 /**
  * An Action endpoint: the URL the Runtime delivers one agent's Actions to, and what recent
@@ -381,7 +367,7 @@ export interface StoreCounts {
   sessions: number;
   /** Sessions `running` or `runnable`. */
   runningSessions: number;
-  /** Actions `pending` or `claimed`. */
+  /** Actions `pending` or `delivering`. */
   pendingActions: number;
   /** Effects `uncertain`. */
   uncertainEffects: number;
@@ -492,9 +478,6 @@ export interface Tx {
   /** Runs `fn` after a successful commit (never on rollback). Used for wakes. */
   afterCommit(fn: () => void | Promise<void>): void;
 
-  /** Signals `work_available` to executors after a successful commit. */
-  signalWork(): void;
-
   // --- ownership (§10.6) ---------------------------------------------------
 
   /**
@@ -553,9 +536,7 @@ export interface Tx {
   listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]>;
   listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]>;
 
-  /** Claimed actions whose lease ended at or before `now`, earliest lease first. */
-  expiredClaims(now: Date, limit: number): Promise<ActionDoc[]>;
-  /** `pending` actions offered to one agent's executor. */
+  /** One agent's `pending` actions, delivered when its endpoint is registered. */
   pendingActions(agentId: string): Promise<ActionDoc[]>;
   /** How many of one agent's actions are `delivering` (Action endpoints). */
   deliveringCount(agentId: string): Promise<number>;
@@ -614,17 +595,6 @@ export interface Tx {
   ): Promise<number>;
   /** How many events are unrelayed, and the `createdAt` of the oldest (Tenant status). */
   outboxStats(): Promise<OutboxStats>;
-
-  // --- executors -----------------------------------------------------------
-
-  listExecutors(): Promise<ExecutorRow[]>;
-  getExecutor(agentId: string): Promise<ExecutorRow | undefined>;
-  /**
-   * Inserts or updates by `agentId`, keeping `createdAt` on update. Rejects
-   * when another agent already uses `tokenHash`.
-   */
-  putExecutor(row: Omit<ExecutorRow, "createdAt">): Promise<void>;
-  deleteExecutor(agentId: string): Promise<void>;
 
   // --- Action endpoints -----------------------------------------------------
 
@@ -753,7 +723,7 @@ export interface Tx {
    * - `sessions`: sessions, commands, checkpoints, effects, actions, links, the outbox and
    *   subject turn buckets;
    * - `sandboxes`: sandbox records;
-   * - `all`: both, plus definitions, executors, Action endpoints and user vaults with their
+   * - `all`: both, plus definitions, Action endpoints and user vaults with their
    *   credentials. The host vault, principals, signing keys, subject epochs, publishable
    *   keys, settings,
    *   audit and vault idempotency rows stay.

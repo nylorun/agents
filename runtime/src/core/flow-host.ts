@@ -23,8 +23,6 @@
  * - `wakeLinkedWorkflow({ t, agentSessionId, turnId, output?, failed?, cancelled?, error?, schedule }): Promise<void>`
  * - `pendingAgentEffects(t): Promise<FlowEffect[]>`
  * - `reconcilePendingAgentEffect({ t, effectId, schedule }): Promise<boolean>`
- * - `claimedFnVerifyActions(t): Promise<Action[]>`
- * - `reofferFnVerifyClaim(t, actionId): Promise<boolean>`
  * - `planCancelCascade({ t, workflowSessionId, turnId }): Promise<CascadeCancelPlan>`
  * - `cancelSiblingWork({ t, workflowSessionId, turnId, siblingPaths?, cancelEffectIds? }): Promise<CancelSiblingResult>`
  * - `fenceWorkflowActions({ t, workflowSessionId, turnId }): Promise<{ cancelled; uncertain }>`
@@ -187,7 +185,7 @@ export type CascadeCancelPlan = {
   /** Linked agent sessions to cancel, deepest path first. */
   readonly agentSessionIds: string[];
   readonly pendingActionIds: string[];
-  readonly claimedActionIds: string[];
+  readonly deliveringActionIds: string[];
 };
 
 /** Wakes a session after commit (`DurableExecution.wake` through the Tenant context). */
@@ -200,8 +198,8 @@ export type FlowEffect = EffectDoc & {
   error?: string;
 };
 
-/** Actions still to be settled: offered, claimed by an executor, or being delivered. */
-const OPEN_ACTION: Action["status"][] = ["pending", "claimed", "delivering"];
+/** Actions still to be settled: waiting to be delivered, or being delivered. */
+const OPEN_ACTION: Action["status"][] = ["pending", "delivering"];
 
 function scheduleAfterCommit(
   t: Tx,
@@ -212,7 +210,7 @@ function scheduleAfterCommit(
   t.afterCommit(() => schedule(id, wake));
 }
 
-/** Active agent turns + pending/claimed actions for one workflow turn. */
+/** Active agent turns + pending/delivering actions for one workflow turn. */
 export async function countActiveFlowWork(
   t: Tx,
   workflowSessionId: string,
@@ -416,40 +414,6 @@ export async function reconcilePendingAgentEffect(input: {
   return true;
 }
 
-/** Claimed `fn`/`verify` Actions, for the re-offer after a Tenant opens. */
-export async function claimedFnVerifyActions(t: Tx): Promise<Action[]> {
-  return t.actionsWithStatus(["claimed"], { kinds: ["fn", "verify"] });
-}
-
-/**
- * Re-offer one claimed `fn`/`verify` Action (SD-P7 / WF-C9): they are pure or repeat-safe, so
- * a claim left by an executor of an earlier process is offered again at once rather than
- * after its lease. The next claim bumps the generation, which fences a late result. Locks
- * only the Action's session. Returns true when it re-offered.
- */
-export async function reofferFnVerifyClaim(
-  t: Tx,
-  actionId: string
-): Promise<boolean> {
-  const found = await t.get<Action>("actions", actionId);
-  if (!found) return false;
-  await t.lockSession(found.sessionId);
-  // Read again under the session lock.
-  const action = await t.get<Action>("actions", actionId);
-  if (
-    !action ||
-    action.status !== "claimed" ||
-    (action.kind !== "fn" && action.kind !== "verify")
-  )
-    return false;
-  action.status = "pending";
-  (action as { claimId: null }).claimId = null;
-  (action as { leaseExpiresAt: null }).leaseExpiresAt = null;
-  await t.put("actions", action.actionId, action);
-  t.signalWork();
-  return true;
-}
-
 /** Path depth for deepest-first cancel ordering. */
 export function pathDepth(path: string): number {
   if (!path) return 0;
@@ -458,7 +422,7 @@ export function pathDepth(path: string): number {
 
 /**
  * Plan a cancel cascade for a workflow session: linked agents deepest first,
- * then pending → cancelled and claimed → uncertain actions (SD-P11 / WF-R53).
+ * then pending → cancelled and delivering → uncertain actions (SD-P11 / WF-R53).
  */
 export async function planCancelCascade(input: {
   readonly t: Tx;
@@ -472,28 +436,28 @@ export async function planCancelCascade(input: {
   agentEntries.sort((a, b) => pathDepth(b.path) - pathDepth(a.path));
 
   const pendingActionIds: string[] = [];
-  const claimedActionIds: string[] = [];
+  const deliveringActionIds: string[] = [];
   const actions = await t.actionsForSession(input.workflowSessionId, {
     ...(input.turnId !== null ? { turnId: input.turnId } : {}),
     statuses: OPEN_ACTION,
   });
   for (const action of actions) {
     if (action.status === "pending") pendingActionIds.push(action.actionId);
-    // Claimed or being delivered: the code may already be running.
-    else claimedActionIds.push(action.actionId);
+    // Being delivered: the code may already be running.
+    else deliveringActionIds.push(action.actionId);
   }
 
   return {
     agentSessionIds: agentEntries.map((e) => e.sessionId),
     pendingActionIds,
-    claimedActionIds,
+    deliveringActionIds,
   };
 }
 
 /**
  * Cancel sibling work under a Parallel/Map parent when one branch fails (PAR-R6).
  * Agent turns listed in `agentSessionIds` are returned for the caller to cancel;
- * pending actions → cancelled, claimed tool actions → uncertain.
+ * pending actions → cancelled, delivering tool actions → uncertain.
  * When `cancelEffectIds` is provided, those effects are marked cancelled and their
  * paths are included in the sibling path set.
  */
@@ -555,7 +519,7 @@ export async function cancelSiblingWork(input: {
   });
   for (const action of actions) {
     if (!matchesSibling((action as { path?: string }).path)) continue;
-    // Claimed or delivered work may already have had an external effect.
+    // Delivered work may already have had an external effect.
     const next = action.status === "pending" ? "cancelled" : "uncertain";
     action.status = next;
     await t.put("actions", action.actionId, action);
@@ -572,7 +536,7 @@ export async function cancelSiblingWork(input: {
 }
 
 /**
- * Apply cancel fencing to workflow-session actions (pending→cancelled, claimed or
+ * Apply cancel fencing to workflow-session actions (pending→cancelled,
  * delivering→uncertain).
  */
 export async function fenceWorkflowActions(input: {
@@ -590,7 +554,7 @@ export async function fenceWorkflowActions(input: {
     statuses: OPEN_ACTION,
   });
   for (const action of actions) {
-    // Claimed or delivered work may already have had an external effect.
+    // Delivered work may already have had an external effect.
     const next = action.status === "pending" ? "cancelled" : "uncertain";
     action.status = next;
     await t.put("actions", action.actionId, action);

@@ -6,16 +6,15 @@ import {
   Switch,
   tool,
   createClient,
-  connectAgents,
-  type AgentConnection,
   type BuiltWorkflow,
   type JsonValue,
 } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * End to end: the node keys core registers for workflow functions must be the keys
- * the harness sends, or the executor never finds the function. Covers Map `over`,
+ * the harness sends, or the endpoint never finds the function. Covers Map `over`,
  * slot `input`, and a slot `input` wrapping a Map or a Switch (two fn effects on one path).
  */
 
@@ -68,7 +67,7 @@ async function run(workflow: BuiltWorkflow, message: string) {
     key: tenant.applicationKey,
     tenant: tenant.tenantId,
   });
-  const connection: AgentConnection = connectAgents({
+  const connection: ServedAgents = serveAgents({
     agents: [workflow],
     application: client,
     implementationVersion: "node-keys",
@@ -115,7 +114,7 @@ function outputOf(result: Awaited<ReturnType<typeof run>>) {
 }
 
 describe("workflow function node keys, end to end", { timeout: 30_000 }, () => {
-  it("routes a slot input and a Map over to the executor", async () => {
+  it("routes a slot input and a Map over to the endpoint", async () => {
     const workflow = Chain({
       id: "shouter",
       steps: [

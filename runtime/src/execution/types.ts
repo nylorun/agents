@@ -45,7 +45,7 @@ export type WakeReason =
   | "message"
   | "approve"
   | "respond"
-  /** An executor posted an Action result. */
+  /** An Action's outcome was recorded (a delivery's answer or a background result). */
   | "action_result"
   /** A linked agent turn completed, failed or was cancelled. */
   | "linked"

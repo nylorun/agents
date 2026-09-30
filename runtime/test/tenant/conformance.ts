@@ -175,7 +175,7 @@ describe("tenant module conformance", () => {
         setSummary?(s: {
           ready: boolean;
           runningSessions: number;
-          connectedExecutors: number;
+          inFlightDeliveries: number;
           pendingActions: number;
           uncertainEffects: number;
         }): void;
@@ -183,7 +183,7 @@ describe("tenant module conformance", () => {
     ).setSummary?.({
       ready: true,
       runningSessions: 1,
-      connectedExecutors: 0,
+      inFlightDeliveries: 0,
       pendingActions: 0,
       uncertainEffects: 0,
     });
@@ -211,7 +211,7 @@ describe("tenant module conformance", () => {
           setSummary?(s: {
             ready: boolean;
             runningSessions: number;
-            connectedExecutors: number;
+            inFlightDeliveries: number;
             pendingActions: number;
             uncertainEffects: number;
           }): void;
@@ -219,7 +219,7 @@ describe("tenant module conformance", () => {
       ).setSummary?.({
         ready: true,
         runningSessions: 2,
-        connectedExecutors: 3,
+        inFlightDeliveries: 3,
         pendingActions: 1,
         uncertainEffects: 4,
       });
@@ -227,7 +227,7 @@ describe("tenant module conformance", () => {
     const aggregate = await module.summarize();
     expect(aggregate).toEqual({
       runningSessions: 2,
-      connectedExecutors: 3,
+      inFlightDeliveries: 3,
       pendingActions: 1,
       uncertainEffects: 4,
     });

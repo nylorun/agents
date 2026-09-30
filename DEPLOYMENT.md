@@ -112,7 +112,7 @@ way in. Nothing in the Runtime changes.
 | Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
 | Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
 | Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Tenant`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
-| Don't buffer responses; allow idle streams | Event streams and the executor's connection are long-lived SSE with a keepalive every 15 seconds |
+| Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 
 A [Caddy](https://caddyserver.com) configuration that does all of this
@@ -134,7 +134,7 @@ runtime.example.com {
 		reverse_proxy 127.0.0.1:8787 {
 			# The stack answers only its own Host names.
 			header_up Host localhost:8787
-			# Event streams and the executor's connection: flush every write.
+			# Event streams: flush every write.
 			flush_interval -1
 		}
 	}
@@ -168,12 +168,16 @@ On the app server's machine:
 
   ```sh
   npm ci && npm run build --workspace @nylorun/core --workspace @nylorun/agents
-  node scripts/acceptance/remote.mjs --placement lan --fixture-model
+  node scripts/acceptance/remote.mjs --placement lan --fixture-model \
+    --actions-url https://tunnel.example.com/nylorun/actions --actions-port 3000
   ```
 
-  It checks the proxy rules, runs a chat with an approval, drops the connection
-  and reattaches, then keeps an event stream and the executor connected through
-  ten idle minutes (`--idle-minutes`). `--fixture-model` switches that Tenant's
+  `--actions-url` is where the Runtime reaches the check's Action endpoint, which
+  listens on `--actions-port` on the app server's machine (a tunnel, or the machine's
+  address when the Runtime can reach it). The check verifies the proxy rules, runs a
+  chat with an approval, drops the connection and reattaches, then keeps an event
+  stream open through ten idle minutes (`--idle-minutes`) and checks that tools are
+  still delivered afterwards. `--fixture-model` switches that Tenant's
   model calls to the Runtime's deterministic fixture model.
 
 This is one Runtime on one server, operated by hand: no replicas, managed
@@ -210,6 +214,6 @@ there is no `latest` tag. Studio is not published to npm; it ships only as its
 image.
 
 Remote ingress, TLS, server deployment of these images (Compose on a server,
-Helm), replicas, hosted customer executors, backups/migrations, crash recovery
+Helm), replicas, hosted customer Action endpoints, backups/migrations, crash recovery
 qualification, and deployment automation are deferred. Local build and smoke
 results do not establish those deployment guarantees.

@@ -12,14 +12,13 @@ import {
 } from "@a2a-js/sdk/client";
 import {
   Agent,
-  connectAgents,
   createClient,
   tool,
-  type AgentConnection,
 } from "@nylorun/agents";
 import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { startTestTenant } from "../support/tenant.js";
+import { serveAgents, type ServedAgents } from "../support/endpoint.js";
 
 /**
  * A2A v1 exit gate: partners reach the Tenant's agents through a gateway
@@ -126,7 +125,7 @@ const slow = Agent({ id: "slow", name: "Slow" })
   .build();
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
-let connection: AgentConnection;
+let connection: ServedAgents;
 let server: Server;
 let base: string;
 
@@ -141,7 +140,7 @@ beforeAll(async () => {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  connection = connectAgents({
+  connection = serveAgents({
     agents: [support, refunds, guarded, slow],
     application: client,
     implementationVersion: "dev",

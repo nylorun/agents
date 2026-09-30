@@ -25,7 +25,6 @@ async function boot(modelProvider?: ModelProvider) {
   return startTestTenant({
     mode: "test",
     applicationKey: APP,
-    executors: [],
     vaultKek: null,
     modelProvider: modelProvider ?? (async () => ({ output: [{ type: "text", text: "ok" }] })),
     sandbox: { backend: "virtual" },

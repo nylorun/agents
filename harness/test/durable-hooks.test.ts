@@ -9,7 +9,7 @@ import {
   type HostEffect,
 } from "../src/run/index.js";
 
-/** A journaling host that answers hook effects the way the executor does. */
+/** A journaling host that answers hook effects the way the Action endpoint does. */
 function hostFor(
   agent: BuiltAgent,
   options: {

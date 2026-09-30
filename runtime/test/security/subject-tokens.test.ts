@@ -344,11 +344,11 @@ describe("what a token reaches", () => {
     expect(none.status, none.text).toBe(200);
   });
 
-  it("never reaches operator, executor or settings routes", async () => {
+  it("never reaches operator, Action callback or settings routes", async () => {
     const token = await mint(tenant, "app:hank");
     for (const [method, path, body] of [
-      ["GET", "/v1/executors", undefined],
-      ["GET", "/v1/actions", undefined],
+      ["GET", "/v1/endpoints", undefined],
+      ["POST", "/v1/actions/a1/heartbeat", undefined],
       ["GET", "/v1/tenant", undefined],
       ["GET", "/v1/tenant/models", undefined],
       ["GET", "/v1/access/signing-keys", undefined],

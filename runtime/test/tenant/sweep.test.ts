@@ -14,10 +14,9 @@ import type { SessionStore, Tx } from "../../src/store/types.js";
 import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
+import { sweepDeliveries } from "../../src/tenant/delivery.js";
 import {
-  expireClaims,
   reconcileLinkedAgents,
-  reofferFnVerifyClaims,
   wakeOrphanedSessions,
 } from "../../src/tenant/sweep.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
@@ -64,6 +63,7 @@ const silent = { info() {}, warn() {}, error() {} };
 
 function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
   const wakes: { id: string; wake: Wake }[] = [];
+  const delivered: string[] = [];
   const ctx = {
     store,
     closing: false,
@@ -75,8 +75,11 @@ function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
     wake: async (id: string, wake: Wake) => {
       wakes.push({ id, wake });
     },
+    deliver: async (actionId: string) => {
+      delivered.push(actionId);
+    },
   } as unknown as TenantContext;
-  return { ctx, wakes };
+  return { ctx, wakes, delivered };
 }
 
 function session(id: string, fields: Record<string, unknown> = {}) {
@@ -99,10 +102,9 @@ function action(fields: Partial<Action> & Pick<Action, "actionId" | "kind">): Ac
     implementationVersion: "dev",
     input: {},
     context: {},
-    status: "claimed",
+    status: "delivering",
     generation: 1,
-    claimId: "c1",
-    leaseExpiresAt: new Date(Date.now() - 1000).toISOString(),
+    deadlineAt: new Date(Date.now() - 1000).toISOString(),
     ...(fields.kind === "tool"
       ? { capabilityId: "notes", toolName: "save" }
       : fields.kind === "hook"
@@ -240,8 +242,9 @@ describe.each(stores)("on the %s store", (_name, makeStore) => {
     expect(await eventsOf(store, "s1")).toEqual([]);
   });
 
-  it("expires lapsed claims by kind and leaves live ones alone", async () => {
+  it("loses lapsed deliveries by kind and leaves live ones alone", async () => {
     const store = await makeStore();
+    const { ctx, delivered } = contextOf(store);
     const future = new Date(Date.now() + 60_000).toISOString();
     await store.tx(async (t) => {
       await t.put("sessions", "s1", session("s1", { status: "waiting", activeTurnId: "t1" }));
@@ -252,10 +255,10 @@ describe.each(stores)("on the %s store", (_name, makeStore) => {
       await t.put(
         "actions",
         "live-1",
-        action({ actionId: "live-1", kind: "tool", leaseExpiresAt: future })
+        action({ actionId: "live-1", kind: "tool", deadlineAt: future })
       );
     });
-    expect(await expireClaims({ store })).toBe(3);
+    expect(await sweepDeliveries(ctx)).toBe(3);
     const after = await store.tx(async (t) => ({
       session: await t.get("sessions", "s1"),
       tool: await t.get<Action>("actions", "tool-1"),
@@ -264,31 +267,40 @@ describe.each(stores)("on the %s store", (_name, makeStore) => {
       hook: await t.get<Action>("actions", "hook-1"),
       live: await t.get<Action>("actions", "live-1"),
     }));
+    // A lost tool delivery is uncertain; a hook or fn goes back to pending and is sent again.
     expect(after.tool?.status).toBe("uncertain");
     expect(after.toolEffect.status).toBe("uncertain");
     expect(after.session.status).toBe("uncertain");
-    expect(after.fn).toMatchObject({ status: "pending", claimId: null, leaseExpiresAt: null });
-    expect(after.hook).toMatchObject({ status: "pending", claimId: null });
-    expect(after.live?.status).toBe("claimed");
+    expect(after.fn).toMatchObject({ status: "pending", deadlineAt: null });
+    expect(after.hook).toMatchObject({ status: "pending", deadlineAt: null });
+    expect(after.live?.status).toBe("delivering");
+    expect(delivered.sort()).toEqual(["fn-1", "hook-1"]);
     expect(await eventsOf(store, "s1")).toEqual(["action.uncertain"]);
-    expect(await expireClaims({ store })).toBe(0);
+    expect(await sweepDeliveries(ctx)).toBe(0);
   });
 
-  it("re-offers claimed fn/verify actions once a Tenant opens", async () => {
+  it("sends pending Actions again only for agents with an endpoint", async () => {
     const store = await makeStore();
-    const future = new Date(Date.now() + 60_000).toISOString();
+    const { ctx, delivered } = contextOf(store);
     await store.tx(async (t) => {
       await t.put("sessions", "s1", session("s1", { status: "waiting", activeTurnId: "t1" }));
-      await t.put("actions", "v1", action({ actionId: "v1", kind: "verify", leaseExpiresAt: future }));
-      await t.put("actions", "tool-1", action({ actionId: "tool-1", kind: "tool", leaseExpiresAt: future }));
+      await t.putEndpoint({
+        agentId: "bot",
+        url: "http://127.0.0.1:1/actions",
+        implementationVersion: "dev",
+        timeoutMs: 60_000,
+        maxConcurrent: 16,
+        updatedAt: new Date().toISOString(),
+      });
+      await t.put("actions", "v1", action({ actionId: "v1", kind: "verify", status: "pending", deadlineAt: null }));
+      await t.put(
+        "actions",
+        "other-1",
+        action({ actionId: "other-1", kind: "tool", agentId: "other", status: "pending", deadlineAt: null })
+      );
     });
-    expect(await reofferFnVerifyClaims({ store })).toBe(1);
-    const after = await store.tx(async (t) => ({
-      v1: await t.get<Action>("actions", "v1"),
-      tool: await t.get<Action>("actions", "tool-1"),
-    }));
-    expect(after.v1).toMatchObject({ status: "pending", claimId: null });
-    expect(after.tool?.status).toBe("claimed");
+    expect(await sweepDeliveries(ctx)).toBe(0);
+    expect(delivered).toEqual(["v1"]);
   });
 
   it("wakes running or runnable sessions that have no live owner", async () => {

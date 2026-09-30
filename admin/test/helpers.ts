@@ -141,7 +141,7 @@ export function sampleStatus() {
     tenants: [sampleTenant()],
     aggregate: {
       runningSessions: 0,
-      connectedExecutors: 0,
+      inFlightDeliveries: 0,
       pendingActions: 0,
       uncertainEffects: 0,
     },

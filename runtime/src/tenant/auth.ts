@@ -1,6 +1,6 @@
 /**
  * Tenant request authentication and authorization: a bearer token resolves to an application
- * principal, a registered executor or a subject token; anything else is the opaque 404 (D5).
+ * principal, a subject token or a delivery token; anything else is the opaque 404 (D5).
  * An application principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`); a
  * subject token names its subject itself. `authorize` limits both to the routes their scopes
  * allow, decided from the route alone.
@@ -16,7 +16,7 @@ import {
   type Action,
   type SubjectScope,
 } from "@nylorun/core/contracts";
-import { hashToken } from "../core/executors.js";
+import { hashToken } from "../core/bearer.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
 import { looksLikeToken, verifySubjectToken } from "./tokens.js";
@@ -83,10 +83,10 @@ export async function authenticate(
       fail(403, "A subject token cannot act for another subject");
     return scope;
   }
-  // Application and executor keys never come from a browser or a shipped app: refused before
-  // they are even looked up.
+  // Application keys never come from a browser or a shipped app: refused before they are even
+  // looked up.
   if (request.headers.origin !== undefined)
-    fail(403, "Application and executor keys are not accepted from browsers", {
+    fail(403, "Application keys are not accepted from browsers", {
       code: "origin_rejected",
     });
   if (client)
@@ -95,8 +95,7 @@ export async function authenticate(
     });
   const tokenHash = hashToken(token);
   const principal = await ctx.store.tx((t) => t.principalByTokenHash(tokenHash));
-  const executor = principal ? undefined : ctx.registry.find(tokenHash);
-  if (!principal && !executor) {
+  if (!principal) {
     ctx.config.logger.warn("credential rejected", {
       reason: "unknown_token",
     });
@@ -105,21 +104,16 @@ export async function authenticate(
   // Read only after authentication, so an unknown caller sees the opaque 404 either way.
   const subject = singleHeader(request, SUBJECT_HEADER);
   const scopes = singleHeader(request, SCOPES_HEADER);
-  if (executor) {
-    if (subject !== undefined || scopes !== undefined)
-      fail(403, "An executor credential cannot act for a subject");
-    return { kind: "executor", executor };
-  }
   if (subject === undefined) {
     if (scopes !== undefined)
       fail(400, `${SCOPES_HEADER} requires ${SUBJECT_HEADER}`, SUBJECT_INVALID);
-    return { kind: "application", principalId: principal!.id };
+    return { kind: "application", principalId: principal.id };
   }
   const parsed = parseSubjectHeaders(subject, scopes);
   if (!parsed.ok) return fail(400, parsed.message, SUBJECT_INVALID);
   return {
     kind: "subject",
-    principalId: principal!.id,
+    principalId: principal.id,
     subject: parsed.subject,
     scopes: parsed.scopes,
   };
@@ -159,7 +153,6 @@ export function requireScopes(scope: AuthScope, access: SubjectAccess): void {
 export function accessOf(scope: AuthScope): SessionAccess | undefined {
   switch (scope.kind) {
     case "application":
-    case "executor":
       return undefined;
     case "subject":
       return { owner: scope.subject };
@@ -172,18 +165,6 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
     case "publishable":
     // Nor does a request with no credential, on a route that serves public data.
     case "anonymous":
-      return fail(404, "Not found");
-    // A delivery token reaches its Action's callbacks, never a session or vault.
-    case "delivery":
-      return fail(404, "Not found");
-    // A delivery token reaches its Action's callbacks, never a session or vault.
-    case "delivery":
-      return fail(404, "Not found");
-    // A delivery token reaches its Action's callbacks, never a session or vault.
-    case "delivery":
-      return fail(404, "Not found");
-    // A delivery token reaches its Action's callbacks, never a session or vault.
-    case "delivery":
       return fail(404, "Not found");
     // A delivery token reaches its Action's callbacks, never a session or vault.
     case "delivery":
@@ -207,20 +188,18 @@ export function requirePrincipal(scope: AuthScope): string {
   return fail(403, "Application credential required");
 }
 
-/** The executor scope must belong to the Action's agent. */
 /**
- * The caller may act on `action`: the executor of its agent, or the delivery token minted for it.
- * Whether a delivery token's generation is still the Action's is checked by each callback.
+ * The caller may act on `action`: only the delivery token minted for it. Whether its generation
+ * is still the Action's is checked by each callback.
  */
 export function scoped(scope: AuthScope, action: Action): void {
-  if (scope.kind === "executor" && scope.executor.agentId === action.agentId) return;
   if (
     scope.kind === "delivery" &&
     scope.actionId === action.actionId &&
     scope.agentId === action.agentId
   )
     return;
-  fail(403, "Executor scope does not authorize this action");
+  fail(403, "This delivery token is for another Action");
 }
 
 export function requireApplication(scope: AuthScope): string {

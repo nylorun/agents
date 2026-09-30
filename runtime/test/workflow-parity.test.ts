@@ -5,13 +5,12 @@ import {
   Loop,
   tool,
   createClient,
-  connectAgents,
-  type AgentConnection,
   type AgentsClient,
   type BuiltAgent,
   type BuiltWorkflow,
 } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * G3 / system-design.md §10 — client-only parity suite.
@@ -321,7 +320,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           tenant: first.tenantId,
         });
         const definition = buildDefinition(kind, gates);
-        let connection: AgentConnection = connectAgents({
+        let connection: ServedAgents = serveAgents({
           agents: [definition],
           application: client,
           implementationVersion: "parity-v1",
@@ -488,7 +487,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           key: second.applicationKey,
           tenant: second.tenantId,
         });
-        connection = connectAgents({
+        connection = serveAgents({
           agents: [buildDefinition(kind, gates)],
           application: client2,
           implementationVersion: "parity-v1",
@@ -523,10 +522,10 @@ describe.each([["agent"], ["workflow"]] as const)(
         await client2.saveAgent(buildRedeployed(kind, gates), {
           implementationVersion: "parity-v2",
         });
-        // Reconnect executor so the redeployed code is what claimable actions use
-        // after this turn; the live session pin must remain pinF.
+        // Serve the redeployed code on a new endpoint (re-registered) so it is what
+        // Actions are delivered to after this turn; the live session pin must remain pinF.
         await connection.close();
-        connection = connectAgents({
+        connection = serveAgents({
           agents: [buildRedeployed(kind, gates)],
           application: client2,
           implementationVersion: "parity-v2",

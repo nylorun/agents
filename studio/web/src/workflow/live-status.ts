@@ -123,7 +123,6 @@ export function liveStatusFromEvents(
         });
         break;
       case "action.pending":
-      case "action.claimed":
       case "action.delivered":
       case "action.delivery_failed":
         set(byPath, path, { status: "running", ...(iterations ? { iterations } : {}) });

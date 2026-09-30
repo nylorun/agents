@@ -81,7 +81,8 @@ export interface TenantSummary {
   // redacted; counts only
   ready: boolean;
   runningSessions: number;
-  connectedExecutors: number;
+  /** Deliveries to Action endpoints in flight on this process. */
+  inFlightDeliveries: number;
   pendingActions: number;
   uncertainEffects: number;
   /** Events committed but not yet relayed to Durable Streams. */

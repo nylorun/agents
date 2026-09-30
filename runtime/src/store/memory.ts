@@ -16,7 +16,6 @@ import {
   type EndpointHealthUpdate,
   type EndpointRegistrationRow,
   type EndpointRow,
-  type ExecutorRow,
   type LinkDoc,
   type LinkedSession,
   type OutboxRow,
@@ -58,7 +57,6 @@ interface State {
   sessionMeta: Map<string, SessionMeta>;
   /** sessionId → seq → event JSON. */
   outbox: Map<string, Map<number, string>>;
-  executors: Map<string, ExecutorRow>;
   endpoints: Map<string, EndpointRow>;
   principals: Map<string, PrincipalRow>;
   vaults: Map<string, VaultRow>;
@@ -79,7 +77,6 @@ function emptyState(): State {
     ) as Record<DocTable, Map<string, string>>,
     sessionMeta: new Map(),
     outbox: new Map(),
-    executors: new Map(),
     endpoints: new Map(),
     principals: new Map(),
     vaults: new Map(),
@@ -118,7 +115,7 @@ export class MemoryStoreData {
  *
  * Transactions are serialized (one at a time), each works on a copy of the
  * state and replaces it on commit, so a throw rolls back everything: documents,
- * sequences, outbox rows, `afterCommit` callbacks and `signalWork`. Commit listeners see
+ * sequences, outbox rows and `afterCommit` callbacks. Commit listeners see
  * only this store's commits, as with a Postgres connection.
  */
 export class MemorySessionStore implements SessionStore {
@@ -160,11 +157,10 @@ export class MemorySessionStore implements SessionStore {
         t.closed = true;
       }
       this.data.state = working;
-      if (t.events.length > 0 || t.workAvailable) {
+      if (t.events.length > 0) {
         const commit = {
           events: t.events,
           incarnations: t.incarnations,
-          workAvailable: t.workAvailable,
         };
         for (const listener of this.listeners) {
           try {
@@ -219,7 +215,6 @@ class MemoryTx implements Tx {
   readonly events: LiveEvent[] = [];
   readonly incarnations: (string | null)[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
-  workAvailable = false;
 
   constructor(
     private readonly s: State,
@@ -338,11 +333,6 @@ class MemoryTx implements Tx {
   afterCommit(fn: () => void | Promise<void>): void {
     this.check();
     this.callbacks.push(fn);
-  }
-
-  signalWork(): void {
-    this.check();
-    this.workAvailable = true;
   }
 
   // --- ownership -----------------------------------------------------------
@@ -472,23 +462,6 @@ class MemoryTx implements Tx {
     return this.docs<ActionDoc>("actions").map(([, doc]) => doc);
   }
 
-  async expiredClaims(now: Date, limit: number): Promise<ActionDoc[]> {
-    this.check();
-    return this.actions()
-      .filter(
-        (a) =>
-          a.status === "claimed" &&
-          a.leaseExpiresAt !== null &&
-          Date.parse(a.leaseExpiresAt) <= now.getTime(),
-      )
-      .sort(
-        (a, b) =>
-          Date.parse(a.leaseExpiresAt!) - Date.parse(b.leaseExpiresAt!) ||
-          (a.actionId < b.actionId ? -1 : 1),
-      )
-      .slice(0, limit);
-  }
-
   async pendingActions(agentId: string): Promise<ActionDoc[]> {
     this.check();
     return this.actions().filter(
@@ -616,7 +589,7 @@ class MemoryTx implements Tx {
       runningSessions: sessions.filter((s) => OPEN_SESSION.has(s.status))
         .length,
       pendingActions: this.actions().filter(
-        (a) => a.status === "pending" || a.status === "claimed",
+        (a) => a.status === "pending" || a.status === "delivering",
       ).length,
       uncertainEffects: this.effects().filter((e) => e.status === "uncertain")
         .length,
@@ -682,36 +655,6 @@ class MemoryTx implements Tx {
           oldestCreatedAt = createdAt;
       }
     return { depth, oldestCreatedAt };
-  }
-
-  // --- executors -----------------------------------------------------------
-
-  async listExecutors(): Promise<ExecutorRow[]> {
-    this.check();
-    return byId(this.s.executors).map(([, row]) => copy(row));
-  }
-
-  async getExecutor(agentId: string): Promise<ExecutorRow | undefined> {
-    this.check();
-    const row = this.s.executors.get(agentId);
-    return row && copy(row);
-  }
-
-  async putExecutor(row: Omit<ExecutorRow, "createdAt">): Promise<void> {
-    this.check();
-    for (const other of this.s.executors.values())
-      if (other.tokenHash === row.tokenHash && other.agentId !== row.agentId)
-        throw new Error("executors.token_hash must be unique");
-    const existing = this.s.executors.get(row.agentId);
-    this.s.executors.set(row.agentId, {
-      ...copy(row),
-      createdAt: existing?.createdAt ?? row.updatedAt,
-    });
-  }
-
-  async deleteExecutor(agentId: string): Promise<void> {
-    this.check();
-    this.s.executors.delete(agentId);
   }
 
   // --- Action endpoints -----------------------------------------------------
@@ -1090,7 +1033,6 @@ class MemoryTx implements Tx {
       this.s.docs.sandboxes.clear();
     if (scope === "all") {
       this.s.docs.definitions.clear();
-      this.s.executors.clear();
       this.s.endpoints.clear();
       for (const vault of [...this.s.vaults.values()])
         if (vault.scope !== "host") await this.deleteVault(vault.id);

@@ -27,13 +27,14 @@ import { HttpAgent } from "@ag-ui/client";
 import { z } from "zod";
 import {
   Agent,
-  connectAgents,
+  PROTOCOL_VERSION,
   createClient,
   createTokenEndpoint,
   tool,
 } from "@nylorun/agents";
 import { createAgUiHandler } from "@nylorun/agents/ag-ui";
 import { createBrowserClient } from "@nylorun/agents/browser";
+import { serveActionEndpoint } from "../lib/action-endpoint.mjs";
 import { ensureImages, eventually, tenantHeaders, withStack } from "../lib/stack.mjs";
 import { withTemporaryTenant } from "../lib/temporary-tenant.mjs";
 
@@ -143,7 +144,7 @@ async function d1(runtime, tenant, app, key) {
     headers: {
       authorization: `Bearer ${token}`,
       "nylorun-key": key,
-      "nylorun-protocol": "2",
+      "nylorun-protocol": String(PROTOCOL_VERSION),
       "last-event-id": "bm90LWEtY3Vyc29y",
     },
   });
@@ -161,7 +162,7 @@ async function d2(runtime, tenant, app, key, otherTenant) {
       headers: {
         authorization: `Bearer ${token}`,
         "nylorun-key": key,
-        "nylorun-protocol": "2",
+        "nylorun-protocol": String(PROTOCOL_VERSION),
         ...extra,
         ...init.headers,
       },
@@ -195,7 +196,7 @@ async function d2(runtime, tenant, app, key, otherTenant) {
       origin: "https://evil.example",
       authorization: `Bearer ${token}`,
       "nylorun-key": key,
-      "nylorun-protocol": "2",
+      "nylorun-protocol": String(PROTOCOL_VERSION),
     },
   });
   assert.equal(evil.status, 404);
@@ -223,7 +224,7 @@ async function d3(runtime, app, key) {
   const session = await client.createSession({ id: `fay-${randomUUID().slice(0, 8)}`, agentId: "desk" });
   const oldToken = await client.token();
   const stream = await fromPage(`${runtime}/v1/sessions/${session.id}/events`, {
-    headers: { authorization: `Bearer ${oldToken}`, "nylorun-key": key, "nylorun-protocol": "2" },
+    headers: { authorization: `Bearer ${oldToken}`, "nylorun-key": key, "nylorun-protocol": String(PROTOCOL_VERSION) },
   });
   assert.equal(stream.status, 200);
   const started = Date.now();
@@ -235,7 +236,7 @@ async function d3(runtime, app, key) {
   assert.match(text, /"reason":"revoked"/);
   assert.ok(Date.now() - started < 5_000);
   const old = await fromPage(`${runtime}/v1/sessions`, {
-    headers: { authorization: `Bearer ${oldToken}`, "nylorun-key": key, "nylorun-protocol": "2" },
+    headers: { authorization: `Bearer ${oldToken}`, "nylorun-key": key, "nylorun-protocol": String(PROTOCOL_VERSION) },
   });
   assert.equal(old.status, 401);
   assert.equal((await old.json()).code, "token_expired");
@@ -266,7 +267,7 @@ async function d5(runtime, app, key) {
   const before = await client.token();
   const call = (token) =>
     fromPage(`${runtime}/v1/sessions`, {
-      headers: { authorization: `Bearer ${token}`, "nylorun-key": key, "nylorun-protocol": "2" },
+      headers: { authorization: `Bearer ${token}`, "nylorun-key": key, "nylorun-protocol": String(PROTOCOL_VERSION) },
     });
   await app.access.signingKeys.rotate();
   assert.equal((await call(before)).status, 200, "an outstanding token survives a rotation");
@@ -328,13 +329,8 @@ try {
         const key = (
           await app.access.publishableKeys.create({ name: "web", origins: ["http://localhost:*"] })
         ).key;
-        const connection = connectAgents({
-          agents: [desk],
-          application: app,
-          implementationVersion: "dev",
-        });
+        const endpoint = await serveActionEndpoint({ agents: [desk], client: app });
         try {
-          await connection.ready;
           await d1(runtime, tenant, app, key);
           await d2(runtime, tenant, app, key, otherTenant);
           await d3(runtime, app, key);
@@ -343,7 +339,7 @@ try {
           await d6(runtime, tenant, app);
           await d7(runtime, tenant, app, key);
         } finally {
-          await connection.close();
+          await endpoint.close();
         }
       })
     );

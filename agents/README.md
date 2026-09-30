@@ -34,27 +34,26 @@ The URL must be one the Runtime can reach: `localhost` on the local stack
 (its Runtime runs in Docker and maps `localhost` to this machine), a public URL
 in production, or a tunnel (ngrok, Cloudflare Tunnel) for a remote Runtime.
 
-`connectAgents({ agents })` (executors: an SSE connection that claims Actions)
-still works for agents without an endpoint, but is deprecated and will be
-removed. It finds the Runtime through the three
-`NYLORUN_*` variables or the Project link that `npx @nylorun/cli tenant create`
-writes; with neither, it fails with `connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
+`connectAgents` and executors were removed in protocol 3: mount
+`createActionHandler` instead (see [MIGRATION.md](../MIGRATION.md)). The handler
+finds the Runtime through the three `NYLORUN_*` variables or the Project link
+that `npx @nylorun/cli tenant create` writes; with neither, `register` fails
+with `connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
 for upgrading from `nylorun serve`.
 
 ## Connection resolution
 
-`resolveConnection` / `createClient()` / `connectAgents({ agents })`:
+`resolveConnection` / `createClient()` / `createActionHandler({ agents })`:
 
 1. Explicit `{ url, tenant, key }`
-2. Environment — if any of `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT`,
-   `NYLORUN_SERVER_KEY` or `NYLORUN_EXECUTOR_KEY` is set, all required pieces
-   must be present (role `executor` when `NYLORUN_EXECUTOR_KEY` is set)
-3. Project link — `.nylorun/link.json` + `credentials.json` (application role)
+2. Environment — if any of `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` or
+   `NYLORUN_SERVER_KEY` is set, all three must be present
+3. Project link — `.nylorun/link.json` + `credentials.json` (the application key)
 
 Sources never mix. Partial environment fails with `connection_missing`.
 
 ```ts
-import { Agent, createClient, connectAgents, tool } from "@nylorun/agents";
+import { Agent, createActionHandler, createClient, tool } from "@nylorun/agents";
 import { z } from "zod";
 
 const assistant = Agent({ id: "assistant", name: "Assistant" })
@@ -83,19 +82,22 @@ const session = await client.createSession({
 await session.input("Look up item 123", { idempotencyKey: requestId });
 const history = await session.history();
 
-// Executor-only mode when you already hold an executor key:
-const connection = connectAgents({
+// A process that only serves Actions holds no key: it reads the Tenant's public keys.
+const actions = createActionHandler({
   agents: [assistant],
   implementationVersion: "app-1",
   runtime: {
-    url: process.env.NYLORUN_RUNTIME_URL,
-    key: process.env.NYLORUN_EXECUTOR_KEY,
-    tenant: process.env.NYLORUN_TENANT,
+    url: process.env.NYLORUN_RUNTIME_URL!,
+    tenant: process.env.NYLORUN_TENANT!,
   },
+  url: "https://app.example.com/nylorun/actions",
   onError: console.error,
 });
-await connection.ready;
-await connection.close();
+app.post("/nylorun/actions", actions.node);
+// A deploy step with the application key registers the URL once:
+await createActionHandler({ agents: [assistant], client }).register({
+  url: "https://app.example.com/nylorun/actions",
+});
 ```
 
 ```sh
@@ -150,7 +152,7 @@ const session = await client.createSession({
 });
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no connected executor. The Runtime decides where the sandbox runs (today an emulated shell in the Runtime process; `image` needs an OpenShell backend).
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no Action endpoint. The Runtime decides where the sandbox runs (today an emulated shell in the Runtime process; `image` needs an OpenShell backend).
 
 `sandbox` takes `false` for none, `{ session }` to share another session's sandbox, or an inline sandbox as above; omit it for the Tenant's default. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
 
@@ -177,9 +179,9 @@ const support = Agent({ id: "support" })
   .subagents(researcher);
 ```
 
-The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, hooks, skills and MCP servers, served by the executor you already run for the parent (`connectAgents({ agents: [support] })` serves both), shares the session's sandbox, and starts with empty `ctx.state`. Tools can read `ctx.agent` (`{ id, path, delegationId }`). Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
+The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, hooks, skills and MCP servers, served by the Action endpoint you already mount for the parent (`createActionHandler({ agents: [support] })` serves both), shares the session's sandbox, and starts with empty `ctx.state`. Tools can read `ctx.agent` (`{ id, path, delegationId }`). Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
 
-A flow agent can be a subagent too: `.subagents(researchFlow)` with a `description` like any other. Its manifest is inlined in the parent's, so it is saved with the parent and served by the parent's executor. When the model calls it, the flow runs on the Runtime in its own linked session (a fresh one per call, linked from the parent's with a `node.agent` event at `support/<flow id>`), its agents in theirs, and the flow's output comes back as the tool result; a failed flow is a failed tool result. Cancelling the parent cancels the flow. Flow agents as subagents run on the Runtime only, not in a local `run()`. An approval asked for inside the flow waits on the flow's own session.
+A flow agent can be a subagent too: `.subagents(researchFlow)` with a `description` like any other. Its manifest is inlined in the parent's, so it is saved with the parent and served by the parent's Action endpoint. When the model calls it, the flow runs on the Runtime in its own linked session (a fresh one per call, linked from the parent's with a `node.agent` event at `support/<flow id>`), its agents in theirs, and the flow's output comes back as the tool result; a failed flow is a failed tool result. Cancelling the parent cancels the flow. Flow agents as subagents run on the Runtime only, not in a local `run()`. An approval asked for inside the flow waits on the flow's own session.
 
 Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, switch capabilities with a `.beforeModel()` patch instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, its tools cannot declare `approval` (keep those on the parent), and `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor` inside it fail with `delegation.interaction-unsupported`. Delegation is not an approval boundary; approvals live on tools.
 
@@ -260,7 +262,7 @@ directly and run as before; a flow agent can't be a child of them.
 The agents in a flow share one sandbox: open the flow's session with it,
 `createSession({ …, sandbox: { … } })`, and every agent, tool step and `verify` in the
 flow uses it. Share it with another session with `sandbox: { session }`, and call
-built-ins via `session.sandbox` (application) or `ctx.sandbox` (executor).
+built-ins via `session.sandbox` (application) or `ctx.sandbox` (a tool).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and
 live node status. Source examples:
@@ -273,15 +275,15 @@ Use `session.observe({ cursor, signal })` for resumable canonical events, `sessi
 
 Connection defaults follow `resolveConnection` (options → environment → Project
 link). Implementation version defaults from `NYLORUN_IMPLEMENTATION_VERSION`,
-then `dev`. Application mode of `connectAgents({ agents })` registers derived
-executor principals; executor-only mode still takes an explicit executor key.
-Agents do not hash the manifest, and an in-flight action stays claimable after
+then `dev`. `register` saves the definitions and registers one endpoint per
+served agent with the application key; serving deliveries needs no key.
+Agents do not hash the manifest, and an in-flight action is still delivered after
 the registered digest changes. Model selection and model credentials belong to
 the Tenant.
 
-After registration, `connectAgents` opens authenticated fetch SSE before discovering actions, rediscovers after reconnection, and claims pending actions for a connected agent id. It renews leases while executing, then retries HTTP result delivery with the same recorded outcome and idempotency key. Reconnect delay is bounded at 30 seconds. Notifications confer no execution authority. There is no periodic action-discovery polling. Close aborts the stream, HTTP requests and lease timers and signals running functions; JavaScript cannot forcibly terminate a function that ignores its signal. The host makes expired in-flight actions uncertain instead of automatically repeating external effects.
+After registration, the Runtime POSTs each Action to the endpoint with a delivery token signed by the Tenant's key; the handler verifies it before any code runs and answers with the outcome. A background tool answers `202`, heartbeats with the newest token and posts its result. A cancel aborts the request, which reaches the tool as `ctx.signal`; JavaScript cannot forcibly terminate a function that ignores its signal. The host makes lost in-flight deliveries uncertain instead of automatically repeating external effects.
 
-Tools receive state, info, identity, resume, signal, approval/response helpers and memoized `step`. Step outcomes survive a persisted wait result; they do not establish exactly-once external effects after an unacknowledged crash. `sleep` and `waitFor` currently return inspectable deferred outcomes; automatic timer/event wakeups remain runtime implementation work. Remote `onModelCall` convenience and progress-event transport are not supplied in this pass. Arbitrary middleware closures are rejected for durable definitions; use `before`/`after` hooks. The executor runs every capability registered at a hook point in one action. Agent definitions have no `.run()`; explicit local execution is available through `@nylorun/harness/run`.
+Tools receive state, info, identity, resume, signal, approval/response helpers and memoized `step`. Step outcomes survive a persisted wait result; they do not establish exactly-once external effects after an unacknowledged crash. `sleep` and `waitFor` currently return inspectable deferred outcomes; automatic timer/event wakeups remain runtime implementation work. Remote `onModelCall` convenience and progress-event transport are not supplied in this pass. Arbitrary middleware closures are rejected for durable definitions; use `before`/`after` hooks. The Action endpoint runs every capability registered at a hook point in one action. Agent definitions have no `.run()`; explicit local execution is available through `@nylorun/harness/run`.
 
 ## AG-UI
 
@@ -453,11 +455,11 @@ compatibility check, so calling `as()` per request is cheap.
 | `agents:write` | Saving agents; listing agents, models and providers |
 | `tenant:settings` | The Tenant's status, model provider and sandbox settings |
 
-No scope reaches Tenant reset, config seed, executors, actions or the sandbox
+No scope reaches Tenant reset, config seed, Action endpoints, actions or the sandbox
 tool routes; call those without `as()`. A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
-for a subject: an executor key that tries is `403`.
+for a subject.
 
 ## Minting subject tokens (app servers)
 
@@ -568,4 +570,4 @@ reconnect from their last event with a new token. Create a publishable key per
 app with the origins that serve it (`http://localhost:*` for development);
 requests from other origins get the opaque `404`.
 
-The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI or A2A package. Use `/define`, `/client`, `/executor`, `/ag-ui`, `/a2a` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI or A2A package. Use `/define`, `/client`, `/ag-ui`, `/a2a` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).

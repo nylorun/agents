@@ -1,7 +1,7 @@
 /**
- * Fixtures for the subject suites (Host feature `subject-headers`): a Tenant with one agent
- * and one executor, and a `call` that sends the application key as itself or acting for a
- * subject with `Nylorun-Subject` and `Nylorun-Scopes`.
+ * Fixtures for the subject suites (Host feature `subject-headers`): a Tenant with one agent,
+ * and a `call` that sends the application key as itself or acting for a subject with
+ * `Nylorun-Subject` and `Nylorun-Scopes`.
  */
 import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import { SUBJECT_SCOPES, type SubjectScope } from "@nylorun/core/contracts";
@@ -9,7 +9,6 @@ import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "../support/tenant.js";
 
 export const APP = "subject-suite-app-token-aaaaaaaa";
-export const EXECUTOR = "subject-suite-executor-token-bbbb";
 const KEK = Buffer.alloc(32, 7).toString("base64");
 
 export interface As {
@@ -44,9 +43,6 @@ export async function startSubjectTenant() {
   const runtime = await startTestTenant({
     applicationKey: APP,
     vaultKek: KEK,
-    executors: [
-      { token: EXECUTOR, agentId: "bot", implementationVersion: "dev" },
-    ],
     modelProvider: async () => ({ output: [{ type: "text", text: "ok" }] }),
   });
   async function call(

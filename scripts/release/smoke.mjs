@@ -10,9 +10,11 @@
  *   beside the project (what `npx` runs): `nylorun up` starts the stack on the
  *   images it pins (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from
  *   GHCR, never built here), `nylo tenant create` creates and links the
- *   Project's Tenant, and the project's `npm run dev` connects its executor.
+ *   Project's Tenant, and the project's `npm run dev` serves and registers its
+ *   Action endpoint.
  * - Checks: the stack runs exactly the pinned images; the Admin API lists the
- *   Tenant; `assistant` is registered and its executor connected; the login
+ *   Tenant; `assistant` is registered and the Runtime reaches its Action
+ *   endpoint (a ping through the Runtime answers 200); the login
  *   from `nylorun studio` lands on the Tenant and Studio proxies its API.
  *
  * Runs under `withStack` (scripts/lib/stack.mjs): a temporary NYLORUN_HOME and
@@ -29,6 +31,7 @@ import {
   eventually,
   studioSession,
   tenantGet,
+  tenantHeaders,
   withStack,
 } from "../lib/stack.mjs";
 
@@ -197,12 +200,17 @@ export async function publicCreatorSmoke(versions, pins) {
               ),
             { timeout: 120_000, message: 'the seed agent "assistant"' },
           );
+          // The Runtime (in Docker) reaches the app's Action endpoint on this machine.
           await eventually(
             async () =>
-              (await tenantGet(runtimeUrl, tenantId, key, "/v1/executors")).executors?.some(
-                (executor) => executor.agentId === "assistant" && executor.connected,
-              ),
-            { message: "a connected assistant executor" },
+              (
+                await fetch(`${runtimeUrl}/v1/endpoints/assistant/ping`, {
+                  method: "POST",
+                  headers: tenantHeaders(tenantId, key),
+                  signal: AbortSignal.timeout(15_000),
+                })
+              ).status === 200,
+            { message: "the Runtime to reach the assistant's Action endpoint" },
           );
 
           const studioUrl = bannerField(
@@ -222,7 +230,7 @@ export async function publicCreatorSmoke(versions, pins) {
           );
           assert.equal(proxied.status, 200, await proxied.clone().text());
           console.log(
-            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: Tenant created, executor connected, Studio login works.`,
+            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: Tenant created, Action endpoint reachable, Studio login works.`,
           );
         } finally {
           // Stop the Project before the stack is reset.

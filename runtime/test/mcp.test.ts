@@ -9,6 +9,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, hashManifest } from "@nylorun/core/define";
+import { registerEndpoint, startEndpoint } from "./support/endpoint.js";
 import { patchStoredSession, startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -21,7 +22,6 @@ const serverHeaders = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-const executorHeaders = { authorization: "Bearer executor-token-value" };
 const fixtureDir = realpathSync(
   dirname(fileURLToPath(new URL("./fixtures/stdio-env-server.mjs", import.meta.url))),
 );
@@ -140,13 +140,6 @@ async function readBody(req: IncomingMessage): Promise<{ method?: string } | und
 async function boot(_directory: string, model?: ModelProvider) {
   return startTestTenant({
     applicationKey: APP,
-    executors: [
-      {
-        token: "executor-token-value",
-        agentId: "bot",
-        implementationVersion: "dev",
-      },
-    ],
     vaultKek: KEK,
     ...(model ? { modelProvider: model } : {}),
   });
@@ -240,10 +233,11 @@ async function until(runtime: { url: string }, id: string, statuses: readonly st
   throw new Error(`session ${id} did not reach ${statuses.join(", ")}`);
 }
 
-it("discovers a remote MCP server with a bearer and calls it without an executor action", async () => {
+it("discovers a remote MCP server with a bearer and calls it without delivering an Action", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mcp-bearer-"));
   const remote = await probe({ name: "github", tool: "get_issue", requiredToken: TOKEN });
   const seen: string[][] = [];
+  let cleanup = async () => {};
   const runtime = await boot(directory, async (effect: { input: unknown }) => {
     const call = effect.input as { tools?: { name: string }[]; prompt?: { kind?: string }[] };
     const names = (call.tools ?? []).map((tool) => tool.name);
@@ -272,6 +266,10 @@ it("discovers a remote MCP server with a bearer and calls it without an executor
       .build();
     const registered = await register(runtime, agent.manifest);
     expect(registered.manifestHash).toBe(hashManifest(agent.manifest));
+    // The agent has an Action endpoint, but the MCP call never reaches it.
+    const endpoint = await startEndpoint({ runtime });
+    cleanup = () => endpoint.close();
+    await registerEndpoint(runtime, "bot", endpoint.url);
     const vault = await createBearer(runtime, "ada", remote.url, TOKEN);
     await openSession(runtime, "s1", { vaultIds: [vault.vaultId] });
     await say(runtime, "s1", "read the issue");
@@ -294,10 +292,7 @@ it("discovers a remote MCP server with a bearer and calls it without an executor
         toolset: "issues",
       }),
     ]);
-    const actions = await (
-      await fetch(`${runtime.url}/v1/actions`, { headers: executorHeaders })
-    ).json();
-    expect(actions.actions).toEqual([]);
+    expect(endpoint.deliveries).toEqual([]);
     const history = await (
       await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })
     ).json();
@@ -502,9 +497,6 @@ it("does not send a failed MCP call again after it is uncertain", async () => {
   const runtime = await startTestTenant({
     applicationKey: APP,
     retainRoot: true,
-    executors: [
-      { token: "executor-token-value", agentId: "bot", implementationVersion: "dev" },
-    ],
     vaultKek: KEK,
     modelProvider: async () => ({
       output: [
@@ -533,9 +525,6 @@ it("does not send a failed MCP call again after it is uncertain", async () => {
       applicationKey: APP,
       hostRoot: runtime.root,
       tenantId: runtime.tenantId,
-      executors: [
-        { token: "executor-token-value", agentId: "bot", implementationVersion: "dev" },
-      ],
       vaultKek: KEK,
       modelProvider: async () => {
         throw new Error("model must not run again");

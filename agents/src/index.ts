@@ -109,8 +109,6 @@ export {
 export type { CreateTokenOptions } from "./access.js";
 export { createTokenEndpoint } from "./token-endpoint.js";
 export type { TokenEndpointOptions } from "./token-endpoint.js";
-export { connectAgents } from "./executor.js";
-export type { ConnectOptions, AgentConnection } from "./executor.js";
 export { createActionHandler } from "./action-handler.js";
 export type {
   ActionHandler,
@@ -123,7 +121,6 @@ export type {
 } from "./execute-action.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
-export { deriveExecutorToken } from "./derived-credentials.js";
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason, TokenSource } from "./http.js";
 export { plugin } from "./plugins/plugin.js";

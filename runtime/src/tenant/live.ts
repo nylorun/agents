@@ -1,7 +1,6 @@
 /**
  * Live delivery over Durable Streams (architecture §12.4, "Reading"): session history
- * (`GET /v1/sessions/:id/items`), session SSE (`GET /v1/sessions/:id/events`) and executor
- * work streams (`GET /v1/executors/connect`).
+ * (`GET /v1/sessions/:id/items`) and session SSE (`GET /v1/sessions/:id/events`).
  *
  * - **Streams.** A session's events are in the stream of its current incarnation
  *   (`streamOfSession`, `sessions/<id>/<incarnation>`), resolved from the session on every
@@ -16,8 +15,6 @@
  *   A feed follows one incarnation: it ends once its session is gone or has a new
  *   incarnation (a reset, possibly on another node), checked when a client joins, when its
  *   read fails, on a `sessions.reset` signal, and periodically (`checkFeeds`).
- * - **Executor streams** receive `work_available` from the `tenant/work` reader that
- *   `tenant/streams.ts` runs (one per Tenant per process); discovery stays `GET /v1/actions`.
  *
  * Business code never writes here: events reach streams only through the relay, after commit.
  */
@@ -78,16 +75,11 @@ export interface LiveHub {
   wiring: StreamsWiring | undefined;
   /** Session id → its shared read and observers. */
   readonly feeds: Map<string, SessionFeed>;
-  // Keyed by token hash so a rotation can end exactly the streams that the replaced token owns.
-  readonly executorStreams: Map<string, Set<ServerResponse>>;
 }
 
 export function createLiveHub(): LiveHub {
-  return { wiring: undefined, feeds: new Map(), executorStreams: new Map() };
+  return { wiring: undefined, feeds: new Map() };
 }
-
-const WORK_AVAILABLE =
-  'event: work_available\ndata: {"type":"work_available"}\n\n';
 const RETRY_MIN_MS = 100;
 const RETRY_MAX_MS = 2000;
 
@@ -514,62 +506,14 @@ function endFeed(hub: LiveHub, feed: SessionFeed): void {
   feed.observers.clear();
 }
 
-/** `GET /v1/executors/connect`: an executor's work stream, primed with one `work_available`. */
-export function streamExecutorWork(
-  hub: LiveHub,
-  request: IncomingMessage,
-  response: ServerResponse,
-  tokenHash: string
-): void {
-  let streams = hub.executorStreams.get(tokenHash);
-  if (!streams) hub.executorStreams.set(tokenHash, (streams = new Set()));
-  const set = streams;
-  set.add(response);
-  openSse(request, response, () => {
-    set.delete(response);
-    if (!set.size && hub.executorStreams.get(tokenHash) === set)
-      hub.executorStreams.delete(tokenHash);
-  });
-  send(response, WORK_AVAILABLE);
-}
-
-/** Called by the `tenant/work` reader for each signal: wake every connected executor. */
-export function announceWork(hub: LiveHub): void {
-  for (const streams of hub.executorStreams.values())
-    for (const response of streams) send(response, WORK_AVAILABLE);
-}
-
-export function executorConnected(hub: LiveHub, tokenHash: string): boolean {
-  return (hub.executorStreams.get(tokenHash)?.size ?? 0) > 0;
-}
-
-export function connectedExecutorCount(hub: LiveHub): number {
-  return [...hub.executorStreams.values()].filter((set) => set.size > 0)
-    .length;
-}
-
-/** End the streams a token owns (rotation or deregistration). */
-export function endExecutorStreams(hub: LiveHub, tokenHash: string): void {
-  for (const r of hub.executorStreams.get(tokenHash) ?? []) r.end();
-  hub.executorStreams.delete(tokenHash);
-}
-
 /** Reset or close: end every session observer and stop every shared read. */
 export function clearObservers(hub: LiveHub): void {
   for (const feed of [...hub.feeds.values()]) endFeed(hub, feed);
   hub.feeds.clear();
 }
 
-/** Reset: end and forget every executor stream. */
-export function clearExecutorStreams(hub: LiveHub): void {
-  for (const streams of hub.executorStreams.values())
-    for (const r of streams) r.end();
-  hub.executorStreams.clear();
-}
-
-/** Close: end every executor stream, then every session observer. */
+/** Close: end every session observer. */
 export function endAllStreams(hub: LiveHub): void {
-  clearExecutorStreams(hub);
   clearObservers(hub);
 }
 

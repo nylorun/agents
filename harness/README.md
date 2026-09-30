@@ -90,7 +90,7 @@ often your code runs:
 
 `Patch` is capabilities/tools/instructions/state/block, with no `model`. Registered
 hooks are listed in the manifest (`capabilities[].hooks`). In a Runtime each hook point
-is one network round trip to your executor per turn or per model call, whatever the
+is one delivery to your Action endpoint per turn or per model call, whatever the
 number of capabilities using it, so prefer `"turn"` when a decision does not change
 within a turn.
 
@@ -107,4 +107,4 @@ Local explicit engine execution retains middleware. Durable manifests reject arb
 
 ## Client types
 
-The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and SSE executor. Historical root client types remain for deferred local tooling; they are not the new wire contract.
+The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and the Action endpoint (`createActionHandler`). Historical root client types remain for deferred local tooling; they are not the new wire contract.

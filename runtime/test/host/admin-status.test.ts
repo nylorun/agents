@@ -19,7 +19,7 @@ it("A1: GET /v1/admin/status returns AdminStatusSchema with host", async () => {
         summary: {
           ready: true,
           runningSessions: 1,
-          connectedExecutors: 0,
+          inFlightDeliveries: 0,
           pendingActions: 0,
           uncertainEffects: 0,
         },

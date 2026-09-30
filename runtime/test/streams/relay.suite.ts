@@ -11,8 +11,6 @@ import { MemorySessionStore } from "../../src/store/memory.js";
 import { createRelay, signalCancel, type Relay } from "../../src/streams/relay.js";
 import {
   CONTROL_STREAM,
-  WORK_AVAILABLE,
-  WORK_STREAM,
   newStreamIncarnation,
   streamOfSession,
   type AppendOptions,
@@ -367,20 +365,11 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       expect((await outbox()).map((row) => row.seq)).toEqual([2]);
     });
 
-    it("signals work after a commit that called signalWork, and cancels on the control stream", async () => {
-      const { streams, tenantId, store, relay, commit } = await setup();
+    it("cancels on the control stream, which relayed commits leave alone", async () => {
+      const { streams, tenantId, relay, commit } = await setup();
       const r = relay();
-      await store.tx(async (t) => {
-        await t.event("s1", null, "action.pending", {});
-        t.signalWork();
-      });
-      await store.tx(async (t) => t.signalWork());
-      await commit("s1", "no-signal");
+      await commit("s1", "a");
       await r.idle();
-      const work: unknown[] = [];
-      for await (const record of streams.read(tenantId, WORK_STREAM, 0, { follow: false }))
-        work.push(record.body);
-      expect(work).toEqual([WORK_AVAILABLE, WORK_AVAILABLE]);
       await signalCancel(streams, tenantId, "s1");
       const control: unknown[] = [];
       for await (const record of streams.read(tenantId, CONTROL_STREAM, 0, { follow: false }))

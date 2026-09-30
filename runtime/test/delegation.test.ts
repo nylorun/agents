@@ -10,6 +10,12 @@ import {
   tool,
 } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
+import {
+  registerEndpoint,
+  startEndpoint,
+  type Delivery,
+  type TestEndpoint,
+} from "./support/endpoint.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -17,10 +23,6 @@ import type { ModelProvider } from "../src/core/provider.js";
 
 const serverHeaders = {
   authorization: `Bearer ${APP}`,
-  "content-type": "application/json",
-};
-const executorHeaders = {
-  authorization: "Bearer executor-token-value",
   "content-type": "application/json",
 };
 const fixtureDir = realpathSync(
@@ -32,7 +34,7 @@ const fixtureDir = realpathSync(
 const search = tool({
   name: "search_orders",
   input: z.object({ query: z.string() }),
-  run: async () => "unused: the test plays the executor",
+  run: async () => "unused: the test plays the Action endpoint",
 });
 
 type Call = { name: string; args: Record<string, unknown> };
@@ -77,25 +79,29 @@ function script(plays: {
         args: call.args,
       })),
     };
-  }) as ModelProvider & { seen: { agent: string; prompt: Prompt }[] };
+  }) as unknown as ModelProvider & { seen: { agent: string; prompt: Prompt }[] };
   provider.seen = seen;
   return provider;
 }
 
+/** A Tenant whose agent `bot` is served by an endpoint that answers every delivery `202`. */
 async function boot(_directory: string, modelProvider: ModelProvider) {
-  return startTestTenant({
+  const tenant = await startTestTenant({
     applicationKey: APP,
-    executors: [
-      {
-        token: "executor-token-value",
-        agentId: "bot",
-        implementationVersion: "dev",
-      },
-    ],
     vaultKek: null,
     modelProvider,
     sandbox: { backend: "virtual" },
   });
+  const endpoint = await startEndpoint({ runtime: tenant });
+  await registerEndpoint(tenant, "bot", endpoint.url);
+  return {
+    ...tenant,
+    endpoint,
+    async close() {
+      await endpoint.close();
+      await tenant.close();
+    },
+  };
 }
 
 async function start(
@@ -164,53 +170,26 @@ async function items(runtime: { url: string }, agent?: string) {
   return body.items as { type: string; payload: any }[];
 }
 
-async function pendingActions(runtime: { url: string }, count: number) {
+/** Waits until the endpoint was sent `count` Actions, and returns them. */
+async function deliveries(
+  runtime: { endpoint: TestEndpoint },
+  count: number
+): Promise<Delivery[]> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
-    const listed = await (
-      await fetch(`${runtime.url}/v1/actions`, { headers: executorHeaders })
-    ).json();
-    if (listed.actions.length >= count) return listed.actions as any[];
+    if (runtime.endpoint.deliveries.length >= count)
+      return [...runtime.endpoint.deliveries];
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`expected ${count} actions`);
+  throw new Error(`expected ${count} deliveries`);
 }
 
-/** Play the root agent's executor: claim an action and report a result. */
-async function complete(
-  runtime: { url: string },
-  action: any,
-  output: unknown
-) {
-  const claim = await fetch(
-    `${runtime.url}/v1/actions/${encodeURIComponent(action.actionId)}/claim`,
-    {
-      method: "POST",
-      headers: executorHeaders,
-      body: JSON.stringify({
-        requestId: `claim-${action.actionId}`,
-        implementationVersion: "dev",
-      }),
-    }
-  );
-  expect(claim.ok, await claim.clone().text()).toBe(true);
-  const claimed = await claim.json();
-  const result = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
-    method: "POST",
-    headers: executorHeaders,
-    body: JSON.stringify({
-      type: "action_result",
-      requestId: `result-${action.actionId}`,
-      idempotencyKey: `result-${action.actionId}`,
-      actionId: action.actionId,
-      claimId: claimed.claimId,
-      generation: claimed.generation,
-      outcome: { value: { kind: "completed", output } },
-    }),
-  });
-  expect(result.ok, await result.clone().text()).toBe(true);
+/** Play the root agent's endpoint: post the result of an Action it answered `202`. */
+async function complete(delivery: Delivery, output: unknown) {
+  const result = await delivery.result({ kind: "completed", output });
+  expect(result.status, JSON.stringify(result.body)).toBe(200);
 }
 
-it("runs agents used as tools on the root executor and journals them once", async () => {
+it("delivers the work of agents used as tools to the root agent's endpoint and journals it once", async () => {
   const directory = await mkdtemp(join(tmpdir(), "delegation-"));
   const model = script({
     root: [
@@ -232,16 +211,19 @@ it("runs agents used as tools on the root executor and journals them once", asyn
       runtime,
       Agent({ id: "bot", tools: [researcher] }).build().manifest
     );
-    const actions = await pendingActions(runtime, 2);
-    for (const action of actions)
+    const sent = await deliveries(runtime, 2);
+    for (const { action } of sent)
       expect(action).toMatchObject({
         agentId: "bot",
         kind: "tool",
         toolName: "search_orders",
         agent: { id: "researcher", path: "bot/researcher" },
       });
-    for (const action of actions)
-      await complete(runtime, action, `found ${action.input.query}`);
+    for (const delivery of sent)
+      await complete(
+        delivery,
+        `found ${(delivery.action.input as { query: string }).query}`
+      );
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
 
@@ -358,7 +340,7 @@ it("fences a delegated agent's work when the session is cancelled", async () => 
       runtime,
       Agent({ id: "bot", tools: [researcher] }).build().manifest
     );
-    const [action] = await pendingActions(runtime, 1);
+    const [delivery] = await deliveries(runtime, 1);
     const cancel = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
       method: "POST",
       headers: serverHeaders,
@@ -370,22 +352,9 @@ it("fences a delegated agent's work when the session is cancelled", async () => 
     });
     expect(cancel.ok).toBe(true);
     expect((await session(runtime)).status).toBe("cancelled");
-    const listed = await (
-      await fetch(`${runtime.url}/v1/actions`, { headers: executorHeaders })
-    ).json();
-    expect(listed.actions).toEqual([]);
-    const claim = await fetch(
-      `${runtime.url}/v1/actions/${encodeURIComponent(action.actionId)}/claim`,
-      {
-        method: "POST",
-        headers: executorHeaders,
-        body: JSON.stringify({
-          requestId: "late",
-          implementationVersion: "dev",
-        }),
-      }
-    );
-    expect(claim.ok).toBe(false);
+    // The delegated Action is fenced: its endpoint's late result is refused.
+    const late = await delivery!.result({ kind: "completed", output: "late" });
+    expect(late.status).toBe(409);
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
@@ -447,9 +416,12 @@ it("surfaces a child's empty answer as a failed tool result and filters history 
       runtime,
       Agent({ id: "bot", tools: [researcher] }).build().manifest
     );
-    const actions = await pendingActions(runtime, 1);
-    expect(actions).toHaveLength(1);
-    await complete(runtime, actions[0], `found ${actions[0].input.query}`);
+    const sent = await deliveries(runtime, 1);
+    expect(sent).toHaveLength(1);
+    await complete(
+      sent[0]!,
+      `found ${(sent[0]!.action.input as { query: string }).query}`
+    );
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
 
