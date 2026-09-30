@@ -1,0 +1,87 @@
+[
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 421,
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 403,
+    "durationMs": "number"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/agents",
+    "status": 415,
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 426,
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 400,
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 404,
+    "tenantId": "tn_0000000000000000000000dead",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 200,
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/sessions/:id",
+    "status": 200,
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/sessions/:id/…",
+    "status": 200,
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/ag-ui/agents/bot/threads/t1/messages",
+    "status": 200,
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/admin/status",
+    "status": 404,
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/admin/status",
+    "status": 200,
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/sessions/:id/…",
+    "status": 200,
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  }
+]
