@@ -120,7 +120,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         ? requested.slice(stored.provider.length + 1)
         : (requested ?? stored.model),
       ...(stored.baseUrl
-        ? { custom: { baseUrl: stored.baseUrl } }
+        ? { custom: { baseUrl: stored.baseUrl, ...(stored.settings ?? {}) } }
         : {}),
     };
     const registry = modelsFor(
@@ -298,6 +298,9 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
             api: selected.api,
             model: selected.id,
           },
+          // The engine keeps the next prompt inside this window (Model Calls §7).
+          contextWindow: selected.contextWindow,
+          maxOutputTokens: selected.maxTokens,
         },
       },
     };

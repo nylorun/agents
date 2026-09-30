@@ -19,6 +19,7 @@ type HostModelView =
       readonly model: string;
       readonly authType: "api_key" | "oauth";
       readonly baseUrl?: string;
+      readonly settings?: { contextWindow?: number; maxTokens?: number };
     };
 
 function tenantHeaders(
@@ -75,6 +76,7 @@ export async function putHostModel(
       provider: model.provider,
       model: model.model,
       ...(model.baseUrl ? { baseUrl: model.baseUrl } : {}),
+      ...(model.settings ? { settings: model.settings } : {}),
       auth: model.auth,
     }),
   });

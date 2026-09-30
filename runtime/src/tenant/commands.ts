@@ -57,6 +57,7 @@ import {
 } from "./session.js";
 import { signalSessionCancel } from "./streams.js";
 import { toolIds } from "./transcript.js";
+import { slimModelEffects } from "./slim.js";
 
 /** A tool result whose output does not match the Action's stored output schema fails the tool. */
 function acceptedToolResult(
@@ -303,6 +304,7 @@ export async function command(
       event = await t.event(id, cancelledTurnId, "turn.cancelled", {
         reason: command.reason,
       });
+      await slimModelEffects(t, id, cancelledTurnId);
       // The process running the advance aborts it on `session.cancel` (tenant/control).
       t.afterCommit(() => signalSessionCancel(ctx, id));
       s.activeTurnId = null;

@@ -35,6 +35,9 @@ Authoring and executor capabilities accompany it in the agents SDK.
 returned by the adapter instead of a candidate. The step fails with `model.<code>`; it is a
 completed outcome, never `uncertain`.
 
+**Compaction**: Replacing the older part of the transcript with a summary the model wrote,
+so the next prompt fits the model's window. Recorded as a `compaction` entry, always first.
+
 ## Flow (workflows)
 
 **Flow engine**: Interprets a workflow manifest (`harness/src/flow/`). It returns

@@ -296,7 +296,11 @@ export async function runDurable(options: {
         await effect(
           "model",
           call,
-          { request: ctx.request, invocationId: ctx.invocationId },
+          // The call already holds the whole prompt; journaling the request would store it twice.
+          {
+            invocationId: ctx.invocationId,
+            ...(ctx.compaction ? { compaction: ctx.compaction } : {}),
+          },
           scoped(ref, ctx.invocationId),
           ref ? { agent: ref } : {},
         )

@@ -279,4 +279,4 @@ export { normalizeSchema } from "./definition/schema.js";
 export * from "./utils/immutable.js";
 export * from "./utils/canonical.js";
 
-export type { TranscriptToolsEntry } from "./types/transcript.js";
+export type { TranscriptToolsEntry, TranscriptCompactionEntry } from "./types/transcript.js";

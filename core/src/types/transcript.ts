@@ -69,8 +69,22 @@ export interface TranscriptFinalEntry {
   readonly stepId: string;
   readonly output: JsonValue;
 }
+/**
+ * A summary that replaced the older part of the transcript (Model Calls §8). It is always
+ * the first entry; the entries after it are the kept tail, sent verbatim.
+ */
+export interface TranscriptCompactionEntry {
+  readonly kind: "compaction";
+  readonly turnId: string;
+  readonly stepId: string;
+  readonly summary: string;
+  readonly trigger: "threshold" | "overflow";
+  readonly tokensBefore: number;
+  readonly tokensAfter: number;
+}
 export type TranscriptEntry =
   | TranscriptInputEntry
   | TranscriptCandidateEntry
   | TranscriptToolsEntry
-  | TranscriptFinalEntry;
+  | TranscriptFinalEntry
+  | TranscriptCompactionEntry;

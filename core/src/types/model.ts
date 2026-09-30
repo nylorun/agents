@@ -245,6 +245,14 @@ export interface ModelAdapterContext {
   readonly request: ModelRequest;
   readonly invocationId: string;
   readonly signal: AbortSignal;
+  /** Set when the engine calls the model to summarize history (Model Calls §8). */
+  readonly compaction?: {
+    readonly trigger: "threshold" | "overflow";
+    readonly tokensBefore: number;
+    readonly keptTokens: number;
+    /** An intermediate call of a chunked summary; only the last one completes the compaction. */
+    readonly partial?: boolean;
+  };
   /** Publishes one JSON-safe provider request derived from the canonical ModelCall. */
   reportPreparedCall(prepared: ModelPreparedCall): void;
 }

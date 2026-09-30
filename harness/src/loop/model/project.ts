@@ -11,6 +11,7 @@ import type { ContextItem } from "@nylorun/core/define";
 import type { TranscriptEntry } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
 import { copyJson, freezeGraph } from "@nylorun/core/define";
+import { summaryPrompt } from "../compaction/index.js";
 
 export function projectModelCall(request: ModelRequest): ModelCall {
   return freezeGraph({
@@ -124,6 +125,10 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
     ];
   }
   if (entry.kind === "tool-results") return entry.results.map(projectToolResult);
+  if (entry.kind === "compaction")
+    return [
+      freezeItem({ kind: "message", role: "user", content: [textPart(summaryPrompt(entry))] }),
+    ];
   return [];
 }
 

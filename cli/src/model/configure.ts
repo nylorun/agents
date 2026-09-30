@@ -31,6 +31,8 @@ export type PromptedModel = {
   provider: string;
   model: string;
   baseUrl?: string;
+  /** A custom endpoint's context window and output limit, when given. */
+  settings?: { contextWindow?: number; maxTokens?: number };
   auth: Credential;
 };
 
@@ -236,6 +238,16 @@ export async function configureProvider(
     return prompt.question(message, { signal });
   }
 
+  /** A positive whole number of tokens, or undefined for the default. */
+  async function tokens(message: string): Promise<number | undefined> {
+    const answer = (await question(message)).trim();
+    if (!answer) return undefined;
+    const value = Number(answer);
+    if (!Number.isInteger(value) || value < 1)
+      throw new Error(`${message.split(" (")[0]} must be a whole number of tokens.`);
+    return value;
+  }
+
   try {
     signal.throwIfAborted();
     output.write("0. Custom OpenAI-compatible provider\n");
@@ -250,6 +262,14 @@ export async function configureProvider(
       const model = (await question("Model id: ")).trim();
       if (!baseUrl || !model)
         throw new Error("A base URL and model id are required.");
+      const contextWindow = await tokens(
+        "Context window in tokens (Enter for 32768): ",
+      );
+      const maxTokens = await tokens("Max output tokens (Enter for 8192): ");
+      const settings = {
+        ...(contextWindow ? { contextWindow } : {}),
+        ...(maxTokens ? { maxTokens } : {}),
+      };
       const selection: Selection = {
         provider: "custom",
         model,
@@ -258,7 +278,10 @@ export async function configureProvider(
       const custom = modelsFor(selection, store, options.catalog);
       if (!(await custom.models.checkAuth("custom", { signal })))
         await custom.models.login("custom", "api_key", interaction(), login);
-      return prompted(selection);
+      return {
+        ...prompted(selection),
+        ...(Object.keys(settings).length ? { settings } : {}),
+      };
     } else {
       const chosen = providers[choice - 1];
       if (!chosen) throw new Error("Choose a listed provider.");

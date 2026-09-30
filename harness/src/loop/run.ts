@@ -3,6 +3,7 @@ import type { AgentDefinition } from "../definition/agent-definition.js";
 import type { ExecutionSnapshot } from "./step/runtime.js";
 import { HarnessError, isHarnessError } from "@nylorun/core/define";
 import { runStep } from "./step/run.js";
+import { compact, contextBudget, estimateTokens } from "./compaction/index.js";
 import type { RunOptions, RunResult, SavedToolCall, TurnHookState } from "../types/execution.js";
 import type { InputEvent } from "@nylorun/core/define";
 import type { JsonValue, Tripwire } from "@nylorun/core/define";
@@ -58,6 +59,28 @@ export async function execute(
     signal.throwIfAborted();
     let turnId: string;
     let stepNumber: number;
+    /** One compaction and retry per overflow; reset once a step succeeds. */
+    let overflowCompacted = false;
+    /** Summarize older history into a compaction entry (Model Calls §8). */
+    const compactHistory = async (
+      trigger: "threshold" | "overflow",
+      stepId: string,
+    ): Promise<boolean> => {
+      const next = await compact({
+        transcript: invocation.state.transcript,
+        executionId: invocation.state.executionId,
+        turnId,
+        stepId,
+        trigger,
+        budget: contextBudget(invocation.state.transcript),
+        invoke: options.onModelCall,
+        signal,
+      });
+      if (!next) return false;
+      invocation.state = { ...invocation.state, transcript: next };
+      await record();
+      return true;
+    };
     let arrivals: readonly InputEvent[] = [];
     let toolResults: readonly ToolResult[] = [];
     const hooked = hasAnyHooks(agent);
@@ -116,6 +139,13 @@ export async function execute(
     for (; ; stepNumber++) {
       signal.throwIfAborted();
       const stepId = createId("step");
+      // Keep the next prompt inside the model's window, before it is sent.
+      const budget = contextBudget(invocation.state.transcript);
+      if (
+        budget &&
+        estimateTokens(invocation.state.transcript) > budget.contextWindow - budget.reserve
+      )
+        await compactHistory("threshold", stepId);
       const snapshot: ExecutionSnapshot = {
         id: invocation.state.executionId,
         status: "running",
@@ -172,6 +202,16 @@ export async function execute(
           ...turn,
           attempts: { ...turn.attempts, afterStep: turn.attempts.afterStep + 1 },
         }));
+      // The prompt did not fit: compact once and ask again with the same inputs.
+      if (
+        result.output.kind === "tripwire" &&
+        result.output.tripwire.code === "model.context_overflow" &&
+        !overflowCompacted
+      ) {
+        overflowCompacted = true;
+        if (await compactHistory("overflow", stepId)) continue;
+      }
+      if (result.output.kind !== "tripwire") overflowCompacted = false;
       let candidate = result.candidate;
       let finalOutput = result.output.kind === "final" ? result.output.output : undefined;
       let turnDecision: TurnDecision = {};

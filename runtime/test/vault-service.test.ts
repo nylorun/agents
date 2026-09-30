@@ -588,6 +588,56 @@ describe("VaultService host model", () => {
       expect(Buffer.from(row.ciphertext).includes(Buffer.from(secret))).toBe(false);
   });
 
+  it("keeps a custom endpoint's model settings, also across a model selection", async () => {
+    const { vault } = setup();
+    const settings = {
+      contextWindow: 16_384,
+      maxTokens: 2_048,
+      reasoning: true,
+      compat: { thinkingFormat: "qwen-chat-template" },
+    };
+    expect(
+      await vault.putHostModel({
+        requestId: "settings-1",
+        idempotencyKey: "settings-1",
+        provider: "custom",
+        model: "qwen3-8b",
+        baseUrl: "http://127.0.0.1:8000/v1",
+        settings,
+        auth: { type: "api_key", key: "local" },
+      }),
+    ).toMatchObject({ configured: true, settings });
+    expect((await vault.readHostModel())?.settings).toEqual(settings);
+    await vault.selectHostModel({
+      requestId: "settings-2",
+      idempotencyKey: "settings-2",
+      provider: "custom",
+      model: "qwen3-14b",
+      baseUrl: "http://127.0.0.1:8000/v1",
+    });
+    expect(await vault.readHostModel()).toMatchObject({ model: "qwen3-14b", settings });
+    expect((await vault.listHostProviders()).providers[0]?.settings).toEqual(settings);
+  });
+
+  it("refuses model settings for a catalog provider", async () => {
+    const { vault } = setup();
+    const openaiModel =
+      hostModelCatalog().providers.find((provider) => provider.id === "openai")
+        ?.models[0]?.id ?? "gpt-4o-mini";
+    expect(
+      await status(
+        vault.putHostModel({
+          requestId: "settings-3",
+          idempotencyKey: "settings-3",
+          provider: "openai",
+          model: openaiModel,
+          settings: { contextWindow: 8_192 },
+          auth: { type: "api_key", key: "k" },
+        }),
+      ),
+    ).toBe(400);
+  });
+
   it("validates providers before writing", async () => {
     const { vault, read } = setup();
     expect(

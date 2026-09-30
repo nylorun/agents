@@ -13,9 +13,19 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 export type Selection = Readonly<{
   provider: string;
   model: string;
-  custom?: Readonly<{ baseUrl: string }>;
+  custom?: Readonly<{
+    baseUrl: string;
+    /** Model Settings for the endpoint (Model Calls §7); defaults are deliberately small. */
+    contextWindow?: number;
+    maxTokens?: number;
+    reasoning?: boolean;
+    compat?: Readonly<Record<string, unknown>>;
+  }>;
 }>;
 
+/** A custom endpoint whose window is unknown is assumed small: an early compaction beats a failed call. */
+export const CUSTOM_CONTEXT_WINDOW = 32_768;
+export const CUSTOM_MAX_TOKENS = 8_192;
 
 /**
  * Build the pi-ai model registry from explicit credentials only.
@@ -42,11 +52,14 @@ export function modelsFor(
     api: "openai-completions",
     provider: "custom",
     baseUrl: selection.custom.baseUrl,
-    reasoning: false,
+    reasoning: selection.custom.reasoning ?? false,
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 16384,
+    contextWindow: selection.custom.contextWindow ?? CUSTOM_CONTEXT_WINDOW,
+    maxTokens: selection.custom.maxTokens ?? CUSTOM_MAX_TOKENS,
+    ...(selection.custom.compat
+      ? { compat: { ...selection.custom.compat } as Model<"openai-completions">["compat"] }
+      : {}),
   };
   models.setProvider(
     createProvider({

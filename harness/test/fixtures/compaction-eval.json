@@ -1,0 +1,245 @@
+{
+  "about": "Model Calls W1.5. Each scenario is a long agent session. Every fact is stated once, early, in a user message or a tool result; after compaction the model must answer the question from the summary alone. Filler steps make the history long enough to be summarized.",
+  "scenarios": [
+    {
+      "name": "database-migration",
+      "request": "Migrate the orders table to the new schema and keep the old one readable.",
+      "facts": [
+        {
+          "at": "tool",
+          "text": "Postgres is running on port 5433, database name shop_prod.",
+          "question": "Which port does the Postgres database run on?",
+          "answer": "5433"
+        },
+        {
+          "at": "user",
+          "text": "Please name the backup table orders_backup_2026 so the finance team finds it.",
+          "question": "What must the backup table be called?",
+          "answer": "orders_backup_2026"
+        },
+        {
+          "at": "tool",
+          "text": "Migration 0042_split_address failed: column zip_code has 17 NULL rows.",
+          "question": "How many NULL rows made migration 0042 fail?",
+          "answer": "17"
+        }
+      ]
+    },
+    {
+      "name": "bug-fix-branch",
+      "request": "Fix the login timeout bug reported by support.",
+      "facts": [
+        {
+          "at": "user",
+          "text": "Work on the branch fix/login-timeout and never push to main.",
+          "question": "Which branch must the work be on?",
+          "answer": "fix/login-timeout"
+        },
+        {
+          "at": "tool",
+          "text": "The timeout is set in src/auth/session.ts line 88 to 30 seconds.",
+          "question": "In which file is the login timeout set?",
+          "answer": "src/auth/session.ts"
+        },
+        {
+          "at": "tool",
+          "text": "Ticket SUP-4471 says users on Safari 19 are affected.",
+          "question": "Which support ticket reported the bug?",
+          "answer": "SUP-4471"
+        }
+      ]
+    },
+    {
+      "name": "travel-planning",
+      "request": "Plan a three-day trip to Lisbon for a team offsite.",
+      "facts": [
+        {
+          "at": "user",
+          "text": "The budget is 4800 euros for everyone, including flights.",
+          "question": "What is the total budget?",
+          "answer": "4800"
+        },
+        {
+          "at": "tool",
+          "text": "Hotel Alfama Garden has 6 rooms free from 14 to 17 October.",
+          "question": "Which hotel has rooms free?",
+          "answer": "Alfama Garden"
+        },
+        {
+          "at": "user",
+          "text": "Two people are vegetarian: Priya and Tomas.",
+          "question": "Who is vegetarian?",
+          "answer": "Priya"
+        }
+      ]
+    },
+    {
+      "name": "data-analysis",
+      "request": "Find why weekly revenue dropped in the EU region.",
+      "facts": [
+        {
+          "at": "tool",
+          "text": "EU revenue for week 38 was 1.84 million, down from 2.31 million.",
+          "question": "What was EU revenue in week 38?",
+          "answer": "1.84"
+        },
+        {
+          "at": "tool",
+          "text": "The checkout error rate in Germany rose to 7.2 percent after release 5.14.0.",
+          "question": "After which release did the German checkout error rate rise?",
+          "answer": "5.14.0"
+        },
+        {
+          "at": "user",
+          "text": "Report only to Dana Whitfield, not the whole channel.",
+          "question": "Who should the report go to?",
+          "answer": "Dana Whitfield"
+        }
+      ]
+    },
+    {
+      "name": "infrastructure",
+      "request": "Move the image service to the new Kubernetes cluster.",
+      "facts": [
+        {
+          "at": "tool",
+          "text": "The new cluster is named kcl-west-3 and runs Kubernetes 1.34.",
+          "question": "What is the new cluster called?",
+          "answer": "kcl-west-3"
+        },
+        {
+          "at": "user",
+          "text": "Keep memory requests at 768Mi; the finance team capped it.",
+          "question": "What memory request must be kept?",
+          "answer": "768Mi"
+        },
+        {
+          "at": "tool",
+          "text": "The image service depends on the secret img-signing-key-v2.",
+          "question": "Which secret does the image service depend on?",
+          "answer": "img-signing-key-v2"
+        }
+      ]
+    },
+    {
+      "name": "customer-support",
+      "request": "Resolve the refund dispute for this customer.",
+      "facts": [
+        {
+          "at": "tool",
+          "text": "Order A-99812 was paid on 3 September with a Visa card.",
+          "question": "What is the order number?",
+          "answer": "A-99812"
+        },
+        {
+          "at": "user",
+          "text": "The customer prefers to be contacted by email, never by phone.",
+          "question": "How does the customer want to be contacted?",
+          "answer": "email"
+        },
+        {
+          "at": "tool",
+          "text": "Refund policy RP-7 allows refunds up to 45 days after delivery.",
+          "question": "How many days after delivery does the refund policy allow?",
+          "answer": "45"
+        }
+      ]
+    },
+    {
+      "name": "research-summary",
+      "request": "Summarize recent work on protein folding benchmarks.",
+      "facts": [
+        {
+          "at": "tool",
+          "text": "The CASP17 top score was 92.4 GDT_TS by the FoldNet team.",
+          "question": "Which team had the top CASP17 score?",
+          "answer": "FoldNet"
+        },
+        {
+          "at": "user",
+          "text": "Cite at most five papers and use APA style.",
+          "question": "Which citation style must be used?",
+          "answer": "APA"
+        },
+        {
+          "at": "tool",
+          "text": "The paper by Okafor et al. 2026 introduced the dataset PDB-Hard.",
+          "question": "Which dataset did Okafor et al. introduce?",
+          "answer": "PDB-Hard"
+        }
+      ]
+    },
+    {
+      "name": "frontend-refactor",
+      "request": "Refactor the settings page to the new design system.",
+      "facts": [
+        {
+          "at": "user",
+          "text": "Do not change the URL /account/settings; bookmarks depend on it.",
+          "question": "Which URL must not change?",
+          "answer": "/account/settings"
+        },
+        {
+          "at": "tool",
+          "text": "The design system package is @acme/ui version 12.3.1.",
+          "question": "Which version of the design system package is used?",
+          "answer": "12.3.1"
+        },
+        {
+          "at": "tool",
+          "text": "Test suite settings.spec.tsx has 3 failing snapshot tests.",
+          "question": "How many snapshot tests fail?",
+          "answer": "3"
+        }
+      ]
+    },
+    {
+      "name": "legal-review",
+      "request": "Review the vendor contract before signing.",
+      "facts": [
+        {
+          "at": "tool",
+          "text": "Clause 14.2 sets liability to 2 times the annual fee.",
+          "question": "What does clause 14.2 set liability to?",
+          "answer": "2 times"
+        },
+        {
+          "at": "user",
+          "text": "Our counsel is Maria Lindqvist; send questions to her.",
+          "question": "Who is our counsel?",
+          "answer": "Maria Lindqvist"
+        },
+        {
+          "at": "tool",
+          "text": "The contract renews automatically on 1 February unless cancelled 60 days before.",
+          "question": "How many days before renewal must it be cancelled?",
+          "answer": "60"
+        }
+      ]
+    },
+    {
+      "name": "release-management",
+      "request": "Prepare the 4.0 release of the mobile app.",
+      "facts": [
+        {
+          "at": "user",
+          "text": "The release date is 21 November; marketing has booked it.",
+          "question": "What is the release date?",
+          "answer": "21 November"
+        },
+        {
+          "at": "tool",
+          "text": "Build 4.0.0-rc.7 passed all 1,284 automated tests.",
+          "question": "Which release candidate passed the tests?",
+          "answer": "rc.7"
+        },
+        {
+          "at": "tool",
+          "text": "The App Store review flagged the missing privacy label for location data.",
+          "question": "What did the App Store review flag?",
+          "answer": "privacy label"
+        }
+      ]
+    }
+  ]
+}

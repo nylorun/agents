@@ -72,6 +72,7 @@ import {
 import { command } from "./commands.js";
 import {
   assistantMessage,
+  contextCompacted,
   modelFailed,
   toolCompleted,
   toolIds,
@@ -344,12 +345,20 @@ export async function resolveEffect(
       effect.outcome = { value };
       await t.put("effects", request.effectId, effect);
       const failed = invoke === "model" ? modelFailed(request, value) : undefined;
-      const transcript = failed
-        ? undefined
-        : invoke === "model"
-        ? assistantMessage(request, value)
-        : toolCompleted(request, value);
+      // A summary call is never an assistant message; the last one publishes context.compacted.
+      const summarizing =
+        invoke === "model" && Boolean((request.context as { compaction?: unknown }).compaction);
+      const compacted =
+        summarizing && !failed ? contextCompacted(request, value) : undefined;
+      const transcript =
+        failed || summarizing
+          ? undefined
+          : invoke === "model"
+          ? assistantMessage(request, value)
+          : toolCompleted(request, value);
       if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
+      if (compacted)
+        await t.event(s.id, request.turnId, "context.compacted", compacted);
       if (transcript)
         await t.event(
           s.id,

@@ -70,6 +70,29 @@ function entryAt(value: unknown, index: number): TranscriptEntry {
       });
       return result;
     }
+    case "compaction": {
+      exactKeys(
+        entry,
+        ["kind", "turnId", "stepId", "summary", "trigger", "tokensBefore", "tokensAfter"],
+        `Transcript entry ${index}`,
+      );
+      requiredString(entry.stepId, `Transcript entry ${index} stepId`);
+      if (typeof entry.summary !== "string") fail(`Transcript entry ${index} summary`);
+      if (entry.trigger !== "threshold" && entry.trigger !== "overflow")
+        fail(`Transcript entry ${index} trigger`);
+      for (const key of ["tokensBefore", "tokensAfter"] as const)
+        if (!Number.isInteger(entry[key]) || (entry[key] as number) < 0)
+          fail(`Transcript entry ${index} ${key}`);
+      return Object.freeze({
+        kind: "compaction",
+        turnId: entry.turnId as string,
+        stepId: entry.stepId as string,
+        summary: entry.summary,
+        trigger: entry.trigger,
+        tokensBefore: entry.tokensBefore as number,
+        tokensAfter: entry.tokensAfter as number,
+      });
+    }
     case "final":
       exactKeys(entry, ["kind", "turnId", "stepId", "output"], `Transcript entry ${index}`);
       requiredString(entry.stepId, `Transcript entry ${index} stepId`);

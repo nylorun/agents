@@ -706,12 +706,27 @@ export const RotateCredentialRequestSchema = z
 export type RotateCredentialRequest = z.infer<
   typeof RotateCredentialRequestSchema
 >;
+/**
+ * What the Runtime cannot learn from a custom OpenAI-compatible endpoint (Model Calls §7):
+ * its context window and output limit, whether it reasons, and pi-ai `compat` settings
+ * (`thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs`, …).
+ */
+export const CustomModelSettingsSchema = z
+  .object({
+    contextWindow: z.number().int().min(1024).optional(),
+    maxTokens: z.number().int().min(1).optional(),
+    reasoning: z.boolean().optional(),
+    compat: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+export type CustomModelSettings = z.infer<typeof CustomModelSettingsSchema>;
 export const PutHostModelRequestSchema = z
   .object({
     ...vaultWriteBase,
     provider: z.string().min(1),
     model: z.string().min(1),
     baseUrl: z.string().min(1).optional(),
+    settings: CustomModelSettingsSchema.optional(),
     auth: z.discriminatedUnion("type", [
       z
         .object({
@@ -740,6 +755,7 @@ export type HostModelView =
       readonly model: string;
       readonly authType: "api_key" | "oauth";
       readonly baseUrl?: string;
+      readonly settings?: CustomModelSettings;
     };
 export const SelectHostModelRequestSchema = z
   .object({
@@ -1020,6 +1036,19 @@ export const ModelFailedPayloadSchema = z
     ...eventAgent,
   })
   .passthrough();
+/**
+ * `context.compacted`: the engine summarized older history to fit the model's window
+ * (Model Calls §8). Token counts are estimates.
+ */
+export const ContextCompactedPayloadSchema = z
+  .object({
+    invocationId: z.string().min(1).optional(),
+    trigger: z.enum(["threshold", "overflow"]),
+    tokensBefore: z.number().int().nonnegative(),
+    tokensAfter: z.number().int().nonnegative(),
+    ...eventAgent,
+  })
+  .passthrough();
 /** `tool.completed`: an MCP or sandbox tool the Runtime ran. `error` for a tool error. */
 export const ToolCompletedPayloadSchema = z
   .object({
@@ -1093,6 +1122,7 @@ export const DelegationPayloadSchema = z
 const TRANSCRIPT_PAYLOADS = {
   "message.assistant": AssistantMessagePayloadSchema,
   "model.failed": ModelFailedPayloadSchema,
+  "context.compacted": ContextCompactedPayloadSchema,
   "tool.completed": ToolCompletedPayloadSchema,
   "action.pending": ActionPendingPayloadSchema,
   "action.completed": ActionCompletedPayloadSchema,
@@ -1416,6 +1446,7 @@ export const HostModelViewSchema = z.union([
       model: z.string(),
       authType: z.enum(["api_key", "oauth"]),
       baseUrl: z.string().optional(),
+      settings: CustomModelSettingsSchema.optional(),
     })
     .strict(),
 ]);
@@ -2040,6 +2071,7 @@ export const HostModelProviderInfoSchema = z
     model: z.string(),
     authType: z.enum(["api_key", "oauth"]),
     baseUrl: z.string().optional(),
+    settings: CustomModelSettingsSchema.optional(),
     lastUpdated: z.string(),
     active: z.boolean(),
   })

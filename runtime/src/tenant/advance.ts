@@ -55,6 +55,7 @@ import {
   turnManifestOf,
 } from "./session.js";
 import { prepareMcp, resolveEffect } from "./effects.js";
+import { slimModelEffects } from "./slim.js";
 import { command } from "./commands.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
@@ -457,6 +458,7 @@ async function settle(
       if (result.status !== "paused") {
         current.activeTurnId = null;
         if (s.activeTurnId) current.lastTurnId = s.activeTurnId;
+        await slimModelEffects(t, id, s.activeTurnId);
       }
       const type = `turn.${result.status}`;
       const payload =
@@ -537,6 +539,7 @@ async function settleFailure(
     current.error = error instanceof Error ? error.message : String(error);
     const payload = { message: current.error };
     await t.event(id, current.activeTurnId, "turn.failed", payload);
+    await slimModelEffects(t, id, current.activeTurnId);
     if (current.activeTurnId) current.lastTurnId = current.activeTurnId;
     current.activeTurnId = null;
     await t.put("sessions", id, current);

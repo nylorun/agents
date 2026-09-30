@@ -69,6 +69,35 @@ export function assistantMessage(request: HostEffect, value: unknown) {
   };
 }
 
+/**
+ * `context.compacted` for a model effect that summarized history (Model Calls §8): the
+ * engine replaced the older transcript with that summary.
+ */
+export function contextCompacted(request: HostEffect, value: unknown) {
+  const compaction = (request.context as {
+    compaction?: { trigger?: unknown; tokensBefore?: unknown; keptTokens?: unknown; partial?: unknown };
+  } | null)?.compaction;
+  if (!compaction || compaction.partial || isModelFailureOutcome(value)) return undefined;
+  const summary =
+    typeof value === "string"
+      ? value
+      : Array.isArray((value as { output?: unknown } | null)?.output)
+      ? (value as { output: { type?: unknown; text?: unknown }[] }).output
+          .map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
+          .join("")
+      : "";
+  const invocationId = (request.context as { invocationId?: unknown })?.invocationId;
+  const tokensBefore = Number(compaction.tokensBefore) || 0;
+  const keptTokens = Number(compaction.keptTokens) || 0;
+  return {
+    ...(typeof invocationId === "string" ? { invocationId } : {}),
+    trigger: compaction.trigger === "overflow" ? "overflow" : "threshold",
+    tokensBefore,
+    tokensAfter: keptTokens + Math.ceil(summary.trim().length / 4),
+    ...agentOf(request),
+  };
+}
+
 /** `model.failed` for a model effect that completed with a failure outcome (Model Calls §6.4). */
 export function modelFailed(request: HostEffect, value: unknown) {
   if (!isModelFailureOutcome(value)) return undefined;
