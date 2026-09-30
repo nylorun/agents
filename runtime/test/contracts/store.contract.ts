@@ -886,6 +886,129 @@ export function storeContract(name: string, factory: StoreFactory): void {
       });
     });
 
+    describe("Action endpoints", () => {
+      const endpoint = (agentId: string, fields: Record<string, unknown> = {}) => ({
+        agentId,
+        url: "http://localhost:3000/actions",
+        implementationVersion: "1",
+        timeoutMs: 60_000,
+        maxConcurrent: 16,
+        updatedAt: "2030-01-01T00:00:00.000Z",
+        ...fields,
+      });
+
+      it("upserts endpoints keeping createdAt, and keeps health only for the same URL", async () => {
+        const store = await fresh();
+        await store.tx(async (t) => {
+          await t.putEndpoint(endpoint("b", { manifestHash: "m", principalId: "p" }));
+          await t.putEndpoint(endpoint("a"));
+          await t.recordEndpointHealth("a", { kind: "failure", at: "2030-01-01T00:00:01.000Z", code: "endpoint.unreachable", message: "refused" });
+        });
+        await store.tx((t) =>
+          t.putEndpoint(endpoint("a", { implementationVersion: "2", timeoutMs: 5000, updatedAt: "2030-01-02T00:00:00.000Z" })),
+        );
+        await store.tx(async (t) => {
+          expect(await t.getEndpoint("a")).toEqual({
+            agentId: "a",
+            url: "http://localhost:3000/actions",
+            implementationVersion: "2",
+            timeoutMs: 5000,
+            maxConcurrent: 16,
+            lastDeliveryAt: "2030-01-01T00:00:01.000Z",
+            lastErrorCode: "endpoint.unreachable",
+            lastErrorMessage: "refused",
+            consecutiveFailures: 1,
+            createdAt: "2030-01-01T00:00:00.000Z",
+            updatedAt: "2030-01-02T00:00:00.000Z",
+          });
+          expect((await t.listEndpoints()).map((e) => e.agentId)).toEqual(["a", "b"]);
+          expect(await t.getEndpoint("b")).toMatchObject({ manifestHash: "m", principalId: "p", consecutiveFailures: 0 });
+        });
+        // A new URL starts with no health.
+        await store.tx((t) => t.putEndpoint(endpoint("a", { url: "https://app.example/actions", updatedAt: "2030-01-03T00:00:00.000Z" })));
+        expect(await store.tx((t) => t.getEndpoint("a"))).toEqual({
+          agentId: "a",
+          url: "https://app.example/actions",
+          implementationVersion: "1",
+          timeoutMs: 60_000,
+          maxConcurrent: 16,
+          consecutiveFailures: 0,
+          createdAt: "2030-01-01T00:00:00.000Z",
+          updatedAt: "2030-01-03T00:00:00.000Z",
+        });
+        await store.tx((t) => t.deleteEndpoint("a"));
+        expect(await store.tx((t) => t.getEndpoint("a"))).toBeUndefined();
+      });
+
+      it("records successes, failures and what a ping reported", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.putEndpoint(endpoint("a")));
+        await store.tx(async (t) => {
+          await t.recordEndpointHealth("a", { kind: "failure", at: "2030-01-01T00:00:01.000Z", code: "x", message: "one" });
+          await t.recordEndpointHealth("a", { kind: "failure", at: "2030-01-01T00:00:02.000Z", code: "y", message: "two" });
+          await t.recordEndpointHealth("a", { kind: "served", implementationVersion: "7", manifestHash: "h" });
+          await t.recordEndpointHealth("missing", { kind: "success", at: "2030-01-01T00:00:02.000Z" });
+        });
+        expect(await store.tx((t) => t.getEndpoint("a"))).toMatchObject({
+          lastDeliveryAt: "2030-01-01T00:00:02.000Z",
+          lastErrorCode: "y",
+          lastErrorMessage: "two",
+          consecutiveFailures: 2,
+          servedImplementationVersion: "7",
+          servedManifestHash: "h",
+        });
+        await store.tx(async (t) => {
+          await t.recordEndpointHealth("a", { kind: "success", at: "2030-01-01T00:00:03.000Z" });
+          await t.recordEndpointHealth("a", { kind: "served", implementationVersion: "8" });
+        });
+        const healed = await store.tx((t) => t.getEndpoint("a"));
+        expect(healed).toMatchObject({
+          lastDeliveryAt: "2030-01-01T00:00:03.000Z",
+          lastSuccessAt: "2030-01-01T00:00:03.000Z",
+          consecutiveFailures: 0,
+          servedImplementationVersion: "8",
+        });
+        expect(healed).not.toHaveProperty("lastErrorCode");
+        expect(healed).not.toHaveProperty("servedManifestHash");
+        expect(await store.tx((t) => t.getEndpoint("missing"))).toBeUndefined();
+      });
+
+      it("finds deliveries by agent, endpoint and deadline", async () => {
+        const store = await fresh();
+        await store.tx(async (t) => {
+          await t.putEndpoint(endpoint("agent-a"));
+          await t.put("actions", "d1", action("d1", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:05.000Z" }));
+          await t.put("actions", "d2", action("d2", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:01.000Z" }));
+          await t.put("actions", "d3", action("d3", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:01:00.000Z", agentId: "agent-b" }));
+          await t.put("actions", "p1", action("p1", { status: "pending" }));
+          await t.put("actions", "p2", action("p2", { status: "pending", agentId: "agent-b" }));
+          await t.put("actions", "p0", action("p0", { status: "pending" }));
+          await t.put("actions", "c1", action("c1", { status: "claimed", claimId: "c", leaseExpiresAt: "2030-01-01T00:00:00.000Z" }));
+        });
+        await store.tx(async (t) => {
+          expect(await t.deliveringCount("agent-a")).toBe(2);
+          expect(await t.deliveringCount("agent-b")).toBe(1);
+          expect(await t.deliveringCount("agent-c")).toBe(0);
+          // agent-b has no endpoint, so its pending Action is an executor's.
+          expect((await t.pendingActionsWithEndpoint(10)).map((a) => a.actionId)).toEqual(["p0", "p1"]);
+          expect((await t.pendingActionsWithEndpoint(1)).map((a) => a.actionId)).toEqual(["p0"]);
+          const at = (iso: string) => new Date(iso);
+          expect((await t.expiredDeliveries(at("2030-01-01T00:00:05.000Z"), 10)).map((a) => a.actionId)).toEqual(["d2", "d1"]);
+          expect((await t.expiredDeliveries(at("2030-01-01T00:00:05.000Z"), 1)).map((a) => a.actionId)).toEqual(["d2"]);
+          expect(await t.expiredDeliveries(at("2030-01-01T00:00:00.000Z"), 10)).toEqual([]);
+        });
+      });
+
+      it("removes endpoints on a full reset only", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.putEndpoint(endpoint("a")));
+        await store.tx((t) => t.reset("sessions"));
+        expect(await store.tx((t) => t.getEndpoint("a"))).toBeDefined();
+        await store.tx((t) => t.reset("all"));
+        expect(await store.tx((t) => t.getEndpoint("a"))).toBeUndefined();
+      });
+    });
+
     describe("executors and principals", () => {
       it("upserts executors keeping createdAt and a unique token hash", async () => {
         const store = await fresh();

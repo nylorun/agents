@@ -221,6 +221,13 @@ export async function registerExecutors(
   }
   // Persist the whole batch first; the in-memory registry must never run ahead of the store.
   await store.tx(async (t) => {
+    // An agent is served by an Action endpoint or an executor, never both.
+    for (const record of records)
+      if (await t.getEndpoint(record.agentId))
+        fail(
+          409,
+          `Agent '${record.agentId}' is served by an Action endpoint; remove it first (DELETE /v1/endpoints/${record.agentId})`,
+        );
     for (const record of records)
       await t.putExecutor({
         agentId: record.agentId,
