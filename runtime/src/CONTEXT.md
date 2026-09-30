@@ -22,7 +22,7 @@ settings and status. Client package: `@nylorun/agents`.
 _Avoid_: "SDK API" or "application API" as the surface name.
 
 **Admin API**: The `/v1/admin/tenants` and `/v1/admin/status` routes, called
-with an admin key. Shared by OSS and Cloud. Client package: `@nylorun/admin`.
+with an admin key (`host/admin-api.ts`). Shared by OSS and Cloud. Client package: `@nylorun/admin`.
 Served on the **operator listener** when the Host has one, otherwise on its
 only listener.
 `POST /v1/admin/host/shutdown` is Host-private on OSS and is not part of

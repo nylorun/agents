@@ -204,29 +204,27 @@ export function readBearer(
   return match?.[1];
 }
 
-export async function readJsonBody(
-  request: import("node:http").IncomingMessage,
-  limit = 1024 * 1024,
-): Promise<unknown> {
-  const chunks: Buffer[] = [];
+/** A JSON request body, capped at `limit` bytes (413); `undefined` when there is none. */
+export async function readJsonBody(request: Request, limit = 1024 * 1024): Promise<unknown> {
+  if (request.body === null) return undefined;
+  const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of request) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buf.length;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
     if (size > limit) {
-      const error = new Error("Request too large");
-      (error as Error & { status: number }).status = 413;
-      throw error;
+      await reader.cancel();
+      throw Object.assign(new Error("Request too large"), { status: 413 });
     }
-    chunks.push(buf);
+    chunks.push(value);
   }
-  if (chunks.length === 0) return undefined;
+  if (size === 0) return undefined;
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    const error = new Error("Invalid JSON");
-    (error as Error & { status: number }).status = 400;
-    throw error;
+    throw Object.assign(new Error("Invalid JSON"), { status: 400 });
   }
 }
 

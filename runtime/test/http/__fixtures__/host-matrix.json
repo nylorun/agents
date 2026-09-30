@@ -439,6 +439,146 @@
       "message": "Browser Origin headers are not accepted"
     }
   },
+  "public GET /v1/admin/tenants/": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public GET /v1//admin/tenants": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public HEAD /v1/admin/status": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json"
+    }
+  },
+  "public PUT /v1/admin/status": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
   "operator GET /health": {
     "none": {
       "status": 200
@@ -978,6 +1118,194 @@
     }
   },
   "operator GET /v1/admin/nothing": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 2,
+        "max": 2,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Route not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator GET /v1/admin/tenants/": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 2,
+        "max": 2,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Route not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator GET /v1//admin/tenants": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 2,
+        "max": 2,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Route not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator HEAD /v1/admin/status": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json"
+    }
+  },
+  "operator PUT /v1/admin/status": {
     "none": {
       "status": 426,
       "contentType": "application/json",
