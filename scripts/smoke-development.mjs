@@ -7,7 +7,7 @@
  * Runs scripts/lib/development.mjs against a temporary NYLORUN_HOME and a
  * unique stack project, with the images from scripts/lib/stack.mjs. Checks
  * that the stack starts on those images, the examples Project gets a Tenant,
- * its executors connect, the printed Studio login works, and that an edit to
+ * its Action endpoints answer, the printed Studio login works, and that an edit to
  * a host package rebuilds it and restarts the examples runner. The stack is
  * reset afterwards.
  *
@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { develop, workspaceCommands } from "./lib/development.mjs";
 import { root, run } from "./lib/repo.mjs";
-import { ensureImages, eventually, studioSession, tenantGet, withStack } from "./lib/stack.mjs";
+import { ensureImages, eventually, studioSession, tenantHeaders, withStack } from "./lib/stack.mjs";
 
 const scratch = await mkdtemp(join(tmpdir(), "nylorun-dev-smoke-"));
 const examples = join(scratch, "examples");
@@ -90,13 +90,20 @@ try {
       const { tenantId, hostUrl } = JSON.parse(await readFile(join(link, "link.json"), "utf8"));
       const { applicationKey } = JSON.parse(await readFile(join(link, "credentials.json"), "utf8"));
       assert.equal(hostUrl, status.runtime.url);
+      // The examples serve their agents as Action endpoints; the Runtime (in Docker) reaches
+      // them when a ping through it answers 200.
       const connected = async () => {
-        const { executors } = await tenantGet(hostUrl, tenantId, applicationKey, "/v1/executors");
-        return ["assistant", "analyst"].every((id) =>
-          executors.some((e) => e.agentId === id && e.connected),
-        );
+        for (const id of ["assistant", "analyst"]) {
+          const response = await fetch(`${hostUrl}/v1/endpoints/${id}/ping`, {
+            method: "POST",
+            headers: tenantHeaders(tenantId, applicationKey),
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (response.status !== 200) return false;
+        }
+        return true;
       };
-      await until(connected, { timeout: 300_000, message: "the examples executors to connect" });
+      await until(connected, { timeout: 300_000, message: "the examples' Action endpoints to answer" });
 
       // `nylorun studio`'s login (after `nylorun start`'s own) lands on the linked Tenant.
       const loginUrl = lines.map((l) => /^Studio\s+(http\S+)/.exec(l)?.[1]).findLast(Boolean);
@@ -110,7 +117,7 @@ try {
       const restarts = () => lines.filter((l) => l.includes("Restarting the examples runner")).length;
       await writeFile(edited, `${original}\n// dev smoke ${Date.now()}\n`);
       await until(() => restarts() === 1, { timeout: 180_000, message: "a runner restart" });
-      await until(connected, { timeout: 120_000, message: "the executors to reconnect" });
+      await until(connected, { timeout: 120_000, message: "the Action endpoints to answer again" });
     } finally {
       await writeFile(edited, original);
       controller.abort();
@@ -118,7 +125,7 @@ try {
     }
   });
   console.log(
-    "Development smoke passed: npm run dev on the stack (local images), examples Tenant and executors, Studio login, package rebuild and runner restart.",
+    "Development smoke passed: npm run dev on the stack (local images), examples Tenant and Action endpoints, Studio login, package rebuild and runner restart.",
   );
 } catch (error) {
   console.error(error);

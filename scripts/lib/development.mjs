@@ -7,7 +7,7 @@
  *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
  *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` the stack on them.
  * 3. Link examples/ to a Tenant once (`nylo tenant create`), print a Studio
- *    login on it (`nylorun studio`), and run the examples executor with its own
+ *    login on it (`nylorun studio`), and run the examples Action endpoint with its own
  *    `npm run dev` (`tsx watch`), as a developer's project runs.
  * 4. Watch the packages: an edit rebuilds what depends on it, rebuilds the
  *    affected images (Compose then recreates only those containers), and
