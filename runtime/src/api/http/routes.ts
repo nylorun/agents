@@ -87,6 +87,9 @@ export async function handle(
     const client = await identifyClient(ctx, request, response);
     const scope = await authenticate(ctx, request, client);
     if (path[0] !== "v1") fail(404, "Route not found");
+    // No legacy route takes a delivery token: its callbacks are declared routes.
+    if (scope.kind === "delivery")
+      fail(403, "A delivery token reaches only its Action's callbacks");
     authorize(scope, method, path);
     if (scope.kind === "publishable") {
       if (path[1] === "agents" && path.length === 2 && method === "GET")
