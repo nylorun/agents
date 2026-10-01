@@ -571,3 +571,27 @@ app with the origins that serve it (`http://localhost:*` for development);
 requests from other origins get the opaque `404`.
 
 The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI or A2A package. Use `/define`, `/client`, `/ag-ui`, `/a2a` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+
+## Embedding Studio (desktop apps)
+
+`@nylorun/agents/studio-embed` is the contract between Studio and an app that
+shows it in an iframe, such as Babai. It exports the message schema
+(`StudioEmbedMessageSchema`, envelope `{ type: "nylorun.studio", protocol, kind }`),
+the login-token and session schemas, `STUDIO_EMBED_PROTOCOLS` and
+`parseFrameAncestors`.
+
+```ts
+import { StudioEmbedMessageSchema } from "@nylorun/agents/studio-embed";
+
+window.addEventListener("message", (event) => {
+  if (event.source !== frame.contentWindow || event.origin !== studioOrigin) return;
+  const message = StudioEmbedMessageSchema.safeParse(event.data);
+  if (!message.success) return;
+  if (message.data.kind === "ready") frame.contentWindow!.postMessage(init, studioOrigin);
+});
+```
+
+The embedder's backend mints the login token with the admin key
+(`mintStudioLoginToken` in `@nylorun/admin`) and the page passes it to Studio in
+`init`. No key reaches the page. Studio's origin allowlist is
+`NYLORUN_STUDIO_FRAME_ANCESTORS`.

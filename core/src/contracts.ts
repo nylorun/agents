@@ -2527,3 +2527,148 @@ export type DeliveryHeartbeatResponse = z.infer<typeof DeliveryHeartbeatResponse
 export const ActionResultReceiptSchema = AcceptedResponseSchema.omit({ requestId: true });
 export type ActionResultReceipt = z.infer<typeof ActionResultReceiptSchema>;
 
+
+// --- Studio embedding (Studio design §8) ---------------------------------------------------
+
+/** A Tenant id as Studio's routes accept it. */
+const STUDIO_TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** `POST /_studio/login-tokens` body. No `tenant` mints a Host-wide token (the CLI's `{}`). */
+export const StudioLoginTokenRequestSchema = z
+  .object({
+    tenant: z.string().regex(STUDIO_TENANT_ID, "must be a Tenant id").optional(),
+    subject: z
+      .string()
+      .refine(isSubject, "must be 1–200 visible ASCII characters")
+      .optional(),
+  })
+  .strict();
+export type StudioLoginTokenRequest = z.infer<typeof StudioLoginTokenRequestSchema>;
+
+export const StudioLoginTokenResponseSchema = z.object({
+  /** Single-use, valid for two minutes. */
+  token: z.string().min(1),
+  /** The cookie login URL; refused for a token limited to a Tenant. */
+  url: z.string().min(1),
+  expiresAt: z.string().min(1),
+  tenant: z.string().nullable(),
+  subject: z.string().nullable(),
+});
+export type StudioLoginTokenResponse = z.infer<typeof StudioLoginTokenResponseSchema>;
+
+/** `POST /_studio/sessions` body: the login token an embedder passed in `init`. */
+export const StudioSessionRequestSchema = z.object({ token: z.string().min(1) }).strict();
+export type StudioSessionRequest = z.infer<typeof StudioSessionRequestSchema>;
+
+export const StudioSessionResponseSchema = z.object({
+  /** Bearer for every `/_studio/*` request; kept in memory only. */
+  sessionToken: z.string().min(1),
+  tenant: z.string().nullable(),
+  subject: z.string().nullable(),
+  expiresAt: z.string().min(1),
+});
+export type StudioSessionResponse = z.infer<typeof StudioSessionResponseSchema>;
+
+/** Message protocol versions this release speaks. */
+export const STUDIO_EMBED_PROTOCOLS = [1] as const;
+export const STUDIO_EMBED_MESSAGE_TYPE = "nylorun.studio";
+
+const HEX_COLOR = z.string().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+
+/** The embedder's theme. Unknown keys are dropped, not rejected. */
+export const StudioThemeSchema = z.object({
+  mode: z.enum(["light", "dark"]),
+  accent: HEX_COLOR.optional(),
+  background: HEX_COLOR.optional(),
+  foreground: HEX_COLOR.optional(),
+});
+export type StudioTheme = z.infer<typeof StudioThemeSchema>;
+
+const EMBED_ROUTE = z
+  .string()
+  .max(2048)
+  .regex(/^\/tenants\/[^/?#\s]+(?:\/[^?#\s]*)?$/, "must be a Studio route under /tenants/");
+
+const EXTERNAL_URL = z.string().refine((value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}, "must be an http or https URL");
+
+function embed<const K extends string, S extends z.ZodRawShape>(kind: K, shape: S) {
+  return z.object({
+    type: z.literal(STUDIO_EMBED_MESSAGE_TYPE),
+    protocol: z.number().int().positive(),
+    kind: z.literal(kind),
+    ...shape,
+  });
+}
+
+/** Every message between an embedder and Studio (Studio design §8.8). */
+export const StudioEmbedMessageSchema = z.discriminatedUnion("kind", [
+  embed("ready", {
+    protocols: z.array(z.number().int().positive()).min(1),
+    studioVersion: z.string(),
+  }),
+  embed("init", {
+    token: z.string().min(1),
+    theme: StudioThemeSchema.optional(),
+    route: EMBED_ROUTE.optional(),
+  }),
+  embed("token.refresh", { token: z.string().min(1) }),
+  embed("theme.changed", { theme: StudioThemeSchema }),
+  embed("navigate", { route: EMBED_ROUTE }),
+  embed("session", {
+    tenant: z.string().nullable(),
+    subject: z.string().nullable(),
+    expiresAt: z.string(),
+  }),
+  embed("token.expiring", { expiresAt: z.string().nullable() }),
+  embed("route.changed", { route: z.string() }),
+  embed("open.external", { url: EXTERNAL_URL }),
+  embed("open.babai", { sessionId: z.string().min(1) }),
+  embed("error", { code: z.string().min(1), message: z.string() }),
+]);
+export type StudioEmbedMessage = z.infer<typeof StudioEmbedMessageSchema>;
+export type StudioEmbedKind = StudioEmbedMessage["kind"];
+
+/** Schemes that never name an embedder. */
+const NON_EMBEDDER_SCHEMES = new Set([
+  "about",
+  "blob",
+  "data",
+  "file",
+  "filesystem",
+  "javascript",
+  "ws",
+  "wss",
+]);
+const CUSTOM_ORIGIN =
+  /^([a-z][a-z0-9+.-]*):\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)*)(?::(\d{1,5}))?$/;
+
+/** True for one exact embedder origin: `https://…`, `http://…` or `<custom>://host[:port]`. */
+export function isFrameAncestor(value: string): boolean {
+  if (value.startsWith("http://") || value.startsWith("https://"))
+    return isSerializedOrigin(value);
+  const match = CUSTOM_ORIGIN.exec(value);
+  if (!match) return false;
+  if (NON_EMBEDDER_SCHEMES.has(match[1]!)) return false;
+  return match[3] === undefined || Number(match[3]) <= 65535;
+}
+
+/**
+ * Parses `NYLORUN_STUDIO_FRAME_ANCESTORS`: exact origins separated by whitespace. Wildcards,
+ * keywords, scheme-only entries and paths are refused with the entry named. Empty gives `[]`.
+ */
+export function parseFrameAncestors(value: string): string[] {
+  const entries = value.split(/\s+/).filter((entry) => entry !== "");
+  for (const entry of entries)
+    if (!isFrameAncestor(entry))
+      throw new Error(
+        `${entry} is not an exact origin. Use origins such as nylorun://localhost or https://app.example.com, with no wildcards or paths.`
+      );
+  return [...new Set(entries)];
+}

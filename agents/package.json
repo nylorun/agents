@@ -35,6 +35,10 @@
     "./a2a": {
       "types": "./dist/a2a/index.d.ts",
       "import": "./dist/a2a/index.js"
+    },
+    "./studio-embed": {
+      "types": "./dist/studio-embed.d.ts",
+      "import": "./dist/studio-embed.js"
     }
   },
   "scripts": {
