@@ -44,9 +44,9 @@ import type {
 } from "./types.js";
 import type { TenantContext } from "./context.js";
 import {
-  createLiveHub,
+  createSessionStreams,
   endAllStreams,
-} from "./live.js";
+} from "./session-streams.js";
 import {
   closeStreams,
   drainOutbox,
@@ -236,7 +236,7 @@ export class TenantRuntime implements TenantHandle {
         };
       } else modelProvider = scriptedModel();
 
-      const live = createLiveHub();
+      const sessionStreams = createSessionStreams();
       const local = hooks.execution
         ? undefined
         : new MemoryExecution({
@@ -265,7 +265,7 @@ export class TenantRuntime implements TenantHandle {
         closing: false,
         closed: false,
         work: createWorkState(),
-        live,
+        sessionStreams,
         signingKeys: new SigningKeys({ tenantId: config.tenantId, kek: ensureKek }),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
@@ -337,7 +337,7 @@ export class TenantRuntime implements TenantHandle {
   }
 
   async summary(): Promise<TenantSummary> {
-    const { store, live } = this.ctx;
+    const { store } = this.ctx;
     const { counts, outbox } = await store.tx(async (t) => ({
       counts: await t.counts(),
       outbox: await t.outboxStats(),
@@ -392,7 +392,7 @@ export class TenantRuntime implements TenantHandle {
     const idleBy = Date.now() + this.closeGraceMs;
     await this.detach();
     await ctx.mcp.close();
-    endAllStreams(ctx.live);
+    endAllStreams(ctx.sessionStreams);
     // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
     await waitForIdle(ctx, Math.max(0, idleBy - Date.now()));
     await ctx.sandbox.close();

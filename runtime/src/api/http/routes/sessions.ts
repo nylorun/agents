@@ -26,7 +26,7 @@ import { accessOf, requireApplication } from "../../../tenant/auth.js";
 import { loadSession, sessionOf, type TenantContext } from "../../../tenant/context.js";
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/live.js";
+import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
   listDefinitions,

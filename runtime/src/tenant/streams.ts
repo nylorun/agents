@@ -47,10 +47,10 @@ import {
 } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
 import {
-  checkFeeds,
+  checkSessionStreams,
   endSubjectStreams,
   sleep,
-} from "./live.js";
+} from "./session-streams.js";
 
 export interface WireStreamsOptions {
   tenantId: string;
@@ -82,7 +82,7 @@ export interface CollectResult {
   failed: number;
 }
 
-/** The handles `wireStreams` returns (also kept on `ctx.live.wiring`). */
+/** The handles `wireStreams` returns (also kept on `ctx.sessionStreams.wiring`). */
 export interface StreamsWiring {
   readonly streams: DurableStreams;
   readonly relay: Relay;
@@ -121,14 +121,14 @@ const messageOf = (error: unknown) =>
 
 /**
  * Wires the Tenant to Durable Streams: checks the basin, creates the relay (unless given),
- * starts the control reader, and records the handles on `ctx.live.wiring`. Call it
+ * starts the control reader, and records the handles on `ctx.sessionStreams.wiring`. Call it
  * once, after `ctx` is built and before the Tenant serves requests.
  */
 export async function wireStreams(
   ctx: TenantContext,
   options: WireStreamsOptions
 ): Promise<StreamsWiring> {
-  if (ctx.live.wiring) throw new Error("Streams are already wired");
+  if (ctx.sessionStreams.wiring) throw new Error("Streams are already wired");
   const { store, streams, tenantId } = options;
   const logger = ctx.config.logger;
   const stop = new AbortController();
@@ -168,13 +168,13 @@ export async function wireStreams(
       if (signal?.type === "session.cancel" && typeof signal.sessionId === "string")
         ctx.abortLocal(signal.sessionId);
       else if (signal?.type === "sessions.reset")
-        void checkFeeds(ctx).catch(report("session feed check failed"));
+        void checkSessionStreams(ctx).catch(report("session feed check failed"));
       else if (
         signal?.type === "subject.revoked" &&
         typeof signal.subject === "string" &&
         typeof signal.epoch === "number"
       )
-        endSubjectStreams(ctx.live, signal.subject, signal.epoch);
+        endSubjectStreams(ctx.sessionStreams, signal.subject, signal.epoch);
     },
     report("control stream read failed; retrying")
   );
@@ -183,7 +183,7 @@ export async function wireStreams(
 
   // Feeds whose session was reset end on the `sessions.reset` signal; this catches lost ones.
   const feedCheck = setInterval(
-    () => void checkFeeds(ctx).catch(report("session feed check failed")),
+    () => void checkSessionStreams(ctx).catch(report("session feed check failed")),
     FEED_CHECK_MS
   );
   feedCheck.unref();
@@ -212,7 +212,7 @@ export async function wireStreams(
       if (options.ownsStreams) await streams.close();
     },
   };
-  ctx.live.wiring = wiring;
+  ctx.sessionStreams.wiring = wiring;
   // The sweep retries a collection a reset left pending (or one a crash interrupted).
   const unregisterSweep = ctx.onSweep(async () => {
     await wiring.collect();
@@ -227,7 +227,7 @@ export async function wireStreams(
 
 /** The Tenant sweep's outbox recovery: appends leftover rows, at most `limit`. */
 export function drainOutbox(ctx: TenantContext, limit?: number): Promise<number> {
-  const wiring = ctx.live.wiring;
+  const wiring = ctx.sessionStreams.wiring;
   return wiring ? wiring.drain(limit) : Promise.resolve(0);
 }
 
@@ -238,7 +238,7 @@ export function drainOutbox(ctx: TenantContext, limit?: number): Promise<number>
  * logged, never thrown.
  */
 export function signalSessionCancel(ctx: TenantContext, sessionId: string): void {
-  const streams = ctx.live.wiring?.streams;
+  const streams = ctx.sessionStreams.wiring?.streams;
   if (!streams) return;
   void signalCancel(streams, ctx.config.tenantId, sessionId).catch((error) =>
     ctx.config.logger.warn("cancel signal failed", {
@@ -263,7 +263,7 @@ export async function requestStreamCollection(ctx: TenantContext): Promise<void>
  * Failures are logged; the sweep retries the collection.
  */
 export function sessionStreamsAbandoned(ctx: TenantContext): void {
-  const wiring = ctx.live.wiring;
+  const wiring = ctx.sessionStreams.wiring;
   if (!wiring) return;
   const warn = (what: string) => (error: unknown) =>
     ctx.config.logger.warn(what, { message: messageOf(error) });
@@ -368,7 +368,7 @@ export async function streamsStatus(
   ctx: TenantContext,
   options: { probeTimeoutMs?: number; now?: () => number } = {}
 ): Promise<StreamsStatus> {
-  const wiring = ctx.live.wiring;
+  const wiring = ctx.sessionStreams.wiring;
   const now = options.now ?? Date.now;
   const [reachable, stored] = await Promise.all([
     wiring
@@ -428,7 +428,7 @@ export async function deleteTenantStreams(
 
 /** Close: stops the readers and relay; the observers were ended by `endAllStreams`. */
 export async function closeStreams(ctx: TenantContext): Promise<void> {
-  await ctx.live.wiring?.close();
+  await ctx.sessionStreams.wiring?.close();
 }
 
 // ---------------------------------------------------------------------------

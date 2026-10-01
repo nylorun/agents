@@ -32,7 +32,7 @@ import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantConfig } from "./types.js";
-import type { LiveHub } from "./live.js";
+import type { SessionStreams } from "./session-streams.js";
 import type { StuckInvocation, Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
 import type { SigningKeys } from "./signing-keys.js";
@@ -155,8 +155,8 @@ export interface TenantContext {
   closed: boolean;
   /** Advances running on this process, for `abortLocal`, drain and close. */
   readonly work: WorkState;
-  /** Live delivery over Durable Streams: session feeds and the streams wiring. */
-  readonly live: LiveHub;
+  /** Live delivery over Durable Streams: one `SessionStream` per observed session, and the streams wiring. */
+  readonly sessionStreams: SessionStreams;
   /** The Tenant's signing keys for subject tokens. */
   readonly signingKeys: SigningKeys;
   /** The Worker id this process writes as session `owner` (§10.6). */

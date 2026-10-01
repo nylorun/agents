@@ -346,7 +346,7 @@ export function tenantStreamsSuite(
 
       /** Waits until `node`'s relay has appended everything it started. */
       async function relayed(node: Node) {
-        await contextOf(node.handle).live.wiring!.relay.idle();
+        await contextOf(node.handle).sessionStreams.wiring!.relay.idle();
       }
 
       async function tailOf(stream: string) {
@@ -738,7 +738,7 @@ export function tenantStreamsSuite(
 
       await t.reset(a);
       await eventually("node B's feed to end", () => onB.ended || undefined);
-      expect(contextOf(b.handle).live.feeds.size).toBe(0);
+      expect(contextOf(b.handle).sessionStreams.sessions.size).toBe(0);
 
       // The re-created session is followed from its new stream on node B.
       await t.createSession(a);
@@ -800,8 +800,8 @@ export function tenantStreamsSuite(
       t.probe.down = true;
       const a = await t.node();
       const ctx = contextOf(a.handle);
-      expect(ctx.live.wiring!.basin()).toMatchObject({ ready: false });
-      expect(ctx.live.wiring!.basin().failures).toBeGreaterThan(0);
+      expect(ctx.sessionStreams.wiring!.basin()).toMatchObject({ ready: false });
+      expect(ctx.sessionStreams.wiring!.basin().failures).toBeGreaterThan(0);
       await t.createSession(a);
       await t.commitConcurrently(a, 3);
       const down = await streamsStatus(ctx);
@@ -812,7 +812,7 @@ export function tenantStreamsSuite(
 
       t.probe.down = false;
       // No explicit drain: the basin is created in the background and the sweep relays.
-      await eventually("the basin", () => ctx.live.wiring!.basin().ready || undefined);
+      await eventually("the basin", () => ctx.sessionStreams.wiring!.basin().ready || undefined);
       await eventually("the history", async () => {
         const response = await t.history(a);
         if (response.status !== 200) return undefined;
@@ -839,7 +839,7 @@ export function tenantStreamsSuite(
           return items.length >= 2 || undefined;
         }
       );
-      expect(contextOf(a.handle).live.wiring!.basin().ready).toBe(true);
+      expect(contextOf(a.handle).sessionStreams.wiring!.basin().ready).toBe(true);
     });
 
     it("creates the basin with the Tenant and deletes it only with the Tenant", async () => {

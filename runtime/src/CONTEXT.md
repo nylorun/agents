@@ -149,7 +149,7 @@ alone (`anon`), and the longest token lifetime. Without roles nothing is minted
 **Revocation epoch**: A per-subject counter in every subject token (`epc`).
 `POST /v1/access/revocations` bumps it: older tokens are refused and the
 subject's open streams end with `event: nylorun.closed` on every process
-(`subject.revoked` on `tenant/control`, `checkFeeds` as backstop).
+(`subject.revoked` on `tenant/control`, `checkSessionStreams` as backstop).
 
 **Runtime AG-UI endpoint**: `/v1/ag-ui/agents/:agent` (feature
 `ag-ui-endpoint`, `api/ag-ui/routes.ts`): run, thread messages, reattach and
@@ -287,7 +287,9 @@ One line each; the module named is where the term lives in code.
 - **Worker**: A Runtime process with `--role worker` or `all` whose Restate endpoint runs advances and sweeps (`infra/workers.ts`, `tenant/worker.ts`).
 - **Session Store**: A Tenant's durable state in its Postgres schema, behind the async `SessionStore`/`Tx` seam (`store/types.ts`, `store/postgres/`).
 - **Durable Session Execution**: Delivers wakes, runs at most one advance per session, and arms the Tenant sweep; Restate (`execution/types.ts`, `adapters/execution/restate.ts`).
-- **Durable Streams**: One ordered, resumable stream per session plus `tenant/work` and `tenant/control`; S2 (`streams/types.ts`, `adapters/streams/s2.ts`).
+- **Durable Streams**: One ordered, resumable stream per session plus `tenant/control`; S2 (`streams/types.ts`, `adapters/streams/s2.ts`).
+- **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
+- **SessionStream**: The shared read of one observed session's stream in this process, followed by that session's SSE and in-process clients, each from its own next sequence (`tenant/session-streams.ts`).
 - **Advance**: One run of a session's current segment under ownership: load the checkpoint, run the engine, settle (`tenant/advance.ts`).
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`).
 - **Ownership epoch**: The counter an advance takes with a session's lease; every write the advance makes checks it (`store/ownership.ts`).

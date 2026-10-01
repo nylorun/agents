@@ -39,7 +39,7 @@ import {
 } from "../../../sandbox/tenant-config.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { clearObservers } from "../../../tenant/live.js";
+import { clearObservers } from "../../../tenant/session-streams.js";
 import { usesFixtureModel } from "../../../tenant/model-setting.js";
 import { resetTenant } from "../../../tenant/reset.js";
 import { clearWork, drain } from "../../../tenant/scheduler.js";
@@ -138,7 +138,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
           paths: ctx.config.paths,
           clearSessionState: () => {
             clearWork(ctx);
-            clearObservers(ctx.live);
+            clearObservers(ctx.sessionStreams);
           },
         },
         request.scope,

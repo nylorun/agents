@@ -86,7 +86,7 @@ describe("streams passed by the caller", () => {
     const node = await startTestTenant({ applicationKey: APP });
     roots.push(node.root);
     open.push(node);
-    const wiring = contextOf(node.handle).live.wiring!;
+    const wiring = contextOf(node.handle).sessionStreams.wiring!;
     expect(wiring.streams).toBeInstanceOf(MemoryStreams);
     expect(wiring.basin()).toEqual({ ready: true, failures: 0, lastError: null });
   });
