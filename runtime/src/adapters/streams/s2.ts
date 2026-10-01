@@ -203,6 +203,9 @@ class S2Streams implements DurableStreams {
             basin,
             config: {
               createStreamOnAppend: true,
+              // A reader that arrives before a session's first event creates the
+              // stream and follows it live, instead of polling until it exists.
+              createStreamOnRead: true,
               defaultStreamConfig: { retentionPolicy: { infinite: {} } },
             },
           },
@@ -314,7 +317,9 @@ class S2Streams implements DurableStreams {
   /**
    * Follows `stream` from `fromSeq` with S2 read sessions, reopening a session
    * from the next sequence whenever one ends or fails, until aborted, closed,
-   * or the Tenant's basin is gone. A missing stream is polled until it exists.
+   * or the Tenant's basin is gone. Basins create a stream on read, so a reader
+   * that arrives before the first append waits on the live session instead of
+   * polling.
    */
   private async *readLive<T>(
     tenantId: string,
@@ -351,7 +356,7 @@ class S2Streams implements DurableStreams {
             (await this.basinGone(tenantId, aborted))
           )
             return;
-          // Stream not created yet, or S2 unreachable: retry below.
+          // S2 unreachable, or a stream being deleted: retry below.
         }
         await sleep(delay, aborted);
         delay = Math.min(delay * 2, RETRY_MAX_MS);

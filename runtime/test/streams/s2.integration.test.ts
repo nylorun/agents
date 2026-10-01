@@ -67,6 +67,26 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
       expect(seqs).toEqual(Array.from({ length: 2250 }, (_, i) => i + 250));
     });
 
+    it("delivers a stream's first record promptly to a reader that arrived before it", async () => {
+      const tenantId = await tenant();
+      const stream = sessionStream("early", "i1");
+      const controller = new AbortController();
+      const reading = (async () => {
+        for await (const record of streams.read<number>(tenantId, stream, 0, {
+          signal: controller.signal,
+        }))
+          return { record, at: Date.now() };
+      })();
+      // Longer than the old missing-stream backoff could hide.
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const appended = Date.now();
+      await streams.append(tenantId, stream, [7]);
+      const result = await reading;
+      controller.abort();
+      expect(result?.record.body).toBe(7);
+      expect(result!.at - appended).toBeLessThan(500);
+    });
+
     it("resumes a live read from a sequence past the tail", async () => {
       const tenantId = await tenant();
       const stream = sessionStream("resume", "i1");

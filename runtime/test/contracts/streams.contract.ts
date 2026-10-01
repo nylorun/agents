@@ -254,7 +254,18 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
       expect(await streams.tail(tenantId, sessionStream("s2", "i1"))).toBe(1);
       await streams.deleteTenant(tenantId);
       await streams.deleteTenant(tenantId);
-      await expect(streams.append(tenantId, sessionStream("s2", "i1"), [1])).rejects.toThrow();
+      // Basin deletion is asynchronous in S2: a stream that still exists can
+      // take an append for a moment, so wait for the refusal.
+      await expect
+        .poll(
+          () =>
+            streams.append(tenantId, sessionStream("s2", "i1"), [1]).then(
+              () => "accepted",
+              () => "refused",
+            ),
+          { timeout: 5000, interval: 100 },
+        )
+        .toBe("refused");
     });
   });
 }
