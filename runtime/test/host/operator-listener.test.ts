@@ -21,7 +21,7 @@ let combined: EphemeralRuntime;
 const admin = (url: string, key: string, path = "/v1/admin/status", init: RequestInit = {}) =>
   fetch(`${url}${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${key}`, "nylorun-protocol": "3", ...init.headers },
+    headers: { authorization: `Bearer ${key}`, "nylorun-protocol": "4", ...init.headers },
   });
 
 beforeAll(async () => {
@@ -61,7 +61,7 @@ describe("split listeners", () => {
     const tenant = {
       authorization: `Bearer ${split.applicationKey}`,
       "nylorun-tenant": split.tenantId,
-      "nylorun-protocol": "3",
+      "nylorun-protocol": "4",
     };
     for (const url of [split.url, split.adminUrl])
       expect((await fetch(`${url}/v1/agents`, { headers: tenant })).status).toBe(200);

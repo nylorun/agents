@@ -45,12 +45,16 @@ function failureTenant(): FailureTenant {
 
 const done: ModelProvider = async () => ({ output: [{ type: "text", text: "done" }] });
 
+/** Ticks are `turn.completed` events tagged `test.tick` (the catalog has no test type). */
+const tickCount = (events: readonly LiveEvent[]) =>
+  events.filter((e) => (e.payload as { tag?: string } | null)?.tag === "test.tick").length;
+
 /** Commits `count` single-event transactions on `node`'s own Postgres pool, all at once. */
 function ticks(node: Node, sessionId: string, count: number, from: string) {
   const { store } = contextOf(node);
   return Promise.all(
     range(0, count).map((i) =>
-      store.tx((t) => t.event(sessionId, null, "test.tick", { from, i }))
+      store.tx((t) => t.event(sessionId, null, "turn.completed", { tag: "test.tick", output: { from, i } }))
     )
   );
 }
@@ -80,8 +84,8 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     for (const id of sessions) {
       await until(() => view(a, id), (v) => v.status === "completed", `${id} completed`, 20_000);
       const history = await completeHistory(a, id);
-      expect(countOf(history, "test.tick")).toBe(40);
-      expect(countOf(history, "turn.completed")).toBe(1);
+      expect(tickCount(history)).toBe(40);
+      expect(countOf(history, "turn.completed") - tickCount(history)).toBe(1);
       expect(await completeHistory(b, id)).toEqual(history);
     }
   });
@@ -178,6 +182,6 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     expect(seqsOf(seen)).toEqual(range(0, seen.length));
     expect(seqsOf(resumed)).toEqual(range(seen.length, history.length));
     expect([...seen, ...resumed]).toEqual(history);
-    expect(countOf(history, "turn.completed")).toBe(1);
+    expect(countOf(history, "turn.completed") - tickCount(history)).toBe(1);
   });
 });

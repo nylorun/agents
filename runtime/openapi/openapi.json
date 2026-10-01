@@ -5,8 +5,8 @@
     "version": "0.0.0",
     "description": "Agents, sessions and their events, vaults, access and the Tenant's settings, for one Tenant (`Nylorun-Tenant`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
     "x-nylorun-protocol": {
-      "min": 3,
-      "max": 3,
+      "min": 4,
+      "max": 4,
       "features": [
         "runtime-tenants",
         "admin-status",
@@ -10305,45 +10305,7 @@
           "items": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "eventId": {
-                  "type": "string"
-                },
-                "sessionId": {
-                  "type": "string"
-                },
-                "tenantId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "turnId": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "cursor": {
-                  "type": "string"
-                },
-                "createdAt": {
-                  "type": "string"
-                },
-                "type": {
-                  "type": "string"
-                },
-                "payload": {}
-              },
-              "required": [
-                "eventId",
-                "sessionId",
-                "tenantId",
-                "turnId",
-                "cursor",
-                "createdAt",
-                "type"
-              ],
-              "additionalProperties": false
+              "$ref": "#/components/schemas/SessionEvent"
             }
           },
           "cursor": {
@@ -10358,18 +10320,143 @@
           "cursor"
         ]
       },
-      "LiveEvent": {
+      "SessionEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CommandMessageEvent"
+          },
+          {
+            "$ref": "#/components/schemas/CommandApproveEvent"
+          },
+          {
+            "$ref": "#/components/schemas/CommandRespondEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnPausedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnFailedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnCancelledEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MessageAssistantEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ModelFailedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ContextCompactedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ActionPendingEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ActionDeliveredEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ActionDeliveryFailedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ActionCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ActionUncertainEvent"
+          },
+          {
+            "$ref": "#/components/schemas/EffectUncertainEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DelegationStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DelegationCompletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SandboxStateEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SandboxExecEvent"
+          },
+          {
+            "$ref": "#/components/schemas/NodeStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/NodeAgentEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LoopIterationEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LoopVerifiedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LoopDecidedEvent"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "command.message": "#/components/schemas/CommandMessageEvent",
+            "command.approve": "#/components/schemas/CommandApproveEvent",
+            "command.respond": "#/components/schemas/CommandRespondEvent",
+            "turn.completed": "#/components/schemas/TurnCompletedEvent",
+            "turn.paused": "#/components/schemas/TurnPausedEvent",
+            "turn.failed": "#/components/schemas/TurnFailedEvent",
+            "turn.cancelled": "#/components/schemas/TurnCancelledEvent",
+            "message.assistant": "#/components/schemas/MessageAssistantEvent",
+            "model.failed": "#/components/schemas/ModelFailedEvent",
+            "context.compacted": "#/components/schemas/ContextCompactedEvent",
+            "tool.completed": "#/components/schemas/ToolCompletedEvent",
+            "action.pending": "#/components/schemas/ActionPendingEvent",
+            "action.delivered": "#/components/schemas/ActionDeliveredEvent",
+            "action.delivery_failed": "#/components/schemas/ActionDeliveryFailedEvent",
+            "action.completed": "#/components/schemas/ActionCompletedEvent",
+            "action.uncertain": "#/components/schemas/ActionUncertainEvent",
+            "effect.uncertain": "#/components/schemas/EffectUncertainEvent",
+            "delegation.started": "#/components/schemas/DelegationStartedEvent",
+            "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
+            "sandbox.state": "#/components/schemas/SandboxStateEvent",
+            "sandbox.exec": "#/components/schemas/SandboxExecEvent",
+            "node.started": "#/components/schemas/NodeStartedEvent",
+            "node.agent": "#/components/schemas/NodeAgentEvent",
+            "loop.iteration": "#/components/schemas/LoopIterationEvent",
+            "loop.verified": "#/components/schemas/LoopVerifiedEvent",
+            "loop.decided": "#/components/schemas/LoopDecidedEvent"
+          }
+        }
+      },
+      "CommandMessageEvent": {
         "type": "object",
         "properties": {
-          "eventId": {
-            "type": "string"
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
           },
-          "sessionId": {
+          "eventId": {
             "type": "string"
           },
           "tenantId": {
             "type": "string",
             "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "turnId": {
             "type": [
@@ -10377,27 +10464,4931 @@
               "null"
             ]
           },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
           "cursor": {
             "type": "string"
           },
-          "createdAt": {
+          "time": {
             "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
           },
           "type": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "command.message"
+            ]
           },
-          "payload": {}
+          "payload": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message"
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "data": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "manifest": {}
+            },
+            "required": [
+              "requestId",
+              "idempotencyKey",
+              "type"
+            ],
+            "additionalProperties": {}
+          }
         },
         "required": [
+          "schema",
           "eventId",
-          "sessionId",
           "tenantId",
+          "sessionId",
+          "runId",
           "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
           "cursor",
-          "createdAt",
-          "type"
-        ],
-        "additionalProperties": false
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "CommandApproveEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "command.approve"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "approve"
+                ]
+              },
+              "interactionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "approved": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "requestId",
+              "idempotencyKey",
+              "type",
+              "interactionId",
+              "approved"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "CommandRespondEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "command.respond"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "respond"
+                ]
+              },
+              "interactionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {}
+            },
+            "required": [
+              "requestId",
+              "idempotencyKey",
+              "type",
+              "interactionId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "TurnCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "turn.completed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "output": {}
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "TurnPausedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "turn.paused"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "interactions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "invocationId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "interaction": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "kind": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind"
+                      ],
+                      "additionalProperties": {}
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "invocationId",
+                    "interaction"
+                  ],
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": [
+              "interactions"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "TurnFailedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "turn.failed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": {}
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "TurnCancelledEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "turn.cancelled"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "MessageAssistantEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "message.assistant"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "invocationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "model": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model"
+                ],
+                "additionalProperties": {}
+              },
+              "finishReason": {
+                "type": "string"
+              },
+              "usage": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "toolCalls": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "callId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "input": {}
+                  },
+                  "required": [
+                    "callId",
+                    "name"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "invocationId",
+              "text",
+              "toolCalls"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ModelFailedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "model.failed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "invocationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ContextCompactedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "context.compacted"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "invocationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "trigger": {
+                "type": "string",
+                "enum": [
+                  "threshold",
+                  "overflow"
+                ]
+              },
+              "tokensBefore": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tokensAfter": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "trigger",
+              "tokensBefore",
+              "tokensAfter"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ToolCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "tool.completed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "callId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "invocationId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "capabilityId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "toolName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "output": {},
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": {}
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "callId",
+              "invocationId",
+              "capabilityId",
+              "toolName"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ActionPendingEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "action.pending"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "actionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string"
+              },
+              "toolName": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "callId": {
+                "type": "string"
+              },
+              "invocationId": {
+                "type": "string"
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              },
+              "input": {}
+            },
+            "required": [
+              "actionId",
+              "kind"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ActionDeliveredEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "action.delivered"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "actionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "generation": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "actionId",
+              "generation"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ActionDeliveryFailedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "action.delivery_failed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "actionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "generation": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryInMs": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "actionId",
+              "generation",
+              "reason",
+              "retryInMs"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ActionCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "action.completed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "actionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string"
+              },
+              "toolName": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "callId": {
+                "type": "string"
+              },
+              "invocationId": {
+                "type": "string"
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              },
+              "result": {}
+            },
+            "required": [
+              "actionId",
+              "kind"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ActionUncertainEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "action.uncertain"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "actionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "actionId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "EffectUncertainEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "effect.uncertain"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "effectId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "effectId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "DelegationStartedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "delegation.started"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              },
+              "callId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "DelegationCompletedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "delegation.completed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "agent": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delegationId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "id",
+                  "path"
+                ],
+                "additionalProperties": {}
+              },
+              "callId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "SandboxStateEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sandbox.state"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "creating",
+                  "running",
+                  "stopped"
+                ]
+              },
+              "backend": {
+                "type": "string"
+              },
+              "isolation": {
+                "type": "string"
+              },
+              "image": {
+                "type": "string"
+              },
+              "network": {},
+              "reattach": {
+                "type": "boolean"
+              },
+              "lost": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "backend"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "SandboxExecEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sandbox.exec"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "durationMs": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "tool",
+              "outcome",
+              "durationMs"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "NodeStartedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "node.started"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "iterations": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "key"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "NodeAgentEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "node.agent"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "iterations": {
+                "type": "string"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "sessionId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "LoopIterationEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "loop.iteration"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "n": {
+                "type": "integer"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": "string"
+              },
+              "manifestHash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "n"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "LoopVerifiedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "loop.verified"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "n": {
+                "type": "integer"
+              },
+              "pass": {
+                "type": "boolean"
+              },
+              "feedback": {
+                "type": "string"
+              },
+              "data": {}
+            },
+            "required": [
+              "path",
+              "n",
+              "pass"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "LoopDecidedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "loop.decided"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "n": {
+                "type": "integer"
+              },
+              "next": {
+                "type": "string",
+                "enum": [
+                  "input",
+                  "output"
+                ]
+              },
+              "patched": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "path",
+              "n",
+              "next",
+              "patched"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
       },
       "StreamClosedFrame": {
         "type": "object",
@@ -13261,10 +18252,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -13388,10 +18379,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -13509,10 +18500,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -13665,10 +18656,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -13766,10 +18757,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -13887,10 +18878,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -13991,10 +18982,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14098,10 +19089,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14226,10 +19217,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14396,10 +19387,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14544,10 +19535,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14702,10 +19693,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -14870,10 +19861,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15047,10 +20038,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15175,7 +20166,7 @@
           "Sessions"
         ],
         "summary": "Follow a session's events",
-        "description": "Server-sent events, each with its cursor as `id`, from the cursor on. A subject token's stream ends with `event: nylorun.closed` when the token expires or the subject is revoked. A `: keepalive` comment every 15 seconds.",
+        "description": "Server-sent events, each with its type as `event` and its cursor as `id`, from the cursor on. Events are on the `nylorun.event/2` envelope, typed by `SessionEvent`; a client ignores a type it does not know. A subject token's stream ends with `event: nylorun.closed` when the token expires or the subject is revoked. A `: keepalive` comment every 15 seconds.",
         "security": [
           {
             "applicationKey": []
@@ -15215,10 +20206,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15261,7 +20252,82 @@
                 "itemSchema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/LiveEvent"
+                      "$ref": "#/components/schemas/CommandMessageEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CommandApproveEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CommandRespondEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnCompletedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnPausedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnCancelledEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MessageAssistantEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ModelFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ContextCompactedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ToolCompletedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActionPendingEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActionDeliveredEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActionDeliveryFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActionCompletedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ActionUncertainEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/EffectUncertainEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DelegationStartedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DelegationCompletedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SandboxStateEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SandboxExecEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NodeStartedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/NodeAgentEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LoopIterationEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LoopVerifiedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/LoopDecidedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/StreamClosedFrame"
@@ -15389,10 +20455,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15510,10 +20576,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15633,10 +20699,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15746,10 +20812,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15862,10 +20928,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -15987,10 +21053,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16111,10 +21177,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16247,10 +21313,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16372,10 +21438,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16495,10 +21561,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16630,10 +21696,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16769,10 +21835,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -16939,10 +22005,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17096,10 +22162,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17251,10 +22317,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17409,10 +22475,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17574,10 +22640,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17739,10 +22805,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -17902,10 +22968,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18078,10 +23144,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18231,10 +23297,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18384,10 +23450,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18496,10 +23562,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18596,10 +23662,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18708,10 +23774,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18811,10 +23877,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -18934,10 +24000,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19049,10 +24115,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19150,10 +24216,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19273,10 +24339,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19391,10 +24457,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19494,10 +24560,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19621,10 +24687,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19795,10 +24861,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19981,10 +25047,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20148,10 +25214,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20303,10 +25369,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20474,10 +25540,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `3`"
+              "description": "The protocol version, `4`"
             },
             "required": true,
-            "description": "The protocol version, `3`",
+            "description": "The protocol version, `4`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },

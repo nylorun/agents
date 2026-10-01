@@ -93,9 +93,9 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       const results = await Promise.allSettled(
         Array.from({ length: 20 }, (_, i) =>
           (i % 2 === 0 ? first : second).tx(async (t) => {
-            const a = await t.event("s1", null, "w", { i });
+            const a = await t.event("s1", null, "turn.completed", { tag: "w", output: { i } });
             await sleep(i % 4);
-            const b = await t.event("s1", null, "w", { i, second: true });
+            const b = await t.event("s1", null, "turn.completed", { tag: "w", output: { i, second: true } });
             if (i % 7 === 3) throw new Error(`fail ${i}`);
             return [a, b] as LiveEvent[];
           }),
@@ -126,7 +126,7 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
           store.tx(async (t) => {
             const locked = await lockSessions(t, ids);
             await sleep(20);
-            for (const id of locked.keys()) await t.event(id, null, "locked", { ids });
+            for (const id of locked.keys()) await t.event(id, null, "turn.completed", { tag: "locked", output: { ids } });
             return [...locked.keys()];
           }),
         ),
@@ -196,7 +196,7 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       await store.tx((t) =>
         t.put("sessions", "s1", { ...session("s1"), owner: "x", epoch: 3 }),
       );
-      await store.tx((t) => t.event("s1", null, "x", {}));
+      await store.tx((t) => t.event("s1", null, "turn.completed", { tag: "x", output: {} }));
       const sql = pool();
       const [row] = await sql`
         SELECT body, status, agent_id, next_event_seq, epoch

@@ -46,7 +46,7 @@ export function EventDetails({
             <dt className="text-muted-foreground">Cursor</dt>
             <dd className="break-all font-mono text-xs">{event.cursor}</dd>
             <dt className="text-muted-foreground">Created</dt>
-            <dd>{dayjs(event.createdAt).format("YYYY-MM-DD HH:mm:ss")}</dd>
+            <dd>{dayjs(event.time).format("YYYY-MM-DD HH:mm:ss")}</dd>
             <dt className="text-muted-foreground">Type</dt>
             <dd className="font-mono text-xs">{event.type}</dd>
             <dt className="text-muted-foreground">Turn</dt>

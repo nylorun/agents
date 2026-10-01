@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { AgentsClient } from "../src/client.js";
 
+/** The `nylorun.event/2` fields a fixture event needs besides its ids, type and payload. */
+const envelope = (time: string) => ({
+  schema: "nylorun.event/2",
+  runId: null,
+  incarnation: 0,
+  epoch: 0,
+  seq: 0,
+  time,
+  schemaVersion: 1,
+  source: { kind: "loop", id: "runtime" },
+  evidence: "observed",
+  visibility: "public",
+  retention: "full",
+});
+
 const TENANT = "tn_00000000000000000000000001";
 const KEY = "a".repeat(64);
 const URL = "http://127.0.0.1:8787";
@@ -173,7 +188,7 @@ describe("SessionClient.observe follow (WF-EV8 / WF-C6)", () => {
                   tenantId: TENANT,
                   turnId: "t1",
                   cursor: "1",
-                  createdAt: "2026-01-01T00:00:00.000Z",
+                  ...envelope("2026-01-01T00:00:00.000Z"),
                   type: "node.agent",
                   payload: {
                     type: "node.agent",
@@ -191,7 +206,7 @@ describe("SessionClient.observe follow (WF-EV8 / WF-C6)", () => {
                   tenantId: TENANT,
                   turnId: "t1",
                   cursor: "2",
-                  createdAt: "2026-01-01T00:00:02.000Z",
+                  ...envelope("2026-01-01T00:00:02.000Z"),
                   type: "node.completed",
                   payload: { type: "node.completed", path: "polish/writer" },
                 },
@@ -210,7 +225,7 @@ describe("SessionClient.observe follow (WF-EV8 / WF-C6)", () => {
                 tenantId: TENANT,
                 turnId: "at1",
                 cursor: "a1",
-                createdAt: "2026-01-01T00:00:01.000Z",
+                ...envelope("2026-01-01T00:00:01.000Z"),
                 type: "turn.completed",
                 payload: { type: "turn.completed", output: "draft" },
               },

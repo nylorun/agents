@@ -1,6 +1,6 @@
 export { hashManifest } from "./utils/hash.js";
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const PROTOCOL_FEATURES = [
   "runtime-tenants",
   "admin-status",
@@ -48,8 +48,8 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 3,
-  max: 3,
+  min: 4,
+  max: 4,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;

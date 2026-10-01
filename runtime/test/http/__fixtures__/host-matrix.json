@@ -645,8 +645,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -699,8 +699,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -755,8 +755,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -809,8 +809,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -865,8 +865,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -921,8 +921,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -977,8 +977,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1033,8 +1033,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1087,8 +1087,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1141,8 +1141,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1197,8 +1197,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1253,8 +1253,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1335,8 +1335,8 @@
       "contentType": "application/json",
       "code": "protocol_unsupported",
       "protocol": {
-        "min": 3,
-        "max": 3,
+        "min": 4,
+        "max": 4,
         "features": [
           "runtime-tenants",
           "admin-status",

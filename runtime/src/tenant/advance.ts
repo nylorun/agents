@@ -496,7 +496,11 @@ async function settle(
         if (s.activeTurnId) current.lastTurnId = s.activeTurnId;
         await slimModelEffects(t, id, s.activeTurnId);
       }
-      const type = `turn.${result.status}`;
+      const type = `turn.${result.status}` as
+        | "turn.completed"
+        | "turn.paused"
+        | "turn.failed"
+        | "turn.cancelled";
       const payload =
         result.status === "completed"
           ? { output: (result.result as any).output }

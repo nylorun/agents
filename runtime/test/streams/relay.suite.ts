@@ -9,6 +9,10 @@ import type { LiveEvent } from "@nylorun/core/contracts";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { MemorySessionStore } from "../../src/store/memory.js";
 import { createRelay, signalCancel, type Relay } from "../../src/streams/relay.js";
+
+/** The test name of an event written by `write` (a tagged `turn.completed`). */
+const tagOf = (event: { type: string; payload: unknown }): string =>
+  (event.payload as { tag?: string } | null)?.tag ?? event.type;
 import {
   CONTROL_STREAM,
   newStreamIncarnation,
@@ -139,7 +143,9 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
         return store.tx(async (t) => {
           const events: LiveEvent[] = [];
           for (const type of types)
-            events.push(await t.event(sessionId, "turn-1", type, { type }));
+            events.push(
+              await t.event(sessionId, "turn-1", "turn.completed", { tag: type, output: { type } })
+            );
           return events;
         });
       }
@@ -197,13 +203,13 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       const third = await commit("s1", "c");
       await r.idle();
       const records = await history("s1");
-      expect(records.map((record) => [record.seq, record.body.type])).toEqual([
+      expect(records.map((record) => [record.seq, tagOf(record.body)])).toEqual([
         [0, "a"],
         [1, "b"],
         [2, "c"],
       ]);
       expect(records.map((record) => record.body)).toEqual([...first, ...third]);
-      expect((await history("s2")).map((record) => record.body.type)).toEqual(["x"]);
+      expect((await history("s2")).map((record) => tagOf(record.body))).toEqual(["x"]);
       expect(await outbox()).toEqual([]);
       expect(relayErrors).toEqual([]);
     });
@@ -220,7 +226,7 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       // The sweep retries: `matchSeq` 0 finds the tail at 1 and deletes the row.
       expect(await r.drain()).toBe(1);
       expect(await outbox()).toEqual([]);
-      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+      expect((await history("s1")).map((record) => [record.seq, tagOf(record.body)])).toEqual([
         [0, "only"],
       ]);
       // A second retry of the same rows is a no-op.
@@ -236,7 +242,7 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       await r.idle();
       await commit("s1", "c");
       await r.idle();
-      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+      expect((await history("s1")).map((record) => [record.seq, tagOf(record.body)])).toEqual([
         [0, "a"],
         [1, "b"],
         [2, "c"],
@@ -256,7 +262,7 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       faulty.down = false;
       await commit("s1", "d");
       await r.idle();
-      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+      expect((await history("s1")).map((record) => [record.seq, tagOf(record.body)])).toEqual([
         [0, "a"],
         [1, "b"],
         [2, "c"],
@@ -288,10 +294,10 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       expect(await r.drain(4)).toBe(4);
       expect(await r.drain()).toBe(11);
       expect(await outbox()).toEqual([]);
-      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual(
+      expect((await history("s1")).map((record) => [record.seq, tagOf(record.body)])).toEqual(
         [0, 1, 2, 3, 4].map((n) => [n, `s1-${n}`]),
       );
-      expect((await history("s2")).map((record) => record.body.type)).toEqual(
+      expect((await history("s2")).map((record) => tagOf(record.body))).toEqual(
         [0, 1, 2, 3, 4].flatMap((n) => [`s2-${n}a`, `s2-${n}b`]),
       );
     });
@@ -313,11 +319,11 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       expect(await outbox()).toEqual([]);
       const s1 = await history("s1");
       expect(s1.map((record) => record.seq)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-      expect(s1.map((record) => record.body.type)).toEqual([
+      expect(s1.map((record) => tagOf(record.body))).toEqual([
         "e1", "f1", "e3", "f3", "e5", "f5", "late-1",
       ]);
       const s2 = await history("s2");
-      expect(s2.map((record) => record.body.type)).toEqual([
+      expect(s2.map((record) => tagOf(record.body))).toEqual([
         "e0", "f0", "e2", "f2", "e4", "f4", "late-2",
       ]);
       // Concurrent drains on s2-lite (createStreamOnAppend) can surface a
@@ -345,7 +351,7 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       expect(faulty.appends).toBeGreaterThanOrEqual(3);
       const records = await history("s1");
       expect(records.map((record) => record.seq)).toEqual(types.map((_, n) => n));
-      expect(records.map((record) => record.body.type)).toEqual(types);
+      expect(records.map((record) => tagOf(record.body))).toEqual(types);
       expect(await outbox()).toEqual([]);
       expect(relayErrors).toEqual([]);
     });
@@ -396,11 +402,11 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       await r.idle();
       const second = await streamOf("s1");
       expect(second).not.toBe(first);
-      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+      expect((await history("s1")).map((record) => [record.seq, tagOf(record.body)])).toEqual([
         [0, "x"],
         [1, "y"],
       ]);
-      expect((await read(first)).map((record) => record.body.type)).toEqual(["a", "b"]);
+      expect((await read(first)).map((record) => tagOf(record.body))).toEqual(["a", "b"]);
       expect(await outbox()).toEqual([]);
       expect(relayErrors).toEqual([]);
     });
@@ -422,8 +428,8 @@ export function relaySuite(name: string, factory: () => Promise<RelayHarness>): 
       await commit("s1", "old-0", "old-1");
       await r.idle();
       expect(raced).toBe(true);
-      expect((await read(first)).map((record) => record.body.type)).toEqual(["old-0", "old-1"]);
-      expect((await history("s1")).map((record) => [record.seq, record.body.type])).toEqual([
+      expect((await read(first)).map((record) => tagOf(record.body))).toEqual(["old-0", "old-1"]);
+      expect((await history("s1")).map((record) => [record.seq, tagOf(record.body)])).toEqual([
         [0, "new-0"],
         [1, "new-1"],
       ]);

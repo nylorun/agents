@@ -206,7 +206,7 @@ export function buildTask(input: BuildTaskInput): Task | undefined {
     state = "TASK_STATE_FAILED";
     message = agentMessage(`${turnId}:failed`, failureText(undefined), contextId, taskId);
   } else state = "TASK_STATE_WORKING";
-  const timestamp = events.at(-1)?.createdAt;
+  const timestamp = events.at(-1)?.time;
   const history = historyOf(events, contextId, taskId);
   const limit = input.historyLength;
   return {

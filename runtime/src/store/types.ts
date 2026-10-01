@@ -52,7 +52,13 @@
  * is not read from the store: the relay moves events from the outbox to
  * Durable Streams, and history and SSE read them there (`tenant/streams.ts`).
  */
-import type { Action, LiveEvent } from "@nylorun/core/contracts";
+import type {
+  Action,
+  EventPayload,
+  EventType,
+  LiveEvent,
+  SessionEventOf,
+} from "@nylorun/core/contracts";
 import type { HostEffect } from "@nylorun/harness/run";
 
 // ---------------------------------------------------------------------------
@@ -186,7 +192,7 @@ export interface OutboxRow {
 export interface OutboxStats {
   /** Unrelayed events. */
   depth: number;
-  /** ISO `createdAt` of the oldest unrelayed event, or null when the outbox is empty. */
+  /** ISO `time` of the oldest unrelayed event, or null when the outbox is empty. */
   oldestCreatedAt: string | null;
 }
 
@@ -465,15 +471,17 @@ export interface Tx {
 
   /**
    * Allocates the session's next sequence (from 0) under the session lock,
-   * writes the event to the outbox and buffers it for commit listeners.
-   * Rejects when the session does not exist. The returned cursor is final.
+   * builds the event on the `nylorun.event/2` envelope, checks it against the
+   * event catalog (`InvalidEventError` when it does not match), writes it to
+   * the outbox and buffers it for commit listeners. Rejects when the session
+   * does not exist. The returned cursor is final.
    */
-  event(
+  event<T extends EventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown,
-  ): Promise<LiveEvent>;
+    type: T,
+    payload: EventPayload<T>,
+  ): Promise<SessionEventOf<T>>;
 
   /** Runs `fn` after a successful commit (never on rollback). Used for wakes. */
   afterCommit(fn: () => void | Promise<void>): void;

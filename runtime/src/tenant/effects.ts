@@ -15,6 +15,7 @@
 import type {
   Action,
   ActionOutcome,
+  EventPayload,
   SessionCommand,
 } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
@@ -234,7 +235,7 @@ export async function resolveEffect(
         s.activeTurnId,
         settled ? "delegation.completed" : "delegation.started",
         {
-          agent: request.agent,
+          agent: request.agent!,
           ...delegationCallId(request),
           ...(request.input as object),
         }
@@ -358,12 +359,19 @@ export async function resolveEffect(
       if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
       if (compacted)
         await t.event(s.id, request.turnId, "context.compacted", compacted);
-      if (transcript)
+      if (transcript && invoke === "model")
         await t.event(
           s.id,
           request.turnId,
-          invoke === "model" ? "message.assistant" : "tool.completed",
-          transcript
+          "message.assistant",
+          transcript as EventPayload<"message.assistant">
+        );
+      else if (transcript)
+        await t.event(
+          s.id,
+          request.turnId,
+          "tool.completed",
+          transcript as EventPayload<"tool.completed">
         );
       return { status: "completed" as const, outcome: effect.outcome };
     });

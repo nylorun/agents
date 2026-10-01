@@ -1,3 +1,27 @@
+# Session events on the `nylorun.event/2` envelope (protocol 4)
+
+Protocol 4 puts every session event on the `nylorun.event/2` envelope and types each event
+type in one catalog (`EVENT_CATALOG` in `@nylorun/core/contracts`), published in
+`openapi.json`. A Runtime and SDK must both speak protocol 4; upgrade them together. An older
+client is refused with `426 protocol_unsupported`.
+
+| Before | After |
+| --- | --- |
+| `createdAt` | `time` |
+| `eventId`, `sessionId`, `tenantId`, `turnId`, `cursor`, `type`, `payload` | Unchanged |
+| — | New: `schema` (`"nylorun.event/2"`), `seq`, `epoch`, `runId` (null), `incarnation` (0), `schemaVersion`, `source`, `evidence`, `visibility`, `retention`, optional `trace` |
+| `LiveEventSchema` was strict: any new field failed parsing | Unknown top-level fields are dropped, and `parseSessionEvent` returns an event of an unknown type as the bare envelope instead of throwing |
+| `payload` typed for the 14 transcript events (`parseTranscriptEvent`) | Every type typed: `SessionEvent` is a union discriminated on `type`; `SessionEventOf<"action.delivered">` names one |
+| `GET /v1/sessions/:id/items` items: `LiveEvent` | `SessionEvent` (the client reads unknown types as `LiveEvent`) |
+
+- **Your code.** Read `event.time` instead of `event.createdAt`. Switch on `event.type` to
+  narrow `payload`, and ignore types you do not know.
+- **Other languages.** Generate types from `openapi.json`: each type is a component named
+  after it (`MessageAssistantEvent`, `ActionDeliveryFailedEvent`, …), and `SessionEvent` is
+  their union.
+- **Writers.** The Runtime checks every event against the catalog before it commits it, so a
+  stream never carries an event the catalog does not describe.
+
 # Action endpoints replace executors
 
 Protocol 3 removes executors. The Runtime no longer offers Actions for a process to claim.

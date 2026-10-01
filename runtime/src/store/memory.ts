@@ -1,6 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import type {
+  EventPayload,
+  EventType,
+  LiveEvent,
+  SessionEventOf,
+} from "@nylorun/core/contracts";
+import { buildEvent } from "./event.js";
 import { encodeCursor } from "./cursor.js";
 import { OwnershipLostError } from "./ownership.js";
 import {
@@ -299,28 +305,26 @@ class MemoryTx implements Tx {
     return this.session<T>(id);
   }
 
-  async event(
+  async event<T extends EventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown,
-  ): Promise<LiveEvent> {
+    type: T,
+    payload: EventPayload<T>,
+  ): Promise<SessionEventOf<T>> {
     this.check();
     const meta = this.s.sessionMeta.get(sessionId);
     if (!meta) throw new Error(`Session ${sessionId} not found`);
+    const event = buildEvent({
+      tenantId: this.tenantId,
+      sessionId,
+      turnId,
+      seq: meta.nextSeq,
+      epoch: meta.epoch,
+      time: this.now(),
+      type,
+      payload,
+    });
     const seq = meta.nextSeq++;
-    const event: LiveEvent = JSON.parse(
-      JSON.stringify({
-        eventId: randomUUID(),
-        sessionId,
-        tenantId: this.tenantId,
-        turnId,
-        cursor: encodeCursor(sessionId, seq),
-        createdAt: this.now().toISOString(),
-        type,
-        payload,
-      }),
-    );
     let rows = this.s.outbox.get(sessionId);
     if (!rows) this.s.outbox.set(sessionId, (rows = new Map()));
     rows.set(seq, JSON.stringify(event));
@@ -650,7 +654,7 @@ class MemoryTx implements Tx {
     for (const rows of this.s.outbox.values())
       for (const body of rows.values()) {
         depth += 1;
-        const createdAt = (JSON.parse(body) as { createdAt: string }).createdAt;
+        const createdAt = (JSON.parse(body) as { time: string }).time;
         if (oldestCreatedAt === null || createdAt < oldestCreatedAt)
           oldestCreatedAt = createdAt;
       }

@@ -38,7 +38,13 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { PendingQuery, Sql, TransactionSql } from "postgres";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import type {
+  EventPayload,
+  EventType,
+  LiveEvent,
+  SessionEventOf,
+} from "@nylorun/core/contracts";
+import { buildEvent } from "../event.js";
 import { encodeCursor } from "../cursor.js";
 import { OwnershipLostError } from "../ownership.js";
 import type {
@@ -444,33 +450,31 @@ class PostgresTx implements Tx {
     return row && storedSession<T>(row);
   }
 
-  async event(
+  async event<T extends EventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown,
-  ): Promise<LiveEvent> {
+    type: T,
+    payload: EventPayload<T>,
+  ): Promise<SessionEventOf<T>> {
     this.check();
     const sql = this.sql;
     // The UPDATE takes the session row lock and allocates under it.
     const [row] = await sql`
       UPDATE ${this.t("sessions")} SET next_event_seq = next_event_seq + 1
       WHERE id = ${sessionId}
-      RETURNING next_event_seq - 1 AS seq, stream_incarnation AS incarnation`;
+      RETURNING next_event_seq - 1 AS seq, stream_incarnation AS incarnation, epoch`;
     if (!row) throw new Error(`Session ${sessionId} not found`);
     const seq = Number(row.seq);
-    const event: LiveEvent = JSON.parse(
-      JSON.stringify({
-        eventId: randomUUID(),
-        sessionId,
-        tenantId: this.tenantId,
-        turnId,
-        cursor: encodeCursor(sessionId, seq),
-        createdAt: this.now().toISOString(),
-        type,
-        payload,
-      }),
-    );
+    const event = buildEvent({
+      tenantId: this.tenantId,
+      sessionId,
+      turnId,
+      seq,
+      epoch: Number(row.epoch),
+      time: this.now(),
+      type,
+      payload,
+    });
     await sql`
       INSERT INTO ${this.t("outbox")} (session_id, seq, body)
       VALUES (${sessionId}, ${seq}, ${JSON.stringify(event)}::text::json)`;

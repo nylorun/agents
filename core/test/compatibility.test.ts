@@ -157,7 +157,7 @@ describe("checkCompatibility", () => {
   it("rejects missing required features", () => {
     expect(
       checkCompatibility(
-        { version: 3, required: ["runtime-tenants", "missing-feature"] },
+        { version: PROTOCOL_VERSION, required: ["runtime-tenants", "missing-feature"] },
         HOST_PROTOCOL,
       ),
     ).toEqual({

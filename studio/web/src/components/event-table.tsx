@@ -183,7 +183,7 @@ export function EventTable({
                   onClick={() => onSelect(event)}
                 >
                   <TableCell className="text-xs text-muted-foreground">
-                    {time(event.createdAt)}
+                    {time(event.time)}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">{eventLabel(event)}</Badge>

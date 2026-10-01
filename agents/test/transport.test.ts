@@ -147,7 +147,7 @@ describe("Transport headers and compatibility", () => {
       fetch: async (url) => {
         if (String(url).endsWith("/health"))
           return healthOk({
-            protocol: { min: 4, max: 4, features: [...PROTOCOL_FEATURES] },
+            protocol: { min: 5, max: 5, features: [...PROTOCOL_FEATURES] },
           });
         return Response.json({});
       },

@@ -337,7 +337,7 @@ export function tenantStreamsSuite(
         const ctx = contextOf(node.handle);
         const events = await Promise.all(
           range(0, count).map((i) =>
-            ctx.store.tx((t) => t.event(sessionId, null, "test.tick", payload(i)))
+            ctx.store.tx((t) => t.event(sessionId, null, "turn.completed", { tag: "test.tick", output: payload(i) }))
           )
         );
         await relayed(node);
@@ -500,7 +500,9 @@ export function tenantStreamsSuite(
       const ctx = contextOf(a.handle);
       await ctx.store.tx(async (tx) => {
         for (let i = 0; i < 6; i += 1)
-          await tx.event("s1", null, "test.tick", {
+          await tx.event("s1", null, "turn.completed", {
+            tag: "test.tick",
+            output: null,
             i,
             ...(i % 2 === 0 ? { agent: { path: "helper", delegationId: `d${i}` } } : {}),
           });
@@ -691,7 +693,7 @@ export function tenantStreamsSuite(
           await Promise.all(
             range(0, 2).map((n) =>
               ctx.store
-                .tx((tx) => tx.event(id, null, "test.tick", { n }))
+                .tx((tx) => tx.event(id, null, "turn.completed", { tag: "test.tick", output: { n } }))
                 .catch(() => undefined)
             )
           );
