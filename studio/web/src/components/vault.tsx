@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createTenantClient } from "@/proxy-client";
+import { listFrom } from "@/runtime-body.ts";
 
 const OWNER = "local-developer";
 const SECRET_MASK = "••••••••••••••••";
@@ -97,8 +98,11 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
 
   const refresh = useCallback(async () => {
     const sdk = client(tenantId);
-    const listed = await sdk.listVaults(OWNER);
-    const nextVaults = listed.vaults;
+    const nextVaults = listFrom<VaultInfo>(
+      await sdk.listVaults(OWNER),
+      "vaults",
+      "The Runtime did not return the Tenant's vaults.",
+    );
     setVaults(nextVaults);
     setSelectedVaultId((current) =>
       current && nextVaults.some((vault) => vault.id === current)
@@ -111,8 +115,12 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     }
     const credentials = await Promise.all(
       nextVaults.map(async (vault) => {
-        const listedCredentials = await sdk.listCredentials(vault.id);
-        return listedCredentials.credentials.map((credential) => ({
+        const listedCredentials = listFrom<CredentialInfo>(
+          await sdk.listCredentials(vault.id),
+          "credentials",
+          "The Runtime did not return the vault's credentials.",
+        );
+        return listedCredentials.map((credential) => ({
           vault,
           credential,
         }));
