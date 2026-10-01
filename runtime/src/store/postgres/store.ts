@@ -1074,6 +1074,12 @@ class PostgresTx implements Tx {
 
   // --- subject tokens ------------------------------------------------------
 
+  async lockSigningKeys(): Promise<void> {
+    this.check();
+    const key = `${this.schema}.signing_keys`;
+    await this.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+  }
+
   async insertSigningKey(row: SigningKeyRow): Promise<void> {
     this.check();
     await this.sql`
