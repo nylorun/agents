@@ -383,15 +383,37 @@ export class TenantRuntime implements TenantHandle {
     // A shutdown abort: the advances leave their sessions to the next advance, unsettled.
     abortAll(ctx, "shutdown");
     const idleBy = Date.now() + this.closeGraceMs;
-    await this.detach();
-    await ctx.mcp.close();
-    endAllStreams(ctx.sessionStreams);
-    // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
-    await waitForIdle(ctx, Math.max(0, idleBy - Date.now()));
-    await ctx.sandbox.close();
-    ctx.closed = true;
-    await closeStreams(ctx);
-    await ctx.store.close();
+    // Every step runs even when one before it fails, so nothing is left running; the first
+    // error is rethrown at the end.
+    const steps: [name: string, run: () => unknown][] = [
+      ["detach", () => this.detach()],
+      ["mcp", () => ctx.mcp.close()],
+      ["session streams", () => endAllStreams(ctx.sessionStreams)],
+      // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
+      ["idle", () => waitForIdle(ctx, Math.max(0, idleBy - Date.now()))],
+      ["sandbox", () => ctx.sandbox.close()],
+      [
+        "streams",
+        () => {
+          ctx.closed = true;
+          return closeStreams(ctx);
+        },
+      ],
+      ["store", () => ctx.store.close()],
+    ];
+    let failure: { error: unknown } | undefined;
+    for (const [step, run] of steps) {
+      try {
+        await run();
+      } catch (error) {
+        ctx.config.logger.warn("tenant close step failed", {
+          step,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        failure ??= { error };
+      }
+    }
+    if (failure) throw failure.error;
   }
 }
 

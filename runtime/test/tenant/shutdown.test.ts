@@ -140,6 +140,39 @@ describe("closing a Tenant", () => {
   });
 });
 
+describe("Tenant close", () => {
+  it("runs every step when one fails, then rethrows the first error", async () => {
+    // Unregistering this Tenant's Worker fails once: the first step of close.
+    class FailingWorkers extends TenantWorkers {
+      override register(...args: Parameters<TenantWorkers["register"]>): () => void {
+        const unregister = super.register(...args);
+        let failed = false;
+        return () => {
+          unregister();
+          if (failed) return;
+          failed = true;
+          throw new Error("unregister failed");
+        };
+      }
+    }
+    const execution = new MemoryExecution({ sweepIntervalMs: 60_000 });
+    const workers = new FailingWorkers();
+    await execution.start(workers.handlers);
+    cleanups.push(() => execution.stop());
+    const { logger, warnings } = recordingLogger();
+    const runtime = await boot({ execution: { execution, workers }, logger });
+    open.push(runtime);
+
+    await expect(runtime.handle.close()).rejects.toThrow("unregister failed");
+    expect(warnings).toContainEqual({
+      message: "tenant close step failed",
+      fields: { step: "detach", message: "unregister failed" },
+    });
+    // The last step still ran: the store is closed.
+    await expect(runtime.handle.summary()).rejects.toThrow(/closed/i);
+  });
+});
+
 describe("graceful Worker stop", () => {
   it("leaves the turn to the next Worker, which resumes it from the recorded outcome", async () => {
     const streams = new MemoryStreams();
