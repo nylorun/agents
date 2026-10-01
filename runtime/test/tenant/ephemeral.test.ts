@@ -88,6 +88,20 @@ it("runs a turn on a Tenant kept in memory and removes its Host root on close", 
   expect(existsSync(hostRoot)).toBe(false);
 });
 
+it("closes what it opened and removes its Host root when it fails to start", async () => {
+  const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-ephemeral-fail-"));
+  roots.push(hostRoot);
+  await expect(
+    startEphemeralRuntime({
+      hostRoot,
+      // Rejected by `module.create`, after the module and its store have started.
+      tenantId: "not-a-tenant-id",
+      model: { kind: "scripted", output: "unused" },
+    })
+  ).rejects.toThrow();
+  expect(existsSync(hostRoot)).toBe(false);
+});
+
 it("creates and deletes more Tenants through the Admin API", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-ephemeral-"));
   roots.push(hostRoot);
