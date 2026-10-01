@@ -11,6 +11,16 @@ export interface PostgresClientOptions {
   connectTimeoutSeconds?: number;
   /** `application_name` on every connection. Default `nylorun-runtime`. */
   applicationName?: string;
+  /**
+   * `statement_timeout`: a statement running or waiting for a lock longer fails. Default
+   * 60 s; 0 turns it off. Schema migrations lift it (`lockSchema`).
+   */
+  statementTimeoutMs?: number;
+  /**
+   * `idle_in_transaction_session_timeout`: a transaction left idle this long is ended and its
+   * connection closed, releasing its locks. Default 60 s; 0 turns it off.
+   */
+  idleInTransactionTimeoutMs?: number;
 }
 
 /**
@@ -24,6 +34,9 @@ export interface PostgresClientOptions {
  * named prepared statements would pile up on every pooled connection with the
  * number of Tenants a Host serves. Unnamed statements still go in one round
  * trip; the queries are simple enough that re-planning them costs little.
+ *
+ * The pool is shared by every Tenant, so a statement or transaction that hangs must not hold
+ * a connection forever: both are bounded by default.
  */
 export function createPostgresClient(
   url: string,
@@ -37,6 +50,8 @@ export function createPostgresClient(
     onnotice: () => {},
     connection: {
       application_name: options.applicationName ?? "nylorun-runtime",
+      statement_timeout: options.statementTimeoutMs ?? 60_000,
+      idle_in_transaction_session_timeout: options.idleInTransactionTimeoutMs ?? 60_000,
     },
   });
 }

@@ -121,6 +121,20 @@ describe("stream relay", () => {
     expect(relay.status().reconciliations).toBe(1);
   });
 
+  it("reconciles again when the source is lost before reconciled rows reach S2", async () => {
+    const t = await setup();
+    t.write("s1", 3); // committed before any slot existed
+    t.streams.down = true;
+    const relay = t.relay();
+    await eventually("the reconciliation to queue the rows", () => relay.status().pendingRows === 3 || undefined);
+    // The connection drops while S2 is still down: the queued rows are dropped with it.
+    t.record.disconnect();
+    t.streams.down = false;
+    await eventually("a second reconciliation", () => relay.status().reconciliations === 2 || undefined);
+    await eventually("every row in S2", async () => (await t.inS2("s1")).length === 3 || undefined);
+    expect(await t.inS2("s1")).toEqual(range(3));
+  });
+
   it("replays unacknowledged transactions after a crash without duplicating them", async () => {
     const t = await setup();
     const first = t.relay();

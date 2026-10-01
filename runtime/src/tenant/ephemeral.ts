@@ -249,46 +249,69 @@ export async function startEphemeralRuntime(
     onDeleted: (tenantId: string) => streams.deleteTenant(tenantId),
   });
 
-  await module.start();
+  let host: ReturnType<typeof createHost> | undefined;
+  /** Closes what was opened, in reverse order; `close()` and a failed start share it. */
+  const release = async () => {
+    await host?.close();
+    await module.close();
+    await memory?.close();
+    await streams.close();
+    if (!options.retainRoot) rmSync(hostRoot, { recursive: true, force: true });
+  };
 
-  const tenantId = options.tenantId ?? newTenantId();
-  const applicationKey = options.applicationKey ?? mintBearerToken();
-  const principalId =
-    options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
-  const credentialHash = hashToken(applicationKey);
+  let tenantId: string;
+  let applicationKey: string;
+  let principalId: string;
+  try {
+    await module.start();
 
-  await module.create({
-    tenantId,
-    name: options.name ?? "ephemeral",
-    principalId,
-    credentialHash,
-    idempotencyKey: `ephemeral-${tenantId}`,
-    ...(options.studioCredentialHash
-      ? { studioCredentialHash: options.studioCredentialHash }
-      : {}),
-  });
+    tenantId = options.tenantId ?? newTenantId();
+    applicationKey = options.applicationKey ?? mintBearerToken();
+    principalId =
+      options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
+    const credentialHash = hashToken(applicationKey);
 
-  // KEK for first vault write; openTenantRuntime also creates when hooks allow.
-  const kekPath = tenantPaths(hostRoot, tenantId).kek;
-  if (!existsSync(kekPath)) createKekFile(kekPath);
-  const host = createHost({
-    hostRoot,
-    module,
-    config: hostConfig,
-    credentials,
-    logger,
-    coreVersion: coreVersion(),
-    browserAccess: options.browserAccess === true,
-    ...(options.operatorListener
-      ? { operator: { host: "127.0.0.1", port: 0 } }
-      : {}),
-  });
-  await host.listen();
+    await module.create({
+      tenantId,
+      name: options.name ?? "ephemeral",
+      principalId,
+      credentialHash,
+      idempotencyKey: `ephemeral-${tenantId}`,
+      ...(options.studioCredentialHash
+        ? { studioCredentialHash: options.studioCredentialHash }
+        : {}),
+    });
 
+    // KEK for first vault write; openTenantRuntime also creates when hooks allow.
+    const kekPath = tenantPaths(hostRoot, tenantId).kek;
+    if (!existsSync(kekPath)) createKekFile(kekPath);
+    host = createHost({
+      hostRoot,
+      module,
+      config: hostConfig,
+      credentials,
+      logger,
+      coreVersion: coreVersion(),
+      browserAccess: options.browserAccess === true,
+      ...(options.operatorListener
+        ? { operator: { host: "127.0.0.1", port: 0 } }
+        : {}),
+    });
+    await host.listen();
+  } catch (error) {
+    await release().catch((cleanup: unknown) =>
+      logger.warn("ephemeral runtime cleanup failed", {
+        message: cleanup instanceof Error ? cleanup.message : String(cleanup),
+      })
+    );
+    throw error;
+  }
+
+  const started = host;
   let closed = false;
   return {
-    url: host.url,
-    adminUrl: host.adminUrl,
+    url: started.url,
+    adminUrl: started.adminUrl,
     tenantId,
     applicationKey,
     adminKey,
@@ -297,11 +320,7 @@ export async function startEphemeralRuntime(
     async close() {
       if (closed) return;
       closed = true;
-      await host.close();
-      await module.close();
-      await memory?.close();
-      await streams.close();
-      if (!options.retainRoot) rmSync(hostRoot, { recursive: true, force: true });
+      await release();
     },
   };
 }

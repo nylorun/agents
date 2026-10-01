@@ -490,6 +490,102 @@ describe("VaultService authorize", () => {
   });
 });
 
+describe("VaultService OAuth refresh races", () => {
+  const ok = (token: string) =>
+    new Response(JSON.stringify({ access_token: token, expires_in: 3600, refresh_token: `${token}-r` }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  /** An OAuth credential whose access token has expired. */
+  async function expired(vault: VaultService) {
+    const created = await vault.createVault({
+      requestId: "v",
+      idempotencyKey: "v",
+      name: "GitHub",
+      ownerUserId: "ada",
+    });
+    await vault.createCredential(created.id, {
+      requestId: "c",
+      idempotencyKey: "c",
+      name: "oauth",
+      auth: {
+        type: "oauth",
+        url: URL,
+        accessToken: "old",
+        expiresAt: new Date(Date.now() - 1000).toISOString(),
+        refresh: {
+          tokenEndpoint: "https://auth.example.com/token",
+          clientId: "client",
+          refreshToken: "single-use-refresh-token",
+          tokenEndpointAuth: { type: "none" },
+        },
+      },
+    });
+    return { sessionId: "s1", vaultIds: [created.id], credentialSelections: [], url: URL };
+  }
+
+  it("refreshes once for concurrent uses of an expired grant", async () => {
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    const { vault, fetchCalls } = setup({
+      fetch: (async () => {
+        await answered;
+        return ok("fresh");
+      }) as unknown as typeof fetch,
+    });
+    const input = await expired(vault);
+    const uses = [vault.authorize(input), vault.authorize(input), vault.authorize(input)];
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    release();
+    for (const result of await Promise.all(uses))
+      expect(result).toMatchObject({ headers: { authorization: "Bearer fresh" } });
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  it("uses the token another process refreshed when its own refresh token was spent", async () => {
+    const memory = new MemorySessionStore({ tenantId: "tn_test" });
+    // Another Runtime process on the same store wins the race.
+    const winner = new VaultService({
+      store: memory,
+      kek: () => KEK,
+      fetch: (async () => ok("winner")) as unknown as typeof fetch,
+    });
+    let input!: Awaited<ReturnType<typeof expired>>;
+    const loser = new VaultService({
+      store: memory,
+      kek: () => KEK,
+      fetch: (async () => {
+        await winner.authorize(input);
+        return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
+      }) as unknown as typeof fetch,
+    });
+    input = await expired(loser);
+    expect(await loser.authorize(input)).toMatchObject({
+      status: "authorized",
+      headers: { authorization: "Bearer winner" },
+    });
+  });
+
+  it("refuses a refresh whose token endpoint does not answer in time", async () => {
+    const memory = new MemorySessionStore({ tenantId: "tn_test" });
+    const vault = new VaultService({
+      store: memory,
+      kek: () => KEK,
+      refreshTimeoutMs: 50,
+      fetch: ((_url: string, init?: RequestInit) =>
+        new Promise((_, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
+        )) as unknown as typeof fetch,
+    });
+    const input = await expired(vault);
+    expect(await vault.authorize(input)).toMatchObject({
+      status: "refused",
+      reason: "refresh_failed",
+    });
+  });
+});
+
 describe("VaultService host model", () => {
   it("keeps the host model credential out of user vaults and responses", async () => {
     const { vault, store, read } = setup();

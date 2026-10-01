@@ -88,6 +88,7 @@ import { hostModelCatalog } from "../model/catalog.js";
 import { normalizeVaultUrl } from "./url.js";
 
 const REFRESH_SKEW_MS = 60_000;
+const REFRESH_TIMEOUT_MS = 30_000;
 const HOST_VAULT_ID = "host";
 const HOST_MODEL_ID = "host-model";
 
@@ -157,17 +158,25 @@ export interface VaultServiceOptions {
   kek: () => Buffer;
   /** Used only for OAuth refresh, always outside a transaction. */
   fetch: typeof fetch;
+  /** How long a token endpoint may take to answer a refresh. Default 30 s. */
+  refreshTimeoutMs?: number;
 }
+
+type Refreshed = { status: "ok"; payload: SecretPayload } | Refused;
 
 export class VaultService {
   private readonly store: SessionStore;
   private readonly kek: () => Buffer;
   private readonly fetchImpl: typeof fetch;
+  private readonly refreshTimeoutMs: number;
+  /** Refreshes in progress by credential id: concurrent uses share one. */
+  private readonly refreshing = new Map<string, Promise<Refreshed>>();
 
   constructor(options: VaultServiceOptions) {
     this.store = options.store;
     this.kek = options.kek;
     this.fetchImpl = options.fetch;
+    this.refreshTimeoutMs = options.refreshTimeoutMs ?? REFRESH_TIMEOUT_MS;
   }
 
   // --- administration --------------------------------------------------------
@@ -499,7 +508,7 @@ export class VaultService {
       };
     }
     if (row.type === "oauth" && dueForRefresh(row.expiresAt)) {
-      const refreshed = await this.refresh(kek, row, payload, input.sessionId, url);
+      const refreshed = await this.refreshShared(kek, row, payload, input.sessionId, url);
       if (refreshed.status === "refused") return refreshed;
       payload = refreshed.payload;
     }
@@ -697,13 +706,67 @@ export class VaultService {
   // --- internals -----------------------------------------------------------------
 
   /** Calls the token endpoint outside any transaction, then stores the result. */
+  /**
+   * Refreshes an OAuth grant once for every concurrent use in this process. A rotating refresh
+   * token is valid once, so two refreshes with it would fail the second, or make the provider
+   * revoke the grant.
+   */
+  private refreshShared(
+    kek: Buffer,
+    row: UserCredentialRow,
+    payload: SecretPayload,
+    sessionId: string,
+    url: string,
+  ): Promise<Refreshed> {
+    let pending = this.refreshing.get(row.id);
+    if (!pending) {
+      pending = this.refreshLatest(kek, row, payload, sessionId, url).finally(() =>
+        this.refreshing.delete(row.id),
+      );
+      this.refreshing.set(row.id, pending);
+    }
+    return pending;
+  }
+
+  /** Uses a token another process refreshed instead of refreshing again, before and after. */
+  private async refreshLatest(
+    kek: Buffer,
+    row: UserCredentialRow,
+    payload: SecretPayload,
+    sessionId: string,
+    url: string,
+  ): Promise<Refreshed> {
+    const before = await this.rotatedSince(kek, row);
+    if (before) return { status: "ok", payload: before };
+    const refreshed = await this.refresh(kek, row, payload, sessionId, url);
+    if (refreshed.status === "ok") return refreshed;
+    // The loser of a race with another process fails with the spent refresh token.
+    const after = await this.rotatedSince(kek, row);
+    return after ? { status: "ok", payload: after } : refreshed;
+  }
+
+  /** The credential's payload when it was rotated after `row` was read and is not due. */
+  private async rotatedSince(
+    kek: Buffer,
+    row: UserCredentialRow,
+  ): Promise<SecretPayload | undefined> {
+    const current = await this.store.tx((t) => t.getCredential(row.id));
+    if (!current || current.vaultId !== row.vaultId || !isUserCredential(current)) return undefined;
+    if (current.rotatedAt === row.rotatedAt || dueForRefresh(current.expiresAt)) return undefined;
+    try {
+      return readPayload(kek, current);
+    } catch {
+      return undefined;
+    }
+  }
+
   private async refresh(
     kek: Buffer,
     row: UserCredentialRow,
     payload: SecretPayload,
     sessionId: string,
     url: string,
-  ): Promise<{ status: "ok"; payload: SecretPayload } | Refused> {
+  ): Promise<Refreshed> {
     const failRefresh = async (): Promise<Refused> => {
       await this.store.tx((t) =>
         this.audit(t, {
@@ -751,6 +814,7 @@ export class VaultService {
         headers,
         body: body.toString(),
         redirect: "error",
+        signal: AbortSignal.timeout(this.refreshTimeoutMs),
       });
       if (!response.ok) return failRefresh();
       const json = (await response.json()) as {

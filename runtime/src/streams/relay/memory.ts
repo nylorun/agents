@@ -65,6 +65,11 @@ export class MemoryRecord implements RecordReader {
     this.reader?.lost(new Error("replication slot dropped"));
   }
 
+  /** Ends the reader's connection but keeps the slot, as a network failure would. */
+  disconnect(): void {
+    this.reader?.lost(new Error("replication connection lost"));
+  }
+
   /** A change source over this record; one at a time holds the slot. */
   source(): ChangeSource {
     return new MemoryChangeSource(this);
