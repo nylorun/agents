@@ -10,7 +10,8 @@
  *    lease expired, are woken with reason `recover`: a wake lost between commit and send, or
  *    a Worker that died mid-advance (the advance then takes over, §11.4).
  * 3. **Sandboxes.** Idle sandboxes are stopped, records of compute this process no longer
- *    holds are marked stopped, and sandboxes whose session is gone are removed.
+ *    holds are marked stopped, and sandboxes whose session is gone are removed. Idle MCP
+ *    connections are closed.
  * 4. **Hooks.** Callbacks registered with `ctx.onSweep`.
  * 5. **Deliveries.** Deliveries to Action endpoints whose deadline passed without an answer are
  *    lost (`delivery.ts` `loseAction`), and pending Actions of agents with an endpoint are sent
@@ -48,6 +49,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
             !!(await ctx.store.tx((t) => t.get("sessions", id))),
         }),
     ],
+    ["mcp", () => ctx.mcp.sweep()],
     ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
   ];
   let failure: { error: unknown } | undefined;
