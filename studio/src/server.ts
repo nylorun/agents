@@ -7,7 +7,13 @@
  *   `HttpOnly`, `SameSite=Strict` session cookie for `SESSION_TTL_MS`. The
  *   cookie is signed with a key derived from the admin key, so it survives
  *   Studio restarts and ends when the admin key changes (`nylorun reset`).
- * - Every other request needs that cookie, except `/healthz`.
+ * - An embedder (Studio §8) mints a login token limited to one Tenant and one
+ *   subject, passes it to the framed dashboard, which exchanges it at
+ *   `POST /_studio/sessions` for a one-hour bearer session kept in memory. A
+ *   session limited to a Tenant reaches only that Tenant.
+ * - Every `/_studio/*` request needs a session, cookie or bearer, except the
+ *   two that create one. The dashboard's static files carry no data and are
+ *   served without one; only `frameAncestors` may frame them.
  * - `Host` must be the published loopback address (DNS rebinding); requests
  *   that change state must carry this origin's `Origin`; no CORS headers.
  * - Tenants are listed and created through the Admin API with the admin key.
@@ -31,6 +37,12 @@ import {
   createAdmin,
   deriveStudioToken,
 } from "@nylorun/admin";
+import {
+  StudioLoginTokenRequestSchema,
+  StudioSessionRequestSchema,
+  type StudioLoginTokenResponse,
+  type StudioSessionResponse,
+} from "@nylorun/agents/studio-embed";
 import { packagedWebRoot, serveDashboard } from "./static.js";
 import { proxyRuntime } from "./proxy.js";
 import {
@@ -46,6 +58,10 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_VERSION = "v1";
 /** Sessions issued this far in the future (clock skew) are still accepted. */
 const SESSION_SKEW_MS = 60 * 1000;
+/** How long an embedded Studio's bearer session lasts: one hour (Studio §8.4). */
+export const EMBED_SESSION_TTL_MS = 60 * 60 * 1000;
+const EMBED_SESSION_VERSION = "v2";
+const EMBED_AUDIENCE = "studio";
 
 export type StudioServerOptions = Readonly<{
   /** Runtime base URL, e.g. `http://runtime:4000`. Non-loopback is allowed. */
@@ -60,6 +76,13 @@ export type StudioServerOptions = Readonly<{
   publicPort?: number;
   /** Built dashboard directory. Default: `dist/web` beside this module. */
   webRoot?: string;
+  /**
+   * Exact origins that may frame the dashboard (`NYLORUN_STUDIO_FRAME_ANCESTORS`,
+   * validated with `parseFrameAncestors`). Default: none.
+   */
+  frameAncestors?: readonly string[];
+  /** Where Studio logs state changes made by an embedded session. Default: stdout. */
+  log?: (entry: Readonly<Record<string, unknown>>) => void;
   /** Clock for login-token and session expiry (tests). */
   now?: () => number;
 }>;
@@ -168,6 +191,52 @@ function issueSession(key: Buffer, issuedAt: number): string {
   return `${payload}.${sign(key, payload)}`;
 }
 
+/** Who a request acts as: the whole Host (cookie, or a Host-wide token) or one Tenant. */
+type StudioSession = Readonly<{
+  kind: "cookie" | "bearer";
+  tenant: string | null;
+  subject: string | null;
+}>;
+
+type EmbedClaims = Readonly<{
+  aud: string;
+  tenant: string | null;
+  sub: string | null;
+  iat: number;
+  exp: number;
+}>;
+
+/** A bearer session: `v2.<base64url(claims)>.<signature>` (Studio §8.4). */
+function issueEmbedSession(key: Buffer, claims: EmbedClaims): string {
+  const payload = `${EMBED_SESSION_VERSION}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
+  return `${payload}.${sign(key, payload)}`;
+}
+
+function embedSession(key: Buffer, value: string, at: number): EmbedClaims | undefined {
+  const parts = value.split(".");
+  if (parts.length !== 3 || parts[0] !== EMBED_SESSION_VERSION) return undefined;
+  const expected = Buffer.from(sign(key, `${parts[0]}.${parts[1]}`));
+  const provided = Buffer.from(parts[2]!);
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected))
+    return undefined;
+  let claims: unknown;
+  try {
+    claims = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!claims || typeof claims !== "object") return undefined;
+  const { aud, tenant, sub, iat, exp } = claims as Record<string, unknown>;
+  if (aud !== EMBED_AUDIENCE) return undefined;
+  if (tenant !== null && (typeof tenant !== "string" || !TENANT_ID.test(tenant)))
+    return undefined;
+  if (sub !== null && typeof sub !== "string") return undefined;
+  if (typeof iat !== "number" || typeof exp !== "number") return undefined;
+  if (iat > at + SESSION_SKEW_MS || exp <= at) return undefined;
+  if (exp - iat > EMBED_SESSION_TTL_MS) return undefined;
+  return { aud, tenant, sub, iat, exp };
+}
+
 function validSession(key: Buffer, value: string, at: number): boolean {
   const parts = value.split(".");
   if (parts.length !== 4 || parts[0] !== SESSION_VERSION) return false;
@@ -244,6 +313,36 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+const INVALID_BODY = Symbol("invalid body");
+
+/**
+ * A JSON body when the request declares one: undefined for no body or a
+ * non-JSON content type, `INVALID_BODY` for malformed or oversized JSON.
+ */
+async function readOptionalJson(
+  request: IncomingMessage,
+): Promise<unknown | typeof INVALID_BODY> {
+  const type = request.headers["content-type"] ?? "";
+  if (!/^application\/json(;|$)/iu.test(type)) {
+    request.resume();
+    return undefined;
+  }
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_JSON_BODY) return INVALID_BODY;
+    chunks.push(chunk as Buffer);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  if (text.trim() === "") return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return INVALID_BODY;
+  }
+}
+
 function page(
   response: ServerResponse,
   status: number,
@@ -275,6 +374,27 @@ const SIGN_IN =
   "Run <code>npx nylorun studio</code> in a terminal. It opens Studio in your browser, signed in for 30 days.";
 
 /** Starts the Studio server. The container entry is `server-main.ts`. */
+/** `frame-ancestors` sources for the allowlist; `'none'` when it is empty. */
+function frameAncestorSources(origins: readonly string[]): string {
+  return origins.length === 0 ? "'none'" : origins.join(" ");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+/** Adds the frame allowlist to `index.html`, so the embed bridge knows its parents (§8.8). */
+function injectFrameAncestors(html: string, origins: readonly string[]): string {
+  const meta = `<meta name="nylorun-frame-ancestors" content="${escapeHtml(origins.join(" "))}">`;
+  return html.includes("</head>")
+    ? html.replace("</head>", `${meta}</head>`)
+    : `${meta}${html}`;
+}
+
 export async function startStudioServer(
   options: StudioServerOptions,
 ): Promise<StudioServer> {
@@ -287,9 +407,21 @@ export async function startStudioServer(
   const webRoot = options.webRoot ?? packagedWebRoot();
   const now = options.now ?? Date.now;
   const admin = createAdmin({ url: runtimeUrl, key: adminKey });
+  const frameAncestors = [...(options.frameAncestors ?? [])];
+  const dashboard = {
+    frameAncestors: frameAncestorSources(frameAncestors),
+    transformIndex: (html: string) => injectFrameAncestors(html, frameAncestors),
+  };
+  const log =
+    options.log ??
+    ((entry: Readonly<Record<string, unknown>>) =>
+      console.log(JSON.stringify(entry)));
 
-  /** Login token → expiry (ms). Single use. */
-  const loginTokens = new Map<string, number>();
+  /** Login token → expiry (ms) and what it is limited to. Single use. */
+  const loginTokens = new Map<
+    string,
+    Readonly<{ expiresAt: number; tenant: string | null; subject: string | null }>
+  >();
   /** Tenant id → derived Studio key, in memory only. */
   const studioKeys = new Map<string, string>();
 
@@ -306,46 +438,115 @@ export async function startStudioServer(
     return key;
   };
 
-  const hasSession = (request: IncomingMessage): boolean => {
+  /**
+   * The request's session. A bearer is checked first and never falls back to
+   * the cookie: a framed Studio with a bad token must not act Host-wide.
+   */
+  const sessionOf = (request: IncomingMessage): StudioSession | undefined => {
     const at = now();
+    if (request.headers.authorization !== undefined) {
+      const token = bearer(request);
+      const claims = token === undefined ? undefined : embedSession(signingKey, token, at);
+      return claims
+        ? { kind: "bearer", tenant: claims.tenant, subject: claims.sub }
+        : undefined;
+    }
     return cookieValues(request, SESSION_COOKIE).some((value) =>
       validSession(signingKey, value, at),
-    );
+    )
+      ? { kind: "cookie", tenant: null, subject: null }
+      : undefined;
   };
 
-  const mintLoginToken = (
+  /** Takes a login token out of the map: single use, even when it has expired. */
+  const takeLoginToken = (token: string) => {
+    const entry = loginTokens.get(token);
+    loginTokens.delete(token);
+    return entry !== undefined && entry.expiresAt > now() ? entry : undefined;
+  };
+
+  const mintLoginToken = async (
     request: IncomingMessage,
     response: ServerResponse,
-  ): void => {
-    request.resume();
+  ): Promise<void> => {
     const provided = bearer(request);
     if (
       provided === undefined ||
       !timingSafeEqual(digest(provided), adminKeyDigest)
     ) {
+      request.resume();
       response.setHeader("www-authenticate", "Bearer");
       fail(response, 401, "The admin key is required to mint a login token.");
       return;
     }
+    // No body, or a body that is not JSON, is the CLI's Host-wide token.
+    const body = await readOptionalJson(request);
+    if (body === INVALID_BODY)
+      return fail(response, 400, "Send a JSON object no larger than 4 KiB.");
+    const parsed = StudioLoginTokenRequestSchema.safeParse(body ?? {});
+    if (!parsed.success)
+      return fail(
+        response,
+        400,
+        `Send JSON { "tenant"?: "<Tenant id>", "subject"?: "<1–200 visible ASCII characters>" }: ${parsed.error.issues[0]?.message ?? "invalid"}.`,
+      );
     const at = now();
-    for (const [token, expiresAt] of loginTokens)
-      if (expiresAt <= at) loginTokens.delete(token);
+    for (const [token, entry] of loginTokens)
+      if (entry.expiresAt <= at) loginTokens.delete(token);
     const token = randomBytes(32).toString("base64url");
     const expiresAt = at + LOGIN_TOKEN_TTL_MS;
-    loginTokens.set(token, expiresAt);
-    json(response, 201, {
+    const tenant = parsed.data.tenant ?? null;
+    const subject = parsed.data.subject ?? null;
+    loginTokens.set(token, { expiresAt, tenant, subject });
+    const reply: StudioLoginTokenResponse = {
       token,
       url: `http://localhost:${publicPort}/login?token=${token}`,
       expiresAt: new Date(expiresAt).toISOString(),
-    });
+      tenant,
+      subject,
+    };
+    json(response, 201, reply);
+  };
+
+  /** `POST /_studio/sessions`: a login token becomes a bearer session (Studio §8.4). */
+  const createSession = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
+    const body = await readOptionalJson(request);
+    const parsed = StudioSessionRequestSchema.safeParse(
+      body === INVALID_BODY ? undefined : body,
+    );
+    if (!parsed.success)
+      return fail(response, 400, 'Send JSON { "token": "<login token>" }.');
+    const entry = takeLoginToken(parsed.data.token);
+    if (entry === undefined)
+      return json(response, 401, {
+        code: "token_invalid",
+        message: "This login token is invalid, expired or already used.",
+      });
+    const at = now();
+    const exp = at + EMBED_SESSION_TTL_MS;
+    const reply: StudioSessionResponse = {
+      sessionToken: issueEmbedSession(signingKey, {
+        aud: EMBED_AUDIENCE,
+        tenant: entry.tenant,
+        sub: entry.subject,
+        iat: at,
+        exp,
+      }),
+      tenant: entry.tenant,
+      subject: entry.subject,
+      expiresAt: new Date(exp).toISOString(),
+    };
+    json(response, 201, reply);
   };
 
   const login = (url: URL, response: ServerResponse): void => {
-    const token = url.searchParams.get("token") ?? "";
-    const expiresAt = loginTokens.get(token);
-    loginTokens.delete(token);
+    const entry = takeLoginToken(url.searchParams.get("token") ?? "");
     const at = now();
-    if (expiresAt === undefined || expiresAt <= at) {
+    // A token limited to a Tenant never becomes a Host-wide cookie.
+    if (entry === undefined || entry.tenant !== null) {
       page(
         response,
         401,
@@ -464,7 +665,7 @@ export async function startStudioServer(
       }
       // Minting is authorized by the admin key; the CLI sends no Origin.
       if (pathname === "/_studio/login-tokens" && method === "POST")
-        return mintLoginToken(request, response);
+        return await mintLoginToken(request, response);
       if (requestOrigin === undefined) {
         request.resume();
         return fail(
@@ -484,16 +685,43 @@ export async function startStudioServer(
       request.resume();
       return fail(response, 405, "Method not allowed");
     }
+    if (pathname === "/_studio/sessions") {
+      if (method !== "POST") {
+        request.resume();
+        return fail(response, 405, "Method not allowed");
+      }
+      return await createSession(request, response);
+    }
 
-    if (!hasSession(request)) {
+    // The dashboard's files carry no data: served without a session, framed
+    // only by the allowlist. Its sign-in page is part of the dashboard.
+    if (!pathname.startsWith("/_studio/")) {
       request.resume();
-      if (pathname.startsWith("/_studio/"))
-        return fail(
-          response,
-          401,
-          "Studio session required. Run npx nylorun studio to sign in.",
-        );
-      return page(response, 401, "Sign in to Studio", SIGN_IN, method);
+      if (!SAFE_METHODS.has(method))
+        return fail(response, 405, "Studio only serves static assets here.");
+      return await serveDashboard(
+        response,
+        method,
+        pathname,
+        webRoot,
+        (status, message) => {
+          response.setHeader("x-frame-options", "DENY");
+          fail(response, status, message);
+        },
+        dashboard,
+      );
+    }
+
+    const session = sessionOf(request);
+    if (session === undefined) {
+      request.resume();
+      if (request.headers.authorization !== undefined)
+        response.setHeader("www-authenticate", 'Bearer error="invalid_token"');
+      return fail(
+        response,
+        401,
+        "Studio session required. Run npx nylorun studio to sign in.",
+      );
     }
 
     if (pathname === "/_studio/hello") {
@@ -508,6 +736,14 @@ export async function startStudioServer(
     }
 
     if (pathname === "/_studio/tenants") {
+      if (session.tenant !== null) {
+        request.resume();
+        return fail(
+          response,
+          403,
+          "This Studio session is limited to one Tenant; listing and creating Tenants needs a Host-wide session.",
+        );
+      }
       if (method === "POST") return createTenant(request, response);
       request.resume();
       if (method !== "GET") return fail(response, 405, "Method not allowed");
@@ -523,9 +759,27 @@ export async function startStudioServer(
       } catch {
         tenantId = "";
       }
-      if (!TENANT_ID.test(tenantId)) {
+      // A session limited to another Tenant gets the same answer as a Tenant
+      // that does not exist.
+      if (
+        !TENANT_ID.test(tenantId) ||
+        (session.tenant !== null && session.tenant !== tenantId)
+      ) {
         request.resume();
         return fail(response, 404, "Unknown Tenant");
+      }
+      if (session.kind === "bearer" && !SAFE_METHODS.has(method)) {
+        const path = pathname.slice(`/_studio/tenants/${segment}/runtime`.length);
+        response.once("finish", () =>
+          log({
+            msg: "studio proxy",
+            subject: session.subject,
+            tenant: tenantId,
+            method,
+            path,
+            status: response.statusCode,
+          }),
+        );
       }
       return proxyRuntime(request, response, {
         origin,
@@ -537,17 +791,8 @@ export async function startStudioServer(
       });
     }
 
-    if (pathname.startsWith("/_studio/")) {
-      request.resume();
-      return fail(response, 404, "Unknown Studio route");
-    }
-
     request.resume();
-    if (!SAFE_METHODS.has(method))
-      return fail(response, 405, "Studio only serves static assets here.");
-    await serveDashboard(response, method, pathname, webRoot, (status, message) =>
-      fail(response, status, message),
-    );
+    return fail(response, 404, "Unknown Studio route");
   };
 
   const server = createServer((request, response) => {

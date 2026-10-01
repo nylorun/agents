@@ -19,6 +19,7 @@ import {
 } from "@nylorun/agents";
 import { deriveStudioToken, deriveTenantKey } from "@nylorun/admin";
 import {
+  EMBED_SESSION_TTL_MS,
   LOGIN_TOKEN_TTL_MS,
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -149,7 +150,13 @@ async function withStudio(
     runtime: Awaited<ReturnType<typeof startFakeRuntime>>;
     clock: { now: number };
   }) => Promise<void>,
-  extra: { publicPort?: number; adminKey?: string; clock?: { now: number } } = {},
+  extra: {
+    publicPort?: number;
+    adminKey?: string;
+    clock?: { now: number };
+    frameAncestors?: readonly string[];
+    log?: (entry: Readonly<Record<string, unknown>>) => void;
+  } = {},
 ) {
   const runtime = await startFakeRuntime();
   const root = await webRoot();
@@ -256,9 +263,9 @@ test("a session survives a Studio restart and lasts 30 days", async () => {
   // A new Studio process with the same admin key accepts the cookie.
   await withStudio(async ({ port }) => {
     clock.now += SESSION_TTL_MS - 1;
-    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 200);
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
     clock.now += 1;
-    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 401);
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 401);
   }, { clock });
 });
 
@@ -269,7 +276,7 @@ test("a session ends when the admin key changes, and cannot be forged", async ()
     cookie = await session(port);
   }, { clock });
   await withStudio(async ({ port }) => {
-    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 401);
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 401);
   }, { clock, adminKey: "b".repeat(64) });
   await withStudio(async ({ port }) => {
     const [name, value] = cookie.split("=") as [string, string];
@@ -281,8 +288,8 @@ test("a session ends when the admin key changes, and cannot be forged", async ()
       `${name}=${version}.${clock.now + 10 * 60 * 1000}.${nonce}.${signature}`,
     ];
     for (const attempt of forged)
-      assert.equal((await send(port, { path: "/", headers: { cookie: attempt } })).status, 401, attempt);
-    assert.equal((await send(port, { path: "/", headers: { cookie } })).status, 200);
+      assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie: attempt } })).status, 401, attempt);
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
   }, { clock });
 });
 
@@ -309,15 +316,21 @@ test("login redirects only to same-origin paths", async () => {
     assert.equal(safeNextPath(unsafe), "/", unsafe);
 });
 
-test("every route but /login and /healthz needs a session cookie", async () => {
+test("dashboard files need no session; every /_studio route does", async () => {
   await withStudio(async ({ port }) => {
-    for (const path of ["/", "/assets/app.js", `/tenants/${TENANT_A}`, "/_studio/tenants", "/_studio/hello", `/_studio/tenants/${TENANT_A}/runtime/v1/agents`]) {
+    for (const path of ["/_studio/tenants", "/_studio/hello", `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, "/_studio/unknown"]) {
       const anonymous = await send(port, { path });
       assert.equal(anonymous.status, 401, path);
-      assert.ok(!anonymous.body.includes("studio-spa"));
       const forged = await send(port, { path, headers: { cookie: `${SESSION_COOKIE}=${"x".repeat(43)}` } });
       assert.equal(forged.status, 401, path);
     }
+    // The shell carries no data; the dashboard shows its own sign-in page.
+    for (const path of ["/", `/tenants/${TENANT_A}/vault`, "/assets/app.js"]) {
+      const anonymous = await send(port, { path });
+      assert.equal(anonymous.status, 200, path);
+    }
+    assert.equal((await send(port, { path: "/assets/missing.js" })).status, 404);
+    assert.equal((await send(port, { method: "POST", path: "/", headers: { origin: `http://localhost:${port}` } })).status, 405);
     const health = await send(port, { path: "/healthz" });
     assert.equal(health.status, 200);
     assert.deepEqual(JSON.parse(health.body), { status: "ok" });
@@ -329,9 +342,7 @@ test("every route but /login and /healthz needs a session cookie", async () => {
     const spa = await send(port, { path: `/tenants/${TENANT_A}/vault`, headers: { cookie: `other=1; ${cookie}` } });
     assert.equal(spa.status, 200);
     assert.match(spa.body, /studio-spa/);
-    const asset = await send(port, { path: "/assets/app.js", headers: { cookie } });
-    assert.equal(asset.status, 200);
-    assert.equal(asset.headers["x-frame-options"], "DENY");
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
   });
 });
 
@@ -429,10 +440,17 @@ test("Studio never sends CORS headers", async () => {
 test("the proxy uses each Tenant's derived Studio key and never leaks keys", async () => {
   await withStudio(async ({ port, runtime }) => {
     const cookie = await session(port);
+    // A bearer that is not a Studio session is refused, never forwarded, even
+    // beside a valid cookie.
+    const supplied = await send(port, {
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`,
+      headers: { cookie, authorization: "Bearer browser-supplied" },
+    });
+    assert.equal(supplied.status, 401);
     for (const tenant of [TENANT_A, TENANT_B]) {
       const reply = await send(port, {
         path: `/_studio/tenants/${tenant}/runtime/v1/agents`,
-        headers: { cookie, authorization: "Bearer browser-supplied" },
+        headers: { cookie },
       });
       assert.equal(reply.status, 200, reply.body);
       assertNoKeys(reply);
@@ -595,6 +613,295 @@ test("configuration helpers validate the Runtime URL and admin key file", async 
     await writeFile(file, JSON.stringify({}));
     assert.throws(() => readAdminKeyFile(file), /no adminKey/);
     assert.throws(() => readAdminKeyFile(join(dir, "missing.json")), /Cannot read/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// --- Embedding (Studio §8) -------------------------------------------------------------------
+
+const EMBEDDERS = ["nylorun://localhost", "http://nylorun.localhost"] as const;
+
+async function mintFor(
+  port: number,
+  body: Record<string, unknown>,
+): Promise<{ token: string; tenant: string | null; subject: string | null; url: string; expiresAt: string }> {
+  const reply = await send(port, {
+    method: "POST",
+    path: "/_studio/login-tokens",
+    headers: { authorization: `Bearer ${ADMIN_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal(reply.status, 201, reply.body);
+  return JSON.parse(reply.body);
+}
+
+async function redeem(port: number, token: string, origin = `http://localhost:${port}`): Promise<Reply> {
+  return send(port, {
+    method: "POST",
+    path: "/_studio/sessions",
+    headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
+async function embedSession(port: number, tenant = TENANT_A, subject = "user_1"): Promise<string> {
+  const { token } = await mintFor(port, { tenant, subject });
+  const reply = await redeem(port, token);
+  assert.equal(reply.status, 201, reply.body);
+  return (JSON.parse(reply.body) as { sessionToken: string }).sessionToken;
+}
+
+test("login tokens can be limited to a Tenant and a subject; {} stays Host-wide", async () => {
+  await withStudio(async ({ port }) => {
+    const limited = await mintFor(port, { tenant: TENANT_A, subject: "user_1" });
+    assert.equal(limited.tenant, TENANT_A);
+    assert.equal(limited.subject, "user_1");
+    assert.equal(Buffer.from(limited.token, "base64url").length, 32);
+    const wide = await mintFor(port, {});
+    assert.equal(wide.tenant, null);
+    assert.equal(wide.subject, null);
+    // The CLI's request: JSON `{}`; and a request with no body at all.
+    assert.equal((await mint(port)).token.length, 43);
+
+    for (const body of [
+      JSON.stringify({ tenant: "../x" }),
+      JSON.stringify({ subject: "" }),
+      JSON.stringify({ subject: "x".repeat(201) }),
+      JSON.stringify({ tenant: TENANT_A, admin: true }),
+      JSON.stringify([]),
+      "{not json",
+      JSON.stringify({ subject: "x".repeat(5000) }),
+    ]) {
+      const reply = await send(port, {
+        method: "POST",
+        path: "/_studio/login-tokens",
+        headers: { authorization: `Bearer ${ADMIN_KEY}`, "content-type": "application/json" },
+        body,
+      });
+      assert.equal(reply.status, 400, body.slice(0, 40));
+    }
+    const denied = await send(port, {
+      method: "POST",
+      path: "/_studio/login-tokens",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tenant: TENANT_A }),
+    });
+    assert.equal(denied.status, 401);
+  });
+});
+
+test("a Tenant-limited login token never becomes a cookie", async () => {
+  await withStudio(async ({ port }) => {
+    const { token } = await mintFor(port, { tenant: TENANT_A });
+    const reply = await send(port, { path: `/login?token=${token}` });
+    assert.equal(reply.status, 401);
+    assert.equal(reply.headers["set-cookie"], undefined);
+    // The attempt used it up.
+    assert.equal((await redeem(port, token)).status, 401);
+  });
+});
+
+test("a login token becomes a one-hour bearer session, once", async () => {
+  await withStudio(async ({ port, clock }) => {
+    const { token } = await mintFor(port, { tenant: TENANT_A, subject: "user_1" });
+    const first = await redeem(port, token);
+    assert.equal(first.status, 201, first.body);
+    assert.equal(first.headers["set-cookie"], undefined);
+    const body = JSON.parse(first.body) as Record<string, string>;
+    assert.match(body.sessionToken!, /^v2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/);
+    assert.equal(body.tenant, TENANT_A);
+    assert.equal(body.subject, "user_1");
+    assert.equal(body.expiresAt, new Date(clock.now + EMBED_SESSION_TTL_MS).toISOString());
+
+    const again = await redeem(port, token);
+    assert.equal(again.status, 401);
+    assert.equal(JSON.parse(again.body).code, "token_invalid");
+
+    const late = await mintFor(port, { tenant: TENANT_A });
+    clock.now += LOGIN_TOKEN_TTL_MS;
+    assert.equal((await redeem(port, late.token)).status, 401);
+
+    // Exchanging changes state: it needs this origin's Origin.
+    const fresh = await mintFor(port, { tenant: TENANT_A });
+    assert.equal((await redeem(port, fresh.token, "nylorun://localhost")).status, 403);
+    const noOrigin = await send(port, {
+      method: "POST",
+      path: "/_studio/sessions",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: fresh.token }),
+    });
+    assert.equal(noOrigin.status, 403);
+    assert.equal((await send(port, { path: "/_studio/sessions" })).status, 405);
+    const malformed = await send(port, {
+      method: "POST",
+      path: "/_studio/sessions",
+      headers: { origin: `http://localhost:${port}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(malformed.status, 400);
+  });
+});
+
+test("bearer sessions expire, cannot be forged, and end with the admin key", async () => {
+  const clock = { now: 1_000_000 };
+  let sessionToken = "";
+  await withStudio(async ({ port }) => {
+    sessionToken = await embedSession(port);
+    const hello = await send(port, { path: "/_studio/hello", headers: { authorization: `Bearer ${sessionToken}` } });
+    assert.equal(hello.status, 200);
+  }, { clock });
+  await withStudio(async ({ port }) => {
+    // Survives a restart with the same admin key, for one hour.
+    const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+    assert.equal((await send(port, { path: "/_studio/hello", headers: auth(sessionToken) })).status, 200);
+    const [version, claims, signature] = sessionToken.split(".") as [string, string, string];
+    const decoded = JSON.parse(Buffer.from(claims, "base64url").toString("utf8"));
+    const forge = (patch: Record<string, unknown>) =>
+      `${version}.${Buffer.from(JSON.stringify({ ...decoded, ...patch })).toString("base64url")}.${signature}`;
+    for (const attempt of [
+      forge({ tenant: TENANT_B }),
+      forge({ tenant: null }),
+      forge({ exp: decoded.exp + 1 }),
+      `${version}.${claims}.${signature.slice(0, -1)}${signature.endsWith("A") ? "B" : "A"}`,
+      `v1.${claims}.${signature}`,
+      "v2.x.y",
+      "not-a-session",
+    ]) {
+      const reply = await send(port, { path: "/_studio/hello", headers: auth(attempt) });
+      assert.equal(reply.status, 401, attempt);
+    }
+    // A bad bearer is refused even beside a valid cookie.
+    const cookie = await session(port);
+    const mixed = await send(port, { path: "/_studio/hello", headers: { cookie, authorization: "Bearer v2.x.y" } });
+    assert.equal(mixed.status, 401);
+
+    clock.now += EMBED_SESSION_TTL_MS - 1;
+    assert.equal((await send(port, { path: "/_studio/hello", headers: auth(sessionToken) })).status, 200);
+    clock.now += 1;
+    assert.equal((await send(port, { path: "/_studio/hello", headers: auth(sessionToken) })).status, 401);
+  }, { clock });
+  await withStudio(async ({ port }) => {
+    clock.now = 1_000_000;
+    const reply = await send(port, { path: "/_studio/hello", headers: { authorization: `Bearer ${sessionToken}` } });
+    assert.equal(reply.status, 401);
+  }, { clock, adminKey: "b".repeat(64) });
+});
+
+test("a Tenant-limited session reaches only its Tenant", async () => {
+  await withStudio(async ({ port, runtime }) => {
+    const sessionToken = await embedSession(port, TENANT_A);
+    const auth = { authorization: `Bearer ${sessionToken}` };
+    const own = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: auth });
+    assert.equal(own.status, 200, own.body);
+    assertNoKeys(own);
+    const upstream = runtime.seen.at(-1)!;
+    // The Runtime sees the derived Studio key, never the session token.
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.ok(!JSON.stringify(upstream.headers).includes(sessionToken));
+    assert.equal(upstream.headers["nylorun-subject"], undefined);
+
+    const before = runtime.seen.length;
+    const other = await send(port, { path: `/_studio/tenants/${TENANT_B}/runtime/v1/agents`, headers: auth });
+    assert.equal(other.status, 404);
+    assert.equal(JSON.parse(other.body).message, "Unknown Tenant");
+    assert.equal((await send(port, { path: "/_studio/tenants", headers: auth })).status, 403);
+    const create = await send(port, {
+      method: "POST",
+      path: "/_studio/tenants",
+      headers: { ...auth, origin: `http://localhost:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ name: "x" }),
+    });
+    assert.equal(create.status, 403);
+    assert.equal(runtime.seen.length, before);
+    assert.equal((await send(port, { path: "/_studio/hello", headers: auth })).status, 200);
+
+    // A Host-wide bearer session behaves like the cookie.
+    const { token } = await mintFor(port, {});
+    const wide = JSON.parse((await redeem(port, token)).body).sessionToken as string;
+    const list = await send(port, { path: "/_studio/tenants", headers: { authorization: `Bearer ${wide}` } });
+    assert.equal(list.status, 200);
+    const b = await send(port, { path: `/_studio/tenants/${TENANT_B}/runtime/v1/agents`, headers: { authorization: `Bearer ${wide}` } });
+    assert.equal(b.status, 200);
+  });
+});
+
+test("state changes from an embedded session are logged with the subject", async () => {
+  const entries: Readonly<Record<string, unknown>>[] = [];
+  await withStudio(async ({ port }) => {
+    const sessionToken = await embedSession(port, TENANT_A, "user_1");
+    const put = await send(port, {
+      method: "PUT",
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1?x=secret`,
+      body: JSON.stringify({ agentId: "a" }),
+      headers: {
+        authorization: `Bearer ${sessionToken}`,
+        origin: `http://localhost:${port}`,
+        "content-type": "application/json",
+      },
+    });
+    assert.equal(put.status, 200, put.body);
+    await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { authorization: `Bearer ${sessionToken}` } });
+  }, { log: (entry) => entries.push(entry) });
+  assert.deepEqual(entries, [
+    { msg: "studio proxy", subject: "user_1", tenant: TENANT_A, method: "PUT", path: "/v1/sessions/s1", status: 200 },
+  ]);
+});
+
+test("only the allowlist may frame dashboard files; nothing else can be framed", async () => {
+  await withStudio(async ({ port }) => {
+    for (const path of ["/", `/tenants/${TENANT_A}/sessions/s1`, "/assets/app.js"]) {
+      const reply = await send(port, { path });
+      assert.equal(reply.status, 200, path);
+      assert.equal(reply.headers["content-security-policy"], `frame-ancestors ${EMBEDDERS.join(" ")}`, path);
+      assert.equal(reply.headers["x-frame-options"], undefined, path);
+    }
+    const index = await send(port, { path: "/" });
+    assert.match(index.body, new RegExp(`<meta name="nylorun-frame-ancestors" content="${EMBEDDERS.join(" ")}">`));
+    const { token } = await mint(port);
+    for (const [path, init] of [
+      ["/_studio/hello", {}],
+      ["/_studio/tenants", {}],
+      ["/assets/missing.js", {}],
+      [`/login?token=${token}`, {}],
+      ["/login?token=used", {}],
+    ] as const) {
+      const reply = await send(port, { path, ...init });
+      assert.equal(reply.headers["x-frame-options"], "DENY", path);
+      const csp = reply.headers["content-security-policy"];
+      if (csp !== undefined) assert.match(String(csp), /frame-ancestors 'none'/, path);
+    }
+  }, { frameAncestors: EMBEDDERS });
+  await withStudio(async ({ port }) => {
+    const reply = await send(port, { path: "/" });
+    assert.equal(reply.headers["content-security-policy"], "frame-ancestors 'none'");
+    assert.match(reply.body, /<meta name="nylorun-frame-ancestors" content="">/);
+  });
+});
+
+test("the container entry refuses a wildcard frame allowlist", async () => {
+  const { spawn } = await import("node:child_process");
+  const dir = await mkdtemp(join(tmpdir(), "nylorun-studio-entry-"));
+  const keyFile = join(dir, "host-credentials.json");
+  await writeFile(keyFile, JSON.stringify({ adminKey: ADMIN_KEY }));
+  try {
+    for (const value of ["*", "https://*.example.com", "nylorun:"]) {
+      const child = spawn(process.execPath, [new URL("../dist/server-main.js", import.meta.url).pathname], {
+        env: {
+          ...process.env,
+          NYLORUN_RUNTIME_URL: "http://127.0.0.1:9",
+          NYLORUN_ADMIN_KEY_FILE: keyFile,
+          PORT: "3999",
+          NYLORUN_STUDIO_FRAME_ANCESTORS: value,
+        },
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      let stderr = "";
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const [code] = await once(child, "exit");
+      assert.equal(code, 1, value);
+      assert.match(stderr, /NYLORUN_STUDIO_FRAME_ANCESTORS/);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
