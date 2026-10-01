@@ -139,7 +139,7 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 
 Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Transports follow [Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers): `stdio`, `streamable-http`, and `sse`. Attach an Agent Plugin package with `.plugin(path)`.
 
-Give a session an isolated computer when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
+Give a session a sandbox when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
 
 ```ts
 const session = await client.createSession({
@@ -152,7 +152,7 @@ const session = await client.createSession({
 });
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no Action endpoint. The Runtime decides where the sandbox runs (today an emulated shell in the Runtime process; `image` needs an OpenShell backend).
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no Action endpoint. The Runtime decides where the sandbox runs: today an emulated shell in the Runtime process, which is not a VM boundary and takes no `image`.
 
 `sandbox` takes `false` for none, `{ session }` to share another session's sandbox, or an inline sandbox as above; omit it for the Tenant's default. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
 

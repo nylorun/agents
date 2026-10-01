@@ -172,8 +172,6 @@ export async function putSession(
   // An agent the subject may not use is the 404 of a missing definition.
   if (access?.agents !== undefined && !access.agents.has(body.agentId))
     fail(404, "Definition not found");
-  const backend =
-    body.sandbox === false ? undefined : (await ctx.sandbox.ready).backend?.name;
   return ctx.store.tx(async (t) => {
     const prior = await t.lockSession<Session>(id);
     if (
@@ -211,10 +209,7 @@ export async function putSession(
     const definition =
       (await t.get<Definition>("definitions", body.agentId)) ??
       fail(404, "Definition not found");
-    const sandbox = await sessionSandbox(t, body, definition, {
-      opaque,
-      backend,
-    });
+    const sandbox = await sessionSandbox(t, body, definition, { opaque });
     const created: Session = {
       id,
       agentId: body.agentId,
@@ -261,7 +256,7 @@ async function sessionSandbox(
   t: Tx,
   body: PutSessionRequest,
   definition: Definition,
-  options: { opaque: boolean; backend: string | undefined }
+  options: { opaque: boolean }
 ): Promise<SessionSandbox> {
   const request = body.sandbox;
   const declared = sandboxSpecOf(definition.manifest) !== undefined;
@@ -273,7 +268,7 @@ async function sessionSandbox(
     });
     if (declared || sandboxOwnerId === undefined) return { sandboxOwnerId };
     const spec = sessionSandboxSpec(lookup(request.session)!)!;
-    return { ...(await pin(definition, spec, "shared", options.backend)), sandboxOwnerId };
+    return { ...(await pin(definition, spec, "shared")), sandboxOwnerId };
   }
   if (declared) {
     if (request !== undefined)
@@ -286,23 +281,21 @@ async function sessionSandbox(
   const resolved = resolveSandbox({
     request,
     config: effectiveSandboxConfig(await readSandboxConfig(t)),
-    backend: options.backend,
     actingForSubject: options.opaque,
   });
   if (resolved.kind === "none") return {};
   if (resolved.kind === "error") return fail(resolved.status, resolved.errors.join(" "));
-  return pin(definition, resolved.spec, resolved.source, options.backend);
+  return pin(definition, resolved.spec, resolved.source);
 }
 
 async function pin(
   definition: Definition,
   spec: SandboxManifest,
-  source: NonNullable<Session["sandboxSource"]>,
-  backend: string | undefined
+  source: NonNullable<Session["sandboxSource"]>
 ): Promise<SessionSandbox> {
   // A workflow's manifest stays as registered: Action endpoints match workflow actions by its hash.
   if (isWorkflowManifest(definition.manifest)) return { spec, source };
-  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec, backend);
+  const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) return fail(400, sandboxed.message);
   return {
     spec,

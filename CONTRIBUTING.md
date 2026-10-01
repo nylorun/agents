@@ -82,7 +82,6 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
 | `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary stack                             |
-| `npm run test:stack:openshell`              | Smoke `nylorun start --sandbox openshell`: a session's `bash` in an OpenShell sandbox (six containers at rest, eight after) and `npm --version` in a sandbox that names an image |
 | `npm run test:starter`                      | Smoke the packed starter (`nylorun up`, `nylo tenant create`, `npm run dev`, a temporary fixture-model Tenant) on a temporary stack |
 | `npm run test:dev`                          | Smoke `npm run dev` on a temporary stack and a clean copy of `examples/`   |
 | `npm run test:acceptance [-- --only H1,H2]` | Tenant acceptance (H1–H9) on a temporary stack                             |

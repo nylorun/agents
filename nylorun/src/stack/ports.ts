@@ -6,8 +6,6 @@ export const DEFAULT_PORTS = {
   admin: 8788,
   studio: 4161,
   restate: 9070,
-  openshell: 18080,
-  openshellHealth: 18081,
 } as const;
 
 /** How the stack finds ports on 127.0.0.1; injectable for tests. */

@@ -38,7 +38,7 @@ it is opened, within limits its Tenant sets, so the same agent runs in any Tenan
 | Before | After |
 | --- | --- |
 | `Agent(…).sandbox()` or `.use(sandbox())` | Remove it. Open the session with `createSession({ …, sandbox: {} })`, or set the Tenant's default |
-| `.sandbox({ image, network, resources })` | `createSession({ …, sandbox: { image, network: { allow }, resources } })`. `image` needs an OpenShell backend |
+| `.sandbox({ image, network, resources })` | `createSession({ …, sandbox: { network: { allow }, resources } })`. `image` is not supported yet: the virtual sandbox has no images |
 | `.sandbox({ idle })` | The Tenant's `limits.idle` (`PUT /v1/tenant/sandbox`) |
 | `network.preset: "dev"` (the old default) | List the hosts in `network.allow`. The Tenant's ceiling defaults to the same package registries and code hosts; no `allow` means no egress |
 | `.sandbox(spec)` on a flow agent, `.sandbox()` on its agents | Open the flow's session with the sandbox; its agents, tool steps and `verify` inherit it |

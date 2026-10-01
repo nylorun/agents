@@ -10842,8 +10842,7 @@
                 "type": "string",
                 "enum": [
                   "auto",
-                  "virtual",
-                  "openshell"
+                  "virtual"
                 ]
               },
               "config": {
@@ -11127,8 +11126,7 @@
               {
                 "type": "string",
                 "enum": [
-                  "virtual",
-                  "openshell"
+                  "virtual"
                 ]
               }
             ]
@@ -11140,7 +11138,6 @@
             ],
             "enum": [
               "virtual",
-              "openshell",
               null
             ]
           },
@@ -11166,8 +11163,7 @@
                 "name": {
                   "type": "string",
                   "enum": [
-                    "virtual",
-                    "openshell"
+                    "virtual"
                   ]
                 },
                 "available": {

@@ -47,7 +47,7 @@ export function conformance(name: string, options: ConformanceOptions) {
       return (outcome as { output: unknown }).output;
     };
     let shared: SandboxHandle;
-    /** The backend's workspace: `/workspace`, or `/sandbox` on OpenShell. */
+    /** The backend's workspace, `/workspace` unless the backend says otherwise. */
     let ws = "/workspace";
 
     beforeAll(async () => {

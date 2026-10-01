@@ -27,16 +27,7 @@ function isAgentManifest(value: unknown): value is AgentManifest {
   );
 }
 
-/** The workspace path a backend's sandboxes use, named in the sandbox tools' text. */
-export function sandboxWorkspaceOf(backend: string | undefined): string | undefined {
-  return backend === "openshell" ? "/sandbox" : undefined;
-}
-
-function addCapability(
-  manifest: AgentManifest,
-  spec: SandboxManifest,
-  workspace: string | undefined
-): AgentManifest {
+function addCapability(manifest: AgentManifest, spec: SandboxManifest): AgentManifest {
   const capabilities = manifest.capabilities.map((capability) =>
     capability.tools === undefined
       ? capability
@@ -47,26 +38,22 @@ function addCapability(
             // in linked sessions that inherit it.
             if (tool.agent === undefined || !isAgentManifest(tool.agent)) return tool;
             if (sandboxSpecOf(tool.agent) !== undefined) return tool;
-            return { ...tool, agent: addCapability(tool.agent, spec, workspace) };
+            return { ...tool, agent: addCapability(tool.agent, spec) };
           }),
         }
   );
   return {
     ...manifest,
-    capabilities: [
-      ...capabilities,
-      sandboxCapabilityManifest(spec, workspace === undefined ? {} : { workspace }),
-    ],
+    capabilities: [...capabilities, sandboxCapabilityManifest(spec)],
   };
 }
 
 /** The agent's manifest with the sandbox capability added, or why it cannot take one. */
 export function withSandboxCapability(
   manifest: AgentManifest,
-  spec: SandboxManifest,
-  backend?: string
+  spec: SandboxManifest
 ): SandboxedManifest {
-  const sandboxed = addCapability(manifest, spec, sandboxWorkspaceOf(backend));
+  const sandboxed = addCapability(manifest, spec);
   const parsed = AgentManifestSchema.safeParse(sandboxed);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => issue.message);

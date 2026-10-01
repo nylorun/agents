@@ -42,10 +42,8 @@ export interface TenantConfig {
   mode: TenantMode;
   paths: TenantPaths;
   sandbox: {
-    backend: "auto" | "virtual" | "openshell";
+    backend: "auto" | "virtual";
     backends?: readonly SandboxBackend[];
-    /** The Host's OpenShell gateway; adds the `openshell` backend. */
-    openshell?: { readonly gateway: string };
   };
   model: TenantModelConfig;
   /**
