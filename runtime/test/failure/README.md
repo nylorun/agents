@@ -55,3 +55,27 @@ container is killed with `docker compose kill` (`npm run test:failure`,
   deployment, queued invocation, sweep chain and idempotency key is gone. The
   test needs the `docker` CLI and the same `COMPOSE_PROJECT_NAME` and port
   variables as `test:stack:up`.
+
+## Durable Streams (Durable Streams §13, §20)
+
+`durable-streams.integration.test.ts` runs the stream relay on the test stack's Postgres
+(logical replication) and s2-lite, and checks after each case that every S2 stream equals its
+record, `0..head-1` in order. It needs only `NYLORUN_TEST_STACK=1`.
+
+| Case | Test |
+| --- | --- |
+| The relay crashes mid-stream | "keeps S2 equal to the record when the relay crashes mid-stream" (20 sessions, a second relay takes the slot) |
+| S2 unreachable | "keeps committing while S2 is unreachable for 10 s, then catches up in order" (the slot's confirmed position does not move while S2 is down) |
+| The slot is invalidated by `max_slot_wal_keep_size` | "recreates a slot Postgres invalidated for holding too much WAL, and reconciles" (sets a 1 MB cap with `ALTER SYSTEM`, restored afterwards) |
+| Another process takes over | "hands the slot to another process when the active relay's connection dies" |
+
+Lower down: `streams/relay-core.test.ts` (the relay over the in-memory record) and
+`streams/relay-pg.integration.test.ts` (crash before append, dropped slot, two relays,
+concurrent writers).
+
+The latency gate, commit to S2 under 200 ms at p99 with 50 sessions, is
+`streams/relay-bench.integration.test.ts`; it runs only with `NYLORUN_BENCH=1`:
+
+```sh
+NYLORUN_TEST_STACK=1 NYLORUN_BENCH=1 npx vitest run -c vitest.integration.config.ts test/streams/relay-bench
+```
