@@ -98,6 +98,10 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
   let reconciliations = 0;
   let lastError: string | null = null;
   let idleWaiters: (() => void)[] = [];
+  /** Woken when queued rows settle or the activation ends (`reconcile` waits on its rows). */
+  let progressWaiters: (() => void)[] = [];
+  /** Moves on with every activation and every loss of the source. */
+  let activation = 0;
   const stopping = new AbortController();
 
   const keyOf = (tenantId: string, sessionId: string) => `${tenantId}\u0000${sessionId}`;
@@ -219,6 +223,13 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
       else keep.push(row);
     }
     queue.rows = keep;
+    progressed();
+  }
+
+  function progressed(): void {
+    const waiters = progressWaiters;
+    progressWaiters = [];
+    for (const wake of waiters) wake();
   }
 
   /** The rows' generation is no longer the Tenant's (a reset), or the Tenant is gone. */
@@ -231,20 +242,23 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
     }
   }
 
-  /** Puts record rows `[from, to)` in front of the queue (not part of the ack order). */
+  /**
+   * Puts record rows `[from, to)` in front of the queue (not part of the ack order). Returns
+   * their pending count, which reaches 0 once they are all in S2.
+   */
   async function refill(
     queue: SessionQueue,
     generation: number,
     from: number,
     to: number,
-  ): Promise<void> {
+  ): Promise<PendingTx | undefined> {
     const rows = await record.readRange(queue.tenantId, queue.sessionId, from, to);
     const own = rows.filter((row) => row.generation === generation);
     if (own.length < to - from) {
       // The record no longer has them (a reset deleted the session): nothing to re-send.
       if (await obsolete({ ...queue, seq: from, generation, body: null })) {
         settle(queue, (row) => row.generation <= generation);
-        return;
+        return undefined;
       }
       throw new Error(
         `The record is missing rows ${from}..${to - 1} of session ${queue.sessionId}`,
@@ -258,6 +272,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
       to,
     });
     queue.rows.unshift(...own.map((row) => queued(row, tx)));
+    return tx;
   }
 
   /** Acknowledges the newest transaction whose rows, and all before it, are in S2. */
@@ -277,48 +292,63 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
     source.acknowledge(lsn);
   }
 
-  /** Re-sends, for every session, what the record has beyond its S2 tail. */
-  async function reconcile(): Promise<void> {
+  /**
+   * Re-sends, for every session, what the record has beyond its S2 tail, and resolves true
+   * once all of it is in S2. False when activation `of` ended first (the source was lost, so
+   * the queued rows were dropped) or the relay stopped: the slot must stay unreconciled.
+   */
+  async function reconcile(of: number): Promise<boolean> {
     reconciliations += 1;
     const started = Date.now();
+    const current = () => !stopped && activation === of;
     let sessionsChecked = 0;
     let resent = 0;
+    const refilled: PendingTx[] = [];
     let after: { tenantId: string; sessionId: string } | undefined;
     for (;;) {
-      if (stopped) return;
+      if (!current()) return false;
       const page = await record.heads(after, HEADS_PAGE);
       if (page.length === 0) break;
       let next = 0;
       await Promise.all(
         Array.from({ length: Math.min(concurrency, page.length) }, async () => {
-          while (next < page.length && !stopped) {
+          while (next < page.length && current()) {
             const head = page[next++]!;
             sessionsChecked += 1;
-            resent += await reconcileOne(head);
+            const tx = await reconcileOne(head);
+            if (tx) {
+              refilled.push(tx);
+              resent += tx.remaining;
+            }
           }
         }),
       );
       const last = page[page.length - 1]!;
       after = { tenantId: last.tenantId, sessionId: last.sessionId };
     }
+    // Queued is not delivered: wait until S2 has every re-sent row.
+    while (current() && refilled.some((tx) => tx.remaining > 0))
+      await new Promise<void>((resolve) => progressWaiters.push(resolve));
+    if (!current()) return false;
     log("stream relay reconciled the record with S2", {
       sessions: sessionsChecked,
       resent,
       durationMs: Date.now() - started,
     });
+    return true;
   }
 
-  async function reconcileOne(head: LogHead): Promise<number> {
+  async function reconcileOne(head: LogHead): Promise<PendingTx | undefined> {
     const current = await record.generation(head.tenantId);
-    if (current === undefined || current !== head.generation) return 0;
+    if (current === undefined || current !== head.generation) return undefined;
     const basin = basinOf(head.tenantId, head.generation);
     await streams.ensureTenant(basin);
     const tail = await streams.tail(basin, sessionStream(head.sessionId));
-    if (tail >= head.head) return 0;
+    if (tail >= head.head) return undefined;
     const queue = queueOf(head.tenantId, head.sessionId);
-    await refill(queue, head.generation, tail, head.head);
+    const tx = await refill(queue, head.generation, tail, head.head);
     pumpSoon(queue);
-    return head.head - tail;
+    return tx;
   }
 
   return {
@@ -326,10 +356,11 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
       source.start({
         onActive({ fresh }) {
           active = true;
+          const of = (activation += 1);
           log("stream relay active", { fresh });
           if (fresh)
-            void reconcile()
-              .then(() => source.reconciled())
+            void reconcile(of)
+              .then((complete) => (complete ? source.reconciled() : undefined))
               .catch((error) => {
               lastError = messageOf(error);
               log("stream relay reconciliation failed", { message: lastError });
@@ -346,9 +377,11 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
         },
         onInactive(error) {
           active = false;
+          activation += 1;
           // The source replays everything not acknowledged; what is queued is dropped.
           txs.length = 0;
           for (const queue of sessions.values()) queue.rows = [];
+          progressed();
           if (error) {
             lastError = messageOf(error);
             log("stream relay lost its source; retrying", { message: lastError });
@@ -359,6 +392,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
     async stop() {
       stopped = true;
       stopping.abort();
+      progressed();
       await source.stop();
       const waiters = idleWaiters;
       idleWaiters = [];
