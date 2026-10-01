@@ -196,6 +196,24 @@ the stack's configuration accepts unauthenticated callers on its network.
 Kubernetes gateways, mTLS to the gateway and several gateways per Host are
 deferred. `npx nylo doctor sandbox` reports the backend in use and why.
 
+## Postgres for session events
+
+Postgres holds the record of every session event (`nylorun_streams.session_events`), and
+the Runtime's stream relay feeds s2-lite from it over **logical replication**. The local
+stack starts Postgres with the settings it needs; a Postgres you run yourself needs them
+too:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `wal_level` | `logical` | The relay reads committed events from a replication slot. Changing it restarts Postgres |
+| `max_replication_slots`, `max_wal_senders` | at least 2 (the default 10 is enough) | One slot, `nylorun_stream_relay` |
+| `max_slot_wal_keep_size` | a few GB (the stack uses 4GB) | A stuck relay cannot fill the disk; a lost slot only costs a reconciliation |
+| The Runtime's role | `REPLICATION`, plus read access to `nylorun_streams` | The relay reads every Tenant's events (the stack's `nylorun` role is a superuser) |
+
+On a managed Postgres, turn on its logical replication option (for example
+`rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
+WAL; the relay catches up in order when S2 returns.
+
 ## Container images
 
 Each release publishes the Runtime and Studio as multi-arch images

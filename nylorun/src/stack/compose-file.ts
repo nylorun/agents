@@ -8,7 +8,10 @@ import { OPENSHELL_IMAGES } from "./openshell.js";
  * Host root, the Runtime and Studio images) comes from `stack/.env`.
  *
  * Tenants are Postgres schemas, executed through Restate, with their history in
- * s2-lite; the Runtime's /ready checks all three.
+ * s2-lite; the Runtime's /ready checks all three. Postgres runs with
+ * `wal_level=logical`: the stream relay feeds s2-lite from the record over logical
+ * replication (Durable Streams), and `max_slot_wal_keep_size` caps the WAL a stuck
+ * relay can hold.
  *
  * Restate signs requests to the Worker endpoint with the private key in
  * `stack/restate-identity.pem`, mounted read-only; the Runtime gets the public
@@ -25,6 +28,8 @@ name: nylorun
 services:
   postgres: # Session Store
     image: ${PINNED_IMAGES.postgres}
+    # Logical replication feeds the stream relay; a stuck slot is capped at 4 GB of WAL.
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=4GB"]
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}

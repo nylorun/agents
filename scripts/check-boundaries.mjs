@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const allowed = {
@@ -14,7 +14,26 @@ const allowed = {
 };
 // Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
 const substrates = {
-  runtime: ["just-bash", "@restatedev/restate-sdk", "@s2-dev/streamstore"],
+  runtime: [
+    "just-bash",
+    "@restatedev/restate-sdk",
+    "@s2-dev/streamstore",
+    // The stream relay's logical replication (adapters/replication/).
+    "pg",
+    "pg-logical-replication",
+  ],
+};
+// The streams module (Durable Streams §7.6) depends only on its own contracts: it receives an
+// already-authorized Tenant and session, never reaches into tenant, engine, API or store code.
+const moduleImports = {
+  runtime: [
+    {
+      dir: "streams",
+      forbidden: ["tenant", "core", "api", "store", "host", "execution"],
+      // The outbox relay reads the store until the record replaces it.
+      except: ["streams/relay.ts"],
+    },
+  ],
 };
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.
 const httpFramework = {
@@ -69,6 +88,17 @@ export function checkBoundaries(name) {
         if (pattern.test(source) && !/[\\/]adapters[\\/]/.test(path.slice(join(root, name).length)))
           throw new Error(`${path} imports ${substrate}; only adapters/ may import substrate SDKs`);
       }
+      const relative = path.slice(join(root, name).length + 1).split(/[\\/]/);
+      if (relative[0] === "src")
+        for (const rule of moduleImports[name] ?? []) {
+          if (relative[1] !== rule.dir || rule.except.includes(relative.slice(1).join("/"))) continue;
+          for (const match of source.matchAll(/(?:from\s*|import\s*\()["'](\.\.?\/[^"']+)["']/g)) {
+            const target = join(dirname(path), match[1]).slice(join(root, name, "src").length + 1);
+            const top = target.split(/[\\/]/)[0];
+            if (rule.forbidden.includes(top))
+              throw new Error(`${path} imports ${match[1]}; ${rule.dir}/ must not import ${top}/`);
+          }
+        }
       const http = httpFramework[name];
       if (http) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["'](?:${http.packages.join("|")})(?:/[^"']*)?["']`);

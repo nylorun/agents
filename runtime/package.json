@@ -75,6 +75,8 @@
     "hono": "^4.13.12",
     "jose": "^6.2.12",
     "just-bash": "3.4.2",
+    "pg": "8.23.1",
+    "pg-logical-replication": "2.5.0",
     "postgres": "^3.4.9",
     "zod": "^4.6.5"
   },
@@ -83,6 +85,7 @@
     "@ag-ui/client": "1.0.0",
     "@scalar/openapi-parser": "^0.29.9",
     "@types/node": "^26.5.0",
+    "@types/pg": "^8.23.1",
     "@typescript/native": "npm:typescript@^7.0.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^5.0.1"

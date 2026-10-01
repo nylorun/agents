@@ -44,6 +44,8 @@ name: nylorun
 services:
   postgres: # Session Store
     image: postgres:17.11
+    # Logical replication feeds the stream relay; a stuck slot is capped at 4 GB of WAL.
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=4GB"]
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}
