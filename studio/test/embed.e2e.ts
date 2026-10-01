@@ -29,8 +29,11 @@ async function listen(server: Server, port = 0): Promise<number> {
   return address.port;
 }
 
-/** Just enough Runtime for the dashboard to open one session. */
-async function fakeRuntime() {
+/**
+ * Just enough Runtime for the dashboard to open one session. `listsMissing`
+ * answers `{}` where the dashboard expects provider and vault lists.
+ */
+async function fakeRuntime({ listsMissing = false } = {}) {
   const session = {
     id: SESSION,
     agentId: AGENT,
@@ -77,6 +80,8 @@ async function fakeRuntime() {
       return; // held open, like a live stream
     }
     if (path.endsWith("/items")) return res.end(JSON.stringify({ items: [], cursor: null }));
+    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/vaults"].includes(path))
+      return res.end(JSON.stringify({}));
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return res.end(JSON.stringify({ providers: [] }));
     if (path === "/v1/vaults") return res.end(JSON.stringify({ vaults: [] }));
@@ -144,8 +149,9 @@ function studioFrame(page: Page, studioUrl: string): Frame {
 
 async function withStack(
   run: (context: { studioUrl: string; embedderOrigin: string; clock: { offset: number } }) => Promise<void>,
+  options: { listsMissing?: boolean } = {},
 ) {
-  const runtime = await fakeRuntime();
+  const runtime = await fakeRuntime(options);
   // Embedder origins are only known once its port is; reserve it first.
   const reserve = createServer();
   const embedPort = await listen(reserve);
@@ -299,6 +305,39 @@ test("a normal browser tab still signs in with the cookie and lists Tenants", as
       await page.getByText("orders").waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.dataset.embed), undefined);
     });
+  } finally {
+    await browser.close();
+  }
+});
+
+test("a Runtime answering {} for provider and vault lists leaves the dashboard rendered", async () => {
+  const browser = await chromium.launch();
+  try {
+    await withStack(
+      async ({ studioUrl }) => {
+        const minted = await fetch(`${studioUrl}/_studio/login-tokens`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${ADMIN_KEY}` },
+        });
+        const { url } = (await minted.json()) as { url: string };
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.goto(url);
+        await page.getByRole("heading", { name: "Tenants" }).waitFor();
+
+        // The session's model picker reports the missing lists instead of crashing.
+        await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${SESSION}`);
+        await page.getByText("The Runtime did not return connected model providers.").waitFor();
+        await page.getByText("Agent One").first().waitFor();
+
+        await page.goto(`${studioUrl}/tenants/${TENANT}/vault`);
+        await page.getByText("The Runtime did not return the Tenant's vaults.").waitFor();
+        assert.equal(await page.getByText("Something went wrong in this view").count(), 0);
+        assert.deepEqual(pageErrors, []);
+      },
+      { listsMissing: true },
+    );
   } finally {
     await browser.close();
   }
