@@ -55,11 +55,16 @@ export function assertMigrations(migrations: readonly Migration[]): void {
   });
 }
 
-/** Takes the schema's migration lock until the transaction ends. */
+/**
+ * Takes the schema's migration lock until the transaction ends. Waiting for it, and the
+ * migrations or deletion done under it, may outlast the pool's statement timeout: it is lifted
+ * for the transaction, since a migration that times out would quarantine the Tenant.
+ */
 export async function lockSchema(
   tx: TransactionSql,
   schema: string,
 ): Promise<void> {
+  await tx`SET LOCAL statement_timeout = 0`;
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`nylorun.schema:${schema}`}, 0))`;
 }
 
