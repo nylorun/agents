@@ -26,6 +26,7 @@ const env: StackEnv = {
   hostRoot: "/Users/dev/.nylorun",
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
+  studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
 };
 
 /** Fixed vector: Restate 1.7.12 logs `kid: <FIXED_KEY>` when it loads this PEM. */
@@ -125,7 +126,18 @@ describe(".env", () => {
       studioPort: 4161,
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
+      studioFrameAncestors: ["nylorun://localhost", "http://nylorun.localhost"],
     });
+    expect(renderEnvFile(env)).toContain(
+      "NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'",
+    );
+  });
+
+  it("refuses a persisted frame allowlist with a wildcard", () => {
+    expect(() => parsePersisted("NYLORUN_STUDIO_FRAME_ANCESTORS='*'\n")).toThrow(
+      /NYLORUN_STUDIO_FRAME_ANCESTORS in stack\/.env: \* is not an exact origin/,
+    );
+    expect(parsePersisted("NYLORUN_STUDIO_FRAME_ANCESTORS=\n")).toEqual({ studioFrameAncestors: [] });
   });
 
   it("quotes paths with spaces and refuses single quotes", () => {
@@ -166,7 +178,15 @@ describe("ports", () => {
 });
 
 describe("prepareStack", () => {
-  const prepare = (home: string, ports = fakePorts(), overrides: { uid?: number; runtimeImage?: string } = {}) =>
+  const prepare = (
+    home: string,
+    ports = fakePorts(),
+    overrides: {
+      uid?: number;
+      runtimeImage?: string;
+      studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
+    } = {},
+  ) =>
     prepareStack({
       paths: stackPaths(home),
       images: { ...images, ...(overrides.runtimeImage ? { runtime: overrides.runtimeImage } : {}) },
@@ -174,7 +194,27 @@ describe("prepareStack", () => {
       gid: 20,
       runtimeVersion: "0.10.0-beta",
       ports,
+      ...(overrides.studioEmbedOrigins ? { studioEmbedOrigins: overrides.studioEmbedOrigins } : {}),
     });
+
+  it("lets Babai's origins embed Studio by default, keeps additions, and resets them", async () => {
+    const home = await temporaryHome();
+    const first = await prepare(home);
+    expect(first.env.studioFrameAncestors).toBe("nylorun://localhost http://nylorun.localhost");
+    const added = await prepare(home, fakePorts(), {
+      studioEmbedOrigins: { add: ["http://localhost:1420", "nylorun://localhost"] },
+    });
+    expect(added.env.studioFrameAncestors).toBe(
+      "nylorun://localhost http://nylorun.localhost http://localhost:1420",
+    );
+    // Kept across starts without the option.
+    expect((await prepare(home)).env.studioFrameAncestors).toBe(added.env.studioFrameAncestors);
+    const reset = await prepare(home, fakePorts(), { studioEmbedOrigins: { reset: true } });
+    expect(reset.env.studioFrameAncestors).toBe("nylorun://localhost http://nylorun.localhost");
+    await expect(
+      prepare(home, fakePorts(), { studioEmbedOrigins: { add: ["https://*.example.com"] } }),
+    ).rejects.toThrow(/--studio-embed-origin: https:\/\/\*\.example\.com is not an exact origin/);
+  });
 
   it("writes host.json, credentials, compose.yaml and .env with the right modes", async () => {
     const home = await temporaryHome();

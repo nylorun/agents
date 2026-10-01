@@ -24,9 +24,10 @@ export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"]
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  up|start [--no-studio] [--no-open] [--allow-downgrade]
+export const stackUsage = `  up|start [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
                                       set up the stack on first run, then start it; print the Runtime and Studio URLs and open Studio signed in (in a terminal).
-                                      refuses a Runtime older than the Host last ran unless --allow-downgrade
+                                      refuses a Runtime older than the Host last ran unless --allow-downgrade.
+                                      --studio-embed-origin lets one more exact origin show Studio in a frame (a desktop app's development server); kept across starts until --studio-embed-origin-reset
   down|stop                           stop the stack's containers; keep volumes
   status [--json] [--env]             services, endpoints and Runtime health (--env: the linked Project's variables)
   logs [service] [-f] [--tail <n>]    stack logs (${STACK_SERVICES.join(", ")})
@@ -112,15 +113,23 @@ interface Flags {
   rest: string[];
   booleans: Set<string>;
   values: Map<string, string>;
+  /** Options that may repeat, in order. */
+  lists: Map<string, string[]>;
 }
 
 export function parseStackFlags(
   args: readonly string[],
-  allowed: { booleans?: readonly string[]; values?: readonly string[]; aliases?: Record<string, string> },
+  allowed: {
+    booleans?: readonly string[];
+    values?: readonly string[];
+    lists?: readonly string[];
+    aliases?: Record<string, string>;
+  },
   usage: string,
 ): Flags {
   const booleans = new Set<string>();
   const values = new Map<string, string>();
+  const lists = new Map<string, string[]>();
   const rest: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const raw = args[index]!;
@@ -140,9 +149,16 @@ export function parseStackFlags(
       values.set(arg, value);
       continue;
     }
+    if (allowed.lists?.includes(arg)) {
+      const value = args[++index];
+      if (value === undefined || value.startsWith("-"))
+        throw usageError(`${arg} requires a value.`);
+      lists.set(arg, [...(lists.get(arg) ?? []), value]);
+      continue;
+    }
     throw usageError(`Unknown option ${raw}. Usage: ${usage}`);
   }
-  return { rest, booleans, values };
+  return { rest, booleans, values, lists };
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -296,7 +312,11 @@ interface Started {
 
 async function bringUp(
   ctx: Context,
-  options: { studio: boolean; allowDowngrade?: boolean },
+  options: {
+    studio: boolean;
+    allowDowngrade?: boolean;
+    studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
+  },
 ): Promise<Started> {
   const { deps } = ctx;
   await refuseLauncherRuntime(ctx);
@@ -313,6 +333,7 @@ async function bringUp(
     // An overriding image's version is unknown: keep the recorded one.
     runtimeVersion: overridden ? undefined : deps.runtimeVersion,
     ports: deps.ports,
+    ...(options.studioEmbedOrigins ? { studioEmbedOrigins: options.studioEmbedOrigins } : {}),
   });
   if (prepared.firstRun)
     deps.err(
@@ -392,19 +413,28 @@ async function openLogin(ctx: Context, login: string): Promise<void> {
 export const TENANT_HINT =
   "No Tenant yet. Create one in Studio, or run `npx @nylorun/cli tenant create` in your project.";
 
-const START_USAGE = "nylorun start [--no-studio] [--no-open] [--allow-downgrade]";
+const START_USAGE =
+  "nylorun start [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]";
 
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
     args,
-    { booleans: ["--no-studio", "--no-open", "--allow-downgrade"] },
+    {
+      booleans: ["--no-studio", "--no-open", "--allow-downgrade", "--studio-embed-origin-reset"],
+      lists: ["--studio-embed-origin"],
+    },
     START_USAGE,
   );
   if (flags.rest.length) throw usageError(`Usage: ${START_USAGE}`);
   await dockerPreflight(ctx.deps.docker);
+  const embedOrigins = flags.lists.get("--studio-embed-origin") ?? [];
+  const resetEmbed = flags.booleans.has("--studio-embed-origin-reset");
   const started = await bringUp(ctx, {
     studio: !flags.booleans.has("--no-studio"),
     allowDowngrade: flags.booleans.has("--allow-downgrade"),
+    ...(embedOrigins.length || resetEmbed
+      ? { studioEmbedOrigins: { add: embedOrigins, reset: resetEmbed } }
+      : {}),
   });
   ctx.deps.out(`Runtime   ${started.runtimeUrl}`);
   if (started.studioStarted) {
@@ -442,7 +472,12 @@ export interface StackStatus {
     hostId?: string;
     tenants?: number;
   };
-  studio: { url?: string; state: string };
+  studio: {
+    url?: string;
+    state: string;
+    /** Exact origins that may show Studio in a frame (Studio §8.9). */
+    embedOrigins?: string[];
+  };
   restate: { url?: string };
   services: ComposeService[];
 }
@@ -515,6 +550,9 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     studio: {
       ...(persisted.studioPort ? { url: studioOrigin(persisted.studioPort) } : {}),
       state: studio ? [studio.state, studio.health].filter(Boolean).join(", ") : "absent",
+      ...(persisted.studioFrameAncestors
+        ? { embedOrigins: persisted.studioFrameAncestors }
+        : {}),
     },
     restate: persisted.restatePort
       ? { url: `http://${STACK_CLIENT_HOST}:${persisted.restatePort}` }
@@ -548,6 +586,8 @@ async function status(ctx: Context, args: readonly string[]): Promise<number> {
     if (result.runtime.adminUrl)
       out(`Admin API   ${result.runtime.adminUrl}  (operators only, never proxied)`);
     out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun studio")`);
+    if (result.studio.embedOrigins?.length)
+      out(`Embeds      ${result.studio.embedOrigins.join(" ")}  (may show Studio in a frame)`);
     if (result.restate.url) out(`Restate UI  ${result.restate.url}`);
     out(
       `Services    ${

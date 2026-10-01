@@ -1,7 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import { renderComposeFile } from "./compose-file.js";
-import { parsePersisted, renderEnvFile, type StackEnv } from "./env-file.js";
+import { parseFrameAncestors } from "@nylorun/core/contracts";
+import { CliError } from "../errors.js";
+import {
+  DEFAULT_STUDIO_FRAME_ANCESTORS,
+  parsePersisted,
+  renderEnvFile,
+  type StackEnv,
+} from "./env-file.js";
 import {
   ensureHostCredentials,
   ensureHostLayout,
@@ -56,6 +63,11 @@ export async function prepareStack(input: {
   /** Recorded in host.json; undefined keeps the recorded version. */
   runtimeVersion: string | undefined;
   ports: PortProbe;
+  /**
+   * Changes to the origins that may embed Studio: `reset` goes back to the
+   * defaults, `add` appends (for example a desktop app's dev server).
+   */
+  studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
 }): Promise<PreparedStack> {
   const { paths } = input;
   await ensureHostLayout(paths);
@@ -93,6 +105,21 @@ export async function prepareStack(input: {
 
   const identity = await ensureIdentityKey(paths.restateIdentity, writeFileMode);
 
+  let added: string[];
+  try {
+    added = parseFrameAncestors((input.studioEmbedOrigins?.add ?? []).join(" "));
+  } catch (error) {
+    throw new CliError(
+      `--studio-embed-origin: ${error instanceof Error ? error.message : String(error)}`,
+      2,
+    );
+  }
+  const base =
+    input.studioEmbedOrigins?.reset || persisted.studioFrameAncestors === undefined
+      ? [...DEFAULT_STUDIO_FRAME_ANCESTORS]
+      : persisted.studioFrameAncestors;
+  const studioFrameAncestors = [...new Set([...base, ...added])].join(" ");
+
   const env: StackEnv = {
     runtimePort,
     adminPort,
@@ -105,6 +132,7 @@ export async function prepareStack(input: {
     hostRoot: paths.root,
     runtimeImage: input.images.runtime,
     studioImage: input.images.studio,
+    studioFrameAncestors,
   };
 
   const { adminKey } = await ensureHostCredentials(paths);

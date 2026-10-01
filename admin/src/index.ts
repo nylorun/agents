@@ -22,6 +22,7 @@ export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
 export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey };
+export { mintStudioLoginToken } from "./studio-login.js";
 
 export interface Admin {
   /** The Host's Tenant API URL. */

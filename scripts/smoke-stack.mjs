@@ -9,7 +9,8 @@
 // `nylorun status --json` and the Runtime's /ready (Postgres, Restate, S2),
 // checks that Studio is printed without a login token, creates a Tenant
 // through @nylorun/admin, mints a Studio login, creates a Tenant in Studio and
-// links a Project to it with `nylo tenant use`, runs
+// links a Project to it with `nylo tenant use`, embeds Studio the way Babai
+// does (frame allowlist, a Tenant-limited token, a bearer session), runs
 // `nylorun down` and `nylorun up` (the stack's files and the Tenant are kept),
 // checks that every file in the Host root belongs to this user (the bind
 // mount's UID/GID), and always ends with `nylorun reset --yes`.
@@ -17,6 +18,7 @@ import assert from "node:assert/strict";
 import { lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mintStudioLoginToken } from "@nylorun/admin";
 import { ensureImages, studioSession, tenantGet, withStack } from "./lib/stack.mjs";
 
 /** Every entry under `dir`, with its owner. */
@@ -73,6 +75,35 @@ try {
     const studio = await studioSession(await stack.studioLogin());
     const listed = await (await studio.get("/_studio/tenants")).json();
     assert.ok(listed.tenants.some((t) => t.id === tenant.id), "Studio lists the Tenant");
+
+    // Embedding (Studio §8): Babai's origins may frame the dashboard, and a
+    // Tenant-limited token becomes a bearer session that reaches that Tenant only.
+    const embedOrigins = ["nylorun://localhost", "http://nylorun.localhost"];
+    assert.deepEqual(status.studio.embedOrigins, embedOrigins, "status lists the embed origins");
+    const shell = await fetch(`${studio.origin}/tenants/${tenant.id}?embed=1`);
+    assert.equal(shell.status, 200, "the dashboard shell needs no session");
+    assert.equal(shell.headers.get("content-security-policy"), `frame-ancestors ${embedOrigins.join(" ")}`);
+    assert.equal(shell.headers.get("x-frame-options"), null);
+    const { adminKey } = JSON.parse(await readFile(join(home, "host-credentials.json"), "utf8"));
+    const login = await mintStudioLoginToken({
+      studioUrl: studio.origin,
+      adminKey,
+      tenant: tenant.id,
+      subject: "stack-smoke",
+    });
+    assert.equal(login.tenant, tenant.id);
+    const exchanged = await fetch(`${studio.origin}/_studio/sessions`, {
+      method: "POST",
+      headers: { origin: studio.origin, "content-type": "application/json" },
+      body: JSON.stringify({ token: login.token }),
+    });
+    assert.equal(exchanged.status, 201, await exchanged.clone().text());
+    const bearer = { authorization: `Bearer ${(await exchanged.json()).sessionToken}` };
+    const own = await fetch(`${studio.origin}/_studio/tenants/${tenant.id}/runtime/v1/agents`, { headers: bearer });
+    assert.equal(own.status, 200, `an embedded session reaches its Tenant (${await own.clone().text()})`);
+    const others = await fetch(`${studio.origin}/_studio/tenants/tn_0000000000000000000000000z/runtime/v1/agents`, { headers: bearer });
+    assert.equal(others.status, 404, "an embedded session reaches no other Tenant");
+    assert.equal((await fetch(`${studio.origin}/_studio/tenants`, { headers: bearer })).status, 403);
 
     // Studio creates a Tenant; a Project links it with no key of its own.
     const createdInStudio = await studio.get("/_studio/tenants", {
