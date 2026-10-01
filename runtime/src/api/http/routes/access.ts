@@ -37,9 +37,9 @@ import {
 } from "../../components.js";
 import type { PublishableKey as PublishableKeyBody } from "@nylorun/core/contracts";
 import type { PublishableKeyRow } from "../../../store/types.js";
-import { signalSubjectRevoked } from "../../../streams/relay.js";
+import { signalSubjectRevoked } from "../../../streams/control.js";
 import { readPolicy, writePolicy } from "../../../tenant/access-policy.js";
-import { endSubjectStreams } from "../../../tenant/session-streams.js";
+import { currentBasin, endSubjectStreams } from "../../../tenant/session-streams.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { requireApplication } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
@@ -373,7 +373,7 @@ export async function revokeSubject(
       endSubjectStreams(ctx.sessionStreams, subject, next);
       const streams = ctx.sessionStreams.wiring?.streams;
       if (streams)
-        await signalSubjectRevoked(streams, ctx.config.tenantId, subject, next).catch(
+        await signalSubjectRevoked(streams, currentBasin(ctx), subject, next).catch(
           (error: unknown) =>
             ctx.config.logger.warn("subject revocation signal failed", {
               message: error instanceof Error ? error.message : String(error),

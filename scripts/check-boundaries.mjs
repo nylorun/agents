@@ -30,8 +30,7 @@ const moduleImports = {
     {
       dir: "streams",
       forbidden: ["tenant", "core", "api", "store", "host", "execution"],
-      // The outbox relay reads the store until the record replaces it.
-      except: ["streams/relay.ts"],
+      except: [],
     },
   ],
 };

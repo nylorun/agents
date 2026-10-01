@@ -13,7 +13,8 @@ import { createPostgresClient, type PostgresClient } from "../../src/store/postg
 import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared/index.js";
 import { createPostgresRecordReader } from "../../src/store/postgres/record.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
-import { createStreamRelay, sessionStreamName, type StreamRelay } from "../../src/streams/relay/core.js";
+import { createStreamRelay, type StreamRelay } from "../../src/streams/relay/core.js";
+import { sessionStream } from "../../src/streams/types.js";
 import type { RecordReader } from "../../src/streams/relay/types.js";
 import type { AppendOptions, AppendResult } from "../../src/streams/types.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
@@ -98,7 +99,7 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
     };
     const inS2 = async (sessionId: string) => {
       const out: number[] = [];
-      for await (const r of streams.read<{ seq: number }>(tenantId, sessionStreamName(sessionId), 0, {
+      for await (const r of streams.read<{ seq: number }>(tenantId, sessionStream(sessionId), 0, {
         follow: false,
       }))
         out.push(r.body.seq);
@@ -180,7 +181,7 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
     await t.until("the relay to be active", () => relay.status().active);
     await t.write("s1", 2);
     await t.until("two rows in S2", async () => (await t.inS2("s1")).length === 2);
-    await t.streams.deleteStream(t.tenantId, sessionStreamName("s1"));
+    await t.streams.deleteStream(t.tenantId, sessionStream("s1"));
     // Terminate the slot's connection and drop it, as an operator or the WAL cap would.
     await sql`SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots
               WHERE slot_name = ${t.slot} AND active_pid IS NOT NULL`;

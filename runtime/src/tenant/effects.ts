@@ -40,7 +40,6 @@ import { mayDispatchMore } from "../core/limits.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import { isOwnershipLost } from "../store/ownership.js";
-import { newStreamIncarnation } from "../streams/types.js";
 import { piModel } from "../model/pi-model.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
@@ -593,7 +592,6 @@ export async function resolveNewFlowEffect(
       ...(inherited
         ? { sandbox: inherited.spec, sandboxSource: "shared" as const }
         : {}),
-      streamIncarnation: newStreamIncarnation(),
     };
     await t.put("sessions", agentSessionId, created);
   });

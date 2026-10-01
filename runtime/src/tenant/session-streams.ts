@@ -2,9 +2,8 @@
  * Live delivery over Durable Streams (architecture §12.4, "Reading"): session history
  * (`GET /v1/sessions/:id/items`) and session SSE (`GET /v1/sessions/:id/events`).
  *
- * - **Streams.** A session's events are in the stream of its current incarnation
- *   (`streamOfSession`, `sessions/<id>/<incarnation>`), resolved from the session on every
- *   request; cursors carry only the session id and sequence.
+ * - **Streams.** A session's events are in `sessions/<id>` in the Tenant's current basin
+ *   generation (`currentBasin`); cursors carry only the session id and sequence.
  * - **History** reads the session's stream from the cursor up to the tail seen when the read
  *   starts. The `agent` filter runs here, and the response cursor is the last record read. If
  *   the streams fail, history answers `503`.
@@ -12,19 +11,20 @@
  *   among that session's observers. Each observer keeps the next sequence it needs and skips
  *   what it already has, so a client resuming from `Last-Event-ID` sees no gap and no
  *   duplicate. An observer behind the feed restarts the shared read from its own position.
- *   A feed follows one incarnation: it ends once its session is gone or has a new
- *   incarnation (a reset, possibly on another node), checked when a client joins, when its
- *   read fails, on a `sessions.reset` signal, and periodically (`checkSessionStreams`).
+ *   A feed follows one basin generation: it ends once its session is gone or the Tenant moved
+ *   to a new generation (a reset, possibly on another node), checked when a client joins, when
+ *   its read fails, on a `sessions.reset` signal, and periodically (`checkSessionStreams`).
  *
- * Business code never writes here: events reach streams only through the relay, after commit.
+ * Business code never writes here: events reach streams only through the stream relay, from
+ * the record, after commit.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../store/cursor.js";
+import { basinOf } from "../streams/basin.js";
 import {
-  streamOfSession,
+  sessionStream,
   type DurableStreams,
-  type SessionStreamRef,
   type StreamRecord,
 } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
@@ -61,7 +61,8 @@ interface Observer {
 /** The shared stream read of one observed session. */
 interface SessionStream {
   readonly sessionId: string;
-  /** The stream of the session's incarnation when the feed started. */
+  /** The basin the feed reads (the Tenant's generation when it started). */
+  readonly basin: string;
   readonly stream: string;
   /** The sequence the shared read yields next. Every observer's `next` is at or past it. */
   next: number;
@@ -73,12 +74,14 @@ interface SessionStream {
 export interface SessionStreams {
   /** Set once by `wireStreams`. */
   wiring: StreamsWiring | undefined;
+  /** The Tenant's basin generation as this process last saw it (`wireStreams` keeps it). */
+  generation: number;
   /** Session id → its shared read and observers. */
   readonly sessions: Map<string, SessionStream>;
 }
 
 export function createSessionStreams(): SessionStreams {
-  return { wiring: undefined, sessions: new Map() };
+  return { wiring: undefined, generation: 0, sessions: new Map() };
 }
 const RETRY_MIN_MS = 100;
 const RETRY_MAX_MS = 2000;
@@ -158,16 +161,27 @@ function belongsTo(event: LiveEvent, agent: string): boolean {
   return ref?.delegationId === agent || ref?.path === agent;
 }
 
-/** The stream of the session's current incarnation, or undefined when the session is gone. */
+/** The basin the Tenant's session streams are in now. */
+export function currentBasin(ctx: TenantContext): string {
+  return basinOf(ctx.config.tenantId, ctx.sessionStreams.generation);
+}
+
+interface StreamRef {
+  basin: string;
+  stream: string;
+}
+
+/** The session's stream now, or undefined when the session is gone. */
 async function currentStream(
   ctx: TenantContext,
   sessionId: string
-): Promise<string | undefined> {
-  const session = await ctx.store.tx((t) =>
-    t.get<SessionStreamRef>("sessions", sessionId)
-  );
-  return session && streamOfSession(session);
+): Promise<StreamRef | undefined> {
+  const session = await ctx.store.tx((t) => t.get("sessions", sessionId));
+  return session && { basin: currentBasin(ctx), stream: sessionStream(sessionId) };
 }
+
+const sameStream = (feed: StreamRef, ref: StreamRef | undefined) =>
+  ref !== undefined && ref.basin === feed.basin && ref.stream === feed.stream;
 
 function streamsOf(ctx: TenantContext): DurableStreams {
   return (
@@ -188,14 +202,14 @@ export async function readHistory(
 ): Promise<{ items: LiveEvent[]; cursor: string | null }> {
   const from = startSeq(sessionId, cursor);
   const streams = streamsOf(ctx);
-  const stream =
+  const ref =
     (await currentStream(ctx, sessionId)) ?? fail(404, "Session not found");
   const items: LiveEvent[] = [];
   let last: number | undefined;
   try {
     for await (const record of streams.read<LiveEvent>(
-      ctx.config.tenantId,
-      stream,
+      ref.basin,
+      ref.stream,
       from,
       { follow: false }
     )) {
@@ -333,19 +347,20 @@ async function join(
 ): Promise<SessionStream> {
   const from = observer.next;
   streamsOf(ctx);
-  const stream =
+  const ref =
     (await currentStream(ctx, sessionId)) ?? fail(404, "Session not found");
   const hub = ctx.sessionStreams;
   let feed = hub.sessions.get(sessionId);
-  if (feed && feed.stream !== stream) {
-    // The session was created again since that feed started: it follows an abandoned stream.
+  if (feed && !sameStream(feed, ref)) {
+    // The Tenant moved to a new basin since that feed started: it follows an abandoned stream.
     endFeed(hub, feed);
     feed = undefined;
   }
   if (!feed) {
     feed = {
       sessionId,
-      stream,
+      basin: ref.basin,
+      stream: ref.stream,
       next: from,
       observers: new Set(),
       read: new AbortController(),
@@ -393,7 +408,7 @@ function deliver(observer: Observer, record: StreamRecord<LiveEvent>): void {
  * Follows the feed's stream from `feed.next` for the current `feed.read`, retrying failed
  * reads from where it stopped while the session still has that stream. A read that ends by
  * itself (the stream's Tenant is gone or the streams closed), or a session that is gone or
- * has a new incarnation, ends the observers.
+ * whose Tenant moved to a new basin, ends the observers.
  */
 function runFeed(ctx: TenantContext, feed: SessionStream): void {
   const read = feed.read;
@@ -405,7 +420,7 @@ function runFeed(ctx: TenantContext, feed: SessionStream): void {
       if (!streams) break;
       try {
         for await (const record of streams.read<LiveEvent>(
-          ctx.config.tenantId,
+          feed.basin,
           feed.stream,
           feed.next,
           { signal }
@@ -435,46 +450,52 @@ function runFeed(ctx: TenantContext, feed: SessionStream): void {
   })();
 }
 
-/** False when the feed's session is gone or has a new incarnation. True when unsure. */
+/** False when the feed's session is gone or the Tenant moved to a new basin. True when unsure. */
 async function stillCurrent(ctx: TenantContext, feed: SessionStream): Promise<boolean> {
   try {
-    return (await currentStream(ctx, feed.sessionId)) === feed.stream;
+    return sameStream(feed, await currentStream(ctx, feed.sessionId));
   } catch {
     return true;
   }
 }
 
 /**
- * Ends every feed in this process whose session is gone or has a new incarnation. Run on a
+ * Ends every feed in this process whose session is gone or whose Tenant moved to a new basin
+ * generation, and moves this process to the Tenant's current generation. Run on a
  * `sessions.reset` signal and periodically, so feeds on nodes other than the one that reset
  * the Tenant end too.
  */
 export async function checkSessionStreams(ctx: TenantContext): Promise<void> {
   const feeds = [...ctx.sessionStreams.sessions.values()];
-  if (feeds.length === 0) return;
   // Also a backstop for lost `subject.revoked` signals: the holders' current epochs.
   const subjects = new Set<string>();
   for (const feed of feeds)
     for (const observer of feed.observers)
       if (observer.holder) subjects.add(observer.holder.subject);
-  const { current, epochs } = await ctx.store.tx(async (t) => {
-    const streams = new Map<string, string | undefined>();
-    for (const feed of feeds) {
-      const session = await t.get<SessionStreamRef>("sessions", feed.sessionId);
-      streams.set(feed.sessionId, session && streamOfSession(session));
-    }
+  const { exists, epochs, generation } = await ctx.store.tx(async (t) => {
+    const exists = new Set<string>();
+    for (const feed of feeds)
+      if (await t.get("sessions", feed.sessionId)) exists.add(feed.sessionId);
     return {
-      current: streams,
+      exists,
+      generation: (await t.basinGenerations()).current,
       epochs:
         subjects.size === 0
           ? new Map<string, number>()
           : await t.subjectEpochs([...subjects]),
     };
   });
+  if (generation !== ctx.sessionStreams.generation)
+    ctx.sessionStreams.wiring?.moveTo(generation);
   for (const feed of feeds)
     if (
       ctx.sessionStreams.sessions.get(feed.sessionId) === feed &&
-      current.get(feed.sessionId) !== feed.stream
+      !sameStream(
+        feed,
+        exists.has(feed.sessionId)
+          ? { basin: currentBasin(ctx), stream: sessionStream(feed.sessionId) }
+          : undefined
+      )
     )
       endFeed(ctx.sessionStreams, feed);
   for (const [subject, epoch] of epochs)

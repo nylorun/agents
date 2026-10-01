@@ -80,11 +80,6 @@ export interface Session {
   sandbox?: SandboxManifest;
   /** Where `sandbox` came from. */
   sandboxSource?: "default" | "inline" | "shared";
-  /**
-   * The incarnation naming this session's event stream (`sessions/<id>/<incarnation>`), set at
-   * creation and never changed. Absent only on sessions created before incarnations.
-   */
-  streamIncarnation?: string;
 }
 
 export type AuthScope =
@@ -180,7 +175,7 @@ export interface TenantContext {
   readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */
   readonly sweepHooks: ReadonlySet<() => Promise<void>>;
-  /** Adds a sweep callback (the outbox drain, Wave 2 / Y). Returns a function that removes it. */
+  /** Adds a sweep callback. Returns a function that removes it. */
   onSweep(hook: () => Promise<void>): () => void;
 }
 

@@ -8,9 +8,10 @@
  * - §17.8 an SSE client reconnecting to a different API node.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { stackEndpoints } from "../stack/endpoints.js";
-import { FaultyStreams } from "../streams/relay.suite.js";
+import { FaultyStreams } from "../support/faulty-streams.js";
 import { openTestSessionStore } from "../support/store.js";
 import {
   controlledModel,
@@ -102,8 +103,8 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     await sendMessage(node);
     await until(() => view(node), (v) => v.status === "completed", "completed", 20_000);
 
-    // The relay kept the rows it saw fail; its next append, or the sweep's drain, finds the
-    // stream already past them (a conditional append) and deletes them without appending again.
+    // The relay retries the rows whose acknowledgement it lost; the conditional append finds the
+    // stream already past them and moves on without appending again.
     const history = await completeHistory(node);
     expect(faulty.loseAcks).toBe(0);
     expect(countOf(history, "command.message")).toBe(1);
@@ -132,16 +133,18 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     expect(history503.status).toBe(503);
     const store = await openTestSessionStore(node);
     try {
-      const rows = await store.tx((tx) => tx.outbox(1000, { sessionId: "s1" }));
-      expect(rows.length).toBeGreaterThan(0);
-      expect(rows.map((row) => row.seq)).toEqual(range(rows[0]!.seq, rows[0]!.seq + rows.length));
+      // The record has the second turn's events; S2 does not yet.
+      const head = (await store.record().heads(undefined, 1000)).find((h) => h.sessionId === "s1")!;
+      const rows = await store.record().readRange(head.tenantId, "s1", 0, head.head);
+      expect(rows.map((row) => row.seq)).toEqual(range(0, head.head));
+      expect(countOf(rows.map((row) => row.body as LiveEvent), "turn.completed")).toBe(2);
     } finally {
       await store.close();
     }
     expect(countOf(observer.frames, "turn.completed")).toBe(1);
 
     await proxy.up();
-    // The sweep drains the outbox in order; the stalled SSE resumes where it stopped.
+    // The relay catches up in order; the stalled SSE resumes where it stopped.
     const history = await completeHistory(node);
     expect(countOf(history, "command.message")).toBe(2);
     expect(countOf(history, "turn.completed")).toBe(2);

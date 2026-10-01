@@ -22,6 +22,19 @@ client is refused with `426 protocol_unsupported`.
 - **Writers.** The Runtime checks every event against the catalog before it commits it, so a
   stream never carries an event the catalog does not describe.
 
+## Session history starts fresh
+
+This release makes Postgres the record of every session event and S2 the delivery tier fed
+from it. Upgrading deletes each Tenant's sessions (with their commands, checkpoints, effects,
+Actions and links) and their history; Tenant settings, agents, Action endpoints, keys, policy
+and vaults stay. Cursors from before the upgrade are not valid after it.
+
+- **Local stack.** `nylorun start` recreates the Postgres container with `wal_level=logical`;
+  its data volume is kept.
+- **Your own Postgres.** Set `wal_level = logical` and restart it, and give the Runtime's role
+  `REPLICATION` (see `DEPLOYMENT.md`). An `api` or `all` Runtime with S2 refuses to start
+  without them.
+
 # Action endpoints replace executors
 
 Protocol 3 removes executors. The Runtime no longer offers Actions for a process to claim.

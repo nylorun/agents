@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
-import type { Action } from "@nylorun/core/contracts";
+import type { Action, LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
 import {
   OwnershipLostError,
@@ -23,6 +23,7 @@ import {
   type SessionStoreOptions,
   type VaultCredentialRow,
 } from "../../src/store/types.js";
+import type { RecordRow } from "../../src/streams/relay/types.js";
 
 export interface StoreHarness {
   store: SessionStore;
@@ -113,6 +114,15 @@ function credential(
   };
 }
 
+/** Every row of the store's record, in (session, seq) order. */
+async function recorded(store: SessionStore): Promise<RecordRow[]> {
+  const record = store.record();
+  const rows: RecordRow[] = [];
+  for (const head of await record.heads(undefined, 1000))
+    rows.push(...(await record.readRange(head.tenantId, head.sessionId, 0, head.head)));
+  return rows;
+}
+
 export function storeContract(name: string, factory: StoreFactory): void {
   describe(`SessionStore contract: ${name}`, () => {
     const open: StoreHarness[] = [];
@@ -192,7 +202,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put(
             "sessions",
             "s1",
-            session("s1", { state: body, streamIncarnation: "i1" }),
+            session("s1", { state: body }),
           );
           await t.put("effects", "e1", {
             ...effect("e1", "s1", "t1", "succeeded"),
@@ -216,21 +226,17 @@ export function storeContract(name: string, factory: StoreFactory): void {
               (table) => !["sessions", "effects", "actions", "links"].includes(table),
             ).map((table) => t.get(table, "d1")),
           ),
-          outbox: await t.outbox(10),
-          stats: await t.outboxStats(),
         }));
+        const rows = await recorded(store);
         expect(read.session.state).toEqual(body);
         expect(read.sessions.map((s) => s.id)).toEqual(["s1"]);
         expect(read.effects.map((e: any) => e.output)).toEqual([body]);
         expect(read.actions.map((a) => a.input)).toEqual([body]);
         expect(read.pending.map((a) => a.actionId)).toEqual(["a1"]);
         for (const doc of read.docs) expect(doc).toEqual(body);
-        expect(read.outbox.map((row) => row.event.payload)).toEqual([{ tag: "tool.output", output: body }]);
-        expect(read.stats.depth).toBe(1);
-        expect(read.stats.oldestCreatedAt).toBe(read.outbox[0]!.event.time);
-        // Relayed rows go by the session's incarnation, read from a body holding U+0000.
-        expect(await store.tx((t) => t.deleteOutbox("s1", 0, "other"))).toBe(0);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 0, "i1"))).toBe(1);
+        expect(rows.map((row) => (row.body as LiveEvent).payload)).toEqual([
+          { tag: "tool.output", output: body },
+        ]);
       });
 
       it("reads a session with store-managed ownership and ignores ownership on put", async () => {
@@ -287,11 +293,11 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx(async (t) => {
           expect((await t.get("sessions", "s1")).status).toBe("idle");
           expect(await t.get("commands", "c1")).toBeUndefined();
-          expect(await t.outbox(10)).toEqual([]);
           // The rolled-back sequence is reused: no gap.
           const event = await t.event("s1", null, "turn.completed", { tag: "after.rollback", output: {} });
           expect(decodeCursor("s1", event.cursor)).toBe(0);
         });
+        expect((await recorded(store)).map((row) => row.seq)).toEqual([0]);
       });
 
       it("delivers events to commit listeners, then runs afterCommit in order", async () => {
@@ -430,40 +436,34 @@ export function storeContract(name: string, factory: StoreFactory): void {
         ).rejects.toThrow();
       });
 
-      it("writes events to the outbox and deletes them through a sequence", async () => {
+      it("writes events to the record in the Tenant's basin generation", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
           await t.put("sessions", "s1", session("s1"));
           await t.put("sessions", "s2", session("s2"));
         });
+        const commits: Commit[] = [];
+        store.onCommit((commit) => commits.push(commit));
         const written = await store.tx(async (t) => [
           await t.event("s2", null, "turn.completed", { tag: "x", output: 1 }),
           await t.event("s1", null, "turn.completed", { tag: "y", output: 2 }),
           await t.event("s1", null, "turn.completed", { tag: "z", output: 3 }),
         ]);
-        const rows = await store.tx((t) => t.outbox(10));
-        expect(rows.map((r) => [r.sessionId, r.seq])).toEqual([
-          ["s1", 0],
-          ["s1", 1],
-          ["s2", 0],
+        const rows = await recorded(store);
+        expect(rows.map((r) => [r.sessionId, r.seq, r.generation])).toEqual([
+          ["s1", 0, 0],
+          ["s1", 1, 0],
+          ["s2", 0, 0],
         ]);
-        expect(rows[0]!.event).toEqual(written[1]);
-        expect(await store.tx((t) => t.outbox(1))).toHaveLength(1);
-        expect(
-          (await store.tx((t) => t.outbox(10, { sessionId: "s2" }))).map((r) => r.seq),
-        ).toEqual([0]);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 0))).toBe(1);
-        expect(
-          (await store.tx((t) => t.outbox(10))).map((r) => [r.sessionId, r.seq]),
-        ).toEqual([
-          ["s1", 1],
-          ["s2", 0],
-        ]);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 5))).toBe(1);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 5))).toBe(0);
+        expect(rows[0]!.body).toEqual(written[1]);
+        expect(rows.every((r) => r.tenantId === tenantId)).toBe(true);
+        expect(commits[0]!.generations).toEqual([0, 0, 0]);
+        expect(await store.record().generation(tenantId)).toBe(0);
+        expect(await store.record().readRange(tenantId, "s1", 1, 5)).toEqual([rows[1]]);
+        expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 0, retired: [] });
       });
 
-      it("deletes a session's outbox rows with it, so a re-created id starts at 0", async () => {
+      it("keeps a deleted session's record, so a re-created id continues its log", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
           await t.put("sessions", "s1", session("s1"));
@@ -475,78 +475,38 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.event("s2", null, "turn.completed", { tag: "z", output: 3 });
         });
         await store.tx((t) => t.delete("sessions", "s1"));
-        expect(
-          (await store.tx((t) => t.outbox(10))).map((r) => [r.sessionId, r.seq]),
-        ).toEqual([["s2", 0]]);
+        await expect(
+          store.tx((t) => t.event("s1", null, "turn.completed", { output: 0 })),
+        ).rejects.toThrow();
         await store.tx((t) => t.put("sessions", "s1", session("s1")));
         const again = await store.tx((t) => t.event("s1", null, "turn.completed", { tag: "again", output: {} }));
-        expect(again.cursor).toBe(encodeCursor("s1", 0));
-        expect(
-          (await store.tx((t) => t.outbox(10))).map((r) => [r.sessionId, r.seq]),
-        ).toEqual([
+        expect(again.cursor).toBe(encodeCursor("s1", 2));
+        expect((await recorded(store)).map((r) => [r.sessionId, r.seq])).toEqual([
           ["s1", 0],
+          ["s1", 1],
+          ["s1", 2],
           ["s2", 0],
         ]);
       });
 
-      it("deletes outbox rows only while the session has the given incarnation", async () => {
+      it("moves to a new basin generation on a sessions reset, so ids start again at 0", async () => {
         const store = await fresh();
-        await store.tx(async (t) => {
-          await t.put("sessions", "s1", session("s1", { streamIncarnation: "a" }));
-          await t.put("sessions", "legacy", session("legacy"));
-        });
-        const commits: Commit[] = [];
-        store.onCommit((commit) => commits.push(commit));
-        await store.tx(async (t) => {
-          await t.event("s1", null, "turn.completed", { tag: "x", output: 1 });
-          await t.event("legacy", null, "turn.completed", { tag: "y", output: 2 });
-          await t.event("s1", null, "turn.completed", { tag: "z", output: 3 });
-        });
-        expect(commits[0]!.incarnations).toEqual(["a", null, "a"]);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 5, "b"))).toBe(0);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 5, null))).toBe(0);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 0, "a"))).toBe(1);
-        expect(await store.tx((t) => t.deleteOutbox("legacy", 5, "a"))).toBe(0);
-        expect(await store.tx((t) => t.deleteOutbox("legacy", 5, null))).toBe(1);
-        expect(await store.tx((t) => t.deleteOutbox("missing", 5, null))).toBe(0);
-        // A session created again gets a new incarnation; the old one deletes nothing.
-        await store.tx((t) => t.delete("sessions", "s1"));
-        await store.tx(async (t) => {
-          await t.put("sessions", "s1", session("s1", { streamIncarnation: "b" }));
-          await t.event("s1", null, "turn.completed", { tag: "again", output: {} });
-        });
-        expect(commits.at(-1)!.incarnations).toEqual(["b"]);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 5, "a"))).toBe(0);
-        expect(await store.tx((t) => t.deleteOutbox("s1", 5, "b"))).toBe(1);
-        expect(await store.tx((t) => t.outbox(10))).toEqual([]);
-      });
-
-      it("reports the outbox depth and its oldest event", async () => {
-        let now = new Date("2026-01-01T00:00:00.000Z");
-        const store = await fresh({ now: () => now });
-        expect(await store.tx((t) => t.outboxStats())).toEqual({
-          depth: 0,
-          oldestCreatedAt: null,
-        });
-        await store.tx(async (t) => {
-          await t.put("sessions", "s1", session("s1"));
-          await t.put("sessions", "s2", session("s2"));
-        });
-        await store.tx((t) => t.event("s2", null, "turn.completed", { tag: "x", output: 1 }));
-        now = new Date("2026-01-01T00:00:05.000Z");
-        await store.tx(async (t) => {
-          await t.event("s1", null, "turn.completed", { tag: "y", output: 2 });
-          await t.event("s1", null, "turn.completed", { tag: "z", output: 3 });
-        });
-        expect(await store.tx((t) => t.outboxStats())).toEqual({
-          depth: 3,
-          oldestCreatedAt: "2026-01-01T00:00:00.000Z",
-        });
-        await store.tx((t) => t.deleteOutbox("s2", 0));
-        expect(await store.tx((t) => t.outboxStats())).toEqual({
-          depth: 2,
-          oldestCreatedAt: "2026-01-01T00:00:05.000Z",
-        });
+        await store.tx((t) => t.put("sessions", "s1", session("s1")));
+        await store.tx((t) => t.event("s1", null, "turn.completed", { output: 1 }));
+        await store.tx((t) => t.reset("sessions"));
+        expect(await recorded(store)).toEqual([]);
+        expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 1, retired: [0] });
+        expect(await store.record().generation(tenantId)).toBe(1);
+        await store.tx((t) => t.put("sessions", "s1", session("s1")));
+        const event = await store.tx((t) => t.event("s1", null, "turn.completed", { output: 2 }));
+        expect(event.seq).toBe(0);
+        expect((await recorded(store)).map((r) => [r.sessionId, r.seq, r.generation])).toEqual([
+          ["s1", 0, 1],
+        ]);
+        await store.tx((t) => t.reset("sandboxes"));
+        expect((await store.tx((t) => t.basinGenerations())).current).toBe(1);
+        await store.tx((t) => t.forgetRetiredGeneration(0));
+        expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 1, retired: [] });
       });
 
       it("has no sequence gaps under 20 concurrent transactions", async () => {
@@ -577,11 +537,11 @@ export function storeContract(name: string, factory: StoreFactory): void {
           .map((e) => decodeCursor("s1", e.cursor))
           .sort((a, b) => a - b);
         expect(seqs).toEqual(Array.from({ length: 34 }, (_, i) => i));
-        const outbox = await store.tx((t) => t.outbox(100));
-        expect(outbox.filter((r) => r.sessionId === "s1").map((r) => r.seq)).toEqual(
+        const rows = await recorded(store);
+        expect(rows.filter((r) => r.sessionId === "s1").map((r) => r.seq)).toEqual(
           Array.from({ length: 34 }, (_, i) => i),
         );
-        expect(outbox.filter((r) => r.sessionId === "s2").map((r) => r.seq)).toEqual(
+        expect(rows.filter((r) => r.sessionId === "s2").map((r) => r.seq)).toEqual(
           Array.from({ length: 17 }, (_, i) => i),
         );
         // A committed transaction's two events are adjacent.
@@ -1159,7 +1119,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
           const cleared = { sessions: "s1", commands: "c1", checkpoints: "k1", effects: "e1", actions: "a1", links: "l1" } as const;
           for (const [table, id] of Object.entries(cleared))
             expect(await t.get(table as keyof typeof cleared, id)).toBeUndefined();
-          expect(await t.outbox(10)).toEqual([]);
           expect(await t.listSandboxes()).toHaveLength(1);
           expect(await t.listDefinitions()).toHaveLength(1);
         });
@@ -1181,7 +1140,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.reset("all"));
         await store.tx(async (t) => {
           expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, pendingActions: 0, uncertainEffects: 0, sandboxes: 0, definitions: 0 });
-          expect(await t.outbox(10)).toEqual([]);
           expect(await t.listEndpoints()).toEqual([]);
           expect(await t.getVault("v1")).toBeUndefined();
           expect(await t.getCredential("uc")).toBeUndefined();

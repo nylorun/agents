@@ -162,10 +162,14 @@ it("runs one of two racing advances; the other is busy, and no event is duplicat
   await openTurn(runtime, plain.manifest);
   const worker = workerOf(runtime);
   const signal = new AbortController().signal;
-  const first = worker.advance("s1", signal);
-  const second = worker.advance("s1", signal);
-  const busy = await second;
+  // Either may take ownership first: the other answers busy at once, the winner runs.
+  const racing = [worker.advance("s1", signal), worker.advance("s1", signal)];
+  const busy = await Promise.race(racing);
   expect(busy.status).toBe("busy");
+  const settled = await Promise.race(
+    racing.map((advance, i) => advance.then((result) => ({ i, result })))
+  );
+  const first = racing[1 - settled.i]!;
   if (busy.status === "busy") {
     expect(busy.retryAfterMs).toBeGreaterThan(0);
     expect(busy.retryAfterMs).toBeLessThanOrEqual(60_000);

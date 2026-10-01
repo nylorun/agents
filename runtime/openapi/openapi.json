@@ -15702,41 +15702,64 @@
                 ],
                 "additionalProperties": false
               },
-              "outbox": {
-                "type": "object",
+              "generation": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "relay": {
+                "type": [
+                  "object",
+                  "null"
+                ],
                 "properties": {
-                  "depth": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "pendingTxs": {
                     "type": "integer",
                     "minimum": 0
                   },
-                  "oldestAgeMs": {
+                  "pendingRows": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confirmed": {
                     "type": [
-                      "number",
+                      "string",
                       "null"
-                    ],
+                    ]
+                  },
+                  "reconciliations": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "lastError": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "lagBytes": {
+                    "type": "number",
                     "minimum": 0
                   }
                 },
                 "required": [
-                  "depth",
-                  "oldestAgeMs"
+                  "active",
+                  "pendingTxs",
+                  "pendingRows",
+                  "confirmed",
+                  "reconciliations",
+                  "lastError"
                 ],
                 "additionalProperties": false
-              },
-              "relayLagMs": {
-                "type": "number",
-                "minimum": 0
-              },
-              "collectionPending": {
-                "type": "boolean"
               }
             },
             "required": [
               "reachable",
               "basin",
-              "outbox",
-              "relayLagMs",
-              "collectionPending"
+              "generation",
+              "relay"
             ],
             "additionalProperties": false
           }

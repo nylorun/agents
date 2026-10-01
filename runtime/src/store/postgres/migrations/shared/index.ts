@@ -98,3 +98,23 @@ async function migrateInTx(
   }
   return { from, to: latest };
 }
+
+/**
+ * Throws, naming the setting, when Postgres cannot run the stream relay: logical decoding
+ * needs `wal_level = logical` (a restart) and a role allowed to replicate.
+ */
+export async function assertLogicalReplication(sql: Sql): Promise<void> {
+  const [row] = await sql<{ wal_level: string; replicates: boolean }[]>`
+    SELECT current_setting('wal_level') AS wal_level,
+           (SELECT rolreplication OR rolsuper FROM pg_roles WHERE rolname = current_user) AS replicates`;
+  if (row?.wal_level !== "logical")
+    throw new Error(
+      `Postgres has wal_level = ${row?.wal_level ?? "unknown"}; the stream relay needs logical replication. ` +
+        "Set wal_level = logical and restart Postgres (`nylorun start` does this for the local stack; " +
+        "on a managed Postgres, turn on its logical replication option). See DEPLOYMENT.md.",
+    );
+  if (!row.replicates)
+    throw new Error(
+      "The Runtime's Postgres role cannot replicate: grant it REPLICATION (ALTER ROLE … REPLICATION). See DEPLOYMENT.md.",
+    );
+}

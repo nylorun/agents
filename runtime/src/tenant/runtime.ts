@@ -7,7 +7,7 @@
  * Seams wired here: `wireStreams()` connects the store's commits to Durable Streams (the
  * relay, and the history, SSE, work and control readers); `wake` goes to the
  * `DurableExecution`, whose handlers (`worker.ts`) call `advance` and `sweep`; `abortLocal`
- * aborts an advance running on this process. The sweep also drains the outbox.
+ * aborts an advance running on this process.
  *
  * Execution: the Host passes one `TenantExecution` for every Tenant it opens
  * (`TenantOpenHooks.execution`); without one, the Tenant runs its own in-process
@@ -49,7 +49,6 @@ import {
 } from "./session-streams.js";
 import {
   closeStreams,
-  drainOutbox,
   streamsStatus,
   wireStreams,
   type StreamsStatus,
@@ -94,6 +93,13 @@ export type TenantOpenHooks = {
    * survive a restart (tests, and a Host without S2).
    */
   streams?: DurableStreams;
+  /**
+   * The Host's stream relay feeds `streams` from the record for every Tenant. Without it the
+   * Tenant relays its own commits.
+   */
+  hostRelay?: boolean;
+  /** How long a retired stream basin is kept after a reset (tests). Default 60 s. */
+  retireGraceMs?: number;
 } & OpenedTenant;
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -295,10 +301,8 @@ export class TenantRuntime implements TenantHandle {
         streams: hooks.streams ?? new MemoryStreams(),
         ownsStreams: !hooks.streams,
         tenantId: config.tenantId,
-      });
-      // Outbox rows a lost relay step left behind are appended by the sweep.
-      sweepHooks.add(async () => {
-        await drainOutbox(ctx);
+        ...(hooks.hostRelay ? { hostRelay: true } : {}),
+        ...(hooks.retireGraceMs !== undefined ? { retireGraceMs: hooks.retireGraceMs } : {}),
       });
 
       // Register the handlers, then arm the sweep: its first pass runs at once and re-wakes
@@ -338,10 +342,7 @@ export class TenantRuntime implements TenantHandle {
 
   async summary(): Promise<TenantSummary> {
     const { store } = this.ctx;
-    const { counts, outbox } = await store.tx(async (t) => ({
-      counts: await t.counts(),
-      outbox: await t.outboxStats(),
-    }));
+    const counts = await store.tx((t) => t.counts());
     return {
       ready: !this.ctx.closing && !this.ctx.closed,
       runningSessions: counts.runningSessions,
@@ -351,11 +352,6 @@ export class TenantRuntime implements TenantHandle {
       ),
       pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
-      outboxDepth: outbox.depth,
-      relayLagMs:
-        outbox.oldestCreatedAt === null
-          ? 0
-          : Math.max(0, Date.now() - Date.parse(outbox.oldestCreatedAt)),
     };
   }
 
@@ -373,7 +369,7 @@ export class TenantRuntime implements TenantHandle {
 
   /**
    * The Durable Streams seam's status for Tenant status and readiness: S2 reachability, the
-   * basin, outbox depth and relay lag (`streamsStatus` in `tenant/streams.ts`).
+   * basin, its generation and the Tenant's relay (`streamsStatus` in `tenant/streams.ts`).
    */
   streamsStatus(): Promise<StreamsStatus> {
     return streamsStatus(this.ctx);

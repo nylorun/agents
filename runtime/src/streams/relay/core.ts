@@ -23,7 +23,7 @@
  * The relay never writes the record and never deletes from S2.
  */
 import { basinOf } from "../basin.js";
-import { SESSION_STREAM_PREFIX, type DurableStreams } from "../types.js";
+import { sessionStream, type DurableStreams } from "../types.js";
 import type { ChangeSource, CommittedTx, LogHead, RecordReader, RecordRow } from "./types.js";
 
 export interface StreamRelayOptions {
@@ -59,12 +59,6 @@ export interface StreamRelay {
   status(): StreamRelayStatus;
   /** Resolves once nothing is pending (tests and shutdown). */
   idle(): Promise<void>;
-}
-
-/** The stream of a session: `sessions/<sessionId>`. */
-export function sessionStreamName(sessionId: string): string {
-  if (!sessionId) throw new Error("sessionId is required");
-  return `${SESSION_STREAM_PREFIX}${sessionId}`;
 }
 
 const RETRY_MIN_MS = 50;
@@ -171,7 +165,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
         try {
           const result = await streams.append(
             basin,
-            sessionStreamName(first.sessionId),
+            sessionStream(first.sessionId),
             batch.map((row) => row.body),
             { matchSeq: first.seq },
           );
@@ -319,7 +313,7 @@ export function createStreamRelay(options: StreamRelayOptions): StreamRelay {
     if (current === undefined || current !== head.generation) return 0;
     const basin = basinOf(head.tenantId, head.generation);
     await streams.ensureTenant(basin);
-    const tail = await streams.tail(basin, sessionStreamName(head.sessionId));
+    const tail = await streams.tail(basin, sessionStream(head.sessionId));
     if (tail >= head.head) return 0;
     const queue = queueOf(head.tenantId, head.sessionId);
     await refill(queue, head.generation, tail, head.head);

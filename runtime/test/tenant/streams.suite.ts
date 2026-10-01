@@ -14,17 +14,17 @@ import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import {
-  COLLECT_SETTING,
   createTenantStreams,
   deleteTenantStreams,
-  drainOutbox,
   streamsStatus,
 } from "../../src/tenant/streams.js";
+import { currentBasin } from "../../src/tenant/session-streams.js";
+import { basinOf } from "../../src/streams/basin.js";
 import type { TenantHandle } from "../../src/tenant/types.js";
 import type { ModelProvider } from "../../src/core/provider.js";
 import {
   CONTROL_STREAM,
-  streamOfSession,
+  sessionStream,
   type AppendOptions,
   type AppendResult,
   type DurableStreams,
@@ -91,8 +91,8 @@ export class ProbeStreams implements DurableStreams {
     this.check();
     return this.inner.ensureTenant(tenantId);
   }
-  deleteTenant(tenantId: string): Promise<void> {
-    return this.inner.deleteTenant(tenantId);
+  deleteTenant(tenantId: string, options?: { allGenerations?: boolean }): Promise<void> {
+    return this.inner.deleteTenant(tenantId, options);
   }
   async deleteStream(tenantId: string, stream: string): Promise<void> {
     this.check();
@@ -222,7 +222,7 @@ export function tenantStreamsSuite(
       const nodes: Node[] = [];
       cleanups.push(async () => {
         for (const node of nodes.reverse()) await node.close().catch(() => {});
-        await harness.streams.deleteTenant(tenantId).catch(() => {});
+        await harness.streams.deleteTenant(tenantId, { allGenerations: true }).catch(() => {});
         await harness.streams.close();
         await harness.dispose?.();
       });
@@ -236,6 +236,7 @@ export function tenantStreamsSuite(
           tenantId,
           applicationKey: APP,
           streams: probe,
+          retireGraceMs: 50,
           ...(first ? { hostRoot: first.root } : {}),
           ...(options.modelProvider
             ? { modelProvider: options.modelProvider }
@@ -340,31 +341,33 @@ export function tenantStreamsSuite(
             ctx.store.tx((t) => t.event(sessionId, null, "turn.completed", { tag: "test.tick", output: payload(i) }))
           )
         );
-        await relayed(node);
+        // The relay is idle once S2 has every event, which waits for the streams to be up.
+        if (!probe.down) await relayed(node);
         return events;
       }
 
       /** Waits until `node`'s relay has appended everything it started. */
       async function relayed(node: Node) {
-        await contextOf(node.handle).sessionStreams.wiring!.relay.idle();
+        await contextOf(node.handle).sessionStreams.wiring!.relay!.idle();
       }
 
-      async function tailOf(stream: string) {
-        return harness.streams.tail(tenantId, stream);
-      }
-
-      /** The session's current stream, from its stored incarnation. */
+      /** A session's stream now: `<basin>|sessions/<id>` in the Tenant's current generation. */
       async function streamOf(node: Node, sessionId = "s1") {
         const session = await contextOf(node.handle).store.tx((tx) =>
           tx.get("sessions", sessionId)
         );
         if (!session) throw new Error(`Session ${sessionId} not found`);
-        return streamOfSession(session);
+        return `${currentBasin(contextOf(node.handle))}|${sessionStream(sessionId)}`;
       }
 
-      /** The Tenant's session streams, in name order. */
-      async function sessionStreams(prefix = "sessions/") {
-        return harness.streams.listStreams(tenantId, prefix);
+      async function tailOf(stream: string) {
+        const [basin, name] = stream.split("|") as [string, string];
+        return harness.streams.tail(basin, name);
+      }
+
+      /** The session streams in a generation's basin, in name order. */
+      async function sessionStreams(generation = 0) {
+        return harness.streams.listStreams(basinOf(tenantId, generation), "sessions/");
       }
 
       async function reset(node: Node, requestId = "reset-1") {
@@ -376,13 +379,26 @@ export function tenantStreamsSuite(
         expect(response.status).toBe(200);
       }
 
-      async function records(stream: string) {
+      async function records(stream: string, basin: string = tenantId) {
         const out: unknown[] = [];
-        for await (const record of harness.streams.read(tenantId, stream, 0, {
+        for await (const record of harness.streams.read(basin, stream, 0, {
           follow: false,
         }))
           out.push(record.body);
         return out;
+      }
+
+      /** Follows a basin's control stream from its start (records survive its deletion here). */
+      function observeControl(basin: string) {
+        const stop = new AbortController();
+        const seen: unknown[] = [];
+        void (async () => {
+          for await (const record of harness.streams.read(basin, CONTROL_STREAM, 0, {
+            signal: stop.signal,
+          }))
+            seen.push(record.body);
+        })().catch(() => {});
+        return { records: seen, stop: () => stop.abort() };
       }
 
       return {
@@ -401,6 +417,7 @@ export function tenantStreamsSuite(
         sessionStreams,
         reset,
         records,
+        observeControl,
         streams: harness.streams,
       };
     }
@@ -444,7 +461,7 @@ export function tenantStreamsSuite(
       await t.createSession(a);
       await t.commitConcurrently(a, 5);
       const total = (await t.items(a)).items.length;
-      const stream = await t.streamOf(a);
+      const stream = sessionStream("s1");
 
       const one = t.observe(a);
       await one.until("the history", (f) => f.length === total);
@@ -569,9 +586,8 @@ export function tenantStreamsSuite(
       expect(await outage.json()).toMatchObject({ code: "request_rejected" });
 
       t.probe.down = false;
-      // The Tenant sweep also drains the outbox (every few seconds), so this call can find it
-      // already empty. What must hold is below: every event arrives, once and in order.
-      await drainOutbox(contextOf(a.handle));
+      // The relay retries on its own; every event arrives, once and in order.
+      await t.relayed(a);
       const recovered = await t.items(a);
       expect(seqs(recovered.items)).toEqual(range(0, recovered.items.length));
       expect(recovered.items.map((e) => e.cursor)).toContain(accepted.cursor);
@@ -581,7 +597,10 @@ export function tenantStreamsSuite(
         (f) => f.length >= recovered.items.length
       );
       expect(onlyEvents(observer.close())).toEqual(recovered.items);
-      expect(await drainOutbox(contextOf(a.handle))).toBe(0);
+      expect(contextOf(a.handle).sessionStreams.wiring!.relay!.status()).toMatchObject({
+        pendingTxs: 0,
+        pendingRows: 0,
+      });
     });
 
     it("delivers an Action committed on one node to the endpoint registered through another", async () => {
@@ -642,7 +661,7 @@ export function tenantStreamsSuite(
       expect(seqs(items)).toEqual(range(0, items.length));
     });
 
-    it("ends observers on reset and starts a re-created session on a new stream at 0", async () => {
+    it("ends observers on reset and starts a re-created session in a new basin at 0", async () => {
       const t = await setup();
       const a = await t.node();
       await t.createSession(a);
@@ -653,22 +672,23 @@ export function tenantStreamsSuite(
 
       await t.reset(a);
       await eventually("the observer to end", () => observer.ended || undefined);
-      // The abandoned stream is collected; the basin stays.
-      await eventually("the old stream to be deleted", async () =>
-        !(await t.sessionStreams()).includes(before) || undefined
+      const ctx = contextOf(a.handle);
+      expect((await streamsStatus(ctx)).generation).toBe(1);
+      // The old basin is deleted after the grace period, and forgotten.
+      await eventually("the old basin to be deleted", async () =>
+        (await ctx.store.tx((tx) => tx.basinGenerations())).retired.length === 0 || undefined
       );
-      await eventually("the collection to finish", async () =>
-        !(await streamsStatus(contextOf(a.handle))).collectionPending || undefined
-      );
+      // s2-lite lists a basin's streams for a while after deleting it.
+      if (!options.slowBasinDeletion) expect(await t.sessionStreams(0)).toEqual([]);
 
       await t.createSession(a);
       await t.commitConcurrently(a, 2);
       const after = await t.streamOf(a);
       expect(after).not.toBe(before);
-      expect(after.startsWith("sessions/s1/")).toBe(true);
+      expect(after.endsWith("|sessions/s1")).toBe(true);
       const fresh = await t.items(a);
       expect(seqs(fresh.items)).toEqual([0, 1]);
-      expect(await t.sessionStreams()).toEqual([after]);
+      expect(await t.sessionStreams(1)).toEqual(["sessions/s1"]);
     });
 
     it("gives sessions created during a reset their own streams from 0", async () => {
@@ -678,8 +698,8 @@ export function tenantStreamsSuite(
         await t.createSession(a, id);
         await t.commitConcurrently(a, 3, undefined, id);
       }
-      const old = new Set(await t.sessionStreams());
-      expect(old.size).toBe(3);
+      const old = new Set(["s1", "s2", "s3"].map((id) => `${t.tenantId}|sessions/${id}`));
+      expect(await t.sessionStreams(0)).toHaveLength(3);
 
       // Sessions are created (some with ids the reset deletes) while the reset runs.
       const ids = ["s1", "c1", "s2", "c2", "c3"];
@@ -700,7 +720,6 @@ export function tenantStreamsSuite(
         }),
       ]);
       await t.relayed(a);
-      await drainOutbox(contextOf(a.handle));
 
       const ctx = contextOf(a.handle);
       const alive = (await ctx.store.tx((tx) => tx.listSessions())).map((s) => s.id);
@@ -713,20 +732,11 @@ export function tenantStreamsSuite(
         expect(seqs(items)).toEqual(range(0, items.length));
         expect(await t.tailOf(stream)).toBe(items.length);
       }
-      // Only the live sessions' streams remain once the collection ran.
-      const expected = (
-        await Promise.all(alive.map((id) => t.streamOf(a, id)))
-      ).sort();
-      await eventually("abandoned streams to be collected", async () => {
-        const status = await streamsStatus(ctx);
-        const streams = await t.sessionStreams();
-        return (
-          (!status.collectionPending &&
-            streams.length === expected.length &&
-            streams.every((name, i) => name === expected[i])) ||
-          undefined
-        );
-      });
+      // The new basin holds only the live sessions' streams; the old one is deleted.
+      expect(await t.sessionStreams(1)).toEqual(alive.map((id) => `sessions/${id}`).sort());
+      await eventually("the old basin to be deleted", async () =>
+        (await ctx.store.tx((tx) => tx.basinGenerations())).retired.length === 0 || undefined
+      );
     });
 
     it("ends a session feed on another node when the session is reset there", async () => {
@@ -765,35 +775,25 @@ export function tenantStreamsSuite(
       const ctx = contextOf(a.handle);
       const outage = await streamsStatus(ctx);
       expect(outage.reachable).toBe(false);
-      expect(outage.collectionPending).toBe(true);
-      expect(outage.outbox.depth).toBeGreaterThan(0);
-      expect(outage.relayLagMs).toBeGreaterThanOrEqual(0);
-      // The old stream could not be deleted; the new incarnation does not touch it.
-      expect(await t.tailOf(before)).toBe(4);
+      expect(outage.generation).toBe(1);
+      expect(outage.relay!.pendingRows).toBeGreaterThan(0);
 
       t.probe.down = false;
-      await eventually("the outbox to drain", async () =>
-        (await streamsStatus(ctx)).outbox.depth === 0 || undefined
-      );
+      await t.relayed(a);
       const after = await t.streamOf(a);
       expect(after).not.toBe(before);
       const fresh = await t.items(a);
-      expect(seqs(fresh.items)).toEqual(range(0, fresh.items.length));
-      expect(await t.tailOf(after)).toBe(fresh.items.length);
-      // The sweep collects the old stream once the streams are back.
-      await eventually("the old stream to be collected", async () => {
-        const status = await streamsStatus(ctx);
-        return (
-          (!status.collectionPending && !(await t.sessionStreams()).includes(before)) ||
-          undefined
-        );
-      });
+      expect(seqs(fresh.items)).toEqual([0, 1]);
+      expect(await t.tailOf(after)).toBe(2);
+      await eventually("the old basin to be deleted", async () =>
+        (await ctx.store.tx((tx) => tx.basinGenerations())).retired.length === 0 || undefined
+      );
       const settled = await streamsStatus(ctx);
       expect(settled).toMatchObject({
         reachable: true,
         basin: { ready: true, lastError: null },
-        outbox: { depth: 0, oldestAgeMs: null },
-        relayLagMs: 0,
+        generation: 1,
+        relay: { pendingTxs: 0, pendingRows: 0 },
       });
     });
 
@@ -809,11 +809,11 @@ export function tenantStreamsSuite(
       const down = await streamsStatus(ctx);
       expect(down.basin.ready).toBe(false);
       expect(down.basin.lastError).toMatch(/unreachable/);
-      expect(down.outbox.depth).toBeGreaterThan(0);
+      expect(down.relay!.pendingRows).toBeGreaterThan(0);
       expect((await t.history(a)).status).toBe(503);
 
       t.probe.down = false;
-      // No explicit drain: the basin is created in the background and the sweep relays.
+      // Nothing to call: the basin is created in the background and the relay retries.
       await eventually("the basin", () => ctx.sessionStreams.wiring!.basin().ready || undefined);
       await eventually("the history", async () => {
         const response = await t.history(a);
@@ -857,24 +857,25 @@ export function tenantStreamsSuite(
         t.streams.append(other, CONTROL_STREAM, [{ type: "sessions.reset" }])
       ).rejects.toThrow();
 
-      // A reset keeps the basin: the control stream keeps its records.
+      // A reset signals the old basin, moves to a new one, and deletes the old one.
       const a = await t.node();
       await t.createSession(a);
       await t.commitConcurrently(a, 1);
       const signal = { type: "session.cancel", sessionId: "gone" };
       await t.streams.append(t.tenantId, CONTROL_STREAM, [signal]);
+      const old = t.observeControl(t.tenantId);
       await t.reset(a);
-      // The reset appends `sessions.reset` without waiting for it.
-      const control = await eventually("the sessions.reset signal", async () => {
-        const records = await t.records(CONTROL_STREAM);
-        return records.some((r) => (r as { type?: string }).type === "sessions.reset")
-          ? records
-          : undefined;
-      });
-      expect(control[0]).toEqual(signal);
-      expect(
-        await contextOf(a.handle).store.tx((tx) => tx.getSetting(COLLECT_SETTING))
-      ).toBeDefined();
+      await eventually("the sessions.reset signal on the old basin", () =>
+        old.records.some((r) => (r as { type?: string }).type === "sessions.reset") || undefined
+      );
+      expect(old.records).toContainEqual({ type: "sessions.reset", generation: 1 });
+      old.stop();
+      // Signals now go to the new basin.
+      const ctx = contextOf(a.handle);
+      expect(currentBasin(ctx)).toBe(basinOf(t.tenantId, 1));
+      await t.command(a, { type: "cancel", requestId: "c1", idempotencyKey: "c1" }).catch(
+        () => undefined
+      );
     });
 
     it("delivers a cancel to the node running the advance through the control stream", async () => {

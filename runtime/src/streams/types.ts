@@ -1,23 +1,18 @@
 /**
- * The Durable Streams seam (architecture §12.4).
+ * The Durable Streams seam (Durable Streams §8).
  *
- * Durable Streams tell everyone else what the Session Store recorded. Each
- * Tenant has one S2 basin; inside it:
+ * Durable Streams deliver what the record holds. Each Tenant has one S2 basin per basin
+ * generation (`streams/basin.ts`); inside it:
  *
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
- * | `sessions/<sessionId>/<incarnation>` | every `LiveEvent` of one incarnation of the session, in sequence | the relay, from the outbox | history and session SSE |
- * | `tenant/control` | `session.cancel` and `sessions.reset` signals | API nodes | every process with the Tenant open |
+ * | `sessions/<sessionId>` | every event of the session, in sequence | the stream relay, from the record | history and session SSE |
+ * | `tenant/control` | `session.cancel`, `sessions.reset` and `subject.revoked` signals | API nodes | every process with the Tenant open |
  *
- * **Incarnations.** A session's stream name carries an incarnation, a random
- * id stored on the session document when the session is created
- * (`streamIncarnation`, see `streamOfSession`). A session deleted by a reset
- * and created again with the same id gets a new incarnation, so a new stream
- * starting at sequence 0: nothing ever deletes and re-creates the same stream.
- * Abandoned streams are deleted best effort afterwards
- * (`collectSessionStreams` in `tenant/streams.ts`). The cursor stays
- * `base64url("<sessionId>:<seq>")`; readers resolve the incarnation from the
- * session.
+ * **Basin generations.** A session id is unique within its Tenant's basin generation. A
+ * Tenant reset, the only path that frees ids, moves the Tenant to the next generation, so
+ * a session created again with the same id starts in an empty basin at sequence 0; the old
+ * basin is deleted afterwards. The cursor is `base64url("<sessionId>:<seq>")`.
  *
  * S2 is the supported implementation (`adapters/streams/s2.ts`, the only file
  * importing the S2 SDK); `streams/memory.ts` is the in-memory fake.
@@ -30,18 +25,19 @@
  * - **Conditional appends.** With `matchSeq`, a batch is appended only when the
  *   tail equals `matchSeq`; otherwise nothing is written and the result is a
  *   `SeqMismatch` carrying the current tail. The relay appends a session
- *   stream with `matchSeq` set to the outbox row's sequence, so a retried
+ *   stream with `matchSeq` set to the record row's sequence, so a retried
  *   append after an unacknowledged success is detected and never duplicated.
  * - **Batches are atomic.** A batch is appended entirely or not at all.
  * - **Reads resume.** `read` from `fromSeq` yields every record with
  *   `seq >= fromSeq` in order, with no gap between history and the live tail.
- * - **Tenant scope.** `ensureTenant` creates the Tenant's basin (idempotent)
- *   and must run before appends; streams are created on first append.
- *   `deleteTenant` removes the basin and every stream in it.
+ * - **Tenant scope.** Methods take a Tenant id, or a basin key from `basinOf`
+ *   for a later generation. `ensureTenant` creates the basin (idempotent) and
+ *   must run before appends; streams are created on first append or read.
+ *   `deleteTenant` removes the basin and every stream in it (with
+ *   `allGenerations`, every generation's basin of the Tenant).
  * - **Records are JSON.** Bodies are JSON-serializable values; implementations
  *   encode them as they need.
  */
-import { randomBytes } from "node:crypto";
 
 /** A record as read from a stream. */
 export interface StreamRecord<T = unknown> {
@@ -109,9 +105,12 @@ export interface DurableStreams {
   tail(tenantId: string, stream: string): Promise<number>;
   /** Creates the Tenant's basin. Idempotent. */
   ensureTenant(tenantId: string): Promise<void>;
-  /** Deletes the Tenant's basin and all its streams. Idempotent. */
-  deleteTenant(tenantId: string): Promise<void>;
-  /** Deletes one stream (an abandoned session incarnation). Idempotent. */
+  /**
+   * Deletes the basin and all its streams. Idempotent. With `allGenerations`, given a Tenant
+   * id, also every later generation's basin (Tenant deletion).
+   */
+  deleteTenant(tenantId: string, options?: { allGenerations?: boolean }): Promise<void>;
+  /** Deletes one stream. Idempotent. */
   deleteStream(tenantId: string, stream: string): Promise<void>;
   /**
    * Names of the Tenant's streams starting with `prefix`, in name order,
@@ -134,51 +133,15 @@ export const SESSION_STREAM_PREFIX = "sessions/";
 /** `session.cancel` and `sessions.reset` signals for every process with the Tenant open. */
 export const CONTROL_STREAM = "tenant/control";
 
-/**
- * The incarnation of a session document written before incarnations existed.
- * Random incarnations are 12 characters, so never this.
- */
-export const LEGACY_INCARNATION = "0";
-
-/** A new session incarnation: 12 random base64url characters. */
-export function newStreamIncarnation(): string {
-  return randomBytes(9).toString("base64url");
-}
-
-/** The stream of one incarnation of a session: `sessions/<sessionId>/<incarnation>`. */
-export function sessionStream(sessionId: string, incarnation: string): string {
+/** The stream of a session: `sessions/<sessionId>`. */
+export function sessionStream(sessionId: string): string {
   if (!sessionId) throw new Error("sessionId is required");
-  if (!incarnation || incarnation.includes("/"))
-    throw new Error("incarnation must be non-empty and contain no '/'");
-  return `${SESSION_STREAM_PREFIX}${sessionId}/${incarnation}`;
-}
-
-/** The fields of a session document that name its stream. */
-export interface SessionStreamRef {
-  id: string;
-  /** Set when the session is created (`newStreamIncarnation`); never changed. */
-  streamIncarnation?: string;
-}
-
-/** The stream of a session as stored now. */
-export function streamOfSession(session: SessionStreamRef): string {
-  return sessionStream(session.id, session.streamIncarnation ?? LEGACY_INCARNATION);
-}
-
-/** The session id and incarnation of a session stream, or undefined for other streams. */
-export function parseSessionStream(
-  stream: string,
-): { sessionId: string; incarnation: string } | undefined {
-  if (!stream.startsWith(SESSION_STREAM_PREFIX)) return undefined;
-  const rest = stream.slice(SESSION_STREAM_PREFIX.length);
-  const slash = rest.lastIndexOf("/");
-  if (slash <= 0 || slash === rest.length - 1) return undefined;
-  return { sessionId: rest.slice(0, slash), incarnation: rest.slice(slash + 1) };
+  return `${SESSION_STREAM_PREFIX}${sessionId}`;
 }
 
 /**
- * Signals are not canonical events: they are appended without the outbox, and
- * a lost signal costs latency, not correctness.
+ * Signals are not events: they are appended directly, never recorded, and a
+ * lost signal costs latency, not correctness.
  */
 /** Ends the advance of `sessionId` on the process running it. */
 export interface SessionCancelSignal {
@@ -187,11 +150,13 @@ export interface SessionCancelSignal {
 }
 
 /**
- * Session streams were abandoned (a Tenant reset): each process checks its
- * session feeds and ends those whose session is gone or has a new incarnation.
+ * The Tenant was reset and moved to basin generation `generation`. Appended to the old
+ * generation's `tenant/control`: each process switches its readers to the new basin and
+ * ends the streams of sessions the reset deleted.
  */
 export interface SessionsResetSignal {
   type: "sessions.reset";
+  generation?: number;
 }
 
 /**

@@ -1581,6 +1581,26 @@ export const AdminTenantStatusSchema = AdminTenantSchema.extend({
 });
 export type AdminTenantStatus = z.infer<typeof AdminTenantStatusSchema>;
 
+/** A stream relay's state (Durable Streams §7). */
+export const StreamRelayStatusSchema = z
+  .object({
+    /** This process holds the replication slot (one process per slot does). */
+    active: z.boolean(),
+    /** Committed transactions not yet fully in S2. */
+    pendingTxs: z.number().int().nonnegative(),
+    /** Events queued for S2. */
+    pendingRows: z.number().int().nonnegative(),
+    /** The last position acknowledged to the slot. */
+    confirmed: z.string().nullable(),
+    /** Reconciliations of the record with S2 since start (a new or lost slot). */
+    reconciliations: z.number().int().nonnegative(),
+    lastError: z.string().nullable(),
+    /** WAL bytes the slot holds that the relay has not confirmed, when known. */
+    lagBytes: z.number().nonnegative().optional(),
+  })
+  .strict();
+export type StreamRelayStatus = z.infer<typeof StreamRelayStatusSchema>;
+
 export const HostAggregateSchema = z
   .object({
     runningSessions: z.number().int().nonnegative(),
@@ -1588,10 +1608,8 @@ export const HostAggregateSchema = z
     inFlightDeliveries: z.number().int().nonnegative(),
     pendingActions: z.number().int().nonnegative(),
     uncertainEffects: z.number().int().nonnegative(),
-    /** Events committed but not yet relayed to Durable Streams, over the open Tenants. */
-    outboxDepth: z.number().int().nonnegative().optional(),
-    /** The largest relay lag of an open Tenant: its oldest unrelayed event's age. */
-    relayLagMs: z.number().nonnegative().optional(),
+    /** This process's stream relay, when it runs one (a Host with S2). */
+    relay: StreamRelayStatusSchema.optional(),
   })
   .strict();
 export type HostAggregate = z.infer<typeof HostAggregateSchema>;
@@ -1741,14 +1759,10 @@ export const TenantStatusSchema = z
             lastError: z.string().nullable(),
           })
           .strict(),
-        outbox: z
-          .object({
-            depth: z.number().int().nonnegative(),
-            oldestAgeMs: z.number().nonnegative().nullable(),
-          })
-          .strict(),
-        relayLagMs: z.number().nonnegative(),
-        collectionPending: z.boolean(),
+        /** The basin generation session streams are in (a reset moves to the next). */
+        generation: z.number().int().nonnegative(),
+        /** The Tenant's own relay; null when the Host's relay serves it. */
+        relay: StreamRelayStatusSchema.nullable(),
       })
       .strict()
       .optional(),

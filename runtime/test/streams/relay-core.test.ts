@@ -6,7 +6,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { basinOf } from "../../src/streams/basin.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
-import { createStreamRelay, sessionStreamName, type StreamRelay } from "../../src/streams/relay/core.js";
+import { createStreamRelay, type StreamRelay } from "../../src/streams/relay/core.js";
+import { sessionStream } from "../../src/streams/types.js";
 import { MemoryRecord } from "../../src/streams/relay/memory.js";
 import type { RecordRow } from "../../src/streams/relay/types.js";
 import type { AppendOptions, AppendResult } from "../../src/streams/types.js";
@@ -65,7 +66,7 @@ async function setup(options: { generation?: number } = {}) {
     const out: number[] = [];
     for await (const r of streams.read<{ seq: number }>(
       basinOf(T, generation),
-      sessionStreamName(sessionId),
+      sessionStream(sessionId),
       0,
       { follow: false },
     ))
@@ -167,7 +168,7 @@ describe("stream relay", () => {
     const relay = t.relay();
     t.write("s1", 3);
     await relay.idle();
-    await t.streams.deleteStream(T, sessionStreamName("s1"));
+    await t.streams.deleteStream(T, sessionStream("s1"));
     t.write("s1", 1);
     await relay.idle();
     expect(await t.inS2("s1")).toEqual(range(4));
@@ -179,7 +180,7 @@ describe("stream relay", () => {
     t.write("s1", 2);
     await relay.idle();
     t.record.dropSlot();
-    await t.streams.deleteStream(T, sessionStreamName("s1"));
+    await t.streams.deleteStream(T, sessionStream("s1"));
     t.write("s2", 1); // committed while no slot exists: only reconciliation finds it
     await eventually("the reconciliation", async () =>
       (await t.inS2("s1")).length === 2 && (await t.inS2("s2")).length === 1 ? true : undefined,

@@ -49,7 +49,7 @@ describe("Postgres migrations", () => {
     expect(() => assertMigrations(MIGRATIONS)).not.toThrow();
     expect(POSTGRES_SCHEMA_VERSION).toBe(MIGRATIONS.length);
     expect(() =>
-      assertMigrations([...MIGRATIONS, { version: 9, name: "gap", up: () => "" }]),
+      assertMigrations([...MIGRATIONS, { version: MIGRATIONS.length + 2, name: "gap", up: () => "" }]),
     ).toThrow("expected");
   });
 });

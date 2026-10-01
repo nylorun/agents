@@ -294,11 +294,11 @@ One line each; the module named is where the term lives in code.
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`).
 - **Ownership epoch**: The counter an advance takes with a session's lease; every write the advance makes checks it (`store/ownership.ts`).
 - **Engine host**: `resolveEffect`, which journals each effect's intent and outcome and dispatches it by kind (`tenant/effects.ts`).
-- **Outbox**: Session Store rows holding events committed but not yet in Durable Streams (`OutboxRow` in `store/types.ts`).
-- **Relay**: Appends outbox rows to their session's stream in order and deletes them once S2 has them; the only writer of events (`streams/relay.ts`).
+- **Record**: Every session event, written in its state transaction to Postgres `nylorun_streams.session_events` (shared by every Tenant, keyed by `tenant_id`), with each session's log head; Durable Streams are fed from it (`Tx.event`, `store/postgres/migrations/shared/`).
+- **Stream relay**: Feeds Durable Streams from the record, exactly once and in order per session (`matchSeq`), acknowledging the replication slot only after S2 has the events; reconciles the record with S2 after a new or lost slot. On a Host with S2 one process-wide relay reads logical replication (`streams/relay/`, `adapters/replication/pgoutput.ts`); otherwise each Tenant relays its own commits (`tenant/streams.ts`). The only writer of session streams.
+- **Basin generation**: The Tenant's current S2 basin, from 0; a sessions reset moves to the next, so ids it frees start in an empty basin, and the old basin is deleted after a grace period (`streams/basin.ts`, `tenant/streams.ts`).
 - **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`).
-- **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions, drains the outbox and stops idle sandboxes (`tenant/sweep.ts`).
-- **Stream incarnation**: The id in a session's stream name `sessions/<id>/<incarnation>`, new each time a session id is created (`streams/types.ts`, `tenant/streams.ts`).
+- **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions and stops idle sandboxes (`tenant/sweep.ts`).
 
 ## Terms to avoid (appear nowhere in new copy)
 

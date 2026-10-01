@@ -4,6 +4,7 @@ import type {
   AdminTenantStatus,
   HostAggregate,
   TenantEnvelope,
+  StreamRelayStatus,
 } from "@nylorun/core/contracts";
 import { POSTGRES_SCHEMA_VERSION } from "../store/postgres/migrations/index.js";
 import { envelopeNow } from "./envelope.js";
@@ -53,6 +54,8 @@ export interface CreateTenantModuleOptions {
    * Durable Streams basin, its armed sweep). A failure is logged; the Tenant stays deleted.
    */
   onDeleted?: (tenantId: string) => Promise<void>;
+  /** This process's stream relay, for the Host aggregate (a Host with S2 runs one). */
+  relayStatus?: () => Promise<StreamRelayStatus>;
 }
 
 type OpenEntry = { kind: "open"; handle: TenantHandle };
@@ -369,8 +372,6 @@ export function createTenantModule(
       let inFlightDeliveries = 0;
       let pendingActions = 0;
       let uncertainEffects = 0;
-      let outboxDepth: number | undefined;
-      let relayLagMs: number | undefined;
       for (const s of await Promise.all(
         openEntries().map((e) => e.handle.summary()),
       )) {
@@ -378,18 +379,14 @@ export function createTenantModule(
         inFlightDeliveries += s.inFlightDeliveries;
         pendingActions += s.pendingActions;
         uncertainEffects += s.uncertainEffects;
-        if (s.outboxDepth !== undefined)
-          outboxDepth = (outboxDepth ?? 0) + s.outboxDepth;
-        if (s.relayLagMs !== undefined)
-          relayLagMs = Math.max(relayLagMs ?? 0, s.relayLagMs);
       }
+      const relay = await options.relayStatus?.().catch(() => undefined);
       return {
         runningSessions,
         inFlightDeliveries,
         pendingActions,
         uncertainEffects,
-        ...(outboxDepth !== undefined ? { outboxDepth } : {}),
-        ...(relayLagMs !== undefined ? { relayLagMs } : {}),
+        ...(relay ? { relay } : {}),
       };
     },
 
