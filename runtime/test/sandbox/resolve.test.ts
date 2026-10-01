@@ -15,7 +15,7 @@ const config = effectiveSandboxConfig({
     idle: "10m",
   },
 });
-const base = { config, backend: "virtual", actingForSubject: false } as const;
+const base = { config, actingForSubject: false } as const;
 
 describe("resolveSandbox", () => {
   it("gives no sandbox for false, and for an unset Tenant default", () => {
@@ -71,23 +71,13 @@ describe("resolveSandbox", () => {
       kind: "error",
       status: 400,
       errors: [
-        "sandbox.image needs an OpenShell backend, and this Tenant runs only the virtual sandbox.",
+        "sandbox.image is not supported: the virtual sandbox has no images.",
         "sandbox.network.allow includes api.openai.com, which this Tenant does not allow.",
         "sandbox.network.allow includes *.example.com; the virtual sandbox allows exact host names only, such as example.com.",
         "sandbox.resources.cpus asks for 8; this Tenant allows at most 4.",
         "sandbox.resources.memory asks for 16384MiB; this Tenant allows at most 8192MiB.",
       ],
     });
-  });
-
-  it("allows images and wildcard hosts on an OpenShell backend", () => {
-    expect(
-      resolveSandbox({
-        ...base,
-        backend: "openshell",
-        request: { image: "node:24", network: { allow: ["*.example.com"] } },
-      })
-    ).toMatchObject({ kind: "sandbox", spec: { image: "node:24" } });
   });
 
   it("refuses an inline sandbox from a caller acting for a subject, but not the default", () => {
@@ -123,8 +113,7 @@ describe("sandboxConfigErrors", () => {
       effectiveSandboxConfig({
         default: { network: { allow: ["api.openai.com"] } },
         limits: { resources: { cpus: 2 }, defaultResources: { cpus: 3 } },
-      }),
-      "virtual"
+      })
     );
     expect(errors).toEqual([
       "limits.defaultResources.cpus is above limits.resources.cpus.",

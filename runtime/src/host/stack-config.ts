@@ -42,11 +42,6 @@ export interface StackEndpoints {
   s2Token?: string;
   workspaceStoreUrl?: string;
   /**
-   * OpenShell gateway for real sandboxes (`NYLORUN_OPENSHELL_GATEWAY`), for example
-   * `http://127.0.0.1:8080`. Unset means Tenants have only the virtual backend.
-   */
-  openshellGateway?: string;
-  /**
    * Restate request-identity public keys (`publickeyv1_...`) the Worker
    * endpoint accepts, from `NYLORUN_RESTATE_IDENTITY_KEY` (comma-separated
    * during a rotation). Unset means the endpoint accepts unsigned requests.
@@ -304,8 +299,6 @@ export function parseStackConfig(
     "https:",
   ]);
   if (workspaceStoreUrl) endpoints.workspaceStoreUrl = workspaceStoreUrl;
-  const openshellGateway = parseUrl(env, "NYLORUN_OPENSHELL_GATEWAY", http);
-  if (openshellGateway) endpoints.openshellGateway = openshellGateway.replace(/\/+$/, "");
   const restateIdentityKeys = parseIdentityKeys(env);
   if (restateIdentityKeys) endpoints.restateIdentityKeys = restateIdentityKeys;
   const publicUrl = parseUrl(env, "NYLORUN_PUBLIC_URL", http)?.replace(/\/+$/, "");

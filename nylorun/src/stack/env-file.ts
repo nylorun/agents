@@ -1,5 +1,4 @@
 import { CliError } from "../errors.js";
-import type { StackSandbox } from "./openshell.js";
 
 /**
  * Settings in `stack/.env` (mode 0600). Ports and the password persist; the
@@ -23,14 +22,6 @@ export interface StackEnv {
   hostRoot: string;
   runtimeImage: string;
   studioImage: string;
-  /** `openshell` runs the OpenShell gateway beside the stack (`nylorun start --sandbox`). */
-  sandbox: StackSandbox;
-  /** Gateway gRPC port on 127.0.0.1; the sandboxes' supervisors dial it. */
-  openshellPort: number;
-  /** Gateway health port on 127.0.0.1. */
-  openshellHealthPort: number;
-  /** OpenShell's anonymous usage counts to NVIDIA. */
-  openshellTelemetry: boolean;
 }
 
 const KEYS = {
@@ -45,10 +36,6 @@ const KEYS = {
   hostRoot: "NYLORUN_HOST_ROOT",
   runtimeImage: "NYLORUN_RUNTIME_IMAGE",
   studioImage: "NYLORUN_STUDIO_IMAGE",
-  sandbox: "NYLORUN_STACK_SANDBOX",
-  openshellPort: "NYLORUN_OPENSHELL_PORT",
-  openshellHealthPort: "NYLORUN_OPENSHELL_HEALTH_PORT",
-  openshellTelemetry: "NYLORUN_OPENSHELL_TELEMETRY",
 } as const satisfies Record<keyof StackEnv, string>;
 
 /** Compose .env values: single quotes keep a value literal (no interpolation). */
@@ -98,15 +85,6 @@ export function renderEnvFile(env: StackEnv): string {
     line("runtimeImage"),
     line("studioImage"),
     "",
-    "# Sandboxes: virtual (in the Runtime) or openshell (the OpenShell gateway",
-    "# beside the stack). Set with `nylorun start --sandbox <virtual|openshell>`.",
-    line("sandbox"),
-    line("openshellPort"),
-    line("openshellHealthPort"),
-    line("openshellTelemetry"),
-    `COMPOSE_PROFILES=${env.sandbox === "openshell" ? "openshell" : ""}`,
-    `NYLORUN_OPENSHELL_GATEWAY=${env.sandbox === "openshell" ? `http://openshell-gateway:${env.openshellPort}` : ""}`,
-    "",
   ].join("\n");
 }
 
@@ -136,10 +114,6 @@ export interface PersistedStackEnv {
   studioPort?: number;
   restatePort?: number;
   postgresPassword?: string;
-  sandbox?: StackSandbox;
-  openshellPort?: number;
-  openshellHealthPort?: number;
-  openshellTelemetry?: boolean;
 }
 
 export function parsePersisted(text: string): PersistedStackEnv {
@@ -156,13 +130,5 @@ export function parsePersisted(text: string): PersistedStackEnv {
   const password = values.get(KEYS.postgresPassword);
   if (password && /^[A-Za-z0-9]{16,}$/.test(password))
     out.postgresPassword = password;
-  const sandbox = values.get(KEYS.sandbox);
-  if (sandbox === "virtual" || sandbox === "openshell") out.sandbox = sandbox;
-  const openshellPort = port(values.get(KEYS.openshellPort));
-  if (openshellPort) out.openshellPort = openshellPort;
-  const openshellHealthPort = port(values.get(KEYS.openshellHealthPort));
-  if (openshellHealthPort) out.openshellHealthPort = openshellHealthPort;
-  const telemetry = values.get(KEYS.openshellTelemetry);
-  if (telemetry === "true" || telemetry === "false") out.openshellTelemetry = telemetry === "true";
   return out;
 }

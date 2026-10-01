@@ -31,7 +31,7 @@ export function quote(value: string): string {
 
 /**
  * An absolute path inside the sandbox. Relative paths are relative to the workspace; on a backend
- * whose workspace is not `/workspace` (OpenShell uses `/sandbox`), `/workspace/…` still names it.
+ * whose workspace is not `/workspace`, `/workspace/…` still names it.
  */
 export function resolveSandboxPath(path: string, workspace: string = SANDBOX_WORKSPACE): string {
   if (workspace !== SANDBOX_WORKSPACE && (path === SANDBOX_WORKSPACE || path.startsWith(`${SANDBOX_WORKSPACE}/`)))

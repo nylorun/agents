@@ -1,5 +1,4 @@
 import { PINNED_IMAGES } from "./images.js";
-import { OPENSHELL_IMAGES } from "./openshell.js";
 
 /**
  * The local stack's Compose file (Runtime Architecture §14.3), written to
@@ -13,10 +12,6 @@ import { OPENSHELL_IMAGES } from "./openshell.js";
  * Restate signs requests to the Worker endpoint with the private key in
  * `stack/restate-identity.pem`, mounted read-only; the Runtime gets the public
  * key as NYLORUN_RESTATE_IDENTITY_KEY.
- *
- * `openshell-gateway` runs only with the `openshell` profile (`nylorun start --sandbox
- * openshell` sets COMPOSE_PROFILES in .env); the Runtime then gets its URL as
- * NYLORUN_OPENSHELL_GATEWAY and runs real sandboxes on it (Sandboxes v3).
  */
 export function renderComposeFile(): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -95,7 +90,6 @@ services:
       NYLORUN_S2_ENDPOINT: http://s2:80
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
-      NYLORUN_OPENSHELL_GATEWAY: \${NYLORUN_OPENSHELL_GATEWAY:-} # set when the openshell profile runs
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
@@ -111,29 +105,6 @@ services:
       interval: 2s
       timeout: 5s
       retries: 60
-    restart: unless-stopped
-
-  openshell-gateway: # real sandboxes: nylorun start --sandbox openshell
-    image: ${OPENSHELL_IMAGES.gateway}
-    profiles: ["openshell"]
-    command: ["--bind-address", "0.0.0.0", "--port", "\${NYLORUN_OPENSHELL_PORT:-18080}"]
-    user: "0" # creates the sandbox containers through the Docker socket
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Same path inside and out: the Docker driver hands paths under it to Docker.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/openshell:\${NYLORUN_HOST_ROOT}/openshell
-      - \${NYLORUN_HOST_ROOT}/stack/openshell-gateway.toml:/etc/openshell/gateway.toml:ro
-      - \${NYLORUN_HOST_ROOT}/stack/openshell-jwt:/etc/openshell/jwt:ro
-    environment:
-      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
-      OPENSHELL_DB_URL: sqlite:\${NYLORUN_HOST_ROOT}/openshell/gateway.db?mode=rwc
-      OPENSHELL_TELEMETRY_ENABLED: "\${NYLORUN_OPENSHELL_TELEMETRY:-true}"
-      XDG_DATA_HOME: \${NYLORUN_HOST_ROOT}/openshell
-      HOME: \${NYLORUN_HOST_ROOT}/openshell
-    ports:
-      # The sandboxes' host-networked supervisors dial the gateway at 127.0.0.1:<port>.
-      - "127.0.0.1:\${NYLORUN_OPENSHELL_PORT:-18080}:\${NYLORUN_OPENSHELL_PORT:-18080}"
-      - "127.0.0.1:\${NYLORUN_OPENSHELL_HEALTH_PORT:-18081}:8081" # /healthz, polled by nylorun start
     restart: unless-stopped
 
   studio: # dashboard + trusted proxy

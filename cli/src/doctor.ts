@@ -103,8 +103,4 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
     console.log(
       "\n  The virtual shell emulates bash in the Runtime process; it is not a VM boundary.",
     );
-  if (report.backend === "openshell")
-    console.log(
-      "\n  OpenShell runs each sandbox in a container; its supervisor enforces the network policy outside it.",
-    );
 }

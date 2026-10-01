@@ -19,27 +19,13 @@ import { stackPaths, type StackPaths } from "./paths.js";
 import type { PortProbe } from "./ports.js";
 import { prepareStack, readStackEnv } from "./prepare.js";
 import { mintStudioLogin, studioOrigin, type FetchLike } from "./studio-login.js";
-import {
-  OPENSHELL_NAMESPACE_LABEL,
-  OPENSHELL_SERVICE,
-  OPENSHELL_TELEMETRY_NOTICE,
-  type StackSandbox,
-} from "./openshell.js";
 
-export const STACK_SERVICES = [
-  "postgres",
-  "restate",
-  "s2",
-  "runtime",
-  "studio",
-  "openshell-gateway",
-] as const;
+export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"] as const;
 const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
-export const stackUsage = `  up|start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off] [--allow-downgrade]
+export const stackUsage = `  up|start [--no-studio] [--no-open] [--allow-downgrade]
                                       set up the stack on first run, then start it; print the Runtime and Studio URLs and open Studio signed in (in a terminal).
-                                      --sandbox openshell also runs an OpenShell gateway for real sandboxes (kept for later starts)
                                       refuses a Runtime older than the Host last ran unless --allow-downgrade
   down|stop                           stop the stack's containers; keep volumes
   status [--json] [--env]             services, endpoints and Runtime health (--env: the linked Project's variables)
@@ -310,12 +296,7 @@ interface Started {
 
 async function bringUp(
   ctx: Context,
-  options: {
-    studio: boolean;
-    sandbox?: StackSandbox;
-    openshellTelemetry?: boolean;
-    allowDowngrade?: boolean;
-  },
+  options: { studio: boolean; allowDowngrade?: boolean },
 ): Promise<Started> {
   const { deps } = ctx;
   await refuseLauncherRuntime(ctx);
@@ -332,32 +313,11 @@ async function bringUp(
     // An overriding image's version is unknown: keep the recorded one.
     runtimeVersion: overridden ? undefined : deps.runtimeVersion,
     ports: deps.ports,
-    project: ctx.project,
-    ...(options.sandbox ? { sandbox: options.sandbox } : {}),
-    ...(options.openshellTelemetry === undefined
-      ? {}
-      : { openshellTelemetry: options.openshellTelemetry }),
   });
   if (prepared.firstRun)
     deps.err(
       `Wrote ${ctx.paths.compose} and ${ctx.paths.env} (Runtime port ${prepared.env.runtimePort}, Studio port ${prepared.env.studioPort}).`,
     );
-  if (prepared.env.sandbox === "openshell") {
-    // The Runtime picks its sandbox backend once, so the gateway is healthy before it starts.
-    if (prepared.env.openshellTelemetry) deps.err(OPENSHELL_TELEMETRY_NOTICE);
-    const gateway = await deps.docker.stream(composeArgs(ctx, "up", "--detach", OPENSHELL_SERVICE));
-    if (gateway !== 0)
-      throw new CliError(
-        `The OpenShell gateway did not start (exit ${gateway}). See "nylorun logs ${OPENSHELL_SERVICE}".`,
-        7,
-      );
-    await waitForGateway(ctx, prepared.env.openshellHealthPort);
-  } else {
-    // Switched back to virtual: stop a gateway an earlier start ran.
-    await deps.docker.run(
-      composeArgs(ctx, "--profile", "openshell", "rm", "--stop", "--force", OPENSHELL_SERVICE),
-    );
-  }
   const up = await deps.docker.stream(
     composeArgs(ctx, "up", "--detach", "--wait", "--wait-timeout", "300", ...CORE_SERVICES),
   );
@@ -387,26 +347,6 @@ async function bringUp(
     studioStarted,
     adminKey: prepared.adminKey,
   };
-}
-
-async function waitForGateway(ctx: Context, healthPort: number): Promise<void> {
-  const deadline = Date.now() + (ctx.deps.healthTimeoutMs ?? 120_000);
-  let last = "";
-  for (;;) {
-    try {
-      const response = await ctx.deps.fetch(`http://127.0.0.1:${healthPort}/healthz`);
-      if (response.ok) return;
-      last = `HTTP ${response.status}`;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-    }
-    if (Date.now() > deadline)
-      throw new CliError(
-        `The OpenShell gateway is not healthy on 127.0.0.1:${healthPort} (${last}). See "nylorun logs ${OPENSHELL_SERVICE}".`,
-        7,
-      );
-    await sleep(ctx.deps.pollMs ?? 500);
-  }
 }
 
 async function tryStudioLogin(
@@ -452,28 +392,19 @@ async function openLogin(ctx: Context, login: string): Promise<void> {
 export const TENANT_HINT =
   "No Tenant yet. Create one in Studio, or run `npx @nylorun/cli tenant create` in your project.";
 
-const START_USAGE =
-  "nylorun start [--no-studio] [--no-open] [--sandbox virtual|openshell] [--openshell-telemetry on|off] [--allow-downgrade]";
+const START_USAGE = "nylorun start [--no-studio] [--no-open] [--allow-downgrade]";
 
 async function start(ctx: Context, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
     args,
-    { booleans: ["--no-studio", "--no-open", "--allow-downgrade"], values: ["--sandbox", "--openshell-telemetry"] },
+    { booleans: ["--no-studio", "--no-open", "--allow-downgrade"] },
     START_USAGE,
   );
   if (flags.rest.length) throw usageError(`Usage: ${START_USAGE}`);
-  const sandbox = flags.values.get("--sandbox");
-  if (sandbox !== undefined && sandbox !== "virtual" && sandbox !== "openshell")
-    throw usageError(`--sandbox must be virtual or openshell, not ${sandbox}`);
-  const telemetry = flags.values.get("--openshell-telemetry");
-  if (telemetry !== undefined && telemetry !== "on" && telemetry !== "off")
-    throw usageError(`--openshell-telemetry must be on or off, not ${telemetry}`);
   await dockerPreflight(ctx.deps.docker);
   const started = await bringUp(ctx, {
     studio: !flags.booleans.has("--no-studio"),
     allowDowngrade: flags.booleans.has("--allow-downgrade"),
-    ...(sandbox ? { sandbox } : {}),
-    ...(telemetry ? { openshellTelemetry: telemetry === "on" } : {}),
   });
   ctx.deps.out(`Runtime   ${started.runtimeUrl}`);
   if (started.studioStarted) {
@@ -676,23 +607,9 @@ async function reset(ctx: Context, args: readonly string[]): Promise<number> {
   if (existsSync(paths.compose) && existsSync(paths.env)) {
     await dockerPreflight(deps.docker);
     const code = await deps.docker.stream(
-      composeArgs(ctx, "--profile", "openshell", "down", "--volumes", "--remove-orphans"),
+      composeArgs(ctx, "down", "--volumes", "--remove-orphans"),
     );
     if (code !== 0) throw new CliError(`docker compose down failed (exit ${code}).`, 1);
-    // The gateway's sandboxes are containers and volumes beside the stack, not in the project.
-    const namespace = `label=${OPENSHELL_NAMESPACE_LABEL}=${ctx.project}`;
-    const containers = await deps.docker.run(["ps", "--all", "--quiet", "--filter", namespace]);
-    const ids = containers.stdout.split(/\s+/).filter(Boolean);
-    if (ids.length > 0) await deps.docker.run(["rm", "--force", ...ids]);
-    const volumes = await deps.docker.run(["volume", "ls", "--quiet", "--filter", namespace]);
-    const names = volumes.stdout.split(/\s+/).filter(Boolean);
-    if (names.length > 0) await deps.docker.run(["volume", "rm", "--force", ...names]);
-  }
-  try {
-    await rm(paths.openshellData, { recursive: true, force: true });
-  } catch {
-    // On Linux the gateway writes its state as root.
-    deps.err(`Could not delete ${paths.openshellData}; remove it with: sudo rm -rf ${paths.openshellData}`);
   }
   await rm(paths.tenants, { recursive: true, force: true });
   await mkdir(paths.tenants, { recursive: true, mode: 0o700 });

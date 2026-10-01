@@ -163,7 +163,7 @@ it("reports every problem with an inline sandbox in one 400", async () => {
     });
     expect(refused.status).toBe(400);
     const text = await refused.text();
-    expect(text).toContain("sandbox.image needs an OpenShell backend");
+    expect(text).toContain("sandbox.image is not supported");
     expect(text).toContain("api.openai.com, which this Tenant does not allow");
     expect(text).toContain("sandbox.resources.cpus asks for 16");
     // Nothing was created.

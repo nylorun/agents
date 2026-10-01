@@ -215,10 +215,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const { requestId: _requestId, ...config } = PutTenantSandboxRequestSchema.parse(
         await readJson(c.req.raw),
       );
-      const errors = sandboxConfigErrors(
-        effectiveSandboxConfig(config),
-        (await ctx.sandbox.ready).backend?.name,
-      );
+      const errors = sandboxConfigErrors(effectiveSandboxConfig(config));
       if (errors.length > 0) fail(400, errors.join(" "));
       await ctx.store.tx((t) => writeSandboxConfig(t, config));
       return jsonResponse(200, await sandboxView(ctx));

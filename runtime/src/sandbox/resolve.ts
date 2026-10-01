@@ -1,6 +1,6 @@
 /**
  * Resolves the sandbox a session asks for when it is opened against its Tenant's configuration.
- * Pure: the caller supplies the configuration, the backend and who is asking. Every problem is
+ * Pure: the caller supplies the configuration and who is asking. Every problem is
  * reported, not only the first, so one response lists all of them.
  */
 import type { SandboxInlineRequest } from "@nylorun/core/contracts";
@@ -18,8 +18,6 @@ export interface ResolveSandboxInput {
   /** `PutSessionRequest.sandbox` other than `{ session }`, which the caller handles. */
   readonly request: false | SandboxInlineRequest | undefined;
   readonly config: EffectiveSandboxConfig;
-  /** The backend this Tenant runs sandboxes on; undefined when none is available. */
-  readonly backend: string | undefined;
   /** The request acts for a subject (`Nylorun-Subject`) rather than as the application. */
   readonly actingForSubject: boolean;
 }
@@ -47,15 +45,13 @@ function build(
 ): SandboxResolution {
   const { limits } = input.config;
   const errors: string[] = [];
-  if (request.image !== undefined && input.backend !== "openshell")
-    errors.push(
-      "sandbox.image needs an OpenShell backend, and this Tenant runs only the virtual sandbox."
-    );
+  if (request.image !== undefined)
+    errors.push("sandbox.image is not supported: the virtual sandbox has no images.");
   const allow = (request.network?.allow ?? []).map((host) => host.toLowerCase());
   for (const host of allow) {
     if (!withinCeiling(host, limits.network))
       errors.push(`sandbox.network.allow includes ${host}, which this Tenant does not allow.`);
-    else if (host.startsWith("*.") && input.backend !== "openshell")
+    else if (host.startsWith("*."))
       errors.push(
         `sandbox.network.allow includes ${host}; the virtual sandbox allows exact host names only, such as ${host.slice(2)}.`
       );
@@ -99,7 +95,7 @@ export function withinCeiling(host: string, ceiling: readonly string[]): boolean
 }
 
 /** Problems with a Tenant configuration, checked when an operator saves it. */
-export function sandboxConfigErrors(config: EffectiveSandboxConfig, backend: string | undefined): string[] {
+export function sandboxConfigErrors(config: EffectiveSandboxConfig): string[] {
   const errors: string[] = [];
   const { limits } = config;
   if (limits.defaultResources.cpus > limits.resources.cpus)
@@ -110,7 +106,6 @@ export function sandboxConfigErrors(config: EffectiveSandboxConfig, backend: str
     const resolved = resolveSandbox({
       request: undefined,
       config,
-      backend,
       actingForSubject: false,
     });
     if (resolved.kind === "error")

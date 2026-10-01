@@ -12,7 +12,6 @@ import type { StackImages } from "./images.js";
 import type { StackPaths } from "./paths.js";
 import { choosePort, DEFAULT_PORTS, type PortProbe } from "./ports.js";
 import { ensureIdentityKey } from "./restate-identity.js";
-import { prepareOpenShell, type StackSandbox } from "./openshell.js";
 
 export interface PreparedStack {
   env: StackEnv;
@@ -57,12 +56,6 @@ export async function prepareStack(input: {
   /** Recorded in host.json; undefined keeps the recorded version. */
   runtimeVersion: string | undefined;
   ports: PortProbe;
-  /** The Compose project; namespaces the OpenShell gateway's sandboxes. */
-  project: string;
-  /** From `nylorun start --sandbox`; undefined keeps the persisted choice (default virtual). */
-  sandbox?: StackSandbox;
-  /** From `nylorun start --openshell-telemetry`; undefined keeps the persisted choice (default on). */
-  openshellTelemetry?: boolean;
 }): Promise<PreparedStack> {
   const { paths } = input;
   await ensureHostLayout(paths);
@@ -98,20 +91,6 @@ export async function prepareStack(input: {
     taken,
   );
 
-  taken.add(restatePort);
-  const sandbox = input.sandbox ?? persisted.sandbox ?? "virtual";
-  // The gateway's ports are chosen only when it runs; the supervisors dial the gRPC one.
-  const openshellPort =
-    sandbox === "openshell"
-      ? await choosePort(input.ports, DEFAULT_PORTS.openshell, persisted.openshellPort, taken)
-      : persisted.openshellPort ?? DEFAULT_PORTS.openshell;
-  taken.add(openshellPort);
-  const openshellHealthPort =
-    sandbox === "openshell"
-      ? await choosePort(input.ports, DEFAULT_PORTS.openshellHealth, persisted.openshellHealthPort, taken)
-      : persisted.openshellHealthPort ?? DEFAULT_PORTS.openshellHealth;
-  if (sandbox === "openshell") await prepareOpenShell(paths, input.project);
-
   const identity = await ensureIdentityKey(paths.restateIdentity, writeFileMode);
 
   const env: StackEnv = {
@@ -126,10 +105,6 @@ export async function prepareStack(input: {
     hostRoot: paths.root,
     runtimeImage: input.images.runtime,
     studioImage: input.images.studio,
-    sandbox,
-    openshellPort,
-    openshellHealthPort,
-    openshellTelemetry: input.openshellTelemetry ?? persisted.openshellTelemetry ?? true,
   };
 
   const { adminKey } = await ensureHostCredentials(paths);

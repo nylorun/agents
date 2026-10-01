@@ -17,8 +17,6 @@ export function configForFactory(options: {
   mode?: TenantConfig["mode"];
   /** Override model; default vault. Fixture/scripted require ephemeral/test mode. */
   model?: TenantConfig["model"];
-  /** The Host's OpenShell gateway, when one is configured. */
-  openshellGateway?: string;
   /** How Tenants may call Action endpoints (`StackConfig.delivery`). */
   delivery?: TenantConfig["delivery"];
 }): (id: string) => TenantConfig {
@@ -30,10 +28,7 @@ export function configForFactory(options: {
       tenantId: id,
       mode: options.mode ?? "shared",
       paths: tenant,
-      sandbox: {
-        backend: sandboxBackend,
-        ...(options.openshellGateway ? { openshell: { gateway: options.openshellGateway } } : {}),
-      },
+      sandbox: { backend: sandboxBackend },
       model: options.model ?? { kind: "vault" },
       ...(options.delivery ? { delivery: options.delivery } : {}),
       childEnv: tenantChildEnvironment(

@@ -75,7 +75,7 @@ export interface SandboxManagerOptions {
   readonly scope: string;
   readonly store: SessionStore;
   readonly backends: readonly SandboxBackend[];
-  /** `auto`, `virtual` or `openshell`. Undefined means an invalid NYLORUN_SANDBOX value. */
+  /** `auto` or `virtual`. Undefined means an invalid NYLORUN_SANDBOX value. */
   readonly preference: string | undefined;
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
@@ -164,7 +164,7 @@ export class SandboxManager {
         ? selectSandboxBackend(this.options.backends, preference)
         : Promise.resolve({
             preference: "auto",
-            reason: `NYLORUN_SANDBOX='${this.options.preference}' is not valid; use auto, virtual or openshell`,
+            reason: `NYLORUN_SANDBOX='${this.options.preference}' is not valid; use auto or virtual`,
             probes: [],
           });
     }
@@ -202,9 +202,7 @@ export class SandboxManager {
     const key = this.keyOf(session.id);
     const spec: SandboxSpec = {
       key,
-      // The virtual backend reports the Runtime's default; others use their own (OpenShell's gateway).
-      image:
-        capability.sandbox?.image ?? (backend.name === "virtual" ? DEFAULT_SANDBOX_IMAGE : undefined),
+      image: capability.sandbox?.image ?? DEFAULT_SANDBOX_IMAGE,
       cpus: capability.sandbox?.resources?.cpus ?? DEFAULT_SANDBOX_CPUS,
       memoryMiB: memoryMiBOf(capability.sandbox),
       network: resolveNetwork(capability.sandbox),

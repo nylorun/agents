@@ -1479,7 +1479,7 @@ export const SeedTenantConfigRequestSchema = z
     requestId: RequestIdSchema,
     sandbox: z
       .object({
-        backend: z.enum(["auto", "virtual", "openshell"]).optional(),
+        backend: z.enum(["auto", "virtual"]).optional(),
         /** Seeds Tenant setting `sandbox.config` when it is absent. */
         config: TenantSandboxConfigSchema.optional(),
       })
@@ -2015,7 +2015,7 @@ export const EffectiveSandboxConfigSchema = z
   })
   .strict();
 export type EffectiveSandboxConfig = z.infer<typeof EffectiveSandboxConfigSchema>;
-const SandboxBackendNameSchema = z.enum(["virtual", "openshell"]);
+const SandboxBackendNameSchema = z.enum(["virtual"]);
 const SandboxIsolationSchema = z.enum(["process", "container"]);
 /** `GET` and `PUT /v1/tenant/sandbox`: the backend chosen, and the configuration in force. */
 export const TenantSandboxViewSchema = z

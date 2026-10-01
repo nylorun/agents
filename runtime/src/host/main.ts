@@ -110,9 +110,6 @@ export async function main(): Promise<void> {
     hostConfig: config,
     logger,
     baseline,
-    ...(stack.endpoints.openshellGateway
-      ? { openshellGateway: stack.endpoints.openshellGateway }
-      : {}),
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
   });
 

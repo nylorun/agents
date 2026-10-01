@@ -4,7 +4,7 @@
  */
 import type { SandboxNetworkPreset } from "@nylorun/core/define";
 
-export type SandboxBackendName = "virtual" | "openshell";
+export type SandboxBackendName = "virtual";
 /** What separates a sandbox from its host: the Runtime process, or a container boundary. */
 export type SandboxIsolation = "process" | "container";
 
