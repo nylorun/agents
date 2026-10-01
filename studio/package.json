@@ -28,6 +28,7 @@
     "build:web": "vite build",
     "check": "npm run build && node scripts/check-package.mjs && npm test",
     "test": "npm run build:server && node --experimental-strip-types --test test/*.test.ts test/*.test.mjs scripts/*.test.mjs",
+    "test:embed": "npm run build && node --experimental-strip-types --test --test-concurrency=1 test/embed.e2e.ts",
     "test:events": "node --experimental-strip-types --test test/*.test.mjs scripts/event-presentation.test.mjs scripts/workflow-*.test.mjs scripts/iteration-timeline.test.mjs scripts/bundle-boundaries.test.mjs",
     "typecheck": "node ../scripts/check-typescript-version.mjs && tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\""
@@ -47,6 +48,7 @@
     "clsx": "^2.1.1",
     "dayjs": "^1.11.23",
     "lucide-react": "^1.47.0",
+    "playwright": "^1.63.0",
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
