@@ -97,7 +97,12 @@ export class SigningKeys {
 
   /** The current key row, creating `current` and `standby` if the Tenant has none. */
   async ensure(t: Tx, kek: Buffer): Promise<SigningKeyRow> {
-    const live = await t.signingKeys(["standby", "current"]);
+    let live = await t.signingKeys(["standby", "current"]);
+    if (live.length < 2) {
+      // Concurrent first uses would both create keys: lock, then read what the winner made.
+      await t.lockSigningKeys();
+      live = await t.signingKeys(["standby", "current"]);
+    }
     const now = new Date().toISOString();
     let current = live.find((row) => row.state === "current");
     if (!current) {
@@ -152,6 +157,7 @@ export class SigningKeys {
     maxTtlSeconds: number,
     force: boolean
   ): Promise<SigningKeyRow[]> {
+    await t.lockSigningKeys();
     await this.ensure(t, kek);
     const now = new Date();
     const at = now.toISOString();

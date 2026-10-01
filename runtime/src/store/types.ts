@@ -650,6 +650,11 @@ export interface Tx {
 
   // --- subject tokens ------------------------------------------------------
 
+  /**
+   * Serializes signing key changes: held until the transaction ends. Take it before reading
+   * the keys a change depends on, so concurrent first uses or rotations do not collide.
+   */
+  lockSigningKeys(): Promise<void>;
   /** Rejects on a duplicate id, or a second key in `standby`, `current` or `previous`. */
   insertSigningKey(row: SigningKeyRow): Promise<void>;
   signingKey(id: string): Promise<SigningKeyRow | undefined>;

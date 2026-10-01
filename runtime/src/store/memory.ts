@@ -839,6 +839,11 @@ class MemoryTx implements Tx {
 
   // --- subject tokens ------------------------------------------------------
 
+  /** Transactions are serialized already. */
+  async lockSigningKeys(): Promise<void> {
+    this.check();
+  }
+
   async insertSigningKey(row: SigningKeyRow): Promise<void> {
     this.check();
     if (this.s.signingKeys.has(row.id))

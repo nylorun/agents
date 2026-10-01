@@ -54,3 +54,22 @@ it("seals signing keys and quarantines the Tenant without its KEK", async () => 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("creates one current key when the first uses race", async () => {
+  const runtime = await startTestTenant({ applicationKey: APP, vaultKek: KEK });
+  try {
+    const headers = { authorization: `Bearer ${APP}` };
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        fetch(`${runtime.url}/v1/access/signing-keys`, { headers })
+      )
+    );
+    expect(responses.map((r) => r.status)).toEqual(Array(8).fill(200));
+    const keys = (await responses[0]!.json()) as { keys: { id: string; state: string }[] };
+    expect(keys.keys.map((k) => k.state).sort()).toEqual(["current", "standby"]);
+    for (const response of responses.slice(1))
+      expect(((await response.json()) as typeof keys).keys).toEqual(keys.keys);
+  } finally {
+    await runtime.close();
+  }
+});

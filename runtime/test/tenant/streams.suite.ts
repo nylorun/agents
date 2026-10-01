@@ -788,6 +788,9 @@ export function tenantStreamsSuite(
       await eventually("the old basin to be deleted", async () =>
         (await ctx.store.tx((tx) => tx.basinGenerations())).retired.length === 0 || undefined
       );
+      // The basin is repaired in the background with backoff, independently of the relay: it
+      // may still show the outage's error after the relay has drained.
+      await eventually("the basin", () => ctx.sessionStreams.wiring!.basin().ready || undefined);
       const settled = await streamsStatus(ctx);
       expect(settled).toMatchObject({
         reachable: true,
