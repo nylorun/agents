@@ -10,6 +10,7 @@ import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ModelSettings } from "@/components/model-settings";
 import { VaultModule } from "@/components/vault";
+import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
@@ -295,7 +296,9 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
       </StatusScreen>
     ) : (
       // The session is limited to this Tenant, so there is no list to check.
-      <Workspace tenant={{ id: tenantId, name: tenantId }} />
+      <ViewErrorBoundary>
+        <Workspace tenant={{ id: tenantId, name: tenantId }} />
+      </ViewErrorBoundary>
     );
   return tenantId === undefined ? (
     <TenantPicker />
@@ -593,7 +596,9 @@ function TenantWorkspace({ tenantId }: { tenantId: string }) {
   }
   // If the list failed, still open the Tenant; its own calls report errors.
   return (
-    <Workspace tenant={{ id: tenantId, name: listed?.name ?? tenantId }} />
+    <ViewErrorBoundary>
+      <Workspace tenant={{ id: tenantId, name: listed?.name ?? tenantId }} />
+    </ViewErrorBoundary>
   );
 }
 
@@ -702,57 +707,60 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             {error}
           </p>
         )}
-        {sessionOnly ? (
-          <SessionRedirect
-            tenantId={tenant.id}
-            sessionId={decodeURIComponent(sessionOnly[1]!)}
-          />
-        ) : location.pathname === "/settings" ? (
-          <ModelSettings tenantId={tenant.id} />
-        ) : location.pathname === "/vault" ? (
-          <VaultModule tenantId={tenant.id} />
-        ) : waiting ? (
-          <ConnectYourCode tenant={tenant} />
-        ) : agent && sessionId ? (
-          <SessionWorkspace
-            key={sessionId}
-            agent={agent}
-            sessionId={sessionId}
-            tenantId={tenant.id}
-            refresh={refresh}
-          />
-        ) : (
-          <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
-            <h1 className="text-2xl font-semibold">
-              {agent?.name ?? "Your local agents"}
-            </h1>
-            <p className="my-4 text-muted-foreground">
-              Start a session to chat and inspect session events.
-            </p>
-            {(agent ? [agent] : connection.agents).map((a) => (
-              <section key={a.id} className="mb-4 rounded-lg border p-4">
-                <h2 className="font-medium">{a.name}</h2>
-                <p className="my-2 text-sm text-muted-foreground">
-                  {a.kind === "workflow" || a.manifest.kind === "workflow"
-                    ? "Workflow"
-                    : a.manifest.capabilities
-                        ?.flatMap((c) => c.tools ?? [])
-                        .map((t) => t.name)
-                        .join(", ") || "Text agent"}
-                </p>
-                <Button
-                  onClick={() =>
-                    void navigate(
-                      `/agents/${encodeURIComponent(a.id)}/sessions/${crypto.randomUUID()}`,
-                    )
-                  }
-                >
-                  New session
-                </Button>
-              </section>
-            ))}
-          </section>
-        )}
+        {/* One broken view shows an error panel; the sidebar and header stay. */}
+        <ViewErrorBoundary resetKey={location.pathname}>
+          {sessionOnly ? (
+            <SessionRedirect
+              tenantId={tenant.id}
+              sessionId={decodeURIComponent(sessionOnly[1]!)}
+            />
+          ) : location.pathname === "/settings" ? (
+            <ModelSettings tenantId={tenant.id} />
+          ) : location.pathname === "/vault" ? (
+            <VaultModule tenantId={tenant.id} />
+          ) : waiting ? (
+            <ConnectYourCode tenant={tenant} />
+          ) : agent && sessionId ? (
+            <SessionWorkspace
+              key={sessionId}
+              agent={agent}
+              sessionId={sessionId}
+              tenantId={tenant.id}
+              refresh={refresh}
+            />
+          ) : (
+            <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
+              <h1 className="text-2xl font-semibold">
+                {agent?.name ?? "Your local agents"}
+              </h1>
+              <p className="my-4 text-muted-foreground">
+                Start a session to chat and inspect session events.
+              </p>
+              {(agent ? [agent] : connection.agents).map((a) => (
+                <section key={a.id} className="mb-4 rounded-lg border p-4">
+                  <h2 className="font-medium">{a.name}</h2>
+                  <p className="my-2 text-sm text-muted-foreground">
+                    {a.kind === "workflow" || a.manifest.kind === "workflow"
+                      ? "Workflow"
+                      : a.manifest.capabilities
+                          ?.flatMap((c) => c.tools ?? [])
+                          .map((t) => t.name)
+                          .join(", ") || "Text agent"}
+                  </p>
+                  <Button
+                    onClick={() =>
+                      void navigate(
+                        `/agents/${encodeURIComponent(a.id)}/sessions/${crypto.randomUUID()}`,
+                      )
+                    }
+                  >
+                    New session
+                  </Button>
+                </section>
+              ))}
+            </section>
+          )}
+        </ViewErrorBoundary>
       </SidebarInset>
     </SidebarProvider>
   );

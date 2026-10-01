@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { tenantRuntime } from "@/proxy-client";
+import { listFrom } from "@/runtime-body.ts";
 
 type HostModelProviderInfo = {
   id: string;
@@ -66,14 +67,19 @@ export function SessionModelPicker({
     ]);
     if (!providersResponse.ok || !catalogResponse.ok)
       throw new Error("The Runtime did not return connected model providers.");
-    const listed = (await providersResponse.json()) as {
-      providers: HostModelProviderInfo[];
-    };
-    const models = (await catalogResponse.json()) as {
-      providers: CatalogProvider[];
-    };
-    setProviders(listed.providers);
-    setCatalog(models.providers);
+    const message = "The Runtime did not return connected model providers.";
+    const listed = listFrom<HostModelProviderInfo>(
+      await providersResponse.json(),
+      "providers",
+      message,
+    );
+    const models = listFrom<CatalogProvider>(
+      await catalogResponse.json(),
+      "providers",
+      message,
+    );
+    setProviders(listed);
+    setCatalog(models);
   }, [runtime]);
 
   useEffect(() => {
@@ -103,7 +109,7 @@ export function SessionModelPicker({
     for (const provider of providers) {
       const listed = catalogById.get(provider.id);
       const models =
-        listed && listed.models.length > 0
+        listed && Array.isArray(listed.models) && listed.models.length > 0
           ? listed.models
           : [{ id: provider.model, name: provider.model }];
       for (const model of models) {
@@ -253,7 +259,7 @@ export function SessionModelPicker({
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
-      {empty ? (
+      {empty && !error ? (
         <p className="mt-1.5 text-[11px] text-muted-foreground">
           Connect a provider in Model Settings.
         </p>
