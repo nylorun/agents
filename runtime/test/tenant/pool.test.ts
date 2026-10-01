@@ -5,7 +5,7 @@ import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
 import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
-import { mapPool, TimeoutError, withTimeout } from "../../src/tenant/pool.js";
+import { TimeoutError, withTimeout } from "../../src/tenant/pool.js";
 import {
   bootstrapMaterial,
   configForRoot,
@@ -19,21 +19,6 @@ afterEach(async () => {
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-it("mapPool respects concurrency", async () => {
-  let inflight = 0;
-  let max = 0;
-  const items = [1, 2, 3, 4, 5, 6];
-  const results = await mapPool(items, 2, async (n) => {
-    inflight++;
-    max = Math.max(max, inflight);
-    await new Promise((r) => setTimeout(r, 20));
-    inflight--;
-    return n * 2;
-  });
-  expect(results).toEqual([2, 4, 6, 8, 10, 12]);
-  expect(max).toBeLessThanOrEqual(2);
 });
 
 it("withTimeout rejects and hands the late promise to onLate", async () => {

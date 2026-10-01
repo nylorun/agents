@@ -16,14 +16,27 @@ import {
   type McpToolRecord,
 } from "./snapshot.js";
 
+/** A connection unused this long is closed by the sweep; the next call opens it again. */
+export const DEFAULT_MCP_IDLE_MS = 15 * 60_000;
+
 interface LiveServer {
   readonly capabilityId: string;
   readonly serverName: string;
   readonly connection: LiveConnection;
+  lastUsedAt: number;
+  /** Calls in progress; a connection with any is never closed as idle. */
+  active: number;
 }
+
+type Opened = { ok: true; connection: LiveConnection } | { ok: false; diagnostic: McpDiagnostic };
 
 export class McpPool {
   private readonly live = new Map<string, LiveServer>();
+  /** Connections being opened by `call`, so concurrent calls share one. */
+  private readonly opening = new Map<string, Promise<Opened>>();
+  private readonly idleMs: number;
+  private readonly now: () => number;
+  private readonly open: typeof openMcpServer;
 
   constructor(
     private readonly options: {
@@ -34,8 +47,17 @@ export class McpPool {
         sessionId: string,
         request: { url: string; serverName: string },
       ) => Promise<AuthorizeResult>;
+      /** Default `DEFAULT_MCP_IDLE_MS`. */
+      readonly idleMs?: number;
+      readonly now?: () => number;
+      /** Tests replace how a declared server is opened. */
+      readonly open?: typeof openMcpServer;
     },
-  ) {}
+  ) {
+    this.idleMs = options.idleMs ?? DEFAULT_MCP_IDLE_MS;
+    this.now = options.now ?? Date.now;
+    this.open = options.open ?? openMcpServer;
+  }
 
   async discover(input: {
     sessionId: string;
@@ -105,7 +127,12 @@ export class McpPool {
       const key = this.liveKey(input.sessionId, tool.agentId, tool.capabilityId, tool.serverName);
       if (seen.has(key)) continue;
       seen.add(key);
-      if (this.live.has(key)) continue;
+      const live = this.live.get(key);
+      if (live) {
+        // The advance is about to use it: not idle.
+        live.lastUsedAt = this.now();
+        continue;
+      }
       input.signal?.throwIfAborted();
       const declared = findServer(input.manifest, tool.agentId, tool.capabilityId, tool.serverName);
       if (!declared) {
@@ -148,13 +175,37 @@ export class McpPool {
         input.serverName,
       );
       if (!declared) throw new Error(`MCP server '${input.serverName}' is not declared`);
-      const opened = await this.connectDeclared(input, declared);
+      let opening = this.opening.get(key);
+      if (!opening) {
+        opening = this.connectDeclared(input, declared).finally(() => this.opening.delete(key));
+        this.opening.set(key, opening);
+      }
+      const opened = await opening;
       if (!opened.ok) throw new Error(opened.diagnostic.message);
-      this.remember(input.sessionId, declared, opened.connection);
-      live = this.live.get(key);
+      live = this.remember(input.sessionId, declared, opened.connection);
     }
-    if (!live) throw new Error(`MCP server '${input.serverName}' is not connected`);
-    return callMcpTool(live.connection.client, input.serverToolName, input.args);
+    live.active += 1;
+    try {
+      return await callMcpTool(live.connection.client, input.serverToolName, input.args);
+    } finally {
+      live.active -= 1;
+      live.lastUsedAt = this.now();
+    }
+  }
+
+  /**
+   * Closes connections unused for the idle timeout (the Tenant sweep). A session that calls
+   * one again reconnects, as after a restart; this bounds the stdio processes a Tenant keeps.
+   */
+  async sweep(): Promise<void> {
+    const now = this.now();
+    const idle: LiveServer[] = [];
+    for (const [key, live] of this.live) {
+      if (live.active > 0 || now - live.lastUsedAt < this.idleMs) continue;
+      this.live.delete(key);
+      idle.push(live);
+    }
+    await Promise.all(idle.map((item) => item.connection.close().catch(() => {})));
   }
 
   async close(): Promise<void> {
@@ -163,19 +214,32 @@ export class McpPool {
     await Promise.all(connections.map((item) => item.connection.close().catch(() => {})));
   }
 
+  /** Keeps the connection, or closes it when the server is already connected for the session. */
   private remember(
     sessionId: string,
     declared: DeclaredServer,
     connection: LiveConnection,
-  ): void {
-    this.live.set(
-      this.liveKey(sessionId, declared.agentId, declared.capabilityId, declared.server.name),
-      {
-        capabilityId: declared.capabilityId,
-        serverName: declared.server.name,
-        connection,
-      },
+  ): LiveServer {
+    const key = this.liveKey(
+      sessionId,
+      declared.agentId,
+      declared.capabilityId,
+      declared.server.name,
     );
+    const existing = this.live.get(key);
+    if (existing) {
+      if (existing.connection !== connection) void connection.close().catch(() => {});
+      return existing;
+    }
+    const live: LiveServer = {
+      capabilityId: declared.capabilityId,
+      serverName: declared.server.name,
+      connection,
+      lastUsedAt: this.now(),
+      active: 0,
+    };
+    this.live.set(key, live);
+    return live;
   }
 
   private liveKey(
@@ -193,9 +257,9 @@ export class McpPool {
       pluginRoots: Readonly<Record<string, string>>;
     },
     declared: DeclaredServer,
-  ): Promise<{ ok: true; connection: LiveConnection } | { ok: false; diagnostic: McpDiagnostic }> {
+  ): Promise<Opened> {
     try {
-      const connection = await openMcpServer({
+      const connection = await this.open({
         server: declared.server,
         pluginRoot: input.pluginRoots[pluginKey(declared)],
         pluginData: join(

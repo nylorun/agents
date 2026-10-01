@@ -216,6 +216,28 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
     expect(await t.inS2("s1")).toEqual(range(3));
   });
 
+  it("stops while the slot is still being prepared, and leaves the slot free", async () => {
+    const t = await setup();
+    const source = createPgoutputSource({ connectionString: url, slot: t.slot, retryMs: 200 });
+    let active = false;
+    source.start({
+      onActive: () => {
+        active = true;
+      },
+      onTx: () => {},
+      onKeepalive: () => undefined,
+      onInactive: () => {},
+    });
+    // Before the first attempt's `prepareSlot` has finished.
+    const stopped = source.stop().then(() => "stopped" as const);
+    const timeout = new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 5_000));
+    expect(await Promise.race([stopped, timeout])).toBe("stopped");
+    expect(active).toBe(false);
+    const [row] = await sql<{ active: boolean }[]>`
+      SELECT active FROM pg_replication_slots WHERE slot_name = ${t.slot}`;
+    expect(row?.active ?? false).toBe(false);
+  });
+
   it("keeps order with concurrent writers on one session", async () => {
     const t = await setup();
     const relay = t.relay();

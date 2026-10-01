@@ -102,6 +102,8 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
 
   async function attempt(handlers: ChangeHandlers): Promise<void> {
     const fresh = await prepareSlot();
+    // `stop()` during `prepareSlot` had no service to stop: do not start one it cannot.
+    if (stopped) return;
     const current = new LogicalReplicationService(
       { connectionString: options.connectionString, application_name: "nylorun-stream-relay" },
       { acknowledge: { auto: false, timeoutSeconds: 0 }, flowControl: { enabled: false } },
