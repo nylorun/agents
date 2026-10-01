@@ -12,7 +12,7 @@ import {
   ListAgentsResponse,
   ListPublicAgentsResponse,
   ListSessionsResponse,
-  LiveEvent,
+  SessionEvent,
   PutAgentRequest,
   PutAgentResponse,
   PutSessionRequest,
@@ -26,7 +26,7 @@ import { accessOf, requireApplication } from "../../../tenant/auth.js";
 import { loadSession, sessionOf, type TenantContext } from "../../../tenant/context.js";
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/live.js";
+import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
   listDefinitions,
@@ -248,14 +248,14 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Follow a session's events",
       description:
-        "Server-sent events, each with its cursor as `id`, from the cursor on. A subject token's stream ends with `event: nylorun.closed` when the token expires or the subject is revoked. A `: keepalive` comment every 15 seconds.",
+        "Server-sent events, each with its type as `event` and its cursor as `id`, from the cursor on. Events are on the `nylorun.event/2` envelope, typed by `SessionEvent`; a client ignores a type it does not know. A subject token's stream ends with `event: nylorun.closed` when the token expires or the subject is revoked. A `: keepalive` comment every 15 seconds.",
       request: { params: sessionId, query: resume },
       responses: {
         200: {
           description: "The session's events",
           content: {
             "text/event-stream": {
-              itemSchema: z.union([LiveEvent, StreamClosedFrame]),
+              itemSchema: z.union([SessionEvent, StreamClosedFrame]),
             },
           },
         },

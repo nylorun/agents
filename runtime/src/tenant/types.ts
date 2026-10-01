@@ -91,10 +91,6 @@ export interface TenantSummary {
   inFlightDeliveries: number;
   pendingActions: number;
   uncertainEffects: number;
-  /** Events committed but not yet relayed to Durable Streams. */
-  outboxDepth?: number;
-  /** The oldest unrelayed event's age; 0 when none waits. */
-  relayLagMs?: number;
 }
 
 /**

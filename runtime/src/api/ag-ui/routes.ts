@@ -50,7 +50,7 @@ import {
   readHistory,
   StreamClosed,
   type StreamHolder,
-} from "../../tenant/live.js";
+} from "../../tenant/session-streams.js";
 import { putSession, sessionView } from "../../tenant/sessions.js";
 import { mayUseAgent } from "../../tenant/tokens.js";
 

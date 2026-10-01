@@ -27,8 +27,8 @@
  *   becomes `uncertain` is settled in the Session Store and `advance` returns
  *   `done`.
  * - **Sweeps.** `armSweep` arms one self-re-arming sweep per Tenant; arming an
- *   armed Tenant is a no-op. The sweep expires claims, re-wakes orphaned
- *   `runnable` sessions and relays outbox rows left behind.
+ *   armed Tenant is a no-op. The sweep settles lapsed deliveries and re-wakes
+ *   orphaned `runnable` sessions.
  * - **One delivery per Action at a time.** `deliver` runs
  *   `WorkerHandlers.deliver` for the key `<tenantId>:<actionId>` at least once
  *   after it resolves. Two deliveries for one key never overlap; repeated

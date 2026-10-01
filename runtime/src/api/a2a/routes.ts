@@ -50,7 +50,7 @@ import {
   type TenantContext,
 } from "../../tenant/context.js";
 import { HttpError, fail } from "../../tenant/http.js";
-import { observeSession, readHistory } from "../../tenant/live.js";
+import { observeSession, readHistory } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
 
 /**

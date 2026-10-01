@@ -9,7 +9,7 @@
  *
  * 1. **One transaction per `tx` call, READ COMMITTED or stronger.** Nothing a
  *    transaction wrote is visible to others before it commits, and nothing is
- *    kept when `fn` throws: document writes, event sequences, outbox rows,
+ *    kept when `fn` throws: document writes, event sequences, record rows,
  *    and `afterCommit` callbacks are all discarded, and `tx` rejects with the
  *    error `fn` threw.
  * 2. **Session-scoped writes lock the session row first.** `lockSession` takes
@@ -21,9 +21,9 @@
  * 3. **Per-session event sequence.** `event` allocates the session's next
  *    sequence under the session lock, starting at 0, without gaps across
  *    committed transactions. The sequence is also the S2 sequence number of the
- *    event in the session's stream (`sessions/<id>/<incarnation>`,
- *    `streams/types.ts`), and the cursor is `base64url("<sessionId>:<seq>")`
- *    (see `store/cursor.ts`).
+ *    event in the session's stream (`sessions/<id>` in the Tenant's basin
+ *    generation, `streams/basin.ts`), and the cursor is
+ *    `base64url("<sessionId>:<seq>")` (see `store/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
  *    S2 call, and no `fetch`, runs inside a transaction. Wakes and deliveries go
  *    through `afterCommit`, and events are delivered to commit listeners after
@@ -49,10 +49,19 @@
  * `effectsForTurn`, `linkedSessions`, `counts`, …) that an implementation can
  * back with an index, and principals, endpoints, vaults and Tenant settings
  * have their own methods rather than raw SQL outside the store. Session history
- * is not read from the store: the relay moves events from the outbox to
- * Durable Streams, and history and SSE read them there (`tenant/streams.ts`).
+ * is not read from the store: every event is written to the record (Postgres
+ * `nylorun_streams.session_events`) in its transaction, the stream relay
+ * (`streams/relay/`) feeds Durable Streams from it, and history and SSE read
+ * them there (`tenant/session-streams.ts`).
  */
-import type { Action, LiveEvent } from "@nylorun/core/contracts";
+import type { RecordReader } from "../streams/relay/types.js";
+import type {
+  Action,
+  EventPayload,
+  EventType,
+  LiveEvent,
+  SessionEventOf,
+} from "@nylorun/core/contracts";
 import type { HostEffect } from "@nylorun/harness/run";
 
 // ---------------------------------------------------------------------------
@@ -128,11 +137,6 @@ export interface SessionDoc {
   agentId: string;
   status: SessionStatus | (string & {});
   activeTurnId: string | null;
-  /**
-   * Names the session's event stream (`sessions/<id>/<incarnation>`, `streams/types.ts`).
-   * Set when the session is created; `event` reports it with each event (`Commit`).
-   */
-  streamIncarnation?: string;
 }
 
 /** The fields of an effect document the store indexes (`request.sessionId`, `request.turnId`, `request.kind`, `status`). */
@@ -174,32 +178,25 @@ export interface LinkedSession<S extends SessionDoc = SessionDoc> {
 }
 
 // ---------------------------------------------------------------------------
-// Events and outbox
-
-/** One committed-but-not-yet-relayed event (§12.4). Deleted once S2 has it. */
-export interface OutboxRow {
-  sessionId: string;
-  seq: number;
-  event: LiveEvent;
-}
-
-export interface OutboxStats {
-  /** Unrelayed events. */
-  depth: number;
-  /** ISO `createdAt` of the oldest unrelayed event, or null when the outbox is empty. */
-  oldestCreatedAt: string | null;
-}
+// Events
 
 /** What one commit produced, delivered to commit listeners after commit. */
 export interface Commit {
   /** Events written by the transaction, in allocation order. */
   readonly events: readonly LiveEvent[];
   /**
-   * The `streamIncarnation` of each event's session when the event was allocated (under the
-   * session lock), aligned with `events`; null for a session without one. The relay appends
-   * each event to that incarnation's stream.
+   * The basin generation of each event, aligned with `events`: the stream relay appends it to
+   * `sessions/<id>` in that generation's basin.
    */
-  readonly incarnations: readonly (string | null)[];
+  readonly generations: readonly number[];
+}
+
+/** A Tenant's basin generations (Durable Streams §8.1). */
+export interface BasinGenerations {
+  /** The basin session streams are written to and read from. */
+  current: number;
+  /** Earlier generations whose basins are still to be deleted. */
+  retired: number[];
 }
 
 export type CommitListener = (commit: Commit) => void;
@@ -404,10 +401,12 @@ export interface SessionStore {
   tx<T>(fn: (t: Tx) => Promise<T>): Promise<T>;
   /**
    * Registers a listener called once per committed transaction that wrote
-   * events or signalled work. Returns an unsubscribe function. The outbox
-   * relay (`streams/relay.ts`) subscribes here.
+   * events. Returns an unsubscribe function. A Tenant without the Host's stream
+   * relay relays its own commits from here (`tenant/streams.ts`).
    */
   onCommit(listener: CommitListener): () => void;
+  /** Reads the record back, for the stream relay's refills and reconciliation. */
+  record(): RecordReader;
   /** Reachability and schema check for Tenant status and `/ready`. Never throws. */
   health(): Promise<StoreHealth>;
   close(): Promise<void>;
@@ -422,7 +421,7 @@ export interface StoreHealth {
 /** Options every implementation accepts. */
 export interface SessionStoreOptions {
   tenantId: string;
-  /** Clock for event `createdAt`. Defaults to `() => new Date()`. */
+  /** Clock for event `time`. Defaults to `() => new Date()`. */
   now?: () => Date;
   /** Receives listener and `afterCommit` failures, which never reject `tx`. */
   onError?: (error: unknown) => void;
@@ -436,9 +435,9 @@ export interface Tx {
   /** Insert or replace. For `sessions`, ownership fields in `body` are ignored. */
   put(table: DocTable, id: string, body: unknown): Promise<void>;
   /**
-   * Deletes a document. Deleting a session also deletes its outbox rows, so a
-   * session created again with the same id starts at sequence 0 without
-   * colliding with rows the relay never took (its stream is a new incarnation).
+   * Deletes a document. Deleting a session keeps its record rows and log head
+   * (per-session record deletion is deferred, Durable Streams §15), so a session
+   * created again with the same id continues its log and stream.
    */
   delete(table: DocTable, id: string): Promise<void>;
 
@@ -465,15 +464,18 @@ export interface Tx {
 
   /**
    * Allocates the session's next sequence (from 0) under the session lock,
-   * writes the event to the outbox and buffers it for commit listeners.
-   * Rejects when the session does not exist. The returned cursor is final.
+   * builds the event on the `nylorun.event/2` envelope, checks it against the
+   * event catalog (`InvalidEventError` when it does not match), writes it to
+   * the record in the Tenant's current basin generation and buffers it for
+   * commit listeners. Rejects when the session does not exist. The returned
+   * cursor is final.
    */
-  event(
+  event<T extends EventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown,
-  ): Promise<LiveEvent>;
+    type: T,
+    payload: EventPayload<T>,
+  ): Promise<SessionEventOf<T>>;
 
   /** Runs `fn` after a successful commit (never on rollback). Used for wakes. */
   afterCommit(fn: () => void | Promise<void>): void;
@@ -578,23 +580,11 @@ export interface Tx {
 
   counts(): Promise<StoreCounts>;
 
-  // --- outbox (§12.4) ------------------------------------------------------
+  // --- basin generations (Durable Streams §8.1) ----------------------------
 
-  /** Unrelayed events, ordered by session id then sequence. */
-  outbox(limit: number, filter?: { sessionId?: string }): Promise<OutboxRow[]>;
-  /**
-   * Deletes a session's outbox rows with `seq <= throughSeq`. Returns the number deleted.
-   * With `incarnation`, deletes only while the session exists with that `streamIncarnation`
-   * (null: none), in one statement: a relay that appended to an abandoned incarnation's
-   * stream never deletes the rows of a session created again with the same id.
-   */
-  deleteOutbox(
-    sessionId: string,
-    throughSeq: number,
-    incarnation?: string | null,
-  ): Promise<number>;
-  /** How many events are unrelayed, and the `createdAt` of the oldest (Tenant status). */
-  outboxStats(): Promise<OutboxStats>;
+  basinGenerations(): Promise<BasinGenerations>;
+  /** Forgets a retired generation once its basin is deleted. */
+  forgetRetiredGeneration(generation: number): Promise<void>;
 
   // --- Action endpoints -----------------------------------------------------
 
@@ -720,8 +710,10 @@ export interface Tx {
 
   /**
    * Deletes Tenant state by scope, in this transaction:
-   * - `sessions`: sessions, commands, checkpoints, effects, actions, links, the outbox and
-   *   subject turn buckets;
+   * - `sessions`: sessions, commands, checkpoints, effects, actions, links, subject turn
+   *   buckets and the Tenant's record rows and log heads. The Tenant moves to the next basin
+   *   generation and the current one is retired, so session ids it frees start again in an
+   *   empty basin;
    * - `sandboxes`: sandbox records;
    * - `all`: both, plus definitions, Action endpoints and user vaults with their
    *   credentials. The host vault, principals, signing keys, subject epochs, publishable

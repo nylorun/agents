@@ -64,6 +64,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
    * the root is retained, and closed by the `close()` that removes the root.
    */
   streams?: DurableStreams;
+  /** How long a retired stream basin is kept after a reset. Default 60 s. */
+  retireGraceMs?: number;
 };
 
 /**
@@ -212,6 +214,7 @@ export async function startTestTenant(
     ...(options.execution ? { execution: options.execution } : {}),
     ...(options.workerId ? { workerId: options.workerId } : {}),
     streams: options.streams ?? defaultStreams,
+    ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {

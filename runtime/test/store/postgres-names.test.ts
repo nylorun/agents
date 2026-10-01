@@ -49,13 +49,13 @@ describe("Postgres migrations", () => {
     expect(() => assertMigrations(MIGRATIONS)).not.toThrow();
     expect(POSTGRES_SCHEMA_VERSION).toBe(MIGRATIONS.length);
     expect(() =>
-      assertMigrations([...MIGRATIONS, { version: 9, name: "gap", up: () => "" }]),
+      assertMigrations([...MIGRATIONS, { version: MIGRATIONS.length + 2, name: "gap", up: () => "" }]),
     ).toThrow("expected");
   });
 });
 
 describe("Postgres driver boundary", () => {
-  it("is imported only under src/store/postgres/", () => {
+  it("is imported only under src/store/postgres/ and, for replication, adapters/replication/", () => {
     const src = fileURLToPath(new URL("../../src/", import.meta.url));
     const files = (dir: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
@@ -68,7 +68,12 @@ describe("Postgres driver boundary", () => {
     const offenders = files(src)
       .filter((path) => /(?:from\s*|import\s*\()["'](?:postgres|pg)(?:\/[^"']*)?["']/.test(readFileSync(path, "utf8")))
       .map((path) => relative(src, path).split(sep).join("/"))
-      .filter((path) => !path.startsWith("store/postgres/"));
+      .filter(
+        (path) =>
+          !path.startsWith("store/postgres/") &&
+          // The stream relay's replication connection (`pg`, needed by pg-logical-replication).
+          path !== "adapters/replication/pgoutput.ts",
+      );
     expect(offenders).toEqual([]);
   });
 });

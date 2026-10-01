@@ -4,7 +4,7 @@
  * schemas whenever they were created; made once per process, since ids are unique in Zod's
  * global registry.
  */
-import type { z } from "zod";
+import { z } from "zod";
 import {
   JwksSchema,
   CreateTokenRequestSchema,
@@ -69,6 +69,9 @@ import {
   ProtocolRejectedResponseSchema,
   RejectedResponseSchema,
   TenantEnvelopeSchema,
+  EVENT_SCHEMAS,
+  EVENT_TYPES,
+  type EventType,
 } from "@nylorun/core/contracts";
 
 function named<T extends z.ZodType>(id: string, schema: T): T {
@@ -108,8 +111,30 @@ export const PutAgentResponse = named("PutAgentResponse", PutAgentResponseSchema
 export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
 export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);
 export const SessionView = named("SessionView", SessionViewSchema);
-export const SessionItemsResponse = named("SessionItemsResponse", SessionItemsResponseSchema);
 export const LiveEvent = named("LiveEvent", LiveEventSchema);
+
+/** `action.delivery_failed` → `ActionDeliveryFailedEvent`. */
+export function eventComponentName(type: EventType): string {
+  return `${type
+    .split(/[._]/)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join("")}Event`;
+}
+/** The event catalog as components: one per event type, and `SessionEvent`, their union. */
+export const SessionEvent = named(
+  "SessionEvent",
+  z.discriminatedUnion(
+    "type",
+    EVENT_TYPES.map((type) => named(eventComponentName(type), EVENT_SCHEMAS[type])) as [
+      (typeof EVENT_SCHEMAS)[EventType],
+      ...(typeof EVENT_SCHEMAS)[EventType][],
+    ]
+  )
+);
+export const SessionItemsResponse = named(
+  "SessionItemsResponse",
+  SessionItemsResponseSchema.extend({ items: z.array(SessionEvent) })
+);
 export const StreamClosedFrame = named("StreamClosedFrame", StreamClosedFrameSchema);
 
 export const TenantStatus = named("TenantStatus", TenantStatusSchema);

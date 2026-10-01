@@ -67,13 +67,13 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
     }
 
     it("names streams", () => {
-      expect(sessionStream("abc", "i1")).toBe("sessions/abc/i1");
+      expect(sessionStream("abc")).toBe("sessions/abc");
       expect(CONTROL_STREAM).toBe("tenant/control");
     });
 
     it("numbers records from 0 and reports the tail", async () => {
       const { streams, tenantId } = await fresh();
-      const stream = sessionStream("s1", "i1");
+      const stream = sessionStream("s1-i1");
       expect(await streams.tail(tenantId, stream)).toBe(0);
       expect(await streams.append(tenantId, stream, [{ n: 0 }])).toEqual({
         status: "ok",
@@ -98,7 +98,7 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
 
     it("appends with matchSeq only at the tail and reports the tail on mismatch", async () => {
       const { streams, tenantId } = await fresh();
-      const stream = sessionStream("s1", "i1");
+      const stream = sessionStream("s1-i1");
       expect(await streams.append(tenantId, stream, [{ seq: 0 }], { matchSeq: 0 })).toEqual({
         status: "ok",
         start: 0,
@@ -123,16 +123,16 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
 
     it("rejects a conditional append on a missing stream unless matchSeq is 0", async () => {
       const { streams, tenantId } = await fresh();
-      expect(await streams.append(tenantId, sessionStream("s1", "i1"), [1], { matchSeq: 3 })).toEqual({
+      expect(await streams.append(tenantId, sessionStream("s1-i1"), [1], { matchSeq: 3 })).toEqual({
         status: "seq_mismatch",
         tail: 0,
       });
-      expect(await streams.tail(tenantId, sessionStream("s1", "i1"))).toBe(0);
+      expect(await streams.tail(tenantId, sessionStream("s1-i1"))).toBe(0);
     });
 
     it("reads history from a sequence without following", async () => {
       const { streams, tenantId } = await fresh();
-      const stream = sessionStream("s1", "i1");
+      const stream = sessionStream("s1-i1");
       await streams.append(tenantId, stream, [0, 1, 2, 3, 4]);
       const records = await collect(streams.read<number>(tenantId, stream, 3, { follow: false }));
       expect(records.map((r) => [r.seq, r.body])).toEqual([
@@ -143,13 +143,13 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
         await collect(streams.read(tenantId, stream, 5, { follow: false })),
       ).toEqual([]);
       expect(
-        await collect(streams.read(tenantId, sessionStream("missing", "i1"), 0, { follow: false })),
+        await collect(streams.read(tenantId, sessionStream("missing-i1"), 0, { follow: false })),
       ).toEqual([]);
     });
 
     it("resumes from a cursor with no gap between history and live records", async () => {
       const { streams, tenantId } = await fresh();
-      const stream = sessionStream("s1", "i1");
+      const stream = sessionStream("s1-i1");
       await streams.append(tenantId, stream, [0, 1, 2, 3, 4]);
       const controller = new AbortController();
       const reading = collect(
@@ -209,13 +209,13 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
     it("keeps Tenants and streams apart", async () => {
       const a = await fresh();
       const b = await fresh();
-      await a.streams.append(a.tenantId, sessionStream("s1", "i1"), ["a"]);
-      await b.streams.append(b.tenantId, sessionStream("s1", "i1"), ["b1", "b2"]);
-      await a.streams.append(a.tenantId, sessionStream("s2", "i1"), ["other"]);
-      expect(await a.streams.tail(a.tenantId, sessionStream("s1", "i1"))).toBe(1);
-      expect(await b.streams.tail(b.tenantId, sessionStream("s1", "i1"))).toBe(2);
+      await a.streams.append(a.tenantId, sessionStream("s1-i1"), ["a"]);
+      await b.streams.append(b.tenantId, sessionStream("s1-i1"), ["b1", "b2"]);
+      await a.streams.append(a.tenantId, sessionStream("s2-i1"), ["other"]);
+      expect(await a.streams.tail(a.tenantId, sessionStream("s1-i1"))).toBe(1);
+      expect(await b.streams.tail(b.tenantId, sessionStream("s1-i1"))).toBe(2);
       const records = await collect(
-        a.streams.read(a.tenantId, sessionStream("s1", "i1"), 0, { follow: false }),
+        a.streams.read(a.tenantId, sessionStream("s1-i1"), 0, { follow: false }),
       );
       expect(records.map((r) => r.body)).toEqual(["a"]);
     });
@@ -229,32 +229,43 @@ export function streamsContract(name: string, factory: StreamsFactory): void {
     it("lists a Tenant's streams by prefix, without deleted ones", async () => {
       const { streams, tenantId } = await fresh();
       expect(await streams.listStreams(newTenantId(), "sessions/")).toEqual([]);
-      await streams.append(tenantId, sessionStream("s2", "b"), [1]);
-      await streams.append(tenantId, sessionStream("s1", "a"), [1]);
-      await streams.append(tenantId, sessionStream("s10", "c"), [1]);
+      await streams.append(tenantId, sessionStream("s2-b"), [1]);
+      await streams.append(tenantId, sessionStream("s1-a"), [1]);
+      await streams.append(tenantId, sessionStream("s10-c"), [1]);
       await streams.append(tenantId, CONTROL_STREAM, [{ type: "sessions.reset" }]);
       expect(await streams.listStreams(tenantId, "tenant/")).toEqual(["tenant/control"]);
       expect(await streams.listStreams(tenantId, "sessions/")).toEqual([
-        "sessions/s1/a",
-        "sessions/s10/c",
-        "sessions/s2/b",
+        "sessions/s1-a",
+        "sessions/s10-c",
+        "sessions/s2-b",
       ]);
-      expect(await streams.listStreams(tenantId, "sessions/s1/")).toEqual(["sessions/s1/a"]);
-      await streams.deleteStream(tenantId, sessionStream("s1", "a"));
-      expect(await streams.listStreams(tenantId, "sessions/s1/")).toEqual([]);
+      expect(await streams.listStreams(tenantId, "sessions/s1-")).toEqual(["sessions/s1-a"]);
+      await streams.deleteStream(tenantId, sessionStream("s1-a"));
+      expect(await streams.listStreams(tenantId, "sessions/s1-")).toEqual([]);
     });
 
     it("deletes a stream and a Tenant", async () => {
       const { streams, tenantId } = await fresh();
-      await streams.append(tenantId, sessionStream("s1", "i1"), [1, 2]);
-      await streams.append(tenantId, sessionStream("s2", "i1"), [1]);
-      await streams.deleteStream(tenantId, sessionStream("s1", "i1"));
-      await streams.deleteStream(tenantId, sessionStream("s1", "i1"));
-      expect(await streams.tail(tenantId, sessionStream("s1", "i1"))).toBe(0);
-      expect(await streams.tail(tenantId, sessionStream("s2", "i1"))).toBe(1);
+      await streams.append(tenantId, sessionStream("s1-i1"), [1, 2]);
+      await streams.append(tenantId, sessionStream("s2-i1"), [1]);
+      await streams.deleteStream(tenantId, sessionStream("s1-i1"));
+      await streams.deleteStream(tenantId, sessionStream("s1-i1"));
+      expect(await streams.tail(tenantId, sessionStream("s1-i1"))).toBe(0);
+      expect(await streams.tail(tenantId, sessionStream("s2-i1"))).toBe(1);
       await streams.deleteTenant(tenantId);
       await streams.deleteTenant(tenantId);
-      await expect(streams.append(tenantId, sessionStream("s2", "i1"), [1])).rejects.toThrow();
+      // Basin deletion is asynchronous in S2: a stream that still exists can
+      // take an append for a moment, so wait for the refusal.
+      await expect
+        .poll(
+          () =>
+            streams.append(tenantId, sessionStream("s2-i1"), [1]).then(
+              () => "accepted",
+              () => "refused",
+            ),
+          { timeout: 5000, interval: 100 },
+        )
+        .toBe("refused");
     });
   });
 }

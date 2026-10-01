@@ -83,6 +83,9 @@ export type {
 } from "@nylorun/core/define";
 export type {
   LiveEvent,
+  SessionEvent,
+  SessionEventOf,
+  EventType,
   SessionCommand,
   Action,
   ActionOutcome,

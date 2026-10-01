@@ -192,9 +192,9 @@ export function mergeStudioEvents(
     });
   }
   return [...byId.values()].sort((a, b) =>
-    a.createdAt === b.createdAt
+    a.time === b.time
       ? a.cursor.localeCompare(b.cursor)
-      : a.createdAt < b.createdAt
+      : a.time < b.time
         ? 1
         : -1,
   );

@@ -5,10 +5,10 @@
  *
  * ## Layout
  *
- * - One basin per Tenant, named by `tenantBasinName` (`streams/basin.ts`):
- *   `<basinPrefix>tn-<ulid>` for a Tenant id `tn_<ulid>`.
- * - The basin is created with `createStreamOnAppend`, so `sessions/<id>/<incarnation>`,
- *   and `tenant/control` come into existence on their first append. Its
+ * - One basin per Tenant basin generation, named by `tenantBasinName` (`streams/basin.ts`):
+ *   `<basinPrefix>tn-<ulid>` for a Tenant id `tn_<ulid>`, `…-<g base36>` for generation g.
+ * - The basin is created with `createStreamOnAppend` and `createStreamOnRead`, so
+ *   `sessions/<id>` and `tenant/control` come into existence on first use. Its
  *   default stream config sets infinite retention, which session streams
  *   keep; the control stream is created with a one-day
  *   age-based retention instead (signals are latency hints, not history).
@@ -66,7 +66,7 @@ import {
   SeqNumMismatchError,
   type S2Stream,
 } from "@s2-dev/streamstore";
-import { tenantBasinName, validateBasinPrefix } from "../../streams/basin.js";
+import { parseBasin, tenantBasinName, validateBasinPrefix } from "../../streams/basin.js";
 import {
   CONTROL_STREAM,
   type AppendOptions,
@@ -203,6 +203,9 @@ class S2Streams implements DurableStreams {
             basin,
             config: {
               createStreamOnAppend: true,
+              // A reader that arrives before a session's first event creates the
+              // stream and follows it live, instead of polling until it exists.
+              createStreamOnRead: true,
               defaultStreamConfig: { retentionPolicy: { infinite: {} } },
             },
           },
@@ -220,16 +223,27 @@ class S2Streams implements DurableStreams {
     }
   }
 
-  async deleteTenant(tenantId: string): Promise<void> {
+  async deleteTenant(
+    tenantId: string,
+    options: { allGenerations?: boolean } = {},
+  ): Promise<void> {
     this.checkOpen();
-    try {
-      await this.s2.basins.delete(
-        { basin: this.basinName(tenantId) },
+    const basins = [this.basinName(tenantId)];
+    // Every later generation's basin too: `<basin>-<g base36>`.
+    if (options.allGenerations && parseBasin(tenantId).generation === 0) {
+      const later = new RegExp(`^${escapeRegExp(basins[0]!)}-[0-9a-z]{1,2}$`);
+      for await (const info of this.s2.basins.listAll(
+        { prefix: `${basins[0]}-` },
         { signal: this.closing.signal },
-      );
-    } catch (error) {
-      if (!isMissing(error)) throw error;
+      ))
+        if (later.test(info.name) && info.deletedAt == null) basins.push(info.name);
     }
+    for (const basin of basins)
+      try {
+        await this.s2.basins.delete({ basin }, { signal: this.closing.signal });
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
   }
 
   async deleteStream(tenantId: string, stream: string): Promise<void> {
@@ -314,7 +328,9 @@ class S2Streams implements DurableStreams {
   /**
    * Follows `stream` from `fromSeq` with S2 read sessions, reopening a session
    * from the next sequence whenever one ends or fails, until aborted, closed,
-   * or the Tenant's basin is gone. A missing stream is polled until it exists.
+   * or the Tenant's basin is gone. Basins create a stream on read, so a reader
+   * that arrives before the first append waits on the live session instead of
+   * polling.
    */
   private async *readLive<T>(
     tenantId: string,
@@ -351,7 +367,7 @@ class S2Streams implements DurableStreams {
             (await this.basinGone(tenantId, aborted))
           )
             return;
-          // Stream not created yet, or S2 unreachable: retry below.
+          // S2 unreachable, or a stream being deleted: retry below.
         }
         await sleep(delay, aborted);
         delay = Math.min(delay * 2, RETRY_MAX_MS);
@@ -411,6 +427,10 @@ function isTransactionConflict(error: unknown): boolean {
 /** The Tenant's basin is missing or being deleted: live reads end. */
 function isTenantGone(error: unknown): boolean {
   return isCode(error, "basin_not_found") || isCode(error, "basin_deletion_pending");
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function anySignal(...signals: (AbortSignal | undefined)[]): AbortSignal {

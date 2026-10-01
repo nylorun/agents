@@ -13,7 +13,6 @@ import type { AgentManifest, SandboxManifest } from "@nylorun/core/define";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
-import { newStreamIncarnation } from "../streams/types.js";
 import { validateSandboxAttach } from "../core/sandbox-routes.js";
 import { resolveSandbox } from "../sandbox/resolve.js";
 import { withSandboxCapability } from "../sandbox/session-sandbox.js";
@@ -230,7 +229,6 @@ export async function putSession(
       ...(sandbox.spec !== undefined
         ? { sandbox: sandbox.spec, sandboxSource: sandbox.source }
         : {}),
-      streamIncarnation: newStreamIncarnation(),
     };
     await t.put("sessions", id, created);
     await ctx.vault.recordAttachment(t, id, vaultIds);

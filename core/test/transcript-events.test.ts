@@ -3,12 +3,22 @@ import { HOST_PROTOCOL } from "../src/compatibility.js";
 import { parseTranscriptEvent, type LiveEvent } from "../src/contracts.js";
 
 const event = (type: string, payload: unknown): LiveEvent => ({
+  schema: "nylorun.event/2",
   eventId: "ev_1",
   sessionId: "s1",
   tenantId: "tn_1",
+  runId: null,
   turnId: "turn_1",
+  incarnation: 0,
+  epoch: 1,
+  seq: 0,
   cursor: "c1",
-  createdAt: "2026-09-28T00:00:00.000Z",
+  time: "2026-09-28T00:00:00.000Z",
+  schemaVersion: 1,
+  source: { kind: "loop", id: "runtime" },
+  evidence: "observed",
+  visibility: "public",
+  retention: "full",
   type,
   payload,
 });

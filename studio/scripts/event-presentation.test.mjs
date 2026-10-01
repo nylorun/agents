@@ -11,7 +11,7 @@ const base = {
   sessionId: "s1",
   turnId: "t1",
   cursor: "c1",
-  createdAt: "2026-09-21T00:00:00.000Z",
+  time: "2026-09-21T00:00:00.000Z",
 };
 
 test("labels new Runtime LiveEvent types", () => {
@@ -57,7 +57,7 @@ test("mergeStudioEvents prefers committed and keeps newest first", () => {
     ...base,
     eventId: "a",
     cursor: "1",
-    createdAt: "2026-09-21T00:00:01.000Z",
+    time: "2026-09-21T00:00:01.000Z",
     type: "command.message",
     payload: {},
     committed: false,
@@ -66,7 +66,7 @@ test("mergeStudioEvents prefers committed and keeps newest first", () => {
     ...base,
     eventId: "b",
     cursor: "2",
-    createdAt: "2026-09-21T00:00:02.000Z",
+    time: "2026-09-21T00:00:02.000Z",
     type: "turn.completed",
     payload: { output: "hi" },
     committed: true,

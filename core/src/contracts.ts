@@ -859,24 +859,82 @@ export const SessionEventBodySchema = SessionCommandSchema;
 export type SessionCommand = z.infer<typeof SessionCommandSchema>;
 export type SessionEventBody = SessionCommand;
 export type MessageEventBody = z.infer<typeof MessageEventBodySchema>;
-export const LiveEventSchema = z
-  .object({
-    eventId: z.string(),
-    sessionId: z.string(),
-    tenantId: z.string().min(1),
-    turnId: z.string().nullable(),
-    cursor: z.string(),
-    createdAt: z.string(),
-    type: z.string(),
-    payload: z.unknown(),
-  })
-  .strict();
-export type LiveEvent = z.infer<typeof LiveEventSchema>;
-export const SessionItemsResponseSchema = z.object({
-  items: z.array(LiveEventSchema),
-  cursor: z.string().nullable(),
+/** The envelope every session event carries (`nylorun.event/2`, Durable Streams §9.5). */
+export const EVENT_SCHEMA = "nylorun.event/2";
+/** Who wrote an event. v1 writes `loop` (the engine) and `api` (commands and results). */
+export const EventSourceKindSchema = z.enum([
+  "model-gate",
+  "tool-gate",
+  "egress-gate",
+  "sandboxd",
+  "edge",
+  "init",
+  "controller",
+  "loop",
+  "supervisor",
+  "harness",
+  "evidence",
+  "operator",
+  "human",
+  "api",
+]);
+export type EventSourceKind = z.infer<typeof EventSourceKindSchema>;
+/** How far an event can be trusted, by who could forge it. v1 writes `observed` only. */
+export const EvidenceClassSchema = z.enum([
+  "observed",
+  "measured",
+  "attested",
+  "claimed",
+  "asserted",
+]);
+export type EvidenceClass = z.infer<typeof EvidenceClassSchema>;
+/**
+ * The envelope fields. Not strict: a client strips fields it does not know, so the envelope
+ * can grow without a protocol bump.
+ */
+const eventEnvelope = {
+  schema: z.literal(EVENT_SCHEMA),
+  eventId: z.string(),
+  tenantId: z.string().min(1),
+  sessionId: z.string(),
+  /** The run the event belongs to; null until runs exist. */
+  runId: z.string().nullable(),
+  turnId: z.string().nullable(),
+  /** The session's restore incarnation; 0 until restores exist. */
+  incarnation: z.number().int().nonnegative(),
+  /** The session's ownership epoch when the event was written. */
+  epoch: z.number().int().nonnegative(),
+  /** Position in the session's log, from 0, in commit order. */
+  seq: z.number().int().nonnegative(),
+  /** `base64url(sessionId:seq)`: resume from here with `Last-Event-ID` or `?cursor=`. */
+  cursor: z.string(),
+  /** When the event was written (ISO 8601). */
+  time: z.string(),
+  /** The version of the event type's payload schema. */
+  schemaVersion: z.number().int().positive(),
+  source: z.object({ kind: EventSourceKindSchema, id: z.string() }),
+  evidence: EvidenceClassSchema,
+  trace: z
+    .object({
+      traceId: z.string(),
+      spanId: z.string(),
+      parentSpanId: z.string().optional(),
+    })
+    .optional(),
+  visibility: z.enum(["public", "internal", "restricted"]),
+  retention: z.enum(["full", "metadata"]),
+};
+/**
+ * Any session event: the envelope with an open `type` and `payload`. Clients read an event of
+ * a type they do not know as this; `SessionEventSchema` types the known ones.
+ */
+export const LiveEventSchema = z.object({
+  ...eventEnvelope,
+  type: z.string().min(1),
+  payload: z.unknown(),
 });
-export type SessionItemsResponse = z.infer<typeof SessionItemsResponseSchema>;
+/** Any session event (`SessionEvent` when its type is known). */
+export type LiveEvent = z.infer<typeof LiveEventSchema>;
 export const AcceptedResponseSchema = z.object({
   status: z.literal("accepted"),
   turnId: z.string().nullable(),
@@ -982,7 +1040,7 @@ export type Action = z.infer<typeof ActionSchema>;
 
 /**
  * Transcript events (Host feature `transcript-events`): the log entries a chat UI
- * renders. `LiveEvent.payload` stays `unknown` on the wire; `parseTranscriptEvent`
+ * renders. They are part of the event catalog (`EVENT_CATALOG`); `parseTranscriptEvent`
  * types the ones a client reads. Objects pass unknown fields through, so a newer
  * Host can add fields without breaking older clients.
  */
@@ -1061,6 +1119,9 @@ const actionEventBase = {
   actionId: z.string().min(1),
   kind: z.string(),
   toolName: z.string().optional(),
+  /** A workflow Action: its node's path and key. */
+  path: z.string().optional(),
+  key: z.string().optional(),
   callId: z.string().optional(),
   invocationId: z.string().optional(),
   ...eventAgent,
@@ -1135,12 +1196,238 @@ export type TranscriptEventType = keyof typeof TRANSCRIPT_PAYLOADS;
 export const TRANSCRIPT_EVENT_TYPES = Object.keys(
   TRANSCRIPT_PAYLOADS
 ) as readonly TranscriptEventType[];
-export type TranscriptEvent = {
-  [K in TranscriptEventType]: Omit<LiveEvent, "type" | "payload"> & {
-    type: K;
-    payload: z.infer<(typeof TRANSCRIPT_PAYLOADS)[K]>;
-  };
-}[TranscriptEventType];
+
+/** `command.message`: the message a client sent, as accepted. */
+export const CommandMessagePayloadSchema = z
+  .object({
+    ...commandBase,
+    type: z.literal("message"),
+    content: z.string().optional(),
+    data: jsonValue.optional(),
+    /** The turn manifest the message carried, if any. */
+    manifest: z.unknown().optional(),
+  })
+  .passthrough();
+/** `command.approve`: an answer to an approval interaction. */
+export const CommandApprovePayloadSchema = z
+  .object({
+    ...commandBase,
+    type: z.literal("approve"),
+    interactionId: z.string().min(1),
+    approved: z.boolean(),
+  })
+  .passthrough();
+/** `command.respond`: an answer to an input interaction. */
+export const CommandRespondPayloadSchema = z
+  .object({
+    ...commandBase,
+    type: z.literal("respond"),
+    interactionId: z.string().min(1),
+    value: z.unknown(),
+  })
+  .passthrough();
+/** `action.delivered`: the Runtime sent an Action to its endpoint. */
+export const ActionDeliveredPayloadSchema = z
+  .object({
+    actionId: z.string().min(1),
+    generation: z.number().int().positive(),
+    ...eventAgent,
+  })
+  .passthrough();
+/** `action.delivery_failed`: a delivery did not reach its endpoint, or was refused; it is retried. */
+export const ActionDeliveryFailedPayloadSchema = z
+  .object({
+    actionId: z.string().min(1),
+    generation: z.number().int().positive(),
+    reason: z.string(),
+    message: z.string().optional(),
+    retryInMs: z.number().int().nonnegative(),
+  })
+  .passthrough();
+/** `sandbox.state`: the session's sandbox changed state. */
+export const SandboxStatePayloadSchema = z
+  .object({
+    state: z.enum(["creating", "running", "stopped"]),
+    backend: z.string(),
+    isolation: z.string().optional(),
+    image: z.string().optional(),
+    network: z.unknown().optional(),
+    reattach: z.boolean().optional(),
+    lost: z.boolean().optional(),
+    note: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+/** `sandbox.exec`: one sandbox tool call finished. */
+export const SandboxExecPayloadSchema = z
+  .object({
+    tool: z.string(),
+    command: z.string().optional(),
+    outcome: z.string(),
+    code: z.string().optional(),
+    durationMs: z.number().nonnegative(),
+  })
+  .passthrough();
+/** `node.started`: a workflow node that runs an Action started. */
+export const NodeStartedPayloadSchema = z
+  .object({
+    path: z.string(),
+    kind: z.string(),
+    key: z.string(),
+    iterations: z.string().optional(),
+  })
+  .passthrough();
+/** `node.agent`: a workflow node runs as a linked agent session. */
+export const NodeAgentPayloadSchema = z
+  .object({
+    path: z.string(),
+    iterations: z.string().optional(),
+    sessionId: z.string(),
+    turnId: z.string().nullable().optional(),
+  })
+  .passthrough();
+/** `loop.iteration`: a Loop started its `n`th agent turn. */
+export const LoopIterationPayloadSchema = z
+  .object({
+    path: z.string(),
+    n: z.number().int(),
+    sessionId: z.string().optional(),
+    turnId: z.string().optional(),
+    manifestHash: z.string().optional(),
+  })
+  .passthrough();
+/** `loop.verified`: a Loop's verifier judged iteration `n`. */
+export const LoopVerifiedPayloadSchema = z
+  .object({
+    path: z.string(),
+    n: z.number().int(),
+    pass: z.boolean(),
+    feedback: z.string().optional(),
+    data: z.unknown().optional(),
+  })
+  .passthrough();
+/** `loop.decided`: a Loop's decide step chose to iterate again (`input`) or finish (`output`). */
+export const LoopDecidedPayloadSchema = z
+  .object({
+    path: z.string(),
+    n: z.number().int(),
+    next: z.enum(["input", "output"]),
+    patched: z.boolean(),
+  })
+  .passthrough();
+
+/**
+ * The event catalog (Durable Streams §9.5): every session event type, its payload schema, its
+ * payload schema version and who writes it. A type not listed here cannot be written.
+ *
+ * Evolution: new types and new optional payload fields are additive (clients ignore types
+ * they do not know, and payloads pass unknown fields through). A breaking payload change is a
+ * new type or a protocol version, never an edit in place.
+ */
+export const EVENT_CATALOG = {
+  "command.message": { payload: CommandMessagePayloadSchema, source: "api", version: 1 },
+  "command.approve": { payload: CommandApprovePayloadSchema, source: "api", version: 1 },
+  "command.respond": { payload: CommandRespondPayloadSchema, source: "api", version: 1 },
+  "turn.completed": { payload: TurnCompletedPayloadSchema, source: "loop", version: 1 },
+  "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1 },
+  "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
+  "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
+  "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1 },
+  "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1 },
+  "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1 },
+  "tool.completed": { payload: ToolCompletedPayloadSchema, source: "loop", version: 1 },
+  "action.pending": { payload: ActionPendingPayloadSchema, source: "loop", version: 1 },
+  "action.delivered": { payload: ActionDeliveredPayloadSchema, source: "loop", version: 1 },
+  "action.delivery_failed": {
+    payload: ActionDeliveryFailedPayloadSchema,
+    source: "loop",
+    version: 1,
+  },
+  "action.completed": { payload: ActionCompletedPayloadSchema, source: "api", version: 1 },
+  "action.uncertain": { payload: ActionUncertainPayloadSchema, source: "loop", version: 1 },
+  "effect.uncertain": { payload: EffectUncertainPayloadSchema, source: "loop", version: 1 },
+  "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
+  "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
+  "sandbox.state": { payload: SandboxStatePayloadSchema, source: "loop", version: 1 },
+  "sandbox.exec": { payload: SandboxExecPayloadSchema, source: "loop", version: 1 },
+  "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
+  "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
+  "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
+  "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1 },
+  "loop.decided": { payload: LoopDecidedPayloadSchema, source: "api", version: 1 },
+} as const satisfies Record<
+  string,
+  { payload: z.ZodType; source: EventSourceKind; version: number }
+>;
+export type EventType = keyof typeof EVENT_CATALOG;
+export const EVENT_TYPES = Object.keys(EVENT_CATALOG) as readonly EventType[];
+/** Drops the index signatures `passthrough` adds, so plain interfaces are assignable. */
+type Closed<T> = T extends readonly (infer U)[]
+  ? Closed<U>[]
+  : T extends object
+  ? { [K in keyof T as string extends K ? never : K]: Closed<T[K]> }
+  : T;
+/**
+ * The payload a writer passes for an event of `type` (checked again at runtime against the
+ * catalog, unknown fields included).
+ */
+export type EventPayload<T extends EventType> = Closed<
+  z.input<(typeof EVENT_CATALOG)[T]["payload"]>
+>;
+export function isEventType(type: string): type is EventType {
+  return Object.hasOwn(EVENT_CATALOG, type);
+}
+
+type EventSchemaOf<T extends EventType> = z.ZodObject<
+  typeof eventEnvelope & {
+    type: z.ZodLiteral<T>;
+    payload: (typeof EVENT_CATALOG)[T]["payload"];
+  }
+>;
+function eventSchema<T extends EventType>(type: T): EventSchemaOf<T> {
+  return z.object({
+    ...eventEnvelope,
+    type: z.literal(type),
+    payload: EVENT_CATALOG[type].payload,
+  }) as unknown as EventSchemaOf<T>;
+}
+/** One schema per event type, keyed by type (the OpenAPI components). */
+export const EVENT_SCHEMAS = Object.fromEntries(
+  EVENT_TYPES.map((type) => [type, eventSchema(type)])
+) as { [T in EventType]: EventSchemaOf<T> };
+/** A session event of a known type, discriminated on `type`. */
+export const SessionEventSchema = z.discriminatedUnion(
+  "type",
+  EVENT_TYPES.map((type) => EVENT_SCHEMAS[type]) as unknown as [
+    EventSchemaOf<EventType>,
+    ...EventSchemaOf<EventType>[],
+  ]
+);
+export type SessionEvent = {
+  [T in EventType]: z.infer<EventSchemaOf<T>>;
+}[EventType];
+/** The session event of type `T`. */
+export type SessionEventOf<T extends EventType> = Extract<SessionEvent, { type: T }>;
+/**
+ * Reads one event from the wire: typed when its type is in the catalog and it matches, else
+ * the bare envelope (a newer Runtime's type, which a client ignores). Throws only when even
+ * the envelope does not match.
+ */
+export function parseSessionEvent(value: unknown): SessionEvent | LiveEvent {
+  const known = SessionEventSchema.safeParse(value);
+  if (known.success) return known.data as SessionEvent;
+  return LiveEventSchema.parse(value);
+}
+export const SessionItemsResponseSchema = z.object({
+  items: z.array(SessionEventSchema),
+  cursor: z.string().nullable(),
+});
+export type SessionItemsResponse = {
+  items: (SessionEvent | LiveEvent)[];
+  cursor: string | null;
+};
+
+export type TranscriptEvent = SessionEventOf<TranscriptEventType>;
 /** Types a transcript event's payload; `undefined` for other types or a malformed payload. */
 export function parseTranscriptEvent(
   event: LiveEvent
@@ -1294,6 +1581,26 @@ export const AdminTenantStatusSchema = AdminTenantSchema.extend({
 });
 export type AdminTenantStatus = z.infer<typeof AdminTenantStatusSchema>;
 
+/** A stream relay's state (Durable Streams §7). */
+export const StreamRelayStatusSchema = z
+  .object({
+    /** This process holds the replication slot (one process per slot does). */
+    active: z.boolean(),
+    /** Committed transactions not yet fully in S2. */
+    pendingTxs: z.number().int().nonnegative(),
+    /** Events queued for S2. */
+    pendingRows: z.number().int().nonnegative(),
+    /** The last position acknowledged to the slot. */
+    confirmed: z.string().nullable(),
+    /** Reconciliations of the record with S2 since start (a new or lost slot). */
+    reconciliations: z.number().int().nonnegative(),
+    lastError: z.string().nullable(),
+    /** WAL bytes the slot holds that the relay has not confirmed, when known. */
+    lagBytes: z.number().nonnegative().optional(),
+  })
+  .strict();
+export type StreamRelayStatus = z.infer<typeof StreamRelayStatusSchema>;
+
 export const HostAggregateSchema = z
   .object({
     runningSessions: z.number().int().nonnegative(),
@@ -1301,10 +1608,8 @@ export const HostAggregateSchema = z
     inFlightDeliveries: z.number().int().nonnegative(),
     pendingActions: z.number().int().nonnegative(),
     uncertainEffects: z.number().int().nonnegative(),
-    /** Events committed but not yet relayed to Durable Streams, over the open Tenants. */
-    outboxDepth: z.number().int().nonnegative().optional(),
-    /** The largest relay lag of an open Tenant: its oldest unrelayed event's age. */
-    relayLagMs: z.number().nonnegative().optional(),
+    /** This process's stream relay, when it runs one (a Host with S2). */
+    relay: StreamRelayStatusSchema.optional(),
   })
   .strict();
 export type HostAggregate = z.infer<typeof HostAggregateSchema>;
@@ -1454,14 +1759,10 @@ export const TenantStatusSchema = z
             lastError: z.string().nullable(),
           })
           .strict(),
-        outbox: z
-          .object({
-            depth: z.number().int().nonnegative(),
-            oldestAgeMs: z.number().nonnegative().nullable(),
-          })
-          .strict(),
-        relayLagMs: z.number().nonnegative(),
-        collectionPending: z.boolean(),
+        /** The basin generation session streams are in (a reset moves to the next). */
+        generation: z.number().int().nonnegative(),
+        /** The Tenant's own relay; null when the Host's relay serves it. */
+        relay: StreamRelayStatusSchema.nullable(),
       })
       .strict()
       .optional(),
@@ -2226,21 +2527,3 @@ export type DeliveryHeartbeatResponse = z.infer<typeof DeliveryHeartbeatResponse
 export const ActionResultReceiptSchema = AcceptedResponseSchema.omit({ requestId: true });
 export type ActionResultReceipt = z.infer<typeof ActionResultReceiptSchema>;
 
-/** `action.delivered`: the Runtime sent an Action to its endpoint. */
-export const ActionDeliveredPayloadSchema = z
-  .object({
-    actionId: z.string().min(1),
-    generation: z.number().int().positive(),
-    ...eventAgent,
-  })
-  .passthrough();
-/** `action.delivery_failed`: a delivery did not reach its endpoint, or was refused; it is retried. */
-export const ActionDeliveryFailedPayloadSchema = z
-  .object({
-    actionId: z.string().min(1),
-    generation: z.number().int().positive(),
-    reason: z.string(),
-    message: z.string().optional(),
-    retryInMs: z.number().int().nonnegative(),
-  })
-  .passthrough();

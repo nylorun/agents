@@ -25,8 +25,8 @@ container is killed with `docker compose kill` (`npm run test:failure`,
 | 3. A Worker killed during a model effect (`uncertain` after takeover) | `workers.integration.test.ts` › "§17.3 a Worker killed during a model effect: …"; `scripts/smoke-failure.mjs` (the `runtime` container killed mid-call) | `host/execution.integration.test.ts` › "takes over from a Worker stopped mid-advance: …"; `tenant/ownership.test.ts` and `tenant/sweep.test.ts` › "takes over from a dead owner: …" |
 | 4. Two advances racing for one session (`ownership.lost`, no duplicate event) | `workers.integration.test.ts` › "§17.4 two advances racing for one session: …" | `tenant/ownership.test.ts` › "runs one of two racing advances; …" and "keeps a second Worker on the same Tenant out …"; `contracts/store.contract.ts` › "aborts an epoch-checked transaction with ownership.lost and no write"; `tenant/sweep.test.ts` › "a stale epoch writes nothing" |
 | 5. No sequence gap under concurrent writers | `streams.integration.test.ts` › "§17.5 no sequence gap under concurrent writers on two nodes while turns run" | `store/postgres.integration.test.ts` › "has no sequence gaps with 20 concurrent writers on two pools"; `contracts/store.contract.ts` › "has no sequence gaps under 20 concurrent transactions"; `tenant/streams.suite.ts` › "resumes SSE from Last-Event-ID with no gap or duplicate under concurrent commits" |
-| 6. A relay append retried after an unacknowledged success (one event) | `streams.integration.test.ts` › "§17.6 relay appends retried after unacknowledged successes land exactly once" | `streams/relay.suite.ts` › "yields exactly one event when an append is retried after an unacknowledged success", "recovers a lost acknowledgement …", "relays exactly once when several processes relay the same outbox" (on s2-lite in `streams/relay.integration.test.ts`) |
-| 7. S2 unavailable (state commits, history `503`, complete stream after recovery) | `streams.integration.test.ts` › "§17.7 S2 unavailable: …" (s2-lite behind a TCP proxy that is taken down) | `tenant/streams.suite.ts` › "commits while streams are down, answers history 503, …"; `streams/relay.suite.ts` › "keeps events in the outbox while S2 is down …" |
+| 6. A relay append retried after an unacknowledged success (one event) | `streams.integration.test.ts` › "§17.6 relay appends retried after unacknowledged successes land exactly once" | `streams/relay-core.test.ts` › "acknowledges nothing it has not appended: an append whose ack was lost is retried once", "replays unacknowledged transactions after a crash without duplicating them"; on Postgres logical replication in `streams/relay-pg.integration.test.ts` › "replays what a crashed relay received but S2 never got" |
+| 7. S2 unavailable (state commits, history `503`, complete stream after recovery) | `streams.integration.test.ts` › "§17.7 S2 unavailable: …" (s2-lite behind a TCP proxy that is taken down) | `tenant/streams.suite.ts` › "commits while streams are down, answers history 503, …"; `streams/relay-core.test.ts` › "keeps commits while S2 is down and delivers them in order when it returns"; `streams/relay-pg.integration.test.ts` › "holds the slot while S2 is down and catches up in order" |
 | 8. An SSE client reconnecting to a different API node (no gap) | `streams.integration.test.ts` › "§17.8 an SSE client reconnecting to a different API node resumes without a gap" | `tenant/streams.suite.ts` › "resumes SSE on another node without a gap" |
 | 9. Cancel delivered to another Worker | `workers.integration.test.ts` › "§17.9 cancel delivered to another Worker: …" | `host/execution.integration.test.ts` › "cancels a long model call on the Worker from another node through the control stream"; `tenant/streams.suite.ts` › "delivers a cancel to the node running the advance through the control stream" |
 | 10. A Restate abort during a long advance | `workers.integration.test.ts` › "§17.10 …" › "retries an advance Restate aborted without calling the model again: …" and "bounds a runaway advance with its deadline and grace; …" | `execution/restate.integration.test.ts` › "fails and retries an advance that outlives short timeouts, without overlapping it"; `host/execution.test.ts` › "settles a runaway model call as uncertain at the deadline" and "abandons an advance that ignores the deadline; the next advance takes over" |
@@ -55,3 +55,27 @@ container is killed with `docker compose kill` (`npm run test:failure`,
   deployment, queued invocation, sweep chain and idempotency key is gone. The
   test needs the `docker` CLI and the same `COMPOSE_PROJECT_NAME` and port
   variables as `test:stack:up`.
+
+## Durable Streams (Durable Streams §13, §20)
+
+`durable-streams.integration.test.ts` runs the stream relay on the test stack's Postgres
+(logical replication) and s2-lite, and checks after each case that every S2 stream equals its
+record, `0..head-1` in order. It needs only `NYLORUN_TEST_STACK=1`.
+
+| Case | Test |
+| --- | --- |
+| The relay crashes mid-stream | "keeps S2 equal to the record when the relay crashes mid-stream" (20 sessions, a second relay takes the slot) |
+| S2 unreachable | "keeps committing while S2 is unreachable for 10 s, then catches up in order" (the slot's confirmed position does not move while S2 is down) |
+| The slot is invalidated by `max_slot_wal_keep_size` | "recreates a slot Postgres invalidated for holding too much WAL, and reconciles" (sets a 1 MB cap with `ALTER SYSTEM`, restored afterwards) |
+| Another process takes over | "hands the slot to another process when the active relay's connection dies" |
+
+Lower down: `streams/relay-core.test.ts` (the relay over the in-memory record) and
+`streams/relay-pg.integration.test.ts` (crash before append, dropped slot, two relays,
+concurrent writers).
+
+The latency gate, commit to S2 under 200 ms at p99 with 50 sessions, is
+`streams/relay-bench.integration.test.ts`; it runs only with `NYLORUN_BENCH=1`:
+
+```sh
+NYLORUN_TEST_STACK=1 NYLORUN_BENCH=1 npx vitest run -c vitest.integration.config.ts test/streams/relay-bench
+```

@@ -62,7 +62,7 @@ let endpoint: TestEndpoint | undefined;
 
 function app(extra: Record<string, string> = {}): Record<string, string> {
   return {
-    "nylorun-protocol": "3",
+    "nylorun-protocol": "4",
     "nylorun-tenant": rt.tenantId,
     authorization: `Bearer ${rt.applicationKey}`,
     ...extra,
@@ -111,7 +111,7 @@ afterAll(async () => {
 });
 
 it("Host and Admin answers", async () => {
-  const admin = { "nylorun-protocol": "3", authorization: `Bearer ${rt.adminKey}` };
+  const admin = { "nylorun-protocol": "4", authorization: `Bearer ${rt.adminKey}` };
   await answer(HealthResponseSchema, "GET", "/health", { headers: {} });
   await answer(ReadyResponseSchema, "GET", "/ready", { headers: {} });
   await answer(AdminTenantListSchema, "GET", "/v1/admin/tenants", {
@@ -275,7 +275,7 @@ it("access: policy, tokens, signing keys, publishable keys and revocations", asy
     body: { requestId: "key", name: "web", origins: [ORIGIN] },
   });
   await answer(ListPublicAgentsResponseSchema, "GET", "/v1/agents", {
-    headers: { "nylorun-protocol": "3", "nylorun-key": key.key, origin: ORIGIN },
+    headers: { "nylorun-protocol": "4", "nylorun-key": key.key, origin: ORIGIN },
   });
   await answer(ListPublishableKeysResponseSchema, "GET", "/v1/access/publishable-keys");
   await answer(PublishableKeySchema, "PUT", `/v1/access/publishable-keys/${key.id}`, {

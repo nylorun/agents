@@ -12,6 +12,8 @@ name: nylorun-test
 services:
   postgres: # Session Store
     image: postgres:17.11
+    # Logical replication for the stream relay (Durable Streams §14).
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=1GB"]
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: nylorun

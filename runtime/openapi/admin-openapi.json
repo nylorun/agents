@@ -5,8 +5,8 @@
     "version": "0.0.0",
     "description": "Tenants and the Host's status, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
     "x-nylorun-protocol": {
-      "min": 3,
-      "max": 3,
+      "min": 4,
+      "max": 4,
       "features": [
         "runtime-tenants",
         "admin-status",
@@ -510,13 +510,50 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "outboxDepth": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "relayLagMs": {
-                "type": "number",
-                "minimum": 0
+              "relay": {
+                "type": "object",
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "pendingTxs": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "pendingRows": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confirmed": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reconciliations": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "lastError": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "lagBytes": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "active",
+                  "pendingTxs",
+                  "pendingRows",
+                  "confirmed",
+                  "reconciliations",
+                  "lastError"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [

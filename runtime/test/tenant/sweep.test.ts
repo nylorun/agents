@@ -136,10 +136,14 @@ async function commitLinkedMessage(t: Tx, request: any, agentTurnId: string) {
   });
 }
 
-const eventsOf = async (store: SessionStore, sessionId: string) =>
-  (await store.tx((t) => t.outbox(100, { sessionId }))).map(
-    (row) => row.event.type
+const eventsOf = async (store: SessionStore, sessionId: string) => {
+  const record = store.record();
+  const head = (await record.heads(undefined, 1000)).find((h) => h.sessionId === sessionId);
+  if (!head) return [];
+  return (await record.readRange(head.tenantId, sessionId, 0, head.head)).map(
+    (row) => (row.body as { type: string }).type
   );
+};
 
 describe.each(stores)("on the %s store", (_name, makeStore) => {
   it("an advance is busy while another owner holds a live lease", async () => {

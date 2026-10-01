@@ -29,7 +29,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("lets exactly one of many racing conditional appends win each sequence", async () => {
       const tenantId = await tenant();
-      const stream = sessionStream("race", "i1");
+      const stream = sessionStream("race-i1");
       for (let seq = 0; seq < 5; seq += 1) {
         const results = await Promise.all(
           Array.from({ length: 12 }, (_, n) =>
@@ -52,7 +52,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("reads history across several pages", async () => {
       const tenantId = await tenant();
-      const stream = sessionStream("long", "i1");
+      const stream = sessionStream("long-i1");
       for (let n = 0; n < 5; n += 1)
         await streams.append(
           tenantId,
@@ -67,9 +67,29 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
       expect(seqs).toEqual(Array.from({ length: 2250 }, (_, i) => i + 250));
     });
 
+    it("delivers a stream's first record promptly to a reader that arrived before it", async () => {
+      const tenantId = await tenant();
+      const stream = sessionStream("early-i1");
+      const controller = new AbortController();
+      const reading = (async () => {
+        for await (const record of streams.read<number>(tenantId, stream, 0, {
+          signal: controller.signal,
+        }))
+          return { record, at: Date.now() };
+      })();
+      // Longer than the old missing-stream backoff could hide.
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const appended = Date.now();
+      await streams.append(tenantId, stream, [7]);
+      const result = await reading;
+      controller.abort();
+      expect(result?.record.body).toBe(7);
+      expect(result!.at - appended).toBeLessThan(500);
+    });
+
     it("resumes a live read from a sequence past the tail", async () => {
       const tenantId = await tenant();
-      const stream = sessionStream("resume", "i1");
+      const stream = sessionStream("resume-i1");
       await streams.append(tenantId, stream, [0, 1]);
       const controller = new AbortController();
       const reading = (async () => {
@@ -88,7 +108,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("ends live reads when the Tenant's basin is deleted, and on close", async () => {
       const tenantId = await tenant();
-      const stream = sessionStream("live", "i1");
+      const stream = sessionStream("live-i1");
       await streams.append(tenantId, stream, [0]);
       const seen: number[] = [];
       const reading = (async () => {
@@ -116,7 +136,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
 
     it("keeps session streams forever and trims the control stream by age", async () => {
       const tenantId = await tenant();
-      await streams.append(tenantId, sessionStream("kept", "i1"), [1]);
+      await streams.append(tenantId, sessionStream("kept-i1"), [1]);
       await streams.append(tenantId, CONTROL_STREAM, [{ type: "session.cancel", sessionId: "s" }]);
       // Stream configs as s2-lite reports them (REST: GET /v1/streams/{stream}).
       const config = async (stream: string) => {
@@ -127,7 +147,7 @@ describe.skipIf(!STACK_ENABLED)("s2-lite", () => {
         expect(response.status).toBe(200);
         return ((await response.json()) as { retention_policy: unknown }).retention_policy;
       };
-      expect(await config(sessionStream("kept", "i1"))).toEqual({ infinite: {} });
+      expect(await config(sessionStream("kept-i1"))).toEqual({ infinite: {} });
       expect(await config(CONTROL_STREAM)).toEqual({ age: 86_400 });
     });
   });

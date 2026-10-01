@@ -1,6 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import type {
+  EventPayload,
+  EventType,
+  LiveEvent,
+  SessionEventOf,
+} from "@nylorun/core/contracts";
+import { MemoryRecord } from "../streams/relay/memory.js";
+import type { RecordRow } from "../streams/relay/types.js";
+import { buildEvent } from "./event.js";
 import { encodeCursor } from "./cursor.js";
 import { OwnershipLostError } from "./ownership.js";
 import {
@@ -18,8 +26,7 @@ import {
   type EndpointRow,
   type LinkDoc,
   type LinkedSession,
-  type OutboxRow,
-  type OutboxStats,
+  type BasinGenerations,
   type PrincipalRow,
   type PublishableKeyRow,
   type ResetScope,
@@ -47,16 +54,20 @@ import {
 /** Schema version the fake reports; it has no migrations. */
 export const MEMORY_SCHEMA_VERSION = 1;
 
-interface SessionMeta extends SessionOwnership {
-  nextSeq: number;
-}
+type SessionMeta = SessionOwnership;
+
+/** A change to the record, applied when its transaction commits. */
+type RecordChange =
+  | { kind: "rows"; rows: RecordRow[] }
+  | { kind: "reset"; generation: number };
 
 interface State {
   /** JSON text per id, like a `body` column. */
   docs: Record<DocTable, Map<string, string>>;
   sessionMeta: Map<string, SessionMeta>;
-  /** sessionId → seq → event JSON. */
-  outbox: Map<string, Map<number, string>>;
+  /** sessionId → its log head: the next seq and the basin generation it was started in. */
+  heads: Map<string, { head: number; generation: number }>;
+  basin: BasinGenerations;
   endpoints: Map<string, EndpointRow>;
   principals: Map<string, PrincipalRow>;
   vaults: Map<string, VaultRow>;
@@ -76,7 +87,8 @@ function emptyState(): State {
       DOC_TABLES.map((table) => [table, new Map<string, string>()]),
     ) as Record<DocTable, Map<string, string>>,
     sessionMeta: new Map(),
-    outbox: new Map(),
+    heads: new Map(),
+    basin: { current: 0, retired: [] },
     endpoints: new Map(),
     principals: new Map(),
     vaults: new Map(),
@@ -108,6 +120,8 @@ const copy = <T>(value: T): T => structuredClone(value);
 export class MemoryStoreData {
   /** @internal */ state = emptyState();
   /** @internal */ queue: Promise<void> = Promise.resolve();
+  /** The record of committed events, read back by the stream relay. */
+  readonly record = new MemoryRecord();
 }
 
 /**
@@ -115,7 +129,7 @@ export class MemoryStoreData {
  *
  * Transactions are serialized (one at a time), each works on a copy of the
  * state and replaces it on commit, so a throw rolls back everything: documents,
- * sequences, outbox rows and `afterCommit` callbacks. Commit listeners see
+ * sequences, record rows and `afterCommit` callbacks. Commit listeners see
  * only this store's commits, as with a Postgres connection.
  */
 export class MemorySessionStore implements SessionStore {
@@ -157,10 +171,16 @@ export class MemorySessionStore implements SessionStore {
         t.closed = true;
       }
       this.data.state = working;
+      for (const change of t.recordChanges)
+        if (change.kind === "rows") this.data.record.commit(change.rows);
+        else {
+          this.data.record.deleteRows(this.tenantId);
+          this.data.record.setGeneration(this.tenantId, change.generation);
+        }
       if (t.events.length > 0) {
         const commit = {
           events: t.events,
-          incarnations: t.incarnations,
+          generations: t.generations,
         };
         for (const listener of this.listeners) {
           try {
@@ -188,6 +208,10 @@ export class MemorySessionStore implements SessionStore {
     return () => this.listeners.delete(listener);
   }
 
+  record(): MemoryRecord {
+    return this.data.record;
+  }
+
   async health(): Promise<StoreHealth> {
     return {
       ok: !this.closed,
@@ -213,7 +237,8 @@ export class MemorySessionStore implements SessionStore {
 class MemoryTx implements Tx {
   closed = false;
   readonly events: LiveEvent[] = [];
-  readonly incarnations: (string | null)[] = [];
+  readonly generations: number[] = [];
+  readonly recordChanges: RecordChange[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
 
   constructor(
@@ -247,7 +272,6 @@ class MemoryTx implements Tx {
           owner: null,
           epoch: 0,
           ownerExpiresAt: null,
-          nextSeq: 0,
         });
     }
     const json = JSON.stringify(value);
@@ -258,10 +282,8 @@ class MemoryTx implements Tx {
   async delete(table: DocTable, id: string): Promise<void> {
     this.check();
     this.s.docs[table].delete(id);
-    if (table === "sessions") {
-      this.s.sessionMeta.delete(id);
-      this.s.outbox.delete(id);
-    }
+    // The session's log head stays: a session created again with this id continues its log.
+    if (table === "sessions") this.s.sessionMeta.delete(id);
   }
 
   private session<T extends SessionDoc>(
@@ -299,34 +321,35 @@ class MemoryTx implements Tx {
     return this.session<T>(id);
   }
 
-  async event(
+  async event<T extends EventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown,
-  ): Promise<LiveEvent> {
+    type: T,
+    payload: EventPayload<T>,
+  ): Promise<SessionEventOf<T>> {
     this.check();
     const meta = this.s.sessionMeta.get(sessionId);
     if (!meta) throw new Error(`Session ${sessionId} not found`);
-    const seq = meta.nextSeq++;
-    const event: LiveEvent = JSON.parse(
-      JSON.stringify({
-        eventId: randomUUID(),
-        sessionId,
-        tenantId: this.tenantId,
-        turnId,
-        cursor: encodeCursor(sessionId, seq),
-        createdAt: this.now().toISOString(),
-        type,
-        payload,
-      }),
-    );
-    let rows = this.s.outbox.get(sessionId);
-    if (!rows) this.s.outbox.set(sessionId, (rows = new Map()));
-    rows.set(seq, JSON.stringify(event));
+    let head = this.s.heads.get(sessionId);
+    if (!head)
+      this.s.heads.set(sessionId, (head = { head: 0, generation: this.s.basin.current }));
+    const event = buildEvent({
+      tenantId: this.tenantId,
+      sessionId,
+      turnId,
+      seq: head.head,
+      epoch: meta.epoch,
+      time: this.now(),
+      type,
+      payload,
+    });
+    const seq = head.head++;
+    this.recordChanges.push({
+      kind: "rows",
+      rows: [{ tenantId: this.tenantId, sessionId, seq, generation: head.generation, body: event }],
+    });
     this.events.push(event);
-    const doc = JSON.parse(this.s.docs.sessions.get(sessionId)!) as SessionDoc;
-    this.incarnations.push(doc.streamIncarnation ?? null);
+    this.generations.push(head.generation);
     return copy(event);
   }
 
@@ -598,63 +621,16 @@ class MemoryTx implements Tx {
     };
   }
 
-  // --- outbox --------------------------------------------------------------
+  // --- basin generations --------------------------------------------------
 
-  async outbox(
-    limit: number,
-    filter: { sessionId?: string } = {},
-  ): Promise<OutboxRow[]> {
+  async basinGenerations(): Promise<BasinGenerations> {
     this.check();
-    const rows: OutboxRow[] = [];
-    for (const [sessionId, bySeq] of byId(this.s.outbox)) {
-      if (filter.sessionId !== undefined && filter.sessionId !== sessionId)
-        continue;
-      for (const seq of [...bySeq.keys()].sort((a, b) => a - b)) {
-        if (rows.length >= limit) return rows;
-        rows.push({ sessionId, seq, event: JSON.parse(bySeq.get(seq)!) });
-      }
-    }
-    return rows;
+    return copy(this.s.basin);
   }
 
-  async deleteOutbox(
-    sessionId: string,
-    throughSeq: number,
-    incarnation?: string | null,
-  ): Promise<number> {
+  async forgetRetiredGeneration(generation: number): Promise<void> {
     this.check();
-    const rows = this.s.outbox.get(sessionId);
-    if (!rows) return 0;
-    if (incarnation !== undefined) {
-      const doc = this.s.docs.sessions.get(sessionId);
-      if (
-        doc === undefined ||
-        ((JSON.parse(doc) as SessionDoc).streamIncarnation ?? null) !== incarnation
-      )
-        return 0;
-    }
-    let n = 0;
-    for (const seq of [...rows.keys()])
-      if (seq <= throughSeq) {
-        rows.delete(seq);
-        n += 1;
-      }
-    if (rows.size === 0) this.s.outbox.delete(sessionId);
-    return n;
-  }
-
-  async outboxStats(): Promise<OutboxStats> {
-    this.check();
-    let depth = 0;
-    let oldestCreatedAt: string | null = null;
-    for (const rows of this.s.outbox.values())
-      for (const body of rows.values()) {
-        depth += 1;
-        const createdAt = (JSON.parse(body) as { createdAt: string }).createdAt;
-        if (oldestCreatedAt === null || createdAt < oldestCreatedAt)
-          oldestCreatedAt = createdAt;
-      }
-    return { depth, oldestCreatedAt };
+    this.s.basin.retired = this.s.basin.retired.filter((g) => g !== generation);
   }
 
   // --- Action endpoints -----------------------------------------------------
@@ -1026,8 +1002,13 @@ class MemoryTx implements Tx {
       ] as const)
         this.s.docs[table].clear();
       this.s.sessionMeta.clear();
-      this.s.outbox.clear();
+      this.s.heads.clear();
       this.s.subjectUsage.clear();
+      this.s.basin = {
+        current: this.s.basin.current + 1,
+        retired: [...this.s.basin.retired, this.s.basin.current],
+      };
+      this.recordChanges.push({ kind: "reset", generation: this.s.basin.current });
     }
     if (scope === "sandboxes" || scope === "all")
       this.s.docs.sandboxes.clear();

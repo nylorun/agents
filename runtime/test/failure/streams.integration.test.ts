@@ -8,9 +8,10 @@
  * - §17.8 an SSE client reconnecting to a different API node.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { stackEndpoints } from "../stack/endpoints.js";
-import { FaultyStreams } from "../streams/relay.suite.js";
+import { FaultyStreams } from "../support/faulty-streams.js";
 import { openTestSessionStore } from "../support/store.js";
 import {
   controlledModel,
@@ -45,12 +46,16 @@ function failureTenant(): FailureTenant {
 
 const done: ModelProvider = async () => ({ output: [{ type: "text", text: "done" }] });
 
+/** Ticks are `turn.completed` events tagged `test.tick` (the catalog has no test type). */
+const tickCount = (events: readonly LiveEvent[]) =>
+  events.filter((e) => (e.payload as { tag?: string } | null)?.tag === "test.tick").length;
+
 /** Commits `count` single-event transactions on `node`'s own Postgres pool, all at once. */
 function ticks(node: Node, sessionId: string, count: number, from: string) {
   const { store } = contextOf(node);
   return Promise.all(
     range(0, count).map((i) =>
-      store.tx((t) => t.event(sessionId, null, "test.tick", { from, i }))
+      store.tx((t) => t.event(sessionId, null, "turn.completed", { tag: "test.tick", output: { from, i } }))
     )
   );
 }
@@ -80,8 +85,8 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     for (const id of sessions) {
       await until(() => view(a, id), (v) => v.status === "completed", `${id} completed`, 20_000);
       const history = await completeHistory(a, id);
-      expect(countOf(history, "test.tick")).toBe(40);
-      expect(countOf(history, "turn.completed")).toBe(1);
+      expect(tickCount(history)).toBe(40);
+      expect(countOf(history, "turn.completed") - tickCount(history)).toBe(1);
       expect(await completeHistory(b, id)).toEqual(history);
     }
   });
@@ -98,8 +103,8 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     await sendMessage(node);
     await until(() => view(node), (v) => v.status === "completed", "completed", 20_000);
 
-    // The relay kept the rows it saw fail; its next append, or the sweep's drain, finds the
-    // stream already past them (a conditional append) and deletes them without appending again.
+    // The relay retries the rows whose acknowledgement it lost; the conditional append finds the
+    // stream already past them and moves on without appending again.
     const history = await completeHistory(node);
     expect(faulty.loseAcks).toBe(0);
     expect(countOf(history, "command.message")).toBe(1);
@@ -128,16 +133,18 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     expect(history503.status).toBe(503);
     const store = await openTestSessionStore(node);
     try {
-      const rows = await store.tx((tx) => tx.outbox(1000, { sessionId: "s1" }));
-      expect(rows.length).toBeGreaterThan(0);
-      expect(rows.map((row) => row.seq)).toEqual(range(rows[0]!.seq, rows[0]!.seq + rows.length));
+      // The record has the second turn's events; S2 does not yet.
+      const head = (await store.record().heads(undefined, 1000)).find((h) => h.sessionId === "s1")!;
+      const rows = await store.record().readRange(head.tenantId, "s1", 0, head.head);
+      expect(rows.map((row) => row.seq)).toEqual(range(0, head.head));
+      expect(countOf(rows.map((row) => row.body as LiveEvent), "turn.completed")).toBe(2);
     } finally {
       await store.close();
     }
     expect(countOf(observer.frames, "turn.completed")).toBe(1);
 
     await proxy.up();
-    // The sweep drains the outbox in order; the stalled SSE resumes where it stopped.
+    // The relay catches up in order; the stalled SSE resumes where it stopped.
     const history = await completeHistory(node);
     expect(countOf(history, "command.message")).toBe(2);
     expect(countOf(history, "turn.completed")).toBe(2);
@@ -178,6 +185,6 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     expect(seqsOf(seen)).toEqual(range(0, seen.length));
     expect(seqsOf(resumed)).toEqual(range(seen.length, history.length));
     expect([...seen, ...resumed]).toEqual(history);
-    expect(countOf(history, "turn.completed")).toBe(1);
+    expect(countOf(history, "turn.completed") - tickCount(history)).toBe(1);
   });
 });

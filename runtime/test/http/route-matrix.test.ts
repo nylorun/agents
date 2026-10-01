@@ -52,7 +52,7 @@ const CALLERS: readonly Caller[] = [
 ];
 
 function callerHeaders(caller: Caller): Record<string, string> {
-  const base = { "nylorun-protocol": "3", "nylorun-tenant": TENANT };
+  const base = { "nylorun-protocol": "4", "nylorun-tenant": TENANT };
   const bearer = (key: string) => ({ ...base, authorization: `Bearer ${key}` });
   switch (caller) {
     case "none":
@@ -77,7 +77,7 @@ function callerHeaders(caller: Caller): Record<string, string> {
       return bearer(subjectToken);
     case "publishable":
       // A browser page: the key names the Tenant.
-      return { "nylorun-protocol": "3", "nylorun-key": publishableKey, origin: ORIGIN };
+      return { "nylorun-protocol": "4", "nylorun-key": publishableKey, origin: ORIGIN };
   }
 }
 
@@ -327,10 +327,10 @@ describe("route matrix", { timeout: 60_000 }, () => {
   });
 
   it("answers the Host and Admin operations on each listener, as recorded", async () => {
-    const admin = (key: string) => ({ "nylorun-protocol": "3", authorization: `Bearer ${key}` });
+    const admin = (key: string) => ({ "nylorun-protocol": "4", authorization: `Bearer ${key}` });
     const callers: Record<string, Record<string, string>> = {
       none: {},
-      "protocol-only": { "nylorun-protocol": "3" },
+      "protocol-only": { "nylorun-protocol": "4" },
       "wrong-admin": admin("matrix-wrong-admin-key-000000000000"),
       admin: admin(ADMIN_KEY),
       application: callerHeaders("application"),

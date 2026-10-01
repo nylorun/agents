@@ -11,7 +11,7 @@
  *    a Worker that died mid-advance (the advance then takes over, §11.4).
  * 3. **Sandboxes.** Idle sandboxes are stopped, records of compute this process no longer
  *    holds are marked stopped, and sandboxes whose session is gone are removed.
- * 4. **Hooks.** Callbacks registered with `ctx.onSweep` (the outbox drain, Wave 2 / Y).
+ * 4. **Hooks.** Callbacks registered with `ctx.onSweep`.
  * 5. **Deliveries.** Deliveries to Action endpoints whose deadline passed without an answer are
  *    lost (`delivery.ts` `loseAction`), and pending Actions of agents with an endpoint are sent
  *    again, in case a send was lost between a commit and the execution.

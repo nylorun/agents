@@ -64,7 +64,7 @@ describe("streams passed by the caller", () => {
 
     // A row committed without a relay (a crash between commit and append) stays in the outbox.
     const store = await openTestSessionStore(first);
-    const offline = await store.tx((t) => t.event("s1", null, "test.offline", {}));
+    const offline = await store.tx((t) => t.event("s1", null, "turn.completed", { tag: "test.offline", output: {} }));
     await store.close();
 
     const second = await startTestTenant({
@@ -86,7 +86,7 @@ describe("streams passed by the caller", () => {
     const node = await startTestTenant({ applicationKey: APP });
     roots.push(node.root);
     open.push(node);
-    const wiring = contextOf(node.handle).live.wiring!;
+    const wiring = contextOf(node.handle).sessionStreams.wiring!;
     expect(wiring.streams).toBeInstanceOf(MemoryStreams);
     expect(wiring.basin()).toEqual({ ready: true, failures: 0, lastError: null });
   });

@@ -7,7 +7,7 @@ import { rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { MemoryStreams } from "../../src/streams/memory.js";
-import { checkFeeds } from "../../src/tenant/live.js";
+import { checkSessionStreams } from "../../src/tenant/session-streams.js";
 import { startTestTenant } from "../support/tenant.js";
 import { contextOf } from "../tenant/streams.suite.js";
 
@@ -89,7 +89,7 @@ it("ends it from the epoch when the signal is lost", async () => {
   // Revoke through the store only: no signal reaches node B.
   const ctx = contextOf(b.handle);
   await ctx.store.tx((t) => t.bumpSubjectEpoch("app:zoe", new Date().toISOString()));
-  await checkFeeds(ctx);
+  await checkSessionStreams(ctx);
   const text = await stream.text();
   expect(text).toContain('"reason":"revoked"');
 });

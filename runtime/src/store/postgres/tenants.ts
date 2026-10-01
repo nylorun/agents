@@ -42,6 +42,7 @@ import {
 } from "./migrations/index.js";
 import { TENANT_SCHEMA_PREFIX, tenantIdFromSchema, tenantSchemaName } from "./names.js";
 import { createPostgresSessionStore } from "./store.js";
+import { STREAMS_SCHEMA, migrateStreamsSchema } from "./migrations/shared/index.js";
 
 export interface PostgresTenantCatalogOptions {
   /** The shared pool. The catalog and its stores never end it. */
@@ -114,6 +115,13 @@ export function createPostgresTenantCatalog(
 ): PostgresTenantCatalog {
   const { sql } = options;
   const now = options.now ?? (() => new Date());
+  // The shared record (`nylorun_streams`) exists before any Tenant is created or opened.
+  let streamsReady: Promise<unknown> | undefined;
+  const ensureStreams = () =>
+    (streamsReady ??= migrateStreamsSchema(sql).catch((error: unknown) => {
+      streamsReady = undefined;
+      throw error;
+    }));
   const migrations = options.migrations ?? MIGRATIONS;
   const latest = migrations.length;
 
@@ -216,6 +224,7 @@ export function createPostgresTenantCatalog(
     },
 
     async createTenant({ envelope, principals }) {
+      await ensureStreams();
       const input = TenantEnvelopeSchema.parse(envelope);
       const schema = tenantSchemaName(input.id);
       const outcome = await sql.begin(async (tx) => {
@@ -255,6 +264,7 @@ export function createPostgresTenantCatalog(
 
     async openTenant(id, storeOptions = {}) {
       if (!isTenantId(id)) return { status: "not-found" };
+      await ensureStreams();
       const schema = tenantSchemaName(id);
       const version = await readSchemaVersion(sql, schema);
       if (version === undefined) return { status: "not-found" };
@@ -321,6 +331,11 @@ export function createPostgresTenantCatalog(
         await lockSchema(tx, schema);
         if (!(await schemaExists(tx, schema))) return false;
         await tx`DROP SCHEMA ${tx(schema)} CASCADE`;
+        // The Tenant's share of the record goes with it (Durable Streams §15).
+        if ((await schemaExists(tx, STREAMS_SCHEMA))) {
+          await tx`DELETE FROM ${tx(`${STREAMS_SCHEMA}.session_events`)} WHERE tenant_id = ${id}`;
+          await tx`DELETE FROM ${tx(`${STREAMS_SCHEMA}.session_log_heads`)} WHERE tenant_id = ${id}`;
+        }
         return true;
       });
     },

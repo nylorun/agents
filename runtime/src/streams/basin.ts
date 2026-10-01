@@ -34,19 +34,53 @@ export function validateBasinPrefix(prefix: string): string {
   return prefix;
 }
 
-export function tenantBasinName(tenantId: string, prefix = ""): string {
+/**
+ * The basin of one generation of a Tenant (Durable Streams §8.1). A Tenant reset moves the
+ * Tenant to a new generation, so a session id it frees starts again in an empty basin.
+ * `DurableStreams` methods take this key where they take a Tenant id; generation 0 is the
+ * Tenant id itself, so existing basins keep their names.
+ */
+export function basinOf(tenantId: string, generation: number): string {
+  if (!Number.isInteger(generation) || generation < 0)
+    throw new Error("A basin generation is a non-negative integer");
+  return generation === 0 ? tenantId : `${tenantId}${GENERATION_SEPARATOR}${generation}`;
+}
+
+/** The Tenant id and generation of a basin key from `basinOf`. */
+export function parseBasin(basin: string): { tenantId: string; generation: number } {
+  const at = basin.lastIndexOf(GENERATION_SEPARATOR);
+  const generation = at < 0 ? NaN : Number(basin.slice(at + 1));
+  return Number.isInteger(generation) && generation > 0
+    ? { tenantId: basin.slice(0, at), generation }
+    : { tenantId: basin, generation: 0 };
+}
+
+/** Never in a Tenant id (`TENANT_ID_PATTERN`). */
+const GENERATION_SEPARATOR = "#";
+
+/**
+ * The S2 basin of a Tenant, or of one of its generations (`basinOf`). Generation `g` > 0 of
+ * a canonical Tenant appends `-<g mod 1296 in base36>`, at most 48 characters with a
+ * 16-character prefix; other ids fold the generation into their hash.
+ */
+export function tenantBasinName(basin: string, prefix = ""): string {
   validateBasinPrefix(prefix);
+  const { tenantId, generation } = parseBasin(basin);
   if (!tenantId) throw new Error("tenantId is required");
   let name: string;
   if (TENANT_ID_PATTERN.test(tenantId)) {
     name = `${prefix}tn-${tenantId.slice(3)}`;
+    if (generation > 0) name += `-${(generation % 1296).toString(36)}`;
   } else {
     const slug = tenantId
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 12)
       .replace(/^-+|-+$/g, "");
-    const hash = createHash("sha256").update(tenantId).digest("hex").slice(0, 16);
+    const hash = createHash("sha256")
+      .update(generation > 0 ? basin : tenantId)
+      .digest("hex")
+      .slice(0, 16);
     name = `${prefix}x-${slug ? `${slug}-` : ""}${hash}`;
   }
   if (!BASIN_NAME.test(name)) throw new Error(`Invalid S2 basin name ${name}`);

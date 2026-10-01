@@ -5,6 +5,8 @@
  */
 import { OpenApiGeneratorV32 } from "@asteasolutions/zod-to-openapi";
 import { expect, it } from "vitest";
+import { EVENT_TYPES } from "@nylorun/core/contracts";
+import { eventComponentName } from "../../src/api/components.js";
 import { tenantApi } from "../../src/api/http/app.js";
 
 const document = new OpenApiGeneratorV32(tenantApi().openAPIRegistry.definitions).generateDocument({
@@ -66,15 +68,30 @@ it("documents session commands for every caller that sends them, with their head
   );
 });
 
-it("documents session events as server-sent LiveEvents, ending with the closed frame", () => {
+it("documents session events as server-sent catalog events, ending with the closed frame", () => {
   const op = operation("get", "/v1/sessions/{sessionId}/events");
   expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
   expect(op["x-nylorun-browser"]).toBe(true);
   expect(op.responses["200"].content["text/event-stream"].itemSchema).toEqual({
     anyOf: [
-      { $ref: "#/components/schemas/LiveEvent" },
+      ...EVENT_TYPES.map((type) => ({
+        $ref: `#/components/schemas/${eventComponentName(type)}`,
+      })),
       { $ref: "#/components/schemas/StreamClosedFrame" },
     ],
+  });
+});
+
+it("publishes one component per event type, on the nylorun.event/2 envelope", () => {
+  const schemas = (document as unknown as { components: { schemas: Record<string, any> } })
+    .components.schemas;
+  for (const type of EVENT_TYPES) {
+    const component = schemas[eventComponentName(type)];
+    expect(component.properties.type).toEqual({ type: "string", enum: [type] });
+    expect(component.properties.schema).toEqual({ type: "string", enum: ["nylorun.event/2"] });
+  }
+  expect(schemas.SessionItemsResponse.properties.items.items).toEqual({
+    $ref: "#/components/schemas/SessionEvent",
   });
 });
 

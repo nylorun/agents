@@ -22,7 +22,7 @@ it("close() ends open event streams instead of waiting for their clients", async
   const rt = await startEphemeralRuntime({ hostRoot: root, model: { kind: "fixture" } });
   try {
     const headers = {
-      "nylorun-protocol": "3",
+      "nylorun-protocol": "4",
       "nylorun-tenant": rt.tenantId,
       authorization: `Bearer ${rt.applicationKey}`,
       "content-type": "application/json",

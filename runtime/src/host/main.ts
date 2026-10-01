@@ -8,8 +8,11 @@
  * Composition: `createInfra` builds the Postgres pool, Durable Session
  * Execution and Durable Streams from the endpoints; `createHostExecution`
  * shares one execution across the Tenants; the Tenant store is Postgres
- * (`NYLORUN_DATABASE_URL`, required); `/ready` reports the infrastructure
- * checks. See the startup order in `main()`. Tests compose a Host without this
+ * (`NYLORUN_DATABASE_URL`, required), with the shared record of session events
+ * (`nylorun_streams`, migrated here); with S2, an `api` or `all` process runs
+ * the stream relay, which feeds every Tenant's streams from the record over
+ * logical replication (one process at a time holds the slot); `/ready` reports
+ * the infrastructure checks. See the startup order in `main()`. Tests compose a Host without this
  * entry, with `createHost` and an injected Tenant module.
  */
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
@@ -21,6 +24,13 @@ import { createTenantModule } from "../tenant/module.js";
 import { createPostgresTenantStore } from "../tenant/store-pg.js";
 import { openTenantRuntime } from "../tenant/runtime.js";
 import { createTenantStreams, deleteTenantStreams } from "../tenant/streams.js";
+import { createPgoutputSource } from "../adapters/replication/pgoutput.js";
+import {
+  assertLogicalReplication,
+  migrateStreamsSchema,
+} from "../store/postgres/migrations/shared/index.js";
+import { createPostgresRecordReader } from "../store/postgres/record.js";
+import { createStreamRelay, type StreamRelay } from "../streams/relay/core.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import { configForFactory } from "./config-for.js";
 import { createHost, type CreateHostOptions } from "./create-host.js";
@@ -54,6 +64,14 @@ function resolveHostRoot(): string {
   const root =
     fromEnv && fromEnv.length > 0 ? fromEnv : resolve(homedir(), ".nylorun");
   return resolve(root);
+}
+
+/** The slot's lag in WAL bytes, when the source can tell. */
+async function lagOf(source: {
+  lag?(): Promise<number | undefined>;
+}): Promise<{ lagBytes?: number }> {
+  const lagBytes = await source.lag?.().catch(() => undefined);
+  return lagBytes === undefined ? {} : { lagBytes };
 }
 
 export async function main(): Promise<void> {
@@ -126,6 +144,30 @@ export async function main(): Promise<void> {
   // them (a local Host only) each Tenant keeps in-process streams, whose history
   // does not survive a restart.
   const streams = infra.streams;
+  let relayLag:
+    | (() => Promise<ReturnType<StreamRelay["status"]> & { lagBytes?: number }>)
+    | undefined;
+  // The record of session events is shared by every Tenant; it exists before any opens.
+  await migrateStreamsSchema(database);
+  // With S2, the stream relay feeds every Tenant's streams from the record. Every api or all
+  // process runs one; the replication slot lets exactly one be active. Without S2, each
+  // Tenant relays its own commits to its in-process streams.
+  let relay: StreamRelay | undefined;
+  if (streams && stack.role !== "worker") {
+    await assertLogicalReplication(database);
+    const source = createPgoutputSource({
+      connectionString: stack.endpoints.databaseUrl,
+      log: (message, fields) => logger.info(message, fields),
+    });
+    relay = createStreamRelay({
+      source,
+      record: createPostgresRecordReader(database),
+      streams,
+      log: (message, fields) => logger.info(message, fields),
+    });
+    const status = relay.status;
+    relayLag = async () => ({ ...status(), ...(await lagOf(source)) });
+  }
   const store = createPostgresTenantStore({
     hostRoot,
     sql: database,
@@ -134,7 +176,7 @@ export async function main(): Promise<void> {
     openRuntime: (tenantConfig, opened) =>
       openTenantRuntime(tenantConfig, {
         execution: hostExecution.tenantExecution,
-        ...(streams ? { streams } : {}),
+        ...(streams ? { streams, hostRelay: true } : {}),
         ...opened,
       }),
   });
@@ -142,6 +184,7 @@ export async function main(): Promise<void> {
   const module = createTenantModule({
     store,
     logger,
+    ...(relayLag ? { relayStatus: relayLag } : {}),
     // A new Tenant's basin is created with it (opening it repairs a failure);
     // a deleted Tenant's sweep stops re-arming and its basin goes.
     ...(streams
@@ -183,7 +226,10 @@ export async function main(): Promise<void> {
     // SIGTERM and POST /v1/admin/host/shutdown both close the Host this way:
     // stop the Worker, close the Tenants, then end the infrastructure clients.
     shutdown: {
-      beforeTenants: () => hostExecution.stop(),
+      beforeTenants: async () => {
+        await hostExecution.stop();
+        await relay?.stop();
+      },
       afterTenants: () => infra.close(),
     },
   };
@@ -199,9 +245,11 @@ export async function main(): Promise<void> {
   // sweep is re-armed, which recovers wakes lost with Restate's state (§14.8).
   try {
     await hostExecution.start();
+    relay?.start();
     await host.listen();
   } catch (error) {
     await hostExecution.stop().catch(() => undefined);
+    await relay?.stop().catch(() => undefined);
     await infra.close();
     if (error instanceof HostListenError) {
       logger.error("listen_failed", {

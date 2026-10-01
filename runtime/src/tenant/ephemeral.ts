@@ -153,6 +153,7 @@ function kept(store: SessionStore): SessionStore {
     tenantId: store.tenantId,
     tx: (fn) => store.tx(fn),
     onCommit: (listener) => store.onCommit(listener),
+    record: () => store.record(),
     health: () => store.health(),
     close: async () => {},
   };

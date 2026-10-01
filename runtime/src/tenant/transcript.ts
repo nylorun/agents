@@ -91,7 +91,7 @@ export function contextCompacted(request: HostEffect, value: unknown) {
   const keptTokens = Number(compaction.keptTokens) || 0;
   return {
     ...(typeof invocationId === "string" ? { invocationId } : {}),
-    trigger: compaction.trigger === "overflow" ? "overflow" : "threshold",
+    trigger: compaction.trigger === "overflow" ? ("overflow" as const) : ("threshold" as const),
     tokensBefore,
     tokensAfter: keptTokens + Math.ceil(summary.trim().length / 4),
     ...agentOf(request),

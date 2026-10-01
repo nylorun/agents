@@ -7,6 +7,7 @@
  * past their timeout, marks records of compute this process no longer holds as stopped
  * (after a restart), and, once per process, removes sandboxes whose session is gone.
  */
+import type { EventPayload } from "@nylorun/core/contracts";
 import { createHash } from "node:crypto";
 import {
   isSandboxToolName,
@@ -80,13 +81,16 @@ export interface SandboxManagerOptions {
   /** Delete sandboxes on close (the Runtime's store does not outlive the process). */
   readonly ephemeral: boolean;
   /** Writes a session event in its own transaction; never called inside one. */
-  readonly emit: (
+  readonly emit: <T extends SandboxEventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown
+    type: T,
+    payload: EventPayload<T>
   ) => void | Promise<void>;
 }
+
+/** The session events a sandbox writes. */
+export type SandboxEventType = "sandbox.state" | "sandbox.exec";
 
 const READ_TOOLS = new Set<SandboxToolName>(["read", "grep", "glob"]);
 

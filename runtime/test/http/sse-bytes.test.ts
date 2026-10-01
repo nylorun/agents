@@ -23,7 +23,7 @@ let root: string;
 let rt: EphemeralRuntime;
 
 const app = {
-  "nylorun-protocol": "3",
+  "nylorun-protocol": "4",
   "nylorun-tenant": TENANT,
   authorization: `Bearer ${APPLICATION_KEY}`,
 };
@@ -170,7 +170,7 @@ describe("session events", () => {
       role: "user",
     });
     const stream = await open("GET", "/v1/sessions/s2/events", {
-      "nylorun-protocol": "3",
+      "nylorun-protocol": "4",
       "nylorun-tenant": TENANT,
       authorization: `Bearer ${String(token)}`,
     });

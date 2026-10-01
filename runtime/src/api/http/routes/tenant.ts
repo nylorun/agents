@@ -2,8 +2,8 @@
  * The Tenant's own settings (`/v1/tenant/**`): its status, reset, a first configuration, the
  * model it calls and the sandboxes its sessions get.
  *
- * A reset that deletes sessions abandons their streams (a session created again gets a new
- * incarnation) and collects them afterwards; it never deletes the Tenant's basin.
+ * A reset that deletes sessions moves the Tenant to a new basin generation, so a session
+ * created again starts in an empty basin; the old basin is deleted after a grace period.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
@@ -39,14 +39,13 @@ import {
 } from "../../../sandbox/tenant-config.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { clearObservers } from "../../../tenant/live.js";
+import { clearObservers } from "../../../tenant/session-streams.js";
 import { usesFixtureModel } from "../../../tenant/model-setting.js";
 import { resetTenant } from "../../../tenant/reset.js";
 import { clearWork, drain } from "../../../tenant/scheduler.js";
 import { buildTenantStatus, seedTenantConfig } from "../../../tenant/status.js";
 import {
-  requestStreamCollection,
-  sessionStreamsAbandoned,
+  tenantReset,
   streamsStatus,
 } from "../../../tenant/streams.js";
 import type { TenantEnv } from "../app.js";
@@ -126,11 +125,9 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       const request = ResetTenantRequestSchema.parse(await readJson(c.req.raw));
       await drain(ctx, request.activeWork, 30_000);
-      // The deleted sessions' streams are abandoned: a session created again with the same id,
-      // during or after the reset, gets a new incarnation and starts at sequence 0. The pending
-      // collection is recorded first, so a crash before it runs leaves it to the sweep.
+      // A sessions reset moves the Tenant to a new basin generation, so a session created
+      // again with the same id, during or after the reset, starts in an empty basin at 0.
       const sessionsReset = request.scope !== "sandboxes";
-      if (sessionsReset) await requestStreamCollection(ctx);
       await resetTenant(
         {
           store: ctx.store,
@@ -138,12 +135,12 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
           paths: ctx.config.paths,
           clearSessionState: () => {
             clearWork(ctx);
-            clearObservers(ctx.live);
+            clearObservers(ctx.sessionStreams);
           },
         },
         request.scope,
       );
-      if (sessionsReset) sessionStreamsAbandoned(ctx);
+      if (sessionsReset) await tenantReset(ctx);
       // Reset leaves the Tenant open for new work.
       ctx.closing = false;
       return jsonResponse(200, { ok: true });

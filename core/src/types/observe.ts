@@ -20,7 +20,13 @@ export interface WorkflowErrorPayload {
   readonly path?: string;
 }
 
-/** LiveEvent payloads for workflow sessions (`workflows.md` §11, `loops.md` §4.6). */
+/**
+ * LiveEvent payloads for workflow sessions (`workflows.md` §11, `loops.md` §4.6).
+ *
+ * @deprecated Use the event catalog (`EVENT_CATALOG`, `SessionEventOf<"node.agent">` in
+ * `@nylorun/core/contracts`): it types the events the Runtime writes. `node.completed`,
+ * `node.failed`, `switch.selected`, `map.items` and `loop.waiting` are not written.
+ */
 export type WorkflowLiveEventPayload =
   | {
       readonly type: "node.started";

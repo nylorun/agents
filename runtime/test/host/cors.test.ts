@@ -26,7 +26,7 @@ function appHeaders(runtime: EphemeralRuntime = rt): Record<string, string> {
   return {
     authorization: `Bearer ${runtime.applicationKey}`,
     "nylorun-tenant": runtime.tenantId,
-    "nylorun-protocol": "3",
+    "nylorun-protocol": "4",
     "content-type": "application/json",
   };
 }
@@ -52,7 +52,7 @@ function browser(
     body?: unknown;
   } = {}
 ) {
-  const headers: Record<string, string> = { "nylorun-protocol": "3" };
+  const headers: Record<string, string> = { "nylorun-protocol": "4" };
   if (options.origin !== null) headers.origin = options.origin ?? ORIGIN;
   if (options.key !== null) headers["nylorun-key"] = options.key ?? key;
   if (options.bearer !== null && (options.bearer ?? token))

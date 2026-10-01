@@ -1,3 +1,4 @@
+import { parseBasin } from "./basin.js";
 import type {
   AppendOptions,
   AppendResult,
@@ -92,12 +93,21 @@ export class MemoryStreams implements DurableStreams {
     if (!this.tenants.has(tenantId)) this.tenants.set(tenantId, new Map());
   }
 
-  async deleteTenant(tenantId: string): Promise<void> {
-    const streams = this.tenants.get(tenantId);
-    this.tenants.delete(tenantId);
-    for (const stream of streams?.keys() ?? []) this.notify(tenantId, stream);
-    for (const key of this.waiters.keys())
-      if (key.startsWith(`${tenantId}\u0000`)) this.notifyKey(key);
+  async deleteTenant(
+    tenantId: string,
+    options: { allGenerations?: boolean } = {},
+  ): Promise<void> {
+    const basins =
+      options.allGenerations
+        ? [...this.tenants.keys()].filter((key) => parseBasin(key).tenantId === tenantId)
+        : [tenantId];
+    for (const basin of basins) {
+      const streams = this.tenants.get(basin);
+      this.tenants.delete(basin);
+      for (const stream of streams?.keys() ?? []) this.notify(basin, stream);
+      for (const key of this.waiters.keys())
+        if (key.startsWith(`${basin}\u0000`)) this.notifyKey(key);
+    }
   }
 
   async deleteStream(tenantId: string, stream: string): Promise<void> {

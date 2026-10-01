@@ -17,10 +17,10 @@ import {
   isBuiltWorkflow,
   isSandboxToolName,
 } from "@nylorun/core/define";
+import { z } from "zod";
 import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import {
-  LiveEventSchema,
-  SessionItemsResponseSchema,
+  parseSessionEvent,
   parseSubjectHeaders,
   type SubjectScope,
   type AcceptedResponse,
@@ -481,14 +481,18 @@ export class SessionClient {
     if (options.cursor) query.set("cursor", options.cursor);
     if (options.agent) query.set("agent", options.agent);
     const search = query.toString();
-    return SessionItemsResponseSchema.parse(
-      await this.transport.json(
-        `${this.path}/items${search ? `?${search}` : ""}`,
-        "GET",
-        undefined,
-        options.signal
-      )
-    );
+    const page = z
+      .object({ items: z.array(z.unknown()), cursor: z.string().nullable() })
+      .parse(
+        await this.transport.json(
+          `${this.path}/items${search ? `?${search}` : ""}`,
+          "GET",
+          undefined,
+          options.signal
+        )
+      );
+    // Typed when the catalog knows the type; a newer Runtime's type stays a bare envelope.
+    return { items: page.items.map(parseSessionEvent), cursor: page.cursor };
   }
   async *observe(
     options: { cursor?: string; signal?: AbortSignal; follow?: boolean } = {},
@@ -510,13 +514,13 @@ export class SessionClient {
       options,
     )) {
       if (frame.event === "heartbeat" || frame.event === "ready") continue;
-      yield LiveEventSchema.parse(JSON.parse(frame.data));
+      yield parseSessionEvent(JSON.parse(frame.data));
     }
   }
 
   /**
    * Own session stream plus linked agent sessions announced in `node.agent`
-   * events, merged by `createdAt` then arrival order (workflows.md §11).
+   * events, merged by `time` then arrival order (workflows.md §11).
    */
   private async *observeFollowing(options: {
     cursor?: string;
@@ -536,7 +540,7 @@ export class SessionClient {
     const push = (event: LiveEvent) => {
       queue.push(event);
       queue.sort((a, b) => {
-        const byTime = a.createdAt.localeCompare(b.createdAt);
+        const byTime = a.time.localeCompare(b.time);
         return byTime !== 0 ? byTime : a.cursor.localeCompare(b.cursor);
       });
       wake();

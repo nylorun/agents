@@ -37,9 +37,9 @@ import {
 } from "../../components.js";
 import type { PublishableKey as PublishableKeyBody } from "@nylorun/core/contracts";
 import type { PublishableKeyRow } from "../../../store/types.js";
-import { signalSubjectRevoked } from "../../../streams/relay.js";
+import { signalSubjectRevoked } from "../../../streams/control.js";
 import { readPolicy, writePolicy } from "../../../tenant/access-policy.js";
-import { endSubjectStreams } from "../../../tenant/live.js";
+import { currentBasin, endSubjectStreams } from "../../../tenant/session-streams.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { requireApplication } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
@@ -370,10 +370,10 @@ export async function revokeSubject(
   const epoch = await ctx.store.tx(async (t) => {
     const next = await t.bumpSubjectEpoch(subject, new Date().toISOString());
     t.afterCommit(async () => {
-      endSubjectStreams(ctx.live, subject, next);
-      const streams = ctx.live.wiring?.streams;
+      endSubjectStreams(ctx.sessionStreams, subject, next);
+      const streams = ctx.sessionStreams.wiring?.streams;
       if (streams)
-        await signalSubjectRevoked(streams, ctx.config.tenantId, subject, next).catch(
+        await signalSubjectRevoked(streams, currentBasin(ctx), subject, next).catch(
           (error: unknown) =>
             ctx.config.logger.warn("subject revocation signal failed", {
               message: error instanceof Error ? error.message : String(error),

@@ -41,7 +41,8 @@ import type {
 import { createHostExecution, type HostExecution } from "../../src/host/execution.js";
 import type { RuntimeRole } from "../../src/host/stack-config.js";
 import { decodeCursor } from "../../src/store/cursor.js";
-import { streamOfSession, type DurableStreams } from "../../src/streams/types.js";
+import { sessionStream, type DurableStreams } from "../../src/streams/types.js";
+import { basinOf } from "../../src/streams/basin.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import type { TenantWorker } from "../../src/tenant/worker.js";
@@ -254,30 +255,35 @@ export const countOf = (events: readonly LiveEvent[], type: string) =>
   events.filter((event) => event.type === type).length;
 
 /**
- * Asserts the session's history is complete and exactly once everywhere: the outbox in Postgres
- * is drained, the S2 stream holds sequences `0..n-1` with no gap or duplicate, its tail is the
- * session's next sequence, and the Tenant API serves the same events. Returns the events.
+ * Asserts the session's history is complete and exactly once everywhere: the S2 stream holds
+ * the record's sequences `0..n-1` with no gap or duplicate, its tail is the session's log head,
+ * and the Tenant API serves the same events. Returns the events.
  */
 export async function completeHistory(node: Node, id = "s1"): Promise<LiveEvent[]> {
   const store = await openTestSessionStore(node);
   try {
-    // The relay appends after commit; the sweep drains anything it left behind.
+    const basin = basinOf(
+      node.tenantId,
+      (await store.tx((t) => t.basinGenerations())).current
+    );
+    const stream = sessionStream(id);
+    const headOf = async () =>
+      (await store.record().heads(undefined, 10_000)).find((h) => h.sessionId === id)?.head ?? 0;
+    // The relay appends after commit, retrying while S2 is down.
     await until(
-      () => store.tx((t) => t.outbox(1000, { sessionId: id })),
-      (rows) => rows.length === 0,
-      `the outbox of ${id} to drain`,
+      async () => ({ head: await headOf(), tail: await node.streams.tail(basin, stream) }),
+      ({ head, tail }) => head > 0 && tail === head,
+      `the stream of ${id} to reach the record's head`,
       30_000
     );
-    const session = await store.tx((t) => t.get("sessions", id));
-    const stream = streamOfSession(session);
     const records: { seq: number; body: LiveEvent }[] = [];
-    for await (const record of node.streams.read<LiveEvent>(node.tenantId, stream, 0, {
+    for await (const record of node.streams.read<LiveEvent>(basin, stream, 0, {
       follow: false,
     }))
       records.push(record);
     expect(records.map((record) => record.seq)).toEqual(range(0, records.length));
     expect(seqsOf(records.map((record) => record.body))).toEqual(range(0, records.length));
-    expect(await node.streams.tail(node.tenantId, stream)).toBe(records.length);
+    expect(records.length).toBe(await headOf());
     const served = await items(node, id);
     expect(served).toEqual(records.map((record) => record.body));
     return served;

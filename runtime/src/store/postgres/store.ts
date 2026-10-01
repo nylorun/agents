@@ -19,7 +19,8 @@
  * ends. To stay deadlock-free:
  *
  * 1. A session-scoped transaction locks its session row before writing any
- *    other row of that session (effects, actions, checkpoints, outbox).
+ *    other row of that session (effects, actions, checkpoints, its record rows
+ *    and log head).
  * 2. A transaction that touches several sessions locks them in ascending id
  *    order, with `lockSessions` (`./locking.ts`), before writing any of them.
  *
@@ -29,7 +30,7 @@
  *
  * ## Values
  *
- * Document and outbox bodies are `json`, stored as the text `JSON.stringify`
+ * Document and event bodies are `json`, stored as the text `JSON.stringify`
  * wrote, so every string round-trips, including U+0000 and unpaired
  * surrogates that `jsonb` rejects (see `migrations/001_initial.ts`), and key
  * order is kept. Ids and ISO timestamps compared as text use `COLLATE "C"`.
@@ -38,7 +39,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { PendingQuery, Sql, TransactionSql } from "postgres";
-import type { LiveEvent } from "@nylorun/core/contracts";
+import type {
+  EventPayload,
+  EventType,
+  LiveEvent,
+  SessionEventOf,
+} from "@nylorun/core/contracts";
+import type { RecordReader } from "../../streams/relay/types.js";
+import { buildEvent } from "../event.js";
 import { encodeCursor } from "../cursor.js";
 import { OwnershipLostError } from "../ownership.js";
 import type {
@@ -55,8 +63,7 @@ import type {
   EndpointRow,
   LinkDoc,
   LinkedSession,
-  OutboxRow,
-  OutboxStats,
+  BasinGenerations,
   PrincipalRow,
   ResetScope,
   SandboxDoc,
@@ -82,6 +89,12 @@ import type {
 } from "../types.js";
 import { POSTGRES_SCHEMA_VERSION, readSchemaVersion } from "./migrations/index.js";
 import { assertIdentifier, tenantSchemaName } from "./names.js";
+import { STREAMS_SCHEMA } from "./migrations/shared/index.js";
+import { createPostgresRecordReader } from "./record.js";
+
+/** The shared record (Durable Streams §6): every Tenant's events and log heads. */
+const SESSION_EVENTS = `${STREAMS_SCHEMA}.session_events`;
+const LOG_HEADS = `${STREAMS_SCHEMA}.session_log_heads`;
 
 export interface PostgresSessionStoreOptions extends SessionStoreOptions {
   /** The shared pool. The store never ends it. */
@@ -154,7 +167,7 @@ class PostgresSessionStore implements SessionStore {
     if (t.events.length > 0) {
       const commit = {
         events: t.events,
-        incarnations: t.incarnations,
+        generations: t.generations,
       };
       for (const listener of [...this.listeners]) {
         try {
@@ -177,6 +190,10 @@ class PostgresSessionStore implements SessionStore {
   onCommit(listener: CommitListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  record(): RecordReader {
+    return createPostgresRecordReader(this.sql, { tenantId: this.tenantId });
   }
 
   async health(): Promise<StoreHealth> {
@@ -359,13 +376,12 @@ const SESSION_TABLES = [
   "effects",
   "actions",
   "links",
-  "outbox",
 ] as const;
 
 class PostgresTx implements Tx {
   closed = false;
   readonly events: LiveEvent[] = [];
-  readonly incarnations: (string | null)[] = [];
+  readonly generations: number[] = [];
   readonly callbacks: (() => void | Promise<void>)[] = [];
 
   constructor(
@@ -414,10 +430,9 @@ class PostgresTx implements Tx {
 
   async delete(table: DocTable, id: string): Promise<void> {
     this.check();
+    // A session's record rows and log head stay: a session created again with this id
+    // continues its log (per-session record deletion is deferred, Durable Streams §15).
     await this.sql`DELETE FROM ${this.t(table)} WHERE id = ${id}`;
-    // The session's stream is abandoned with it (a new incarnation starts at 0).
-    if (table === "sessions")
-      await this.sql`DELETE FROM ${this.t("outbox")} WHERE session_id = ${id}`;
   }
 
   private async sessionRows<T extends SessionDoc>(
@@ -444,38 +459,44 @@ class PostgresTx implements Tx {
     return row && storedSession<T>(row);
   }
 
-  async event(
+  async event<T extends EventType>(
     sessionId: string,
     turnId: string | null,
-    type: string,
-    payload: unknown,
-  ): Promise<LiveEvent> {
+    type: T,
+    payload: EventPayload<T>,
+  ): Promise<SessionEventOf<T>> {
     this.check();
     const sql = this.sql;
-    // The UPDATE takes the session row lock and allocates under it.
+    // The session row lock orders the session's events; the log head allocates under it.
+    const [session] = await sql`
+      SELECT epoch FROM ${this.t("sessions")} WHERE id = ${sessionId} FOR UPDATE`;
+    if (!session) throw new Error(`Session ${sessionId} not found`);
     const [row] = await sql`
-      UPDATE ${this.t("sessions")} SET next_event_seq = next_event_seq + 1
-      WHERE id = ${sessionId}
-      RETURNING next_event_seq - 1 AS seq, stream_incarnation AS incarnation`;
-    if (!row) throw new Error(`Session ${sessionId} not found`);
-    const seq = Number(row.seq);
-    const event: LiveEvent = JSON.parse(
-      JSON.stringify({
-        eventId: randomUUID(),
-        sessionId,
-        tenantId: this.tenantId,
-        turnId,
-        cursor: encodeCursor(sessionId, seq),
-        createdAt: this.now().toISOString(),
-        type,
-        payload,
-      }),
-    );
+      INSERT INTO ${sql(LOG_HEADS)} (tenant_id, session_id, generation, head)
+      VALUES (
+        ${this.tenantId}, ${sessionId},
+        coalesce((SELECT basin_generation FROM ${this.t("tenant")}), 0), 1)
+      ON CONFLICT (tenant_id, session_id)
+        DO UPDATE SET head = ${sql(LOG_HEADS)}.head + 1
+      RETURNING head - 1 AS seq, generation`;
+    const seq = Number(row!.seq);
+    const generation = Number(row!.generation);
+    const event = buildEvent({
+      tenantId: this.tenantId,
+      sessionId,
+      turnId,
+      seq,
+      epoch: Number(session.epoch),
+      time: this.now(),
+      type,
+      payload,
+    });
     await sql`
-      INSERT INTO ${this.t("outbox")} (session_id, seq, body)
-      VALUES (${sessionId}, ${seq}, ${JSON.stringify(event)}::text::json)`;
+      INSERT INTO ${sql(SESSION_EVENTS)} (tenant_id, session_id, seq, generation, type, body)
+      VALUES (${this.tenantId}, ${sessionId}, ${seq}, ${generation}, ${type},
+              ${JSON.stringify(event)}::text::json)`;
     this.events.push(event);
-    this.incarnations.push((row.incarnation as string | null) ?? null);
+    this.generations.push(generation);
     return structuredClone(event);
   }
 
@@ -762,56 +783,25 @@ class PostgresTx implements Tx {
     };
   }
 
-  // --- outbox --------------------------------------------------------------
+  // --- basin generations --------------------------------------------------
 
-  async outbox(
-    limit: number,
-    filter: { sessionId?: string } = {},
-  ): Promise<OutboxRow[]> {
-    this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT session_id, seq, body FROM ${this.t("outbox")}
-      ${filter.sessionId === undefined ? sql`` : sql`WHERE session_id = ${filter.sessionId}`}
-      ORDER BY session_id, seq
-      LIMIT ${limit}`;
-    return rows.map((row) => ({
-      sessionId: row.session_id,
-      seq: Number(row.seq),
-      event: row.body as LiveEvent,
-    }));
-  }
-
-  async deleteOutbox(
-    sessionId: string,
-    throughSeq: number,
-    incarnation?: string | null,
-  ): Promise<number> {
-    this.check();
-    const sql = this.sql;
-    // One statement: the session and the rows are read from the same snapshot.
-    const result = await sql`
-      DELETE FROM ${this.t("outbox")}
-      WHERE session_id = ${sessionId} AND seq <= ${throughSeq}
-      ${
-        incarnation === undefined
-          ? sql``
-          : sql`AND EXISTS (
-              SELECT 1 FROM ${this.t("sessions")} WHERE id = ${sessionId}
-                AND stream_incarnation IS NOT DISTINCT FROM ${incarnation})`
-      }`;
-    return result.count;
-  }
-
-  async outboxStats(): Promise<OutboxStats> {
+  async basinGenerations(): Promise<BasinGenerations> {
     this.check();
     const [row] = await this.sql`
-      SELECT count(*)::int AS depth, min(created_at) AS oldest
-      FROM ${this.t("outbox")}`;
+      SELECT basin_generation, retired_generations FROM ${this.t("tenant")}`;
+    // A schema without its Tenant row (store tests) is at generation 0.
+    if (!row) return { current: 0, retired: [] };
     return {
-      depth: row!.depth as number,
-      oldestCreatedAt: (row!.oldest as string | null) ?? null,
+      current: Number(row.basin_generation),
+      retired: (row.retired_generations as number[]).map(Number),
     };
+  }
+
+  async forgetRetiredGeneration(generation: number): Promise<void> {
+    this.check();
+    await this.sql`
+      UPDATE ${this.t("tenant")}
+      SET retired_generations = array_remove(retired_generations, ${generation}::int)`;
   }
 
   // --- Action endpoints -----------------------------------------------------
@@ -1275,6 +1265,14 @@ class PostgresTx implements Tx {
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await sql`DELETE FROM ${this.t(table)}`;
       await sql`DELETE FROM ${this.t("subject_usage")}`;
+      // The record goes with the sessions, and the Tenant moves to a new basin: the ids it
+      // frees start again in an empty one (Durable Streams §8.1).
+      await sql`DELETE FROM ${sql(SESSION_EVENTS)} WHERE tenant_id = ${this.tenantId}`;
+      await sql`DELETE FROM ${sql(LOG_HEADS)} WHERE tenant_id = ${this.tenantId}`;
+      await sql`
+        UPDATE ${this.t("tenant")}
+        SET retired_generations = array_append(retired_generations, basin_generation),
+            basin_generation = basin_generation + 1`;
     }
     if (scope === "sandboxes" || scope === "all")
       await sql`DELETE FROM ${this.t("sandboxes")}`;

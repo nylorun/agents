@@ -11,6 +11,7 @@ import {
   migrateSchema,
 } from "../../src/store/postgres/migrations/index.js";
 import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared/index.js";
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { SessionStore } from "../../src/store/types.js";
@@ -38,8 +39,19 @@ afterAll(async () => {
 async function freshSchema(): Promise<{ tenantId: string; schema: string }> {
   const tenantId = newTenantId();
   const schema = tenantSchemaName(tenantId);
+  await migrateStreamsSchema(pool());
   await migrateSchema(pool(), schema);
+  await insertTenantRow(schema, tenantId);
   return { tenantId, schema };
+}
+
+/** The Tenant's row, as the catalog writes it when it creates the Tenant. */
+async function insertTenantRow(schema: string, tenantId: string): Promise<void> {
+  const sql = pool();
+  const now = new Date().toISOString();
+  await sql`
+    INSERT INTO ${sql(`${schema}.tenant`)} (id, name, created_at, updated_at, schema_version)
+    VALUES (${tenantId}, 'Test', ${now}, ${now}, ${POSTGRES_SCHEMA_VERSION})`;
 }
 
 async function drop(schema: string): Promise<void> {
@@ -57,7 +69,9 @@ const session = (id: string) => ({
 describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
   storeContract("postgres", async (options) => {
     const schema = tenantSchemaName(options.tenantId);
+    await migrateStreamsSchema(pool());
     await migrateSchema(pool(), schema);
+    await insertTenantRow(schema, options.tenantId);
     return {
       store: createPostgresSessionStore({ ...options, sql: pool(), schema }),
       dispose: () => drop(schema),
@@ -93,9 +107,9 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       const results = await Promise.allSettled(
         Array.from({ length: 20 }, (_, i) =>
           (i % 2 === 0 ? first : second).tx(async (t) => {
-            const a = await t.event("s1", null, "w", { i });
+            const a = await t.event("s1", null, "turn.completed", { tag: "w", output: { i } });
             await sleep(i % 4);
-            const b = await t.event("s1", null, "w", { i, second: true });
+            const b = await t.event("s1", null, "turn.completed", { tag: "w", output: { i, second: true } });
             if (i % 7 === 3) throw new Error(`fail ${i}`);
             return [a, b] as LiveEvent[];
           }),
@@ -112,8 +126,8 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       expect(seqs).toEqual(Array.from({ length: 34 }, (_, i) => i));
       for (const [a, b] of committed)
         expect(decodeCursor("s1", b!.cursor)).toBe(decodeCursor("s1", a!.cursor) + 1);
-      const outbox = await first.tx((t) => t.outbox(100, { sessionId: "s1" }));
-      expect(outbox.map((r) => r.seq)).toEqual(seqs);
+      const rows = await first.record().readRange(first.tenantId, "s1", 0, 100);
+      expect(rows.map((r) => r.seq)).toEqual(seqs);
     });
 
     it("locks several sessions in id order so opposite orders do not deadlock", async () => {
@@ -126,7 +140,7 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
           store.tx(async (t) => {
             const locked = await lockSessions(t, ids);
             await sleep(20);
-            for (const id of locked.keys()) await t.event(id, null, "locked", { ids });
+            for (const id of locked.keys()) await t.event(id, null, "turn.completed", { tag: "locked", output: { ids } });
             return [...locked.keys()];
           }),
         ),
@@ -141,7 +155,12 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
         ["a", "a"],
         ["zz", undefined],
       ]);
-      expect(await store.tx((t) => t.outbox(100))).toHaveLength(9);
+      const heads = await store.record().heads(undefined, 100);
+      expect(heads.map((h) => [h.sessionId, h.head])).toEqual([
+        ["a", 3],
+        ["b", 3],
+        ["c", 3],
+      ]);
     });
 
     it("deadlocks when two transactions lock sessions in opposite orders", async () => {
@@ -196,13 +215,13 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       await store.tx((t) =>
         t.put("sessions", "s1", { ...session("s1"), owner: "x", epoch: 3 }),
       );
-      await store.tx((t) => t.event("s1", null, "x", {}));
+      await store.tx((t) => t.event("s1", null, "turn.completed", { tag: "x", output: {} }));
       const sql = pool();
       const [row] = await sql`
-        SELECT body, status, agent_id, next_event_seq, epoch
+        SELECT body, status, agent_id, epoch
         FROM ${sql(`${schema}.sessions`)} WHERE id = 's1'`;
       expect(row!.body).toEqual(session("s1"));
-      expect(row).toMatchObject({ status: "idle", agent_id: "agent-a", next_event_seq: "1", epoch: "0" });
+      expect(row).toMatchObject({ status: "idle", agent_id: "agent-a", epoch: "0" });
     });
 
     it("stores bodies verbatim and derives columns through doc(), which jsonb escapes cannot break", async () => {
