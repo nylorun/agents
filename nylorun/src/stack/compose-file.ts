@@ -123,6 +123,8 @@ services:
       PORT: "3000"
       # Studio's Host check accepts localhost/127.0.0.1 on the published port.
       NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
+      # Exact origins that may frame Studio (Babai Desktop); kept in .env.
+      NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
     ports:

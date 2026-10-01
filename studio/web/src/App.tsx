@@ -39,6 +39,16 @@ import {
 } from "@/event-presentation";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import {
+  embedSession,
+  embedded,
+  onEmbedNavigate,
+  postToEmbedder,
+} from "@/embed/index.ts";
+import {
+  EmbedSessionUnavailableError,
+  type EmbedStatus,
+} from "@/embed/session.ts";
+import {
   StudioSignedOutError,
   createTenant,
   createTenantClient,
@@ -105,6 +115,7 @@ void STUDIO_VERSION;
 type BootState =
   | { kind: "booting" }
   | { kind: "signed-out" }
+  | { kind: "waiting-for-app" }
   | { kind: "unreachable"; message: string }
   | { kind: "runtime-incompatible"; message: string }
   | { kind: "ready" };
@@ -138,6 +149,7 @@ export default function App() {
   const scope = tenantScope(window.location.pathname);
   return (
     <BrowserRouter basename={scope?.basename ?? "/"}>
+      {embedded() ? <EmbedRouteSync basename={scope?.basename ?? ""} /> : null}
       <Routes>
         <Route path="*" element={<StudioRoot tenantId={scope?.tenantId} />} />
       </Routes>
@@ -145,8 +157,57 @@ export default function App() {
   );
 }
 
+/** The embed session's status, re-rendered on change (always "ready" outside embed mode). */
+function useEmbedStatus(): EmbedStatus {
+  const session = embedSession();
+  const [status, setStatus] = useState<EmbedStatus>(session?.status() ?? "ready");
+  useEffect(() => session?.subscribe(setStatus), [session]);
+  return status;
+}
+
+/**
+ * Embed mode: reports every route to the embedder (`route.changed`) and follows
+ * its `navigate`. A route in another Tenant is refused: the session is limited
+ * to this one.
+ */
+function EmbedRouteSync({ basename }: { basename: string }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const status = useEmbedStatus();
+  // Posting needs the embedder's origin, known once `init` arrived: report the
+  // route again when the session is ready.
+  useEffect(() => {
+    if (status !== "ready") return;
+    const path = location.pathname === "/" ? "" : location.pathname;
+    postToEmbedder({ kind: "route.changed", route: `${basename}${path}` || "/" });
+  }, [basename, location.pathname, status]);
+  useEffect(
+    () =>
+      onEmbedNavigate((route) => {
+        if (basename === "" || (route !== basename && !route.startsWith(`${basename}/`))) {
+          postToEmbedder({
+            kind: "error",
+            code: "route_other_tenant",
+            message: "This Studio session is limited to another Tenant.",
+          });
+          return;
+        }
+        void navigate(route.slice(basename.length) || "/");
+      }),
+    [basename, navigate],
+  );
+  return null;
+}
+
 function StudioRoot({ tenantId }: { tenantId?: string }) {
   const [boot, setBoot] = useState<BootState>({ kind: "booting" });
+  const [attempt, setAttempt] = useState(0);
+  const embedStatus = useEmbedStatus();
+  // A session that arrives after Studio gave up waiting starts it again.
+  useEffect(() => {
+    if (embedStatus === "ready" && boot.kind === "waiting-for-app")
+      setAttempt((value) => value + 1);
+  }, [embedStatus, boot.kind]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -165,7 +226,9 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
         setBoot({ kind: "ready" });
       } catch (cause) {
         if (cancelled) return;
-        if (cause instanceof StudioSignedOutError)
+        if (cause instanceof EmbedSessionUnavailableError)
+          setBoot({ kind: "waiting-for-app" });
+        else if (cause instanceof StudioSignedOutError)
           setBoot({ kind: "signed-out" });
         else
           setBoot({
@@ -177,12 +240,24 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   if (boot.kind === "booting") {
+    // Embedded, the shell shows nothing until the app has signed it in.
+    if (embedded()) return <main className="min-h-svh" aria-busy="true" />;
     return (
       <StatusScreen title="Connecting to Studio">
         <p>Checking the Studio session…</p>
+      </StatusScreen>
+    );
+  }
+  if (boot.kind === "waiting-for-app") {
+    return (
+      <StatusScreen title="Waiting for the app">
+        <p>Studio has not been signed in by the app that shows it.</p>
+        <Button variant="outline" onClick={() => embedSession()?.retry()}>
+          Try again
+        </Button>
       </StatusScreen>
     );
   }
@@ -213,6 +288,15 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
       </StatusScreen>
     );
   }
+  if (embedded())
+    return tenantId === undefined ? (
+      <StatusScreen title="No Tenant selected">
+        <p>Open Studio on one of your Tenants from the app.</p>
+      </StatusScreen>
+    ) : (
+      // The session is limited to this Tenant, so there is no list to check.
+      <Workspace tenant={{ id: tenantId, name: tenantId }} />
+    );
   return tenantId === undefined ? (
     <TenantPicker />
   ) : (
@@ -516,9 +600,11 @@ function TenantWorkspace({ tenantId }: { tenantId: string }) {
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const embedStatus = useEmbedStatus();
   const match = location.pathname.match(
     /^\/agents\/([^/]+)(?:\/sessions\/([^/]+))?/,
   );
+  const sessionOnly = location.pathname.match(/^\/sessions\/([^/]+)\/?$/);
   const agentId = match?.[1] ? decodeURIComponent(match[1]) : undefined;
   const sessionId = match?.[2] ? decodeURIComponent(match[2]) : undefined;
   const [connection, setConnection] = useState<Connection>({
@@ -593,9 +679,16 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                 ? "Vault"
                 : (agent?.name ?? "Nylorun Studio")}
           </strong>
-          <Badge variant="outline" title={tenant.id}>
-            {tenant.name} · {shortTenantId(tenant.id)}
-          </Badge>
+          {embedded() ? null : (
+            <Badge variant="outline" title={tenant.id}>
+              {tenant.name} · {shortTenantId(tenant.id)}
+            </Badge>
+          )}
+          {embedStatus === "reconnecting" || embedStatus === "failed" ? (
+            <Badge variant="outline" role="status">
+              {embedStatus === "reconnecting" ? "Reconnecting…" : "Disconnected"}
+            </Badge>
+          ) : null}
           <Button
             className="ml-auto"
             variant="outline"
@@ -609,7 +702,12 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             {error}
           </p>
         )}
-        {location.pathname === "/settings" ? (
+        {sessionOnly ? (
+          <SessionRedirect
+            tenantId={tenant.id}
+            sessionId={decodeURIComponent(sessionOnly[1]!)}
+          />
+        ) : location.pathname === "/settings" ? (
           <ModelSettings tenantId={tenant.id} />
         ) : location.pathname === "/vault" ? (
           <VaultModule tenantId={tenant.id} />
@@ -657,6 +755,67 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         )}
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+/**
+ * `/tenants/:tenant/sessions/:session` (Studio §8.3): finds the session's agent
+ * and replaces itself with the agent's session page. Embedders often know only
+ * the session id.
+ */
+function SessionRedirect({
+  tenantId,
+  sessionId,
+}: {
+  tenantId: string;
+  sessionId: string;
+}) {
+  const navigate = useNavigate();
+  const [problem, setProblem] = useState<string | undefined>();
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await tenantRuntime(tenantId)(
+          `/v1/sessions/${encodeURIComponent(sessionId)}`,
+        );
+        if (cancelled) return;
+        if (response.status === 404) return setProblem("not-found");
+        if (!response.ok) return setProblem(`Studio could not load the session (${response.status}).`);
+        const body = (await response.json()) as { agentId?: unknown };
+        if (cancelled) return;
+        if (typeof body.agentId !== "string" || body.agentId === "")
+          return setProblem("not-found");
+        void navigate(
+          `/agents/${encodeURIComponent(body.agentId)}/sessions/${encodeURIComponent(sessionId)}`,
+          { replace: true },
+        );
+      } catch (cause) {
+        if (!cancelled)
+          setProblem(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, sessionId, navigate]);
+  if (problem === undefined)
+    return <p className="p-8 text-muted-foreground">Opening the session…</p>;
+  return (
+    <section className="mx-auto w-full max-w-3xl flex-1 p-8">
+      <h1 className="text-2xl font-semibold">
+        {problem === "not-found" ? "Session not found" : "Session unavailable"}
+      </h1>
+      <p className="mt-2 text-muted-foreground">
+        {problem === "not-found" ? (
+          <>
+            This Tenant has no session <code className={code}>{sessionId}</code>.
+          </>
+        ) : (
+          problem
+        )}
+      </p>
+    </section>
   );
 }
 

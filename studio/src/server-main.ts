@@ -9,7 +9,10 @@
  * - `NYLORUN_STUDIO_PUBLIC_PORT` (default `PORT`): the published loopback port
  *   the browser uses; the `Host` check accepts only `localhost` and
  *   `127.0.0.1` on it.
+ * - `NYLORUN_STUDIO_FRAME_ANCESTORS` (default none): exact origins, separated
+ *   by spaces, that may frame the dashboard (Studio §8.9). Wildcards are refused.
  */
+import { parseFrameAncestors } from "@nylorun/agents/studio-embed";
 import {
   parseRuntimeUrl,
   readAdminKeyFile,
@@ -36,12 +39,23 @@ try {
   const adminKey = readAdminKeyFile(required("NYLORUN_ADMIN_KEY_FILE"));
   const listenPort = port("PORT", 3000);
   const publicPort = port("NYLORUN_STUDIO_PUBLIC_PORT", listenPort);
+  let frameAncestors: string[];
+  try {
+    frameAncestors = parseFrameAncestors(
+      process.env.NYLORUN_STUDIO_FRAME_ANCESTORS ?? "",
+    );
+  } catch (error) {
+    throw new Error(
+      `NYLORUN_STUDIO_FRAME_ANCESTORS: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   const studio = await startStudioServer({
     runtimeUrl,
     adminKey,
     host: "0.0.0.0",
     port: listenPort,
     publicPort,
+    frameAncestors,
   });
   console.log(
     `Studio listening on 0.0.0.0:${studio.port}; browser URL ${studio.url}; Runtime ${runtimeUrl}`,

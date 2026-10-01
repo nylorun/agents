@@ -58,7 +58,8 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   machine reaches it through a reverse proxy:
   [Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine).
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
-  Studio for operators (loopback or an SSH tunnel).
+  Studio for operators (loopback or an SSH tunnel). Leave
+  `NYLORUN_STUDIO_FRAME_ANCESTORS` unset on servers: no page may frame Studio.
 - The app server drops every `Nylorun-*` header its own clients send, never
   forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
   terminates TLS for its clients.

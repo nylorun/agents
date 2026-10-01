@@ -21,6 +21,14 @@ try {
   );
   if (nodeOnly.length)
     throw new Error(`Browser entry loaded Node-only modules: ${nodeOnly.join(", ")}`);
+  // Studio's web app imports the embed contract: it loads no Node-only module either.
+  const embedStart = loaded.length;
+  const embed = await import("@nylorun/agents/studio-embed");
+  if (typeof embed.parseFrameAncestors !== "function" || !embed.StudioEmbedMessageSchema)
+    throw new Error("Missing @nylorun/agents/studio-embed exports");
+  const embedNodeOnly = loaded.slice(embedStart).filter((url) => url.startsWith("node:"));
+  if (embedNodeOnly.length)
+    throw new Error(`Studio embed entry loaded Node-only modules: ${embedNodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
   for (const name of ["Agent", "createClient", "createActionHandler"])
     if (typeof sdk[name] !== "function")
@@ -62,7 +70,7 @@ try {
   )
     throw new Error("Missing @nylorun/agents/ag-ui exports");
   console.log(
-    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the browser entry loads no Node-only module."
+    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the browser and Studio embed entries load no Node-only module."
   );
 } finally {
   hooks.deregister();

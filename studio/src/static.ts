@@ -37,7 +37,18 @@ export function staticPath(root: string, pathname: string): string | undefined {
     : undefined;
 }
 
-function staticHeaders(file: string): Record<string, string> {
+/** How the dashboard's files are served: who may frame them, and what `index.html` carries. */
+export type DashboardOptions = Readonly<{
+  /** The `frame-ancestors` source list, e.g. `nylorun://localhost`, or `'none'`. */
+  frameAncestors: string;
+  /** Rewrites `index.html` before it is sent (Studio injects the frame allowlist). */
+  transformIndex?: (html: string) => string;
+}>;
+
+function staticHeaders(
+  file: string,
+  options: DashboardOptions,
+): Record<string, string> {
   const immutable = file.includes(`${sep}assets${sep}`);
   return {
     "content-type": MIME_TYPES[extname(file)] ?? "application/octet-stream",
@@ -45,6 +56,9 @@ function staticHeaders(file: string): Record<string, string> {
       ? "public, max-age=31536000, immutable"
       : "no-store",
     "x-content-type-options": "nosniff",
+    // Dashboard files may be framed by the allowlist only (Studio §8.9); no
+    // X-Frame-Options, which cannot name origins.
+    "content-security-policy": `frame-ancestors ${options.frameAncestors}`,
   };
 }
 
@@ -52,10 +66,14 @@ async function sendFile(
   response: ServerResponse,
   method: string,
   file: string,
+  options: DashboardOptions,
 ): Promise<boolean> {
   try {
-    const content = await readFile(file);
-    response.writeHead(200, staticHeaders(file));
+    let content: Buffer | string = await readFile(file);
+    if (options.transformIndex && file.endsWith(`${sep}index.html`))
+      content = options.transformIndex(content.toString("utf8"));
+    response.removeHeader("x-frame-options");
+    response.writeHead(200, staticHeaders(file, options));
     response.end(method === "HEAD" ? undefined : content);
     return true;
   } catch {
@@ -73,17 +91,18 @@ export async function serveDashboard(
   pathname: string,
   root: string,
   reject: (status: number, message: string) => void,
+  options: DashboardOptions = { frameAncestors: "'none'" },
 ): Promise<void> {
   const target = staticPath(root, pathname);
   if (target === undefined) {
     reject(400, "Invalid Studio asset path.");
     return;
   }
-  if (await sendFile(response, method, target)) return;
+  if (await sendFile(response, method, target, options)) return;
   if (extname(target) !== "") {
     reject(404, "Studio asset not found.");
     return;
   }
-  if (!(await sendFile(response, method, join(root, "index.html"))))
+  if (!(await sendFile(response, method, join(root, "index.html"), options)))
     reject(500, "The Studio dashboard is missing from this image. Rebuild it.");
 }

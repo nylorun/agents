@@ -1,4 +1,14 @@
+import { parseFrameAncestors } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
+
+/**
+ * Origins that may embed Studio by default: Babai Desktop's `nylorun` scheme on
+ * macOS and Linux, and its WebView2 origin on Windows (Studio §8.9).
+ */
+export const DEFAULT_STUDIO_FRAME_ANCESTORS = [
+  "nylorun://localhost",
+  "http://nylorun.localhost",
+] as const;
 
 /**
  * Settings in `stack/.env` (mode 0600). Ports and the password persist; the
@@ -22,6 +32,8 @@ export interface StackEnv {
   hostRoot: string;
   runtimeImage: string;
   studioImage: string;
+  /** Exact origins that may frame Studio, separated by spaces (persists). */
+  studioFrameAncestors: string;
 }
 
 const KEYS = {
@@ -36,6 +48,7 @@ const KEYS = {
   hostRoot: "NYLORUN_HOST_ROOT",
   runtimeImage: "NYLORUN_RUNTIME_IMAGE",
   studioImage: "NYLORUN_STUDIO_IMAGE",
+  studioFrameAncestors: "NYLORUN_STUDIO_FRAME_ANCESTORS",
 } as const satisfies Record<keyof StackEnv, string>;
 
 /** Compose .env values: single quotes keep a value literal (no interpolation). */
@@ -85,6 +98,10 @@ export function renderEnvFile(env: StackEnv): string {
     line("runtimeImage"),
     line("studioImage"),
     "",
+    "# Exact origins that may show Studio in a frame (Babai Desktop). Kept across",
+    "# starts; change with nylorun start --studio-embed-origin <origin>.",
+    line("studioFrameAncestors"),
+    "",
   ].join("\n");
 }
 
@@ -114,6 +131,8 @@ export interface PersistedStackEnv {
   studioPort?: number;
   restatePort?: number;
   postgresPassword?: string;
+  /** Validated origins; absent when the line is missing (an older .env). */
+  studioFrameAncestors?: string[];
 }
 
 export function parsePersisted(text: string): PersistedStackEnv {
@@ -130,5 +149,16 @@ export function parsePersisted(text: string): PersistedStackEnv {
   const password = values.get(KEYS.postgresPassword);
   if (password && /^[A-Za-z0-9]{16,}$/.test(password))
     out.postgresPassword = password;
+  const ancestors = values.get(KEYS.studioFrameAncestors);
+  if (ancestors !== undefined) {
+    try {
+      out.studioFrameAncestors = parseFrameAncestors(ancestors);
+    } catch (error) {
+      throw new CliError(
+        `${KEYS.studioFrameAncestors} in stack/.env: ${error instanceof Error ? error.message : String(error)}`,
+        1,
+      );
+    }
+  }
   return out;
 }

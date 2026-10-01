@@ -29,7 +29,7 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the stack
 ## Commands
 
 ```sh
-nylorun up|start [--no-studio] [--no-open] [--allow-downgrade]
+nylorun up|start [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
                                    # set up (first run) and start the stack; print the Runtime and Studio URLs; open Studio signed in
 nylorun down|stop                  # stop the containers; keep volumes
 nylorun status [--json]            # services, endpoints, Runtime health
@@ -76,6 +76,22 @@ browser starts. Otherwise `up` says to run `nylorun studio`, which signs a
 browser in the same way; `nylorun studio --no-open` prints the login URL (it
 works once, for two minutes) instead. Inside a linked project, `nylorun studio`
 reads `.nylorun/link.json` (never writes it) and lands on that project's Tenant.
+
+### Embedding Studio in a desktop app
+
+A desktop app such as Babai Desktop can show Studio inside its own window, in
+an iframe loaded from Studio's URL (`studio.url` in `nylorun status --json`).
+Only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
+`<Host root>/stack/.env`) may frame it. The default is Babai's
+`nylorun://localhost http://nylorun.localhost`; `nylorun status` lists them
+under `Embeds`. While building such an app, add its dev server once with
+`nylorun start --studio-embed-origin http://localhost:1420`; the list is kept
+across starts until `--studio-embed-origin-reset`. Wildcards are refused.
+
+The app's backend mints a single-use login token limited to one Tenant with
+`mintStudioLoginToken` from `@nylorun/admin` (it needs the admin key), and its
+page passes the token to Studio by `postMessage`. The message contract is
+`@nylorun/agents/studio-embed`.
 
 ## Sandboxes
 

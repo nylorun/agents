@@ -1,8 +1,10 @@
 /**
- * Same-origin client for the Studio server. The browser holds only the
- * HttpOnly session cookie; the server adds every Runtime credential.
+ * Same-origin client for the Studio server. A browser tab holds only the
+ * HttpOnly session cookie; an embedded Studio holds a bearer session in
+ * memory (`embed/session.ts`). The server adds every Runtime credential.
  */
 import { createClient } from "@nylorun/agents/client";
+import { embedSession } from "./embed/index.ts";
 
 export type StudioFetch = (
   input: RequestInfo | URL,
@@ -53,11 +55,16 @@ export function tenantHref(tenantId: string): string {
   return `/tenants/${encodeURIComponent(tenantId)}`;
 }
 
-/** Same-origin fetch with the session cookie. Accepts only absolute paths. */
+/** The cookie's plain `fetch`, or an embedded session's bearer `fetch`. */
+function sessionFetch(): StudioFetch {
+  return embedSession()?.fetch ?? fetch;
+}
+
+/** Same-origin fetch with the session. Accepts only absolute paths. */
 export function studioFetch(
   path: string,
   init?: RequestInit,
-  fetcher: StudioFetch = fetch,
+  fetcher: StudioFetch = sessionFetch(),
 ): Promise<Response> {
   if (!path.startsWith("/") || path.startsWith("//"))
     throw new Error("studioFetch only accepts same-origin paths.");
@@ -72,14 +79,14 @@ export function tenantRuntime(tenantId: string, fetcher?: StudioFetch) {
 
 /**
  * SDK client for one Tenant through the Studio server. The SDK requires a
- * key; the placeholder is removed before each request, and the server adds
- * the Tenant's Studio key.
+ * key; the placeholder is removed before each request (an embedded session's
+ * `fetch` then adds its bearer), and the server adds the Tenant's Studio key.
  */
 export function createTenantClient(
   tenantId: string,
   options?: Readonly<{ origin?: string; fetcher?: StudioFetch }>,
 ) {
-  const fetcher = options?.fetcher ?? fetch;
+  const fetcher = options?.fetcher ?? sessionFetch();
   return createClient({
     url: (options?.origin ?? location.origin) + tenantRuntimePath(tenantId),
     key: "studio-session",

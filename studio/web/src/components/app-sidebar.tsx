@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
+import { embedded } from "@/embed/index.ts";
 import {
   Collapsible,
   CollapsibleContent,
@@ -228,6 +229,8 @@ export function AppSidebar({
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
+          {/* Embedded, the app owns the branding (Studio §8.7). */}
+          {embedded() ? null : (
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
@@ -248,7 +251,8 @@ export function AppSidebar({
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          {tenant ? (
+          )}
+          {tenant && !embedded() ? (
             <SidebarMenuItem>
               <div
                 className="px-2 py-1.5 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden"

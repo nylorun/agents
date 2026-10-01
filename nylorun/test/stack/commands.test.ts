@@ -256,6 +256,28 @@ describe("start never downgrades the shared stack", () => {
     return home;
   }
 
+  it("--studio-embed-origin adds an origin that may frame Studio, and status reports it", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, { fetch: await healthyFetch(home) });
+    expect(
+      await runStackCommand(
+        "start",
+        ["--no-studio", "--studio-embed-origin", "http://localhost:1420"],
+        deps,
+      ),
+    ).toBe(0);
+    const env = readFileSync(stackPaths(home).env, "utf8");
+    expect(env).toContain(
+      "NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost http://localhost:1420'",
+    );
+    await expect(
+      runStackCommand("start", ["--no-studio", "--studio-embed-origin", "*"], deps),
+    ).rejects.toThrow(/not an exact origin/);
+    await expect(
+      runStackCommand("start", ["--no-studio", "--studio-embed-origin"], deps),
+    ).rejects.toThrow(/requires a value/);
+  });
+
   it("records the pinned Runtime on the first run", async () => {
     const home = await temporaryHome();
     const deps = testDeps(home, { fetch: await healthyFetch(home) });
