@@ -43,7 +43,8 @@ export interface EventInput<T extends EventType> {
 export function buildEvent<T extends EventType>(input: EventInput<T>): SessionEventOf<T> {
   const type: string = input.type;
   if (!isEventType(type)) throw new InvalidEventError(type, "unknown type");
-  const entry = EVENT_CATALOG[type];
+  const entry: { source: string; version: number; visibility?: "public" | "internal" } =
+    EVENT_CATALOG[type];
   const event = JSON.parse(
     JSON.stringify({
       schema: EVENT_SCHEMA,
@@ -60,7 +61,7 @@ export function buildEvent<T extends EventType>(input: EventInput<T>): SessionEv
       schemaVersion: entry.version,
       source: { kind: entry.source, id: "runtime" },
       evidence: "observed",
-      visibility: "public",
+      visibility: entry.visibility ?? "public",
       retention: "full",
       type,
       payload: input.payload,

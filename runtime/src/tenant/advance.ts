@@ -38,6 +38,7 @@ import {
   type HostEffect,
 } from "@nylorun/harness/run";
 import type { JsonValue } from "@nylorun/core/define";
+import type { LiveEvent } from "@nylorun/core/contracts";
 import {
   aggregateWaits,
   cancelSiblingWork,
@@ -56,6 +57,15 @@ import {
 } from "./session.js";
 import { prepareMcp, resolveEffect } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
+import {
+  checkParity,
+  foldTranscript,
+  leanState,
+  transcriptOf,
+  transcriptUpdates,
+  withTranscript,
+  type TranscriptUpdate,
+} from "./history.js";
 import { command } from "./commands.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
@@ -300,12 +310,24 @@ async function runSegment(
     >(ctx.store, id, lease.epoch, async (t, current) => {
       if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
         rebaseSessionState(current, current.checkpoint.manifestHash);
+        await adoptStoredTranscript(t, current);
         const cp = current.checkpoint as DurableCheckpoint;
         current.checkpoint = { ...cp, state: current.state };
         await t.put("sessions", id, current);
       }
       return { current, fixtureModel: await usesFixtureModel(t) };
     });
+    // One history (P0.3): the engine resumes from the transcript folded from the record.
+    let startTranscript: unknown[] = [];
+    let engineCheckpoint = current.checkpoint;
+    if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
+      const cp = current.checkpoint as DurableCheckpoint;
+      if (cp.state) {
+        startTranscript = await foldSession(ctx, current);
+        checkParity(id, startTranscript, transcriptOf(cp.state));
+        engineCheckpoint = { ...cp, state: withTranscript(cp.state, startTranscript) };
+      }
+    }
     const segment = fixtureModel ? { model: fixture } : {};
     const host = {
       resolveEffect: (e: HostEffect) =>
@@ -321,7 +343,7 @@ async function runSegment(
         })
       : await runDurable({
           manifest: turnManifestOf(current),
-          checkpoint: current.checkpoint as DurableCheckpoint,
+          checkpoint: engineCheckpoint as DurableCheckpoint,
           signal,
           sessionTools: sessionToolsOf(current.mcpSnapshot),
           host,
@@ -338,7 +360,16 @@ async function runSegment(
       (result.status === "cancelled" || result.status === "failed")
     )
       await settleFailure(ctx, lease, started, signal.reason);
-    else await settle(ctx, lease, started, result);
+    else {
+      const state =
+        !isWorkflowManifest(current.manifest) &&
+        (result.status === "yielded" || result.status === "completed" || result.status === "paused") &&
+        "result" in result
+          ? (result.result as { state?: unknown } | undefined)?.state
+          : undefined;
+      const updates = state ? transcriptUpdates(startTranscript, transcriptOf(state)) : [];
+      await settle(ctx, lease, started, result, updates);
+    }
   } catch (error) {
     if (isOwnershipLost(error) || error instanceof SegmentStopped) throw error;
     stopIfLeaving(signal);
@@ -393,7 +424,8 @@ async function settle(
   ctx: TenantContext,
   lease: Lease,
   s: Session,
-  result: SegmentResult
+  result: SegmentResult,
+  updates: readonly TranscriptUpdate[] = []
 ): Promise<void> {
   const id = lease.sessionId;
   const siblingCancelIds = await ownedTx<string[], Session>(
@@ -435,7 +467,8 @@ async function settle(
       if (result.status === "yielded") {
         // The turn goes on in a new segment: same turn, next checkpoint, woken right away.
         const finished = result.checkpoint as DurableCheckpoint;
-        current.state = (result.result as any).state;
+        await recordTranscript(t, id, s.activeTurnId, current, updates);
+        current.state = leanState((result.result as any).state);
         current.checkpoint = {
           ...finished,
           segment: finished.segment + 1,
@@ -457,12 +490,14 @@ async function settle(
       }
       const flow = isWorkflowManifest(current.manifest);
       if (!flow) {
+        if (result.status !== "failed")
+          await recordTranscript(t, id, s.activeTurnId, current, updates);
         current.state =
           result.status === "failed"
             ? current.turnStartState
-            : (result.result as any).state;
+            : leanState((result.result as any).state);
       }
-      current.checkpoint = result.checkpoint;
+      current.checkpoint = leanCheckpoint(result.checkpoint);
       current.status = result.status;
       current.waits =
         result.status === "paused" ? (result.result as any).pending : undefined;
@@ -582,3 +617,55 @@ async function settleFailure(
   });
 }
 
+
+/** `checkpoint` with its engine state stored lean (`history.ts`). */
+function leanCheckpoint<T extends object | undefined>(checkpoint: T): T {
+  const state = (checkpoint as { state?: unknown } | undefined)?.state;
+  if (!checkpoint || !state) return checkpoint;
+  return { ...checkpoint, state: leanState(state) };
+}
+
+/** Appends a segment's transcript edits; a snapshot moves `history.snapshot`. */
+async function recordTranscript(
+  t: Tx,
+  id: string,
+  turnId: string | null,
+  s: Session,
+  updates: readonly TranscriptUpdate[]
+): Promise<void> {
+  for (const update of updates) {
+    const event = await t.event(id, turnId, "transcript.updated", update);
+    if (update.keep === 0) s.history = { from: s.history?.from ?? event.seq, snapshot: event.seq };
+  }
+}
+
+/**
+ * A session written before transcripts were recorded keeps its transcript on its row: record
+ * it once (the turn's starting transcript, then the turn so far), and store the row lean.
+ */
+async function adoptStoredTranscript(t: Tx, s: Session): Promise<void> {
+  if (s.history) return;
+  const now = transcriptOf(s.state);
+  const start = s.activeTurnId ? transcriptOf(s.turnStartState) : now;
+  if (now.length === 0 && start.length === 0) return;
+  let first: number | undefined;
+  const write = async (turnId: string | null, updates: TranscriptUpdate[]) => {
+    for (const update of updates) {
+      const event = await t.event(s.id, turnId, "transcript.updated", update);
+      first ??= event.seq;
+    }
+  };
+  await write(null, transcriptUpdates([], start));
+  if (s.activeTurnId) await write(s.activeTurnId, transcriptUpdates(start, now));
+  s.history = { from: first ?? 0, snapshot: first ?? 0 };
+  s.state = leanState(s.state);
+  s.turnStartState = leanState(s.turnStartState);
+}
+
+/** The session's transcript, folded from its record from `history.from`. */
+async function foldSession(ctx: TenantContext, s: Session): Promise<unknown[]> {
+  const rows = await ctx.store
+    .record()
+    .readRange(ctx.store.tenantId, s.id, s.history?.from ?? 0, Number.MAX_SAFE_INTEGER);
+  return foldTranscript(rows.map((row) => row.body as LiveEvent));
+}

@@ -79,7 +79,10 @@ describe("streams passed by the caller", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     expect(await items(second.url)).toEqual([...before, offline]);
     const after = await turn(second.url, "m2", 2);
-    expect(after.map((e) => decodeCursor("s1", e.cursor))).toEqual(after.map((_, i) => i));
+    // Served events skip the seqs of internal events (transcript.updated).
+    const served = after.map((e) => decodeCursor("s1", e.cursor));
+    expect(served[0]).toBe(0);
+    expect(served.every((seq, i) => i === 0 || seq > served[i - 1]!)).toBe(true);
   });
 
   it("gives each Tenant opened without streams its own in-process streams", async () => {

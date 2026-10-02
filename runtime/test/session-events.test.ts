@@ -97,9 +97,10 @@ it("numbers events per session and replays SSE after a cursor, then follows live
     const accepted = await say(runtime.url, "first");
     expect(accepted.cursor).toBe(encodeCursor("s1", 0));
     const first = await settled(runtime.url, 1);
-    expect(first.map((e) => decodeCursor("s1", e.cursor))).toEqual(
-      first.map((_, i) => i)
-    );
+    // Served events skip the seqs of internal events (transcript.updated): they only increase.
+    const firstSeqs = first.map((e) => decodeCursor("s1", e.cursor));
+    expect(firstSeqs[0]).toBe(0);
+    expect(firstSeqs.every((seq, i) => i === 0 || seq > firstSeqs[i - 1]!)).toBe(true);
     const tail = await history(runtime.url, first[0]!.cursor);
     expect(tail.items).toEqual(first.slice(1));
     expect(tail.cursor).toBe(first.at(-1)!.cursor);
@@ -124,7 +125,8 @@ it("numbers events per session and replays SSE after a cursor, then follows live
     const streamed = await reading;
     const seqs = streamed.map((e) => decodeCursor("s1", e.cursor));
     // The replay starts after the cursor, and live events follow with no gap or duplicate.
-    expect(seqs).toEqual(seqs.map((_, i) => i + 1));
+    expect(seqs[0]).toBeGreaterThan(0);
+    expect(seqs.every((seq, i) => i === 0 || seq > seqs[i - 1]!)).toBe(true);
     expect(streamed.slice(0, first.length - 1)).toEqual(first.slice(1));
   } finally {
     await runtime.close();
