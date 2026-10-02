@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/admin",
-  "version": "0.6.0-beta",
+  "version": "0.7.0-beta",
   "description": "Nylorun Admin API client for Tenants and Host status",
   "type": "module",
   "license": "Apache-2.0",
@@ -24,7 +24,7 @@
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\""
   },
   "dependencies": {
-    "@nylorun/core": "0.9.0-beta"
+    "@nylorun/core": "0.10.0-beta"
   },
   "peerDependencies": {
     "zod": "^4.6.5"

@@ -1,6 +1,6 @@
 {
   "name": "nylorun",
-  "version": "0.3.0-beta",
+  "version": "0.4.0-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Set up and run the local Nylorun stack (Runtime and Studio) with Docker Compose",
@@ -30,7 +30,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@nylorun/core": "0.9.0-beta"
+    "@nylorun/core": "0.10.0-beta"
   },
   "devDependencies": {
     "typescript": "npm:@typescript/typescript6@^6.0.2",
@@ -41,7 +41,7 @@
     "nylorun": "dist/cli.js"
   },
   "nylorun": {
-    "runtime": "0.14.0-beta",
-    "studio": "0.14.0-beta"
+    "runtime": "0.15.0-beta",
+    "studio": "0.15.0-beta"
   }
 }

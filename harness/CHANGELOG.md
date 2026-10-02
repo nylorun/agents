@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.21.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [fed780d]
+- Updated dependencies [fed780d]
+- Updated dependencies [7f4c3f1]
+- Updated dependencies [5ca1923]
+- Updated dependencies [5ca1923]
+  - @nylorun/core@0.10.0-beta
+
 ## 0.21.0-beta
 
 ### Minor Changes
