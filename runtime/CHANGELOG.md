@@ -1,5 +1,109 @@
 # Changelog
 
+## 0.15.0-beta
+
+### Major Changes
+
+- 5ca1923: **One Tenant per installation: a database per Tenant, protocol 5.** A Runtime serves exactly one Tenant, the one its Postgres database holds. Two Tenants are two installations.
+
+  - **Breaking: fresh start.** The Tenant's state is in the fixed schema `nylorun` of its own database and its record in `nylorun_streams`, keyed by session (no `tenant_id`). A database written by an earlier Runtime (`tenant_<id>` schemas, or a record keyed by Tenant) is refused: the Host stays up but not ready, and `/v1/admin/status` names the cause `database-layout-old`. Point the Runtime at a new database (with the local stack, a new stack); the old one is never changed.
+  - **The Host creates its Tenant** on first start, in the migration transaction: `NYLORUN_TENANT_ID` (default a new id), `NYLORUN_TENANT_NAME` (default `default`), the Studio principal and the derived principals of `NYLORUN_DERIVED_PRINCIPALS` (comma-separated, default `project`), whose keys the admin key derives (`deriveTenantKey`). Later starts open the same Tenant and add derived principals configured since.
+  - **Breaking: no Tenant catalog.** `/v1/admin/tenants` and `/v1/admin/tenants/{tenantId}` are gone (404). `AdminStatus.tenants[]` is replaced by `AdminStatus.tenant` (`id`, `name`, `state: open | unavailable`, `envelope`, and `cause` when it could not be opened). `CreateTenantRequestSchema`, `AdminTenantSchema`, `AdminTenantStatusSchema`, `AdminTenantListSchema` and `QuarantineSchema` leave `@nylorun/core`; `HostTenantSchema` and `TenantCauseSchema` replace them. `@nylorun/admin`'s `listTenants`, `getTenant`, `deleteTenant` and `createTenant` are removed (see below).
+  - **Readiness instead of quarantine.** A Tenant that cannot be opened (`schema-too-new`, `kek-missing`, `migration-failed`, `envelope-invalid`, `database-layout-old`, …) fails `/ready` (check `tenant`, which replaces `discovery`) and is reported with its repair in `/v1/admin/status` and the log; every Tenant request gets the opaque 404. A failure outside it (Postgres unreachable) is retried.
+  - **Protocol 5.** `PROTOCOL_VERSION = 5`; the Host serves protocols 4 and 5 for one release. Clients no longer require `runtime-tenants`; the Host still advertises it. No request needs `Nylorun-Tenant`: a request without it reaches the Host's Tenant, and one naming another Tenant (or a malformed one), or a publishable key of another Tenant, gets the opaque 404. The OpenAPI documents drop the header parameter and the Admin Tenant routes.
+  - **Paths.** The Tenant directory is `<Host root>/tenant/` (was `tenants/<id>/`); `trash/` and the SQLite move to it are gone. The gates service serves its database's Tenant, and its `Nylorun-Tenant` header is optional (when sent, it must name that Tenant).
+  - **Breaking: `startEphemeralRuntime` needs a database; the in-memory Session Store is removed.** `StartEphemeralRuntimeOptions.database` is required: a Postgres URL, for which the Runtime opens a pool and ends it on `close()`, or a pool the caller ends. It creates its Tenant in that database through the same bootstrap as a Host, or serves the Tenant the database already holds; the data stays after `close()`, so give each test Tenant a database of its own. Durable Streams and scheduling stay in process. See `MIGRATION.md`.
+
+### Minor Changes
+
+- ee9e471: **The vault key leaves the runtime container (F4.2).** A new `keys` service, run in the gateway's process (`--service gates,keys`), is the only process that reads the vault key. Vault writes that touch a secret (creating and rotating a credential, setting and selecting the host model) and all token signing (subject tokens, delivery tokens, signing-key rotation) run there. A Runtime with `NYLORUN_KEYS_URL`, which defaults to `NYLORUN_GATES_URL`, never reads, creates or holds the key. The Tenant API answers as before, with the same statuses, codes and details.
+
+  - The vault key file moves to `<Host root>/keys/vault-kek`. A gateway that runs keys is not ready until the file is there, and it never creates one.
+  - The anonymous `GET /v1/access/jwks` reads the public keys, and asks the keys service only when the current or standby key is missing.
+  - While the keys service is down, vault writes and token minting answer `503 keys_unavailable`.
+
+- fed780d: **Hard caps on model spend.** A Tenant can cap what its model calls use, per turn, per agent per UTC day or month, or for the whole Tenant per day or month, in USD, tokens or both. Before each call the model gate checks the scope's recorded spend, plus its calls in flight, against the cap. Once a cap is reached the call fails with the new `budget_exhausted` code, which is never retried, and the turn fails with `model.budget_exhausted`. A runaway loop stops there, at most one call over its cap.
+
+  - `PUT /v1/tenant/budgets` replaces the budgets and `GET /v1/tenant/budgets` reads them. Both need the application key or `tenant:settings`.
+  - `@nylorun/core` adds `budget_exhausted` to `ModelFailureCode` and `MODEL_FAILURE_CODES`, plus `ModelBudgetSchema`, `PutModelBudgetsRequestSchema` and `ModelBudgetsSchema`. Code that switches over failure codes exhaustively needs the new case.
+  - Custom endpoints are priced at $0, so only a token limit stops them.
+  - Budgets survive a `sessions` reset. A reset of scope `all` clears them.
+
+- 744208d: **A runtime that dies or restarts mid-call no longer strands the session (P1.2).** The loop sends each model call with its effect id as the `Idempotency-Key`, and the gate runs a keyed call under its own control: if the caller disconnects, the call finishes and its outcome is kept for 30 minutes. The runtime that takes the session over re-sends the journaled call and joins it, or collects its outcome, so the turn completes with one provider call instead of becoming `uncertain`. A shutdown no longer marks the call `uncertain` either.
+
+  - A re-send with the same key and a different request answers `409 gate_conflict`.
+  - A user cancel sends `POST /nylorun/v1/model-calls/{key}/cancel`, which stops the provider request, and marks the turn's model call `uncertain`.
+  - Outcomes live in the gateway's memory: a gateway restart forgets them. A Runtime that calls models in its own process (embedding, tests) keeps the previous behaviour.
+
+- 744208d: **Model calls leave the loop through the Model Gate (P1.1).** Every vault-backed model call of the loop goes through one `ModelGate` (`runtime/src/gates/`). `--service gates` serves it over HTTP: one listener (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default port 4100, `NYLORUN_GATES_ALLOWED_HOSTS`) answering `POST /nylorun/v1/model-calls` to callers presenting `NYLORUN_GATES_TOKEN`, with one JSON body once the call has finished. The gate reads the Tenant's host model from its vault and calls the provider with the same adapter, retries, idle watchdog, failure classification and redaction as before.
+
+  - **Breaking:** in a container, a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`; it then never reads a model credential. Outside a container (embedding, `startEphemeralRuntime`), a loop without `NYLORUN_GATES_URL` runs the gate in its own process, as before. See `DEPLOYMENT.md`.
+  - **Breaking:** the `gateway` model kind is removed from `TenantConfig.model` and `StartEphemeralRuntimeOptions.model`. Nothing set it, and it read the Tenant's model credential inside the loop. The exported `gatewayModel` provider is unchanged.
+  - The gate needs only `NYLORUN_DATABASE_URL` and the Host's Tenant directory (`tenant/`), which it never writes: it runs no migration and opens no Tenant runtime. It refuses a Tenant whose schema is at another version, so the gateway and the runtime must run the same build. gates never shares a process with core or loop: `--service core,gates` is refused.
+  - The client speaks `node:http` with a 630 s idle timeout, so calls longer than five minutes are not cut off. It never retries; the gate does. A failure of the hop is a failure outcome: an unreachable gate, a connection lost mid-call, a timeout or a 5xx is `transient` and retryable; a refused token is `auth`, naming `NYLORUN_GATES_TOKEN`.
+  - The `host_stack_config` startup log names the gate (`modelGate`).
+
+- fed780d: **Every model call is recorded in the Tenant's usage ledger.** The model gate writes one row per call that answers: the session, turn and agent, the provider and model, the tokens (input, output, cached, cache write, reasoning) and pi-ai's price in USD. Custom endpoints count as $0. A call the gateway ran twice after a restart is recorded twice and flagged as a duplicate, since the provider billed both.
+
+  - `GET /v1/tenant/usage?scope=tenant|agent|turn&id=&period=day|month|total` totals the ledger. It needs the application key or `tenant:settings`, like the other Tenant settings.
+  - `@nylorun/core/contracts` adds `ModelUsageScopeSchema`, `ModelUsageQuerySchema` and `ModelUsageTotalsSchema`.
+  - The ledger survives a `sessions` reset. A reset of scope `all` clears it.
+  - The gateway and the runtime must run the same build, as before.
+
+- 7f4c3f1: **One history: a session's transcript is folded from its record.** The own loop's model-facing transcript is no longer stored on the session row, where up to three copies of it lived (`state`, `turnStartState` and the checkpoint). After each segment that keeps its state, the Runtime records the change as an internal `transcript.updated` event: the new entries, or a snapshot after compaction. Each segment folds the transcript back from the record, and a cancelled or failed turn's entries are undone, as before.
+
+  - **Internal events.** `transcript.updated` is in the event catalog with `visibility: "internal"`. SSE, history, AG-UI and A2A never serve it. Served events can therefore skip the seq numbers internal events hold; cursors resume as before. `TranscriptUpdatedPayloadSchema` is exported from `@nylorun/core/contracts`, and catalog entries may declare `visibility`.
+  - **No checkpoints table.** Every settle used to write a copy of the session's checkpoint to a `checkpoints` table that nothing read; it is gone. The checkpoint a session resumes from stays on the session row.
+  - **Storage.** A long session's row no longer grows with its transcript (a 10-turn, 300-step session on a 16k window: under 16 KB instead of up to 196 KB).
+
+- 7bd38d6: **`--service` names what a Runtime process runs.** The image now starts as `--service core,loop` (the default without a flag): `core` serves the Tenant and Admin APIs and runs the stream relay, and `loop` runs the agent loop and serves the Worker endpoint Restate calls. A container may run several services, which is how the local stack packs them.
+
+  - `--role api|worker|all` still works for one release as a deprecated alias of `--service core`, `loop` and `core,loop`, and logs `deprecated_flag` at startup.
+  - `--service all` is refused: name the services, e.g. `--service core,loop`.
+  - The `host_stack_config` startup log names `services` instead of `role`.
+
+- 5ca1923: **Drizzle defines the Session Store's schema, migrations and queries.** An internal storage change: the tables, columns and indexes of a Tenant database are the same as before.
+
+  - The tables are defined in `src/store/postgres/schema.ts`; drizzle-kit generates the migrations from it, and they ship in the package (`dist/store/postgres/drizzle/`). At startup the Host applies the missing ones in one transaction under an advisory lock and records them in `nylorun.__drizzle_migrations` (Drizzle's journal format). A database whose journal holds a migration this Runtime does not ship still fails readiness with `schema-too-new`. The schema version reported by `/ready` and Admin status is the number of applied migrations.
+  - Statements are prepared again (one Tenant per database makes every statement the same for the whole pool).
+  - `drizzle-orm` is a new dependency.
+
+- 7bd38d6: **The local stack runs a gateway container: model calls leave the Runtime.** `nylorun up` now runs the Runtime image twice, the combined packing: `runtime` (`--service core,loop`: the APIs and the agent loop) and `gateway` (`--service gates,keys`: the Model Gate, the Tool Gate and the keys service). Every model call, remote MCP call and Action delivery of the loop crosses the gateway, which alone reads the Tenant's credentials and the vault key. A new stack starts with the gateway.
+
+  - **Breaking for hand-written Compose files:** in a container, a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. Run the image a second time with `--service gates,keys` (see `DEPLOYMENT.md`). The image's default command is now `--service core,loop`.
+  - The gateway has no published port, mounts only the Host's Tenant directory (`tenant/`) and `keys/`, both read-only, and reaches model servers on this machine at `host.docker.internal`. `docker/.env` holds `NYLORUN_GATES_TOKEN`, generated once and kept across starts.
+  - `nylorun status` shows a Gateway line, `nylorun doctor` fails when the gateway is unhealthy and names `nylorun logs gateway`, and `nylorun logs gateway` is accepted.
+  - An image set with `NYLORUN_RUNTIME_IMAGE` must be this release or newer: older Runtimes don't know `--service`.
+
+- 31cfec0: **Action deliveries leave through the gateway (F4.1).** With the gates service, every delivery and endpoint ping is POSTed by the gateway (`POST /nylorun/v1/deliveries`) under the gateway's own `NYLORUN_ENDPOINT_*` policy. The delivery state machine is unchanged. A gateway that cannot be reached counts as a delivery that was not sent, so it is retried, and its failure code is `gateway.unreachable`.
+
+  - `nylorun`: the `gateway` container now sets `NYLORUN_ENDPOINT_LOOPBACK=docker-host`, so Action endpoints on this machine stay reachable.
+  - A process that runs only `core` also reads `NYLORUN_GATES_URL`, for endpoint pings.
+
+- 31cfec0: **Remote MCP servers run behind the Tool Gate (F4.1).** With the gates service (the local stack's `gateway` container), the gateway holds each session's connection to a `streamable-http` or `sse` MCP server, authorizes it from the session's attached vaults (OAuth refresh included), and runs `tools/list` and `tools/call`. The runtime names the server and never sees its credential. Stdio MCP servers still run beside the loop.
+
+  - New internal routes on the gates service: `POST /nylorun/v1/mcp/connect`, `/mcp/list`, `/mcp/close` and `/tool-calls`.
+  - The loop now passes its abort signal to every MCP call, in and out of process.
+
+- 31cfec0: **Remote MCP calls outlive the runtime that sent them, and never run twice (F4.1).** The loop sends each remote MCP call with its effect id as the `Idempotency-Key`. The gateway keeps a keyed call running after its caller goes away, and a restarted or new owner re-sends the journaled call and joins it, so the turn completes with one call to the server and nothing `uncertain`.
+
+  - The gateway records each keyed call before it reaches the server and stores the answer after. After a gateway restart, a call that was in flight answers `uncertain` and is never run again. Rows are deleted a day after they settle.
+  - A user cancel stops the call at the gateway (`POST /nylorun/v1/tool-calls/{key}/cancel`).
+
+### Patch Changes
+
+- 1a38e0e: **A late cancel signal no longer stops the next turn.** The `session.cancel` signal on `tenant/control` now names the turn it cancelled, and a Worker aborts only an advance of that turn. Before, a signal delivered after S2 came back (an append the SDK retried, or a control reader catching up) aborted whatever advance the session was running, which could be a turn started after the cancel.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [fed780d]
+- Updated dependencies [fed780d]
+- Updated dependencies [7f4c3f1]
+- Updated dependencies [5ca1923]
+- Updated dependencies [5ca1923]
+- Updated dependencies
+  - @nylorun/core@0.10.0-beta
+  - @nylorun/harness@0.21.1-beta
+
 ## 0.14.0-beta
 
 ### Major Changes
