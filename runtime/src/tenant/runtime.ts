@@ -238,6 +238,7 @@ export class TenantRuntime implements TenantHandle {
           store: opened,
           kek: ensureKek,
           root: paths.home,
+          logger: config.logger,
           ...(config.modelCall ? { settings: config.modelCall } : {}),
         });
 

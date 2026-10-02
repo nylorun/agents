@@ -6,8 +6,10 @@
 import type { Credential } from "@earendil-works/pi-ai";
 import { piModel, type ModelCallSettings } from "../model/pi-model.js";
 import type { SessionStore } from "../store/types.js";
+import type { Logger } from "../tenant/types.js";
 import { HostModelVault } from "../vault/host-model.js";
 import type { HostModelSecret } from "../vault/service.js";
+import { createMeter } from "./meter.js";
 import type { ModelGate } from "./model-gate.js";
 
 export interface InProcessModelGateOptions {
@@ -20,22 +22,28 @@ export interface InProcessModelGateOptions {
 }
 
 /**
- * The in-process gate of an open Tenant: reads its host model from its own vault. Only a
- * Runtime without the gates service (embedding, the ephemeral Runtime, tests) builds one.
+ * The in-process gate of an open Tenant: reads its host model from its own vault and records
+ * each call in its usage ledger. Only a Runtime without the gates service (embedding, the
+ * ephemeral Runtime, tests) builds one.
  */
 export function tenantModelGate(options: {
   readonly store: SessionStore;
   readonly kek: () => Buffer;
   readonly root: string;
+  readonly logger: Logger;
   readonly settings?: ModelCallSettings;
 }): ModelGate {
   const vault = new HostModelVault({ store: options.store, kek: options.kek });
-  return inProcessModelGate({
+  const gate = inProcessModelGate({
     root: options.root,
     readHostModel: () => vault.readHostModel(),
     writeHostCredential: (credential) => vault.updateHostCredential(credential),
     ...(options.settings ? { settings: options.settings } : {}),
   });
+  const meter = createMeter({ logger: options.logger });
+  return {
+    call: (request, signal) => meter.call(options.store, request, () => gate.call(request, signal)),
+  };
 }
 
 export function inProcessModelGate(options: InProcessModelGateOptions): ModelGate {

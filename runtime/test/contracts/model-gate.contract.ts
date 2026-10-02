@@ -46,6 +46,7 @@ const request = (overrides: Partial<ModelGateRequest> = {}): ModelGateRequest =>
   tenantId: newTenantId(),
   sessionId: "session-1",
   turnId: "turn-1",
+  agentId: "bot",
   effectId: "turn-1:0:model:1",
   invocationId: "1",
   call,
@@ -210,7 +211,7 @@ export function modelGateContract(name: string, factory: ModelGateFactory) {
       expect(provider).not.toHaveBeenCalled();
     });
 
-    it("throws and aborts the provider request when cancelled during the call", async () => {
+    it("throws when cancelled during the call; the provider request is aborted (after cancel, for a recovering gate)", async () => {
       const controller = new AbortController();
       let upstream: AbortSignal | undefined;
       vi.stubGlobal(
@@ -222,7 +223,13 @@ export function modelGateContract(name: string, factory: ModelGateFactory) {
         }),
       );
       const gate = await open();
-      await expect(gate.call(request(), controller.signal)).rejects.toThrow();
+      const call = request();
+      await expect(gate.call(call, controller.signal)).rejects.toThrow();
+      // A gate whose calls outlive the caller (P1.2) stops one only on an explicit cancel.
+      if (gate.recovers) {
+        expect(upstream?.aborted).toBe(false);
+        await gate.cancel!(call);
+      }
       await vi.waitFor(() => expect(upstream?.aborted).toBe(true));
     });
   });

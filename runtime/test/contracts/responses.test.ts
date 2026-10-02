@@ -45,6 +45,8 @@ import {
   SessionViewSchema,
   SigningKeyListSchema,
   TenantSandboxViewSchema,
+  ModelUsageTotalsSchema,
+  ModelBudgetsSchema,
   TenantStatusSchema,
   VaultInfoSchema,
 } from "@nylorun/core/contracts";
@@ -214,6 +216,23 @@ it("Tenant settings", async () => {
   await answer(ListProvidersResponseSchema, "GET", "/v1/tenant/providers");
   await answer(HostModelViewSchema, "GET", "/v1/tenant/model");
   await answer(TenantSandboxViewSchema, "GET", "/v1/tenant/sandbox");
+  expect(await answer(ModelUsageTotalsSchema, "GET", "/v1/tenant/usage")).toEqual({
+    scope: "tenant",
+    period: "total",
+    calls: 0,
+    tokens: 0,
+    costUsd: 0,
+  });
+  await answer(ModelUsageTotalsSchema, "GET", "/v1/tenant/usage?scope=turn&id=t1&period=day");
+  const budgets = [
+    { scope: "agent", id: "bot", period: "day", limitUsd: 2.5 },
+    { scope: "tenant", period: "month", limitUsd: 100, limitTokens: 1_000_000 },
+    { scope: "turn", limitTokens: 500 },
+  ];
+  expect(
+    await answer(ModelBudgetsSchema, "PUT", "/v1/tenant/budgets", { body: { requestId: "b1", budgets } }),
+  ).toEqual({ budgets });
+  expect(await answer(ModelBudgetsSchema, "GET", "/v1/tenant/budgets")).toEqual({ budgets });
   await answer(TenantSandboxViewSchema, "PUT", "/v1/tenant/sandbox", {
     body: {
       requestId: "limits",

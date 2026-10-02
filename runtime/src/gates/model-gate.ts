@@ -18,6 +18,8 @@ export interface ModelGateRequest {
   readonly tenantId: string;
   readonly sessionId: string;
   readonly turnId: string;
+  /** The session's agent, for the usage ledger and its budgets (P1.3). */
+  readonly agentId: string;
   /** The effect's journal id; sent as `Idempotency-Key` (acted on from P1.2). */
   readonly effectId: string;
   readonly invocationId: string;
@@ -33,4 +35,15 @@ export interface ModelGate {
    * of `signal` throws, so the advance decides what the abort means.
    */
   call(request: ModelGateRequest, signal: AbortSignal): Promise<ModelGateOutcome>;
+  /**
+   * True when a call outlives the caller's process (the gates service, P1.2): after a takeover
+   * or a shutdown, re-sending the journaled request joins the call or returns its outcome
+   * instead of calling the provider again. The in-process gate dies with the loop.
+   */
+  readonly recovers?: boolean;
+  /**
+   * Stops a call that outlives its caller (a user cancel). Best-effort: never rejects. Only a
+   * gate that `recovers` needs it; for the others aborting `signal` already stops the call.
+   */
+  cancel?(request: Pick<ModelGateRequest, "tenantId" | "effectId">): Promise<void>;
 }

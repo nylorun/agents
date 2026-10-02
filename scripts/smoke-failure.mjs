@@ -16,16 +16,21 @@
 // 2. A turn starts; its model effect is committed as `invoking` and the call
 //    reaches the stub, which holds it.
 // 3. `docker compose kill runtime` mid-call, then `docker compose start runtime`.
+//    The gateway keeps the call (it is keyed by the effect id, P1.2).
 // 4. Restate retries the advance on the restarted Runtime, which takes the
-//    session over once the dead Worker's lease lapses: the effect and the
-//    session become `uncertain`, and the stub sees no second call.
-// 5. The session is usable afterwards: a cancel, then a new turn completes.
+//    session over once the dead Worker's lease lapses, re-sends the journaled
+//    call and joins it: the turn completes, nothing is `uncertain`, and the stub
+//    saw one call.
+// 5. The same for a graceful stop (SIGTERM) mid-call.
 // 6. Every call crossed the gateway (one model_call line per call); the
 //    runtime runs with the gate.
 // 7. Gateway stopped: the turn fails with model.transient, nothing becomes
 //    uncertain, and once it is back the next turn completes.
 // 8. Gateway killed mid-call: the same, and the stub's request is closed.
 // 9. Cancel mid-call: the stub sees its request aborted within 2 s.
+// 10. The gateway refuses a caller without the stack's token.
+// 11. A budget's cap is reached (P1.3): the turn fails with
+//     model.budget_exhausted and the stub sees no call.
 // 10. A wrong gates token is refused (401).
 //
 // The stack is always reset at the end.
@@ -181,62 +186,32 @@ try {
       assert.ok(owner, "a Worker owns the session");
       console.log(`[failure] model call in flight under ${owner} (${elapsed()})`);
 
-      // Kill the Runtime mid-call and start it again.
+      // Kill the Runtime mid-call: the gateway keeps the call, keyed by the effect id (P1.2).
       await stack.compose(["kill", "runtime"]);
-      await eventually(async () => (await stub()).held === 0, {
-        timeout: 30_000,
-        message: "the killed Runtime's connection to close",
-      });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      assert.equal((await stub()).held, 1, "the gateway kept the provider call after the Runtime died");
       await stack.compose(["start", "runtime"]);
-      await eventually(
-        async () => (await fetch(`${runtimeUrl}/ready`, { signal: AbortSignal.timeout(5_000) })).ok,
-        { timeout: 120_000, message: "the restarted Runtime to be ready" },
-      );
+      const ready = () =>
+        eventually(
+          async () => (await fetch(`${runtimeUrl}/ready`, { signal: AbortSignal.timeout(5_000) })).ok,
+          { timeout: 120_000, message: "the restarted Runtime to be ready" },
+        );
+      await ready();
       console.log(`[failure] Runtime killed and restarted (${elapsed()})`);
 
-      // Takeover once the dead Worker's lease lapses: uncertain, and no second call.
-      const uncertain = await eventually(
-        async () => {
-          const view = await session();
-          return view.status === "uncertain" ? view : undefined;
-        },
-        { timeout: 180_000, interval: 1000, message: "the session to become uncertain" },
-      );
-      console.log(`[failure] session uncertain after takeover (${elapsed()})`);
-      assert.equal(await stack.psql(`SELECT status FROM ${schema}.effects`), "uncertain");
-      const newOwner = await stack.psql(`SELECT coalesce(owner, '') FROM ${schema}.sessions WHERE id = 's1'`);
-      assert.equal(newOwner, "", "the restarted Worker released the session");
-      assert.ok(
-        JSON.stringify(uncertain).includes("uncertain"),
-        "the session view reports the uncertain effect",
-      );
-      const afterTakeover = await history();
-      assert.equal(count(afterTakeover, "effect.uncertain"), 1, types(afterTakeover).join(", "));
-      assert.equal(count(afterTakeover, "turn.completed"), 0);
-      // Give a duplicate call every chance to show up before counting.
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      assert.deepEqual(
-        await stub(),
-        { calls: 1, held: 0, aborted: 1 },
-        "the gateway aborted the provider request when the Runtime died, and the model was not called again",
-      );
-
-      // The session is usable afterwards: cancel the uncertain turn, run the next one.
+      // The restarted Worker takes the session over once the dead lease lapses, re-sends the
+      // journaled call and joins it: the turn completes with one provider call.
       await fetch(`${stubUrl}/release`, { method: "POST" });
-      await request(runtimeUrl, tenant, "/v1/sessions/s1/commands", {
-        method: "POST",
-        body: { type: "cancel", requestId: "c1", idempotencyKey: "c1" },
-      });
-      await message(2);
       await eventually(async () => (await session()).status === "completed", {
-        timeout: 60_000,
-        message: "the next turn to complete",
+        timeout: 180_000,
+        interval: 1000,
+        message: "the turn to complete after takeover",
       });
-      const final = await history();
-      assert.equal(count(final, "turn.cancelled"), 1);
-      assert.equal(count(final, "turn.completed"), 1);
-      assert.equal(count(final, "effect.uncertain"), 1);
-      const seqs = final.items.map((item) =>
+      const recovered = await history();
+      assert.equal(count(recovered, "effect.uncertain"), 0, types(recovered).join(", "));
+      assert.equal(count(recovered, "turn.completed"), 1);
+      assert.equal(count(recovered, "message.assistant"), 1);
+      const seqs = recovered.items.map((item) =>
         Number(Buffer.from(item.cursor, "base64url").toString("utf8").split(":").at(-1)),
       );
       // Served history skips the seqs of internal events (transcript.updated): seqs only increase.
@@ -245,8 +220,36 @@ try {
         seqs.every((seq, i) => i === 0 || seq > seqs[i - 1]),
         "the history has no duplicate and nothing out of order",
       );
-      assert.equal((await stub()).calls, 2, "one call per turn");
-      console.log(`[failure] next turn completed (${elapsed()})`);
+      // Give a duplicate call every chance to show up before counting.
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.deepEqual(
+        await stub(),
+        { calls: 1, held: 0, aborted: 0 },
+        "one provider call: the restarted Runtime joined the call the gateway kept",
+      );
+      console.log(`[failure] kill -9 mid-call: recovered with one provider call (${elapsed()})`);
+
+      // A graceful stop (SIGTERM) mid-call: the same.
+      await fetch(`${stubUrl}/hold`, { method: "POST" });
+      await message(2);
+      await eventually(async () => (await stub()).held === 1, {
+        timeout: 60_000,
+        message: "the second model call to reach the stub",
+      });
+      await stack.compose(["stop", "runtime"]);
+      await stack.compose(["start", "runtime"]);
+      await ready();
+      await fetch(`${stubUrl}/release`, { method: "POST" });
+      await eventually(async () => (await session()).status === "completed", {
+        timeout: 180_000,
+        interval: 1000,
+        message: "the turn to complete after a graceful restart",
+      });
+      const restarted = await history();
+      assert.equal(count(restarted, "effect.uncertain"), 0, types(restarted).join(", "));
+      assert.equal(count(restarted, "turn.completed"), 2);
+      assert.deepEqual(await stub(), { calls: 2, held: 0, aborted: 0 }, "one call per turn");
+      console.log(`[failure] graceful stop mid-call: recovered with one provider call (${elapsed()})`);
 
       // 6. Every call crossed the gateway, and the runtime runs with it.
       const gatewayLogs = (await stack.compose(["logs", "--no-log-prefix", "gateway"])).split("\n");
@@ -282,7 +285,7 @@ try {
       await message(3);
       assert.equal((await settled()).status, "failed");
       assert.equal((await lastFailure())?.error?.code, "model.transient");
-      assert.equal(count(await history(), "effect.uncertain"), 1, "no new uncertain effect");
+      assert.equal(count(await history(), "effect.uncertain"), 0, "no uncertain effect");
       await stack.compose(["start", "gateway"]);
       await gatewayHealthy();
       await message(4);
@@ -301,7 +304,7 @@ try {
       assert.equal((await settled()).status, "failed");
       const lost = await lastFailure();
       assert.equal(lost?.error?.code, "model.transient");
-      assert.equal(count(await history(), "effect.uncertain"), 1, "no new uncertain effect");
+      assert.equal(count(await history(), "effect.uncertain"), 0, "no uncertain effect");
       await eventually(async () => (await stub()).held === 0, {
         timeout: 30_000,
         message: "the killed gateway's provider request to close",
@@ -342,6 +345,27 @@ try {
         "fetch('http://gateway:4100/nylorun/v1/model-calls',{method:'POST',headers:{authorization:'Bearer '+'00'.repeat(32)}}).then(r=>console.log(r.status))",
       ]);
       assert.equal(refused.trim(), "401", "a wrong gates token is refused");
+
+      // 11. A cap one token above today's spend: one more call runs, the next is refused at
+      // the gateway before it reaches the provider. The ledger recorded every call.
+      const spent = await request(runtimeUrl, tenant, "/v1/tenant/usage?period=day");
+      assert.ok(spent.calls >= 1 && spent.tokens > 0, `the ledger recorded the calls: ${JSON.stringify(spent)}`);
+      await request(runtimeUrl, tenant, "/v1/tenant/budgets", {
+        method: "PUT",
+        body: { requestId: randomUUID(), budgets: [{ scope: "tenant", period: "day", limitTokens: spent.tokens + 1 }] },
+      });
+      await message(8);
+      assert.equal((await settled()).status, "completed");
+      const capped = (await stub()).calls;
+      await message(9);
+      assert.equal((await settled()).status, "failed");
+      assert.equal((await lastFailure())?.error?.code, "model.budget_exhausted");
+      assert.equal((await stub()).calls, capped, "a capped call never reaches the provider");
+      await request(runtimeUrl, tenant, "/v1/tenant/budgets", {
+        method: "PUT",
+        body: { requestId: randomUUID(), budgets: [] },
+      });
+      console.log(`[failure] a reached cap fails the turn with model.budget_exhausted (${elapsed()})`);
       console.log(`[failure] Model Gate cases passed (${elapsed()})`);
     } finally {
       await docker(["rm", "--force", stubName]).catch(() => {});

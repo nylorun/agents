@@ -2370,6 +2370,87 @@ export const TenantSandboxViewSchema = z
   .strict();
 export type TenantSandboxView = z.infer<typeof TenantSandboxViewSchema>;
 
+/** What a usage total or a budget covers: the whole Tenant, one agent, or one turn. */
+export const ModelUsageScopeSchema = z.enum(["tenant", "agent", "turn"]);
+export type ModelUsageScope = z.infer<typeof ModelUsageScopeSchema>;
+
+/** `GET /v1/tenant/usage`: which rows of the model usage ledger to total. */
+export const ModelUsageQuerySchema = z
+  .object({
+    scope: ModelUsageScopeSchema.default("tenant"),
+    /** The agent or turn id; required for those scopes. */
+    id: z.string().min(1).optional(),
+    /** The current UTC day or month, or every row. */
+    period: z.enum(["day", "month", "total"]).default("total"),
+  })
+  .strict();
+export type ModelUsageQuery = z.infer<typeof ModelUsageQuerySchema>;
+
+/** The model calls the ledger recorded for one scope and period, and what they cost. */
+export const ModelUsageTotalsSchema = z
+  .object({
+    scope: ModelUsageScopeSchema,
+    id: z.string().optional(),
+    period: z.enum(["day", "month", "total"]),
+    /** When the period started (ISO); absent for `total`. */
+    since: z.string().optional(),
+    calls: z.number().int().nonnegative(),
+    tokens: z.number().int().nonnegative(),
+    /** pi-ai's catalog price; custom endpoints count as $0. */
+    costUsd: z.number().nonnegative(),
+  })
+  .strict();
+export type ModelUsageTotals = z.infer<typeof ModelUsageTotalsSchema>;
+
+/**
+ * A hard cap on model spend. Before each call the model gate checks the scope's spend (and its
+ * calls in flight) against the cap; once it is reached the call fails with `budget_exhausted`
+ * and the turn with `model.budget_exhausted`.
+ */
+export const ModelBudgetSchema = z
+  .object({
+    /** `turn` caps every turn; `agent` one agent's sessions; `tenant` all of them. */
+    scope: ModelUsageScopeSchema,
+    /** The agent's id; `agent` only. */
+    id: z.string().min(1).optional(),
+    /** The UTC period spend counts over; `agent` and `tenant` only. */
+    period: z.enum(["day", "month"]).optional(),
+    /** pi-ai's catalog price; custom endpoints count as $0, so cap them in tokens. */
+    limitUsd: z.number().positive().optional(),
+    limitTokens: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine((budget, ctx) => {
+    if (budget.limitUsd === undefined && budget.limitTokens === undefined)
+      ctx.addIssue({ code: "custom", message: "A budget needs limitUsd, limitTokens or both" });
+    if ((budget.scope === "agent") !== (budget.id !== undefined))
+      ctx.addIssue({ code: "custom", message: "An agent budget names the agent in id; other scopes take no id" });
+    if ((budget.scope === "turn") === (budget.period !== undefined))
+      ctx.addIssue({ code: "custom", message: "A turn budget takes no period; agent and Tenant budgets need one" });
+  });
+export type ModelBudget = z.infer<typeof ModelBudgetSchema>;
+
+/** `PUT /v1/tenant/budgets`: replaces every budget. An empty list removes them all. */
+export const PutModelBudgetsRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    budgets: z.array(ModelBudgetSchema).max(100),
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    const seen = new Set<string>();
+    for (const budget of request.budgets) {
+      const key = `${budget.scope}:${budget.id ?? "*"}`;
+      if (seen.has(key))
+        ctx.addIssue({ code: "custom", message: `Two budgets for ${key}; set one per scope` });
+      seen.add(key);
+    }
+  });
+export type PutModelBudgetsRequest = z.infer<typeof PutModelBudgetsRequestSchema>;
+
+export const ModelBudgetsSchema = z.object({ budgets: z.array(ModelBudgetSchema) }).strict();
+export type ModelBudgets = z.infer<typeof ModelBudgetsSchema>;
+
 export const ListVaultsResponseSchema = z.object({ vaults: z.array(VaultInfoSchema) }).strict();
 export type ListVaultsResponse = z.infer<typeof ListVaultsResponseSchema>;
 export const ListCredentialsResponseSchema = z

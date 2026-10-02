@@ -4,11 +4,18 @@
  *
  * `POST /nylorun/v1/model-calls`
  * - Headers: `Authorization: Bearer <NYLORUN_GATES_TOKEN>`, `Nylorun-Tenant: <tenant id>`,
- *   `Idempotency-Key: <effect id>` (logged; acted on from P1.2).
+ *   `Idempotency-Key: <effect id>`.
  * - Body: `ModelCallBody`, at most `MAX_MODEL_CALL_BYTES`.
  * - `200 {outcome}` once the call has finished, whether the outcome is a candidate or a
  *   failure; nothing is sent while it runs. `401 gate_unauthorized` for a missing or wrong
- *   token, `400 invalid_request` for a bad Tenant header or body.
+ *   token, `400 invalid_request` for a bad Tenant header or body, `409 gate_conflict` when a
+ *   different request already runs under the same key.
+ * - With an `Idempotency-Key` the call outlives its client (P1.2): a re-send with the same key
+ *   and body joins it, or gets its outcome for 30 minutes. Without one, a client that goes
+ *   away aborts the call.
+ *
+ * `POST /nylorun/v1/model-calls/{key}/cancel` (same headers): aborts the keyed call; `204`
+ * whether or not it exists.
  */
 import { z } from "zod";
 import type { ModelGateOutcome } from "./model-gate.js";
@@ -24,6 +31,7 @@ export const MAX_MODEL_CALL_BYTES = 32 * 1024 * 1024;
 export const ModelCallBodySchema = z.object({
   sessionId: z.string().min(1),
   turnId: z.string().min(1),
+  agentId: z.string().min(1),
   effectId: z.string().min(1),
   invocationId: z.string().min(1),
   call: z.looseObject({
@@ -41,7 +49,7 @@ export interface ModelCallResponse {
 /** An error answer: `{error: {code, message}}`. */
 export interface GateErrorBody {
   readonly error: {
-    readonly code: "gate_unauthorized" | "invalid_request";
+    readonly code: "gate_unauthorized" | "invalid_request" | "gate_conflict";
     readonly message: string;
   };
 }

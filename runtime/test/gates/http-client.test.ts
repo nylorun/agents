@@ -15,6 +15,7 @@ const request: ModelGateRequest = {
   tenantId: newTenantId(),
   sessionId: "session-1",
   turnId: "turn-1",
+  agentId: "bot",
   effectId: "turn-1:0:model:1",
   invocationId: "1",
   call: {
@@ -72,6 +73,7 @@ describe("httpModelGate", () => {
     expect(seen?.body).toEqual({
       sessionId: request.sessionId,
       turnId: request.turnId,
+      agentId: request.agentId,
       effectId: request.effectId,
       invocationId: request.invocationId,
       call: request.call,
@@ -140,6 +142,46 @@ describe("httpModelGate", () => {
   it("is a transient, non-retryable failure when the answer has no outcome", async () => {
     const url = await gate((_req, res) => json(res, 200, {}));
     expect(await call(url)).toMatchObject({ code: "transient", retryable: false });
+  });
+
+  it("is a non-retryable invalid_request when the request changed under its effect id (409)", async () => {
+    const url = await gate((_req, res) =>
+      json(res, 409, { error: { code: "gate_conflict", message: "different request" } }),
+    );
+    expect(await call(url)).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+      message: expect.stringMatching(/changed under the same effect id/),
+    });
+  });
+
+  it("declares that its calls outlive the caller, and cancels one by effect id", async () => {
+    let seen: { url?: string; headers: IncomingMessage["headers"] } | undefined;
+    const url = await gate((req, res) => {
+      seen = { url: req.url, headers: req.headers };
+      res.writeHead(204);
+      res.end();
+    });
+    const gateClient = httpModelGate({ url, token });
+    expect(gateClient.recovers).toBe(true);
+    await gateClient.cancel!({ tenantId: request.tenantId, effectId: request.effectId });
+    expect(seen?.url).toBe(`/nylorun/v1/model-calls/${encodeURIComponent(request.effectId)}/cancel`);
+    expect(seen?.headers).toMatchObject({
+      authorization: `Bearer ${token}`,
+      "nylorun-tenant": request.tenantId,
+    });
+  });
+
+  it("never rejects a cancel, even when the gate is unreachable", async () => {
+    const url = await gate(() => {});
+    const port = new URL(url).port;
+    await afterEachClose();
+    await expect(
+      httpModelGate({ url: `http://127.0.0.1:${port}`, token }).cancel!({
+        tenantId: request.tenantId,
+        effectId: request.effectId,
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("throws when the caller aborts, and closes the connection", async () => {

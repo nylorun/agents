@@ -1,6 +1,7 @@
 /**
  * The Tenant's own settings (`/v1/tenant/**`): its status, reset, a first configuration, the
- * model it calls and the sandboxes its sessions get.
+ * model it calls, what its model calls cost and may cost (budgets), and the sandboxes its
+ * sessions get.
  *
  * A reset that deletes sessions moves the Tenant to a new basin generation, so a session
  * created again starts in an empty basin; the old basin is deleted after a grace period.
@@ -9,6 +10,9 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { z } from "zod";
 import {
+  ModelUsageQuerySchema,
+  PutModelBudgetsRequestSchema,
+  type ModelBudget,
   PutHostModelRequestSchema,
   PutTenantSandboxRequestSchema,
   ResetTenantRequestSchema,
@@ -20,6 +24,9 @@ import {
   HostModelCatalog,
   HostModelView,
   ListProvidersResponse,
+  ModelBudgets,
+  ModelUsageTotals,
+  PutModelBudgetsRequest,
   PutHostModelRequest,
   PutTenantSandboxRequest,
   ResetTenantRequest,
@@ -30,6 +37,7 @@ import {
   TenantSandboxView,
   TenantStatus,
 } from "../../components.js";
+import { periodStart } from "../../../gates/meter.js";
 import { hostModelCatalog } from "../../../model/catalog.js";
 import { sandboxConfigErrors } from "../../../sandbox/resolve.js";
 import {
@@ -37,6 +45,7 @@ import {
   readSandboxConfig,
   writeSandboxConfig,
 } from "../../../sandbox/tenant-config.js";
+import type { ModelBudgetRow } from "../../../store/types.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
 import { clearObservers } from "../../../tenant/session-streams.js";
@@ -66,6 +75,23 @@ const json = (schema: z.ZodType, description: string) => ({
 const body = (schema: z.ZodType) => ({
   required: true,
   content: { "application/json": { schema } },
+});
+
+const budgetRow = (budget: ModelBudget, updatedAt: string): ModelBudgetRow => ({
+  scope: budget.scope,
+  scopeId: budget.scope === "agent" ? budget.id! : "*",
+  period: budget.period ?? null,
+  limitUsd: budget.limitUsd ?? null,
+  limitTokens: budget.limitTokens ?? null,
+  updatedAt,
+});
+
+const budgetView = (row: ModelBudgetRow): ModelBudget => ({
+  scope: row.scope,
+  ...(row.scope === "agent" ? { id: row.scopeId } : {}),
+  ...(row.period ? { period: row.period } : {}),
+  ...(row.limitUsd !== null ? { limitUsd: row.limitUsd } : {}),
+  ...(row.limitTokens !== null ? { limitTokens: row.limitTokens } : {}),
 });
 
 /** `GET /v1/tenant/sandbox`: the backend report and the configuration with defaults applied. */
@@ -216,6 +242,82 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       if (errors.length > 0) fail(400, errors.join(" "));
       await ctx.store.tx((t) => writeSandboxConfig(t, config));
       return jsonResponse(200, await sandboxView(ctx));
+    },
+  );
+
+  tenantRoute(
+    api,
+    SETTINGS,
+    {
+      method: "get",
+      path: "/v1/tenant/usage",
+      tags: ["Tenant"],
+      summary: "Get what the Tenant's model calls used",
+      description:
+        "Totals from the model usage ledger, which the model gate writes once per call: for the Tenant, one agent or one turn, over the current UTC day or month, or all time.",
+      request: { query: ModelUsageQuerySchema },
+      responses: { 200: json(ModelUsageTotals, "The calls, tokens and cost") },
+    },
+    async (c) => {
+      const parsed = ModelUsageQuerySchema.safeParse(c.req.query());
+      if (!parsed.success) return fail(400, parsed.error.issues[0]?.message ?? "Invalid query");
+      const { scope, id, period } = parsed.data;
+      if (scope !== "tenant" && !id) fail(400, `The ${scope} scope needs an id`);
+      const since = period === "total" ? undefined : periodStart(period, new Date());
+      const totals = await c.env.tenant.store.tx((t) =>
+        t.modelUsageTotals({
+          scope,
+          ...(scope !== "tenant" ? { id: id! } : {}),
+          ...(since ? { since } : {}),
+        }),
+      );
+      return jsonResponse(200, {
+        scope,
+        ...(scope !== "tenant" ? { id } : {}),
+        period,
+        ...(since ? { since } : {}),
+        ...totals,
+      });
+    },
+  );
+
+  tenantRoute(
+    api,
+    SETTINGS,
+    {
+      method: "get",
+      path: "/v1/tenant/budgets",
+      tags: ["Tenant"],
+      summary: "Get the Tenant's model budgets",
+      responses: { 200: json(ModelBudgets, "The hard caps on model spend") },
+    },
+    async (c) => {
+      const rows = await c.env.tenant.store.tx((t) => t.listModelBudgets());
+      return jsonResponse(200, { budgets: rows.map(budgetView) });
+    },
+  );
+
+  tenantRoute(
+    api,
+    SETTINGS,
+    {
+      method: "put",
+      path: "/v1/tenant/budgets",
+      tags: ["Tenant"],
+      summary: "Set the Tenant's model budgets",
+      description:
+        "Replaces every budget. Before each model call the gate checks the scope's spend against its cap; once a cap is reached the call fails with `budget_exhausted` and the turn with `model.budget_exhausted`. An empty list removes every cap.",
+      request: { body: body(PutModelBudgetsRequest) },
+      responses: { 200: json(ModelBudgets, "The budgets now in force") },
+    },
+    async (c) => {
+      const { budgets } = PutModelBudgetsRequestSchema.parse(await readJson(c.req.raw));
+      const updatedAt = new Date().toISOString();
+      const rows = await c.env.tenant.store.tx(async (t) => {
+        await t.putModelBudgets(budgets.map((budget) => budgetRow(budget, updatedAt)));
+        return t.listModelBudgets();
+      });
+      return jsonResponse(200, { budgets: rows.map(budgetView) });
     },
   );
 

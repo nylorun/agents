@@ -1,12 +1,13 @@
 /**
  * Serves one model call in the gates service: opens the Tenant's vault and calls the model
  * through `inProcessModelGate`, the same code the loop ran before the gate, so outcomes,
- * retries, classification and redaction are unchanged. Logs one line per call, never the
- * prompt, the output or a credential.
+ * retries, classification and redaction are unchanged. The meter records the call's usage in
+ * the Tenant's ledger. Logs one line per call, never the prompt, the output or a credential.
  */
 import { classifyThrown } from "../model/classify.js";
 import type { Logger } from "../tenant/types.js";
 import { inProcessModelGate } from "./in-process.js";
+import { createMeter } from "./meter.js";
 import type { ModelCallSettings, ModelGate } from "./model-gate.js";
 import { GateRefusal, type TenantVaults } from "./tenant-vaults.js";
 
@@ -19,18 +20,20 @@ export interface ModelCallHandlerOptions {
 
 export function createModelCallHandler(options: ModelCallHandlerOptions): ModelGate {
   const { vaults, logger, settings } = options;
+  const meter = createMeter({ logger });
   return {
     async call(request, signal) {
       const started = Date.now();
       let outcome;
       try {
         const vault = await vaults.open(request.tenantId);
-        outcome = await inProcessModelGate({
+        const gate = inProcessModelGate({
           root: vault.root,
           readHostModel: () => vault.readHostModel(),
           writeHostCredential: (credential) => vault.writeHostCredential(credential),
           ...(settings ? { settings } : {}),
-        }).call(request, signal);
+        });
+        outcome = await meter.call(vault.store, request, () => gate.call(request, signal));
       } catch (error) {
         if (signal.aborted) {
           logger.info("model_call", { ...fields(request), ms: Date.now() - started, outcome: "aborted" });

@@ -230,6 +230,15 @@ a model credential.
   the session takes the next message; reads, commands and Studio keep working.
   `nylorun doctor` and `nylorun status` report it, and `nylorun logs gateway`
   shows one `model_call` line per call (never the prompt, the output or a key).
+- A model call outlives the runtime that sent it: if the runtime is killed or
+  restarted mid-call, the gateway finishes the call and keeps its outcome for
+  30 minutes, and the restarted runtime picks it up instead of calling the
+  provider again. A gateway restart loses calls in flight.
+- The gateway records every call in the Tenant's usage ledger
+  (`GET /v1/tenant/usage`) and enforces the Tenant's hard caps
+  (`PUT /v1/tenant/budgets`): once a cap is reached the turn fails with
+  `model.budget_exhausted`. Prices come from pi-ai's model catalog, so cap a
+  custom endpoint, which counts as $0, in tokens.
 - A Compose file you write yourself must run both containers: in a container,
   a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and
   `NYLORUN_GATES_TOKEN`. A proxy between the two must allow an idle request of

@@ -21,9 +21,12 @@ import { tenantPaths } from "../tenant/paths.js";
 import { readVaultKek } from "../vault/kek.js";
 import { HostModelVault } from "../vault/host-model.js";
 import type { HostModelSecret } from "../vault/service.js";
+import type { SessionStore } from "../store/types.js";
 
 /** One Tenant, as a model call needs it. */
 export interface TenantVault {
+  /** The Tenant's store, for the usage ledger (P1.3). */
+  readonly store: SessionStore;
   /** The Tenant's home: secrets found there are redacted from failure messages. */
   readonly root: string;
   readHostModel(): Promise<HostModelSecret | undefined>;
@@ -59,9 +62,10 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
 
   function build(tenantId: string): TenantVault {
     const paths = tenantPaths(hostRoot, tenantId);
+    const store = createPostgresSessionStore({ sql, tenantId });
     let kek: Buffer | undefined;
     const vault = new HostModelVault({
-      store: createPostgresSessionStore({ sql, tenantId }),
+      store,
       kek: () => {
         kek ??= readVaultKek({ vaultKekPath: paths.kek });
         if (!kek)
@@ -76,6 +80,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       },
     });
     return {
+      store,
       root: paths.home,
       readHostModel: () => vault.readHostModel(),
       writeHostCredential: (credential) => vault.updateHostCredential(credential),

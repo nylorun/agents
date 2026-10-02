@@ -41,6 +41,10 @@ import {
   type StoreHealth,
   type StoredSession,
   type SubjectUsageRow,
+  type ModelBudgetRow,
+  type ModelUsageQuery,
+  type ModelUsageRow,
+  type ModelUsageTotals,
   type TakeOwnership,
   type Tx,
   type VaultAuditRow,
@@ -78,6 +82,8 @@ interface State {
   subjectEpochs: Map<string, number>;
   subjectUsage: Map<string, SubjectUsageRow>;
   publishableKeys: Map<string, PublishableKeyRow>;
+  modelUsage: ModelUsageRow[];
+  modelBudgets: ModelBudgetRow[];
 }
 
 function emptyState(): State {
@@ -99,6 +105,8 @@ function emptyState(): State {
     subjectEpochs: new Map(),
     subjectUsage: new Map(),
     publishableKeys: new Map(),
+    modelUsage: [],
+    modelBudgets: [],
   };
 }
 
@@ -979,6 +987,48 @@ class MemoryTx implements Tx {
     return true;
   }
 
+  // --- model usage ---------------------------------------------------------
+
+  async recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow> {
+    this.check();
+    const recorded: ModelUsageRow = {
+      ...copy(row),
+      duplicate: this.s.modelUsage.some((other) => other.effectKey === row.effectKey),
+    };
+    this.s.modelUsage.push(recorded);
+    return copy(recorded);
+  }
+
+  async modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals> {
+    this.check();
+    const totals: ModelUsageTotals = { calls: 0, tokens: 0, costUsd: 0 };
+    for (const row of this.s.modelUsage) {
+      if (query.scope === "agent" && row.agentId !== query.id) continue;
+      if (query.scope === "turn" && row.turnId !== query.id) continue;
+      if (query.since !== undefined && row.createdAt < query.since) continue;
+      totals.calls += 1;
+      totals.tokens += row.totalTokens;
+      totals.costUsd += row.costUsd;
+    }
+    return totals;
+  }
+
+  async listModelBudgets(): Promise<ModelBudgetRow[]> {
+    this.check();
+    return this.s.modelBudgets.map(copy);
+  }
+
+  async putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void> {
+    this.check();
+    const keys = new Set(rows.map((row) => `${row.scope}\0${row.scopeId}`));
+    if (keys.size !== rows.length) throw new Error("model_budgets scope and scope id must be unique");
+    this.s.modelBudgets = rows
+      .map(copy)
+      .sort((a, b) =>
+        a.scope !== b.scope ? (a.scope < b.scope ? -1 : 1) : a.scopeId < b.scopeId ? -1 : a.scopeId > b.scopeId ? 1 : 0,
+      );
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1018,6 +1068,8 @@ class MemoryTx implements Tx {
     if (scope === "all") {
       this.s.docs.definitions.clear();
       this.s.endpoints.clear();
+      this.s.modelUsage = [];
+      this.s.modelBudgets = [];
       for (const vault of [...this.s.vaults.values()])
         if (vault.scope !== "host") await this.deleteVault(vault.id);
     }

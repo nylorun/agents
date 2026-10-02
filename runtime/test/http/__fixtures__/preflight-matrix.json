@@ -78,6 +78,15 @@
   "GET /v1/tenant/providers": {
     "status": 403
   },
+  "GET /v1/tenant/usage?scope=agent&id=bot&period=month": {
+    "status": 403
+  },
+  "GET /v1/tenant/budgets": {
+    "status": 403
+  },
+  "PUT /v1/tenant/budgets": {
+    "status": 403
+  },
   "GET /v1/tenant/model": {
     "status": 403
   },

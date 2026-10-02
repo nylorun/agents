@@ -23,6 +23,8 @@ import { dropExecutors } from "./006_drop_executors.js";
 import { eventTime } from "./007_event_time.js";
 import { durableStreams } from "./008_durable_streams.js";
 import { dropCheckpoints } from "./009_drop_checkpoints.js";
+import { modelUsage } from "./010_model_usage.js";
+import { modelBudgets } from "./011_model_budgets.js";
 
 export interface Migration {
   /** 1, 2, 3, … without gaps. */
@@ -42,6 +44,8 @@ export const MIGRATIONS: readonly Migration[] = [
   eventTime,
   durableStreams,
   dropCheckpoints,
+  modelUsage,
+  modelBudgets,
 ];
 
 /** The schema version this Runtime writes and expects. */

@@ -28,6 +28,7 @@ import { httpModelGate } from "../../src/gates/http-client.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import { MemorySessionStore } from "../../src/store/memory.js";
+import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
 import {
@@ -249,6 +250,7 @@ export async function startTestTenant(
   if (options.modelGate) hooks.modelGate = options.modelGate;
   else if (options.useHostModel && process.env.NYLORUN_TEST_MODEL_GATE === "http") {
     gate = await startTestGate({
+      store: opened.store,
       vault: new HostModelVault({
         store: opened.store,
         kek: () => {
@@ -358,6 +360,7 @@ export async function startTestTenant(
  * what the local stack's `gateway` container and the runtime container's loop do.
  */
 export async function startTestGate(options: {
+  store: SessionStore;
   vault: HostModelVault;
   root: string;
   logger: TenantConfig["logger"];
@@ -369,6 +372,7 @@ export async function startTestGate(options: {
     logger: options.logger,
     vaults: {
       open: async () => ({
+        store: options.store,
         root: options.root,
         readHostModel: () => options.vault.readHostModel(),
         writeHostCredential: (credential) => options.vault.updateHostCredential(credential),
