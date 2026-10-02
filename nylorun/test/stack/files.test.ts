@@ -132,7 +132,7 @@ describe("compose.yaml", () => {
 
   it("hides the vault key and the stack's secrets from the runtime container (F4.2)", () => {
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
-    for (const target of ["/nylorun/keys", "/nylorun/stack"])
+    for (const target of ["/nylorun/keys", "/nylorun/docker"])
       expect(runtime).toMatch(
         new RegExp(`- type: tmpfs\\n\\s+target: ${target}\\n\\s+read_only: true`),
       );
@@ -151,7 +151,7 @@ describe("compose.yaml", () => {
       "RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem",
     );
     expect(compose).toContain(
-      "- ${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro",
+      "- ${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro",
     );
     expect(compose).toContain(
       "NYLORUN_RESTATE_IDENTITY_KEY: ${NYLORUN_RESTATE_IDENTITY_KEY:?run nylorun start}",
@@ -185,7 +185,7 @@ describe(".env", () => {
 
   it("refuses a persisted frame allowlist with a wildcard", () => {
     expect(() => parsePersisted("NYLORUN_STUDIO_FRAME_ANCESTORS='*'\n")).toThrow(
-      /NYLORUN_STUDIO_FRAME_ANCESTORS in stack\/.env: \* is not an exact origin/,
+      /NYLORUN_STUDIO_FRAME_ANCESTORS in docker\/.env: \* is not an exact origin/,
     );
     expect(parsePersisted("NYLORUN_STUDIO_FRAME_ANCESTORS=\n")).toEqual({ studioFrameAncestors: [] });
   });
@@ -312,7 +312,7 @@ describe("prepareStack", () => {
     expect(await mode(paths.env)).toBe(0o600);
     expect(await mode(paths.config)).toBe(0o600);
     expect(await mode(paths.root)).toBe(0o700);
-    expect(await mode(paths.stack)).toBe(0o700);
+    expect(await mode(paths.docker)).toBe(0o700);
     expect(await readFile(paths.compose, "utf8")).toBe(renderComposeFile("nylorun-shop"));
     expect(await mode(paths.tenant)).toBe(0o700);
     const written = parseEnvLines(await readFile(paths.env, "utf8"));
@@ -377,7 +377,7 @@ describe("prepareStack", () => {
   it("keeps an existing identity key, fixes its mode and refuses a corrupt one", async () => {
     const home = await temporaryHome();
     const paths = stackPaths(home);
-    await mkdir(paths.stack, { recursive: true });
+    await mkdir(paths.docker, { recursive: true });
     await writeFile(paths.restateIdentity, FIXED_PEM, { mode: 0o644 });
     const prepared = await prepare(home);
     expect(prepared.env.restateIdentityKey).toBe(FIXED_KEY);

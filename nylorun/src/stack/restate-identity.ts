@@ -7,7 +7,7 @@ import { CliError } from "../errors.js";
  * every request to the Worker endpoint with an Ed25519 private key; the
  * Runtime accepts only requests that verify against the public key.
  *
- * - The private key is a PKCS#8 PEM at `stack/restate-identity.pem` (mode
+ * - The private key is a PKCS#8 PEM at `docker/restate-identity.pem` (mode
  *   0600), mounted read-only into the restate service as
  *   `RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE`.
  * - The public key goes to the Runtime as `NYLORUN_RESTATE_IDENTITY_KEY`, in

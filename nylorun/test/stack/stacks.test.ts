@@ -316,7 +316,7 @@ describe("delete", () => {
     expect(docker.streamed).toEqual([
       [
         "compose", "--project-name", "nylorun-scratch",
-        "--file", join(root, "stack", "compose.yaml"), "--env-file", join(root, "stack", ".env"),
+        "--file", join(root, "docker", "compose.yaml"), "--env-file", join(root, "docker", ".env"),
         "down", "--volumes", "--remove-orphans",
       ],
     ]);

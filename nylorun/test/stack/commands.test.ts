@@ -53,9 +53,9 @@ const compose = (home: string, project = "nylorun-home-root") => [
   "--project-name",
   project,
   "--file",
-  join(stackPaths(home).stack, "compose.yaml"),
+  join(stackPaths(home).docker, "compose.yaml"),
   "--env-file",
-  join(stackPaths(home).stack, ".env"),
+  join(stackPaths(home).docker, ".env"),
 ];
 
 describe("command names", () => {

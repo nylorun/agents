@@ -115,7 +115,7 @@ The Runtime registers the derived principals of `NYLORUN_DERIVED_PRINCIPALS`
 ## The stack
 
 `nylorun start` writes `compose.yaml` and `.env` (mode 0600) under
-`<Host root>/stack/` on the first run and reuses them after that: `postgres`,
+`~/.nylorun/stacks/<name>/docker/` on the first run and reuses them after that: `postgres`,
 `restate`, `s2`, `gateway`, `runtime` and `studio`. Postgres initialises the
 stack's database with C collation. The Runtime and Studio images are pinned by
 this release (`package.json` `nylorun.runtime` and `nylorun.studio`);
@@ -140,7 +140,7 @@ prints the login URL (it works once, for two minutes) instead.
 A desktop app such as Babai Desktop can show Studio inside its own window, in
 an iframe loaded from Studio's URL (`studio.url` in `nylorun status --json`).
 Only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
-`<Host root>/stack/.env`) may frame it. The default is Babai's
+`~/.nylorun/stacks/<name>/docker/.env`) may frame it. The default is Babai's
 `nylorun://localhost http://nylorun.localhost`; `nylorun status` lists them
 under `Embeds`. While building such an app, add its dev server once with
 `nylorun start --studio-embed-origin http://localhost:1420`; the list is kept
@@ -164,7 +164,7 @@ The **Host root** is `~/.nylorun/stacks/<name>/`, or `NYLORUN_HOME`. It is
 bind-mounted into the Runtime and Studio containers, and holds `stack.json`
 (the stack's name and the project it was created for), `host.json` (the
 client-facing host and port), `host-credentials.json` (the admin key, mode
-0600), the stack files, the Tenant directory `tenant/` (homes, logs) and
+0600), the Docker Compose files in `docker/`, the Tenant directory `tenant/` (homes, logs) and
 `keys/vault-kek`, the Tenant's vault key, which only the gateway container
 mounts. The Tenant's data lives in the stack's Postgres, Restate and S2
 volumes.
@@ -205,7 +205,7 @@ register again (`npm run dev`). See [MIGRATION.md](../MIGRATION.md).
 | `426` from the Runtime | Upgrade nylorun (`npx nylorun@latest start`), or pin a matching older set |
 | `Refusing to start Runtime …` (exit 5) | Upgrade nylorun (`npx nylorun@latest start`); `--allow-downgrade` only when both Runtimes share the database schema |
 | `The Tenant of stack … is unavailable` (exit 7) | Follow the repair it names; `nylorun logs runtime` |
-| Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `<Host root>/stack/.env` |
+| Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `~/.nylorun/stacks/<name>/docker/.env` |
 | Logs | `nylorun logs runtime -f` |
 | Studio login expired | `nylorun studio` |
 

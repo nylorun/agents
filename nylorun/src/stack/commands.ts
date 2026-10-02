@@ -444,12 +444,15 @@ async function refuseDowngrade(ctx: Context, allowDowngrade: boolean): Promise<v
 /** Ports other stacks (and the legacy stack) keep in their `.env`, so a new stack avoids them. */
 async function reservedPorts(ctx: Context): Promise<Set<number>> {
   const base = nylorunRoot(ctx.deps);
-  const roots = (await listStacks(base)).map((stack) => stack.root);
-  if (legacyStack(base)) roots.push(base);
+  const others: Pick<StackPaths, "env">[] = (await listStacks(base))
+    .filter((stack) => resolve(stack.root) !== ctx.paths.root)
+    .map((stack) => stackPaths(stack.root));
+  // The legacy stack keeps its .env in stack/, not docker/.
+  const legacy = legacyStack(base);
+  if (legacy && resolve(base) !== ctx.paths.root) others.push(legacy);
   const reserved = new Set<number>();
-  for (const root of roots) {
-    if (resolve(root) === ctx.paths.root) continue;
-    const persisted = await readStackEnv(stackPaths(root));
+  for (const paths of others) {
+    const persisted = await readStackEnv(paths);
     for (const port of [
       persisted?.runtimePort,
       persisted?.adminPort,

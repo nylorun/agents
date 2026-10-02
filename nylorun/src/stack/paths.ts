@@ -20,7 +20,8 @@ export interface StackPaths {
   vaultKey: string;
   home: string;
   tmp: string;
-  stack: string;
+  /** The Docker Compose files: compose.yaml, .env and the Restate identity key. */
+  docker: string;
   compose: string;
   env: string;
   /** Restate's request-identity private key (Ed25519 PKCS#8 PEM), mode 0600. */
@@ -29,7 +30,7 @@ export interface StackPaths {
 
 export function stackPaths(hostRoot: string): StackPaths {
   const root = resolve(hostRoot);
-  const stack = join(root, "stack");
+  const docker = join(root, "docker");
   return {
     root,
     config: join(root, "host.json"),
@@ -41,9 +42,9 @@ export function stackPaths(hostRoot: string): StackPaths {
     vaultKey: join(root, "keys", "vault-kek"),
     home: join(root, "home"),
     tmp: join(root, "tmp"),
-    stack,
-    compose: join(stack, "compose.yaml"),
-    env: join(stack, ".env"),
-    restateIdentity: join(stack, "restate-identity.pem"),
+    docker,
+    compose: join(docker, "compose.yaml"),
+    env: join(docker, ".env"),
+    restateIdentity: join(docker, "restate-identity.pem"),
   };
 }

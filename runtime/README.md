@@ -82,7 +82,7 @@ the stack). What stays on the Host is under `tenant/`.
 <host root>/
   host.json                 # format 1: hostId, host, port, adminPort?, runtimeVersion, …
   host-credentials.json     # adminKey (0600)
-  stack/                    # compose.yaml, .env (0600), Restate identity key
+  docker/                   # compose.yaml, .env (0600), Restate identity key
   tenant/                   # vault-kek, plugin-data, logs, home, tmp, sandboxes
 ```
 
@@ -214,7 +214,7 @@ writes the Project link; the project's `npm run dev` runs `src/main.ts` under
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
-| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun start` |
+| Port in use | Change `NYLORUN_PORT` in `~/.nylorun/stacks/<name>/docker/.env` and run `nylorun start` |
 | Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.

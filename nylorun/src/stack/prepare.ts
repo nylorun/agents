@@ -46,15 +46,15 @@ async function readText(path: string): Promise<string | undefined> {
 }
 
 /** Read the persisted stack settings without writing anything. */
-export async function readStackEnv(paths: StackPaths) {
+export async function readStackEnv(paths: Pick<StackPaths, "env">) {
   const text = await readText(paths.env);
   return text === undefined ? undefined : parsePersisted(text);
 }
 
 /**
  * Write everything `docker compose up` needs under the Host root:
- * host.json, host-credentials.json (0600), stack/compose.yaml,
- * stack/.env (0600) and stack/restate-identity.pem (0600). Ports and the
+ * host.json, host-credentials.json (0600), docker/compose.yaml,
+ * docker/.env (0600) and docker/restate-identity.pem (0600). Ports and the
  * Postgres password persist in .env; the identity key persists in its PEM.
  */
 export async function prepareStack(input: {

@@ -30,7 +30,7 @@ start the stack, Studio or a file watcher; start the stack first
 
 Keep the stack's **Host root** (`~/.nylorun/stacks/<stack>/`, or `NYLORUN_HOME`)
 private and persistent across ordinary restarts: `host.json`, the admin key in
-`host-credentials.json`, the stack's `stack/.env` and Compose file, the
+`host-credentials.json`, the Docker setup in `docker/` (`compose.yaml` and `.env`), the
 Tenant directory `tenant/`, and the vault key in `keys/vault-kek`. Back up the
 vault key with the Postgres volume: the Tenant's stored credentials cannot be
 read without it. The Tenant's data lives in the
@@ -227,7 +227,7 @@ sends every vault-backed model call to it (`NYLORUN_GATES_URL`) and never holds
 a model credential.
 
 - The gateway has no published port; only the runtime reaches it, on the stack
-  network, with `NYLORUN_GATES_TOKEN` from `stack/.env`. `nylorun up` generates
+  network, with `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up` generates
   the token once and keeps it.
 - It mounts only the Host root's `tenant/` and `keys/` directories, read-only
   (the Tenant's homes and its vault key), never `host-credentials.json`, and
@@ -277,7 +277,7 @@ runs every vault write that touches a secret (creating and rotating a
 credential, setting and selecting the host model) and signs every token
 (subject tokens, Action deliveries, signing-key rotation). The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
-never reads the key: Compose covers `keys/` and `stack/` in the runtime
+never reads the key: Compose covers `keys/` and `docker/` in the runtime
 container with empty read-only mounts. While the gateway is down, those
 requests answer `503 keys_unavailable`.
 

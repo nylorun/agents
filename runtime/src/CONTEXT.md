@@ -93,8 +93,8 @@ API routes are in `api/`: the `/v1` HTTP routes (`api/http/`), the AG-UI
 endpoint (`api/ag-ui/`) and the A2A endpoint (`api/a2a/`).
 _Avoid_: equating "Runtime" alone with a single Project's process.
 
-**Host root**: The absolute directory that holds Host files and the Tenant directory
-`tenant/`. Resolved once from `NYLORUN_HOME`, or for a local stack
+**Host root**: The absolute directory that holds Host files, the Tenant directory
+`tenant/` and, for a local stack, its Docker Compose files in `docker/`. Resolved once from `NYLORUN_HOME`, or for a local stack
 `~/.nylorun/stacks/<name>/`. The local stack bind-mounts it into the Runtime container
 at `/nylorun`.
 

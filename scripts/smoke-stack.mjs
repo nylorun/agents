@@ -71,7 +71,7 @@ try {
     // container, and no file it can read holds the key.
     const vaultKey = (await readFile(join(home, "keys", "vault-kek"), "utf8")).trim();
     assert.equal(Buffer.from(vaultKey, "base64").length, 32, "nylorun start wrote the vault key");
-    for (const hidden of ["/nylorun/keys", "/nylorun/stack"])
+    for (const hidden of ["/nylorun/keys", "/nylorun/docker"])
       assert.equal(
         (await stack.compose(["exec", "-T", "runtime", "ls", "-A", hidden])).trim(),
         "",
@@ -107,7 +107,7 @@ console.log(JSON.stringify(found));
     );
 
     // Restate loaded the key whose public half the Runtime was given.
-    const stackEnv = await readFile(join(home, "stack", ".env"), "utf8");
+    const stackEnv = await readFile(join(home, "docker", ".env"), "utf8");
     const identityKey = /^NYLORUN_RESTATE_IDENTITY_KEY=(publickeyv1_\w+)$/m.exec(stackEnv)?.[1];
     assert.ok(identityKey, ".env holds the Restate identity key");
     const logs = await stack.nylorun(["logs", "restate", "--tail", "100000"], { echo: false });
@@ -177,8 +177,8 @@ console.log(JSON.stringify(found));
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
     // `up` reuses the stack it set up, and the stopped volumes keep the Tenant.
     const stackFiles = async () => [
-      await readFile(join(home, "stack", "compose.yaml"), "utf8"),
-      await readFile(join(home, "stack", ".env"), "utf8"),
+      await readFile(join(home, "docker", "compose.yaml"), "utf8"),
+      await readFile(join(home, "docker", ".env"), "utf8"),
     ];
     const before = await stackFiles();
     await stack.nylorun(["down"]);

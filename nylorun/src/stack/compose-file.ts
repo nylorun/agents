@@ -2,10 +2,10 @@ import { PINNED_IMAGES } from "./images.js";
 
 /**
  * A local stack's Compose file (Runtime Architecture §14.3), written to
- * `<Host root>/stack/compose.yaml` by `nylorun start`. Each stack is one installation with
+ * `<Host root>/docker/compose.yaml` by `nylorun start`. Each stack is one installation with
  * one Tenant (tenancy.md §6): its own Compose project (`nylorun-<name>`, the file's `name`),
  * volumes, network and ports. Everything else that varies (ports, the Postgres password,
- * UID/GID, the Host root, the images, the stack's name) comes from `stack/.env`.
+ * UID/GID, the Host root, the images, the stack's name) comes from `docker/.env`.
  *
  * The Tenant's state is the stack's Postgres database, executed through Restate, with its
  * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
@@ -16,7 +16,7 @@ import { PINNED_IMAGES } from "./images.js";
  * principals of `NYLORUN_DERIVED_PRINCIPALS` (`project` for the Project link).
  *
  * Restate signs requests to the Worker endpoint with the private key in
- * `stack/restate-identity.pem`, mounted read-only; the Runtime gets the public
+ * `docker/restate-identity.pem`, mounted read-only; the Runtime gets the public
  * key as NYLORUN_RESTATE_IDENTITY_KEY.
  *
  * The combined packing (blueprint D12): the `runtime` container runs the core
@@ -29,7 +29,7 @@ import { PINNED_IMAGES } from "./images.js";
  * holder of the vault key, it runs every vault write that touches a secret and signs
  * every token (NYLORUN_KEYS_URL). The gateway mounts only the Host's Tenant directory
  * (`tenant/`) and its keys directory (`keys/`, the vault key), read-only: never
- * host-credentials.json. The runtime mounts the Host root with `keys/` and `stack/`
+ * host-credentials.json. The runtime mounts the Host root with `keys/` and `docker/`
  * covered by empty read-only mounts, so it can read neither the vault key nor
  * Restate's private key and `.env`. The runtime does not wait for the gateway: while
  * it is down, model and MCP calls fail, deliveries are retried, vault writes and
@@ -65,7 +65,7 @@ services:
       RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
     volumes:
       - restate:/restate-data
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
     ports:
       - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
     healthcheck:
@@ -159,14 +159,14 @@ services:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
-      # Empty and read-only over the vault key (keys/) and the stack's secrets (stack/):
+      # Empty and read-only over the vault key (keys/) and the stack's secrets (docker/):
       # only the gateway reads the key, and only Restate its private key.
       - type: tmpfs
         target: /nylorun/keys
         read_only: true
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - type: tmpfs
-        target: /nylorun/stack
+        target: /nylorun/docker
         read_only: true
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
