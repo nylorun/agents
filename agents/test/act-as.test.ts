@@ -34,7 +34,6 @@ function recording() {
   const client = new AgentsClient({
     url: "http://127.0.0.1:8787",
     key: KEY,
-    tenant: TENANT,
     fetch: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/health") {

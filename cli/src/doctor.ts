@@ -35,14 +35,9 @@ function platformLine(): string {
 async function fetchSandboxReport(options?: {
   url?: string;
   key?: string;
-  tenant?: string;
 }): Promise<SandboxReport> {
   const connection = await resolveConnection(options);
-  const client = createClient({
-    url: connection.url,
-    key: connection.key,
-    tenant: connection.tenant,
-  });
+  const client = createClient({ url: connection.url, key: connection.key });
   return client.transport.json<SandboxReport>(
     "/v1/tenant/sandbox",
     "GET",
@@ -78,7 +73,7 @@ export async function doctorSandbox(options: { json: boolean }): Promise<void> {
   rows.push([
     "preference",
     report.preference === "auto"
-      ? "auto (seed Tenant sandbox.backend via nylo tenant create / .env NYLORUN_SANDBOX)"
+      ? "auto (npx nylorun start seeds the Tenant's sandbox.backend from .env NYLORUN_SANDBOX)"
       : report.preference,
   ]);
   if (report.config)

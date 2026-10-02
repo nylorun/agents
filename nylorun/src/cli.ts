@@ -2,32 +2,34 @@
 import "./baseline.js";
 import { baselineEnv } from "./baseline.js";
 import { CliError } from "./errors.js";
-import { linkedTenantId } from "./project/link.js";
 import {
   isStackCommand,
   stackCommand,
   stackUsage,
   studioCommand,
-  tenantStudioPath,
 } from "./stack/index.js";
 
-const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|doctor>
+const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|legacy|doctor>
 
-Local stack (Docker Compose):
+Local stacks (Docker Compose), one per project:
 ${stackUsage}
   doctor [--json]                     check Node, Docker and Compose v2, and the stack's health
 
-nylorun sets up and runs the local stack. Tenants, Project links and model
+A command acts on the stack --name or NYLORUN_STACK names, else the linked project's;
+NYLORUN_HOME sets its Host root (default ~/.nylorun/stacks/<name>).
+
+nylorun sets up and runs local stacks. "nylorun start" in a project creates the
+project's stack, its one Tenant and the Project link. Agents, sessions and model
 providers belong to the Runtime client: npx @nylorun/cli --help`;
 
 const CLIENT = "npx @nylorun/cli";
 
-/** Commands that moved to the Runtime client (`@nylorun/cli`, command `nylo`). */
+/** Commands that were removed, or moved to the Runtime client (`@nylorun/cli`, command `nylo`). */
 const MOVED_TO_CLIENT: Record<string, string> = {
-  dev: `nylorun dev was removed: run \`${CLIENT} tenant create\` once in your project, then your project's \`npm run dev\`.`,
-  tenant: `Tenant commands moved to the Runtime client: ${CLIENT} tenant …`,
+  dev: "nylorun dev was removed: run `npx nylorun start` in your project (it creates the project's stack, its Tenant and the Project link), then your project's `npm run dev`.",
+  tenant: `Tenant commands were removed: a stack serves one Tenant, which \`npx nylorun start\` in a project creates with the stack and the Project link. Use nylorun status|reset, or ${CLIENT} status|reset|endpoints.`,
   configure: `nylorun configure moved to the Runtime client: ${CLIENT} configure`,
-  serve: "nylorun serve was removed. Use node dist/src/main.js with NYLORUN_RUNTIME_URL, NYLORUN_TENANT and NYLORUN_SERVER_KEY.",
+  serve: "nylorun serve was removed. Use node dist/src/main.js with NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.",
   runtime: "nylorun runtime was removed: the local Runtime runs in the Docker Compose stack. Use nylorun up|down|status|logs.",
 };
 
@@ -53,12 +55,7 @@ async function main() {
 
   if (command === "studio") {
     if (args.includes("--local-ui")) throw usageError(LOCAL_UI_REMOVED);
-    const tenantId = await linkedTenantId();
-    process.exitCode = await studioCommand(
-      args,
-      baselineEnv(),
-      tenantId ? { next: tenantStudioPath(tenantId) } : {},
-    );
+    process.exitCode = await studioCommand(args, baselineEnv());
     return;
   }
   if (isStackCommand(command)) {

@@ -86,8 +86,6 @@ export const ERROR_CODES = [
   "host_rejected",
   "origin_rejected",
   "unsupported_media_type",
-  "tenant_conflict",
-  "active_work",
   "connection_missing",
   "incompatible_host",
   "subject_invalid",

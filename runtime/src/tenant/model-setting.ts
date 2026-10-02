@@ -3,7 +3,7 @@
  * `fixtureModel: true` (`PUT /v1/tenant/config/seed`, Host feature `tenant-fixture-model`).
  * A Tenant with it answers every model call with the Runtime's deterministic fixture model
  * (`core/provider.ts` `toolFixtureModel`) instead of its configured model. Smoke checks seed
- * it (scripts/lib/temporary-tenant.mjs).
+ * it (scripts/lib/stack-tenant.mjs).
  *
  * The setting is read once per advance, in a transaction the advance makes anyway, so a Tenant
  * seeded on another node takes it at its next advance.

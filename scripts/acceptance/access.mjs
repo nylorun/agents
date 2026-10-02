@@ -24,8 +24,8 @@ import { createServer } from "node:http";
 import { z } from "zod";
 import { Agent, createClient, tool } from "@nylorun/agents";
 import { serveActionEndpoint } from "../lib/action-endpoint.mjs";
-import { ensureImages, eventually, tenantHeaders, withStack } from "../lib/stack.mjs";
-import { withTemporaryTenant } from "../lib/temporary-tenant.mjs";
+import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
+import { withResetTenant } from "../lib/stack-tenant.mjs";
 
 const SUBJECTS = {
   admin: ["tenant:settings", "agents:write", "sessions:own", "vaults:own"],
@@ -59,7 +59,7 @@ const desk = Agent({ id: "desk", name: "Desk" })
 
 async function session(runtime, tenant, id, as) {
   const response = await fetch(`${runtime}/v1/sessions/${id}`, {
-    headers: tenantHeaders(tenant.id, tenant.env.NYLORUN_SERVER_KEY, subjectHeaders(as)),
+    headers: runtimeHeaders(tenant.env.NYLORUN_SERVER_KEY, subjectHeaders(as)),
     signal: AbortSignal.timeout(10_000),
   });
   return response.json();
@@ -176,7 +176,7 @@ async function a3(runtime, tenant, people) {
   const call = async (as, method, path, body) => {
     const response = await fetch(`${runtime}${path}`, {
       method,
-      headers: tenantHeaders(tenant.id, key, {
+      headers: runtimeHeaders(key, {
         ...subjectHeaders(as),
         ...(body ? { "content-type": "application/json" } : {}),
       }),
@@ -259,7 +259,7 @@ async function a4(runtime, tenant, people) {
       ),
     );
     const response = await fetch(`${runtime}/v1/sessions`, {
-      headers: tenantHeaders(tenant.id, tenant.env.NYLORUN_SERVER_KEY, {
+      headers: runtimeHeaders(tenant.env.NYLORUN_SERVER_KEY, {
         ...forwarded,
         ...subjectHeaders(person),
       }),
@@ -295,11 +295,10 @@ try {
   await withStack({ name: "nylorun-access", images, startArgs: ["--no-studio"] }, async (stack) => {
     const runtime = stack.runtimeUrl;
     const admin = await stack.admin();
-    await withTemporaryTenant({ admin, name: "access" }, async (tenant) => {
+    await withResetTenant({ admin, name: "access" }, async (tenant) => {
       const app = createClient({
         url: tenant.env.NYLORUN_RUNTIME_URL,
         key: tenant.env.NYLORUN_SERVER_KEY,
-        tenant: tenant.id,
       });
       assert.ok(
         (await app.hostFeatures()).includes("subject-headers"),

@@ -11,8 +11,8 @@ import { AdminError } from "./errors.js";
  * Babai, calls this from its backend and hands only the token to its page,
  * which passes it to the framed Studio in `init`.
  *
- * - `tenant` limits the session the token leads to to one Tenant; omit it for
- *   a Host-wide token (what `nylorun studio` uses).
+ * - `tenant` names the Host's one Tenant, for embedders that pass it (the embed
+ *   contract keeps it); Studio refuses any other. Omit it, as `nylorun studio` does.
  * - `subject` names the person, for Studio's logs.
  */
 export async function mintStudioLoginToken(options: {

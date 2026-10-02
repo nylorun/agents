@@ -30,20 +30,22 @@ ignored: the creator starts nothing and opens no browser.
 
 ```sh
 cd my-agent
-npx nylorun@beta up                  # the local Runtime and Studio (Docker)
-npx @nylorun/cli@beta tenant create  # this project's Tenant, linked in .nylorun/
-npm run dev                          # tsx watch src/main.ts
-npx nylorun studio                   # a fresh Studio login on this project's Tenant
+npx nylorun@beta start  # this project's stack (Docker), its Tenant, linked in .nylorun/
+npm run dev             # tsx watch src/main.ts
+npx nylorun studio      # a fresh Studio login on this project's Tenant
 npm run build
 npm start
 ```
 
-`nylorun` sets up and runs the local stack; it never creates Tenants.
-`@nylorun/cli` (command `nylo`) is the Runtime client: `tenant create` creates
-the project's Tenant, writes the Project link and application credentials to
+`nylorun start` in the project creates and starts the project's own local
+stack (Runtime, Studio and their infrastructure, named after the directory;
+`--name` picks or shares another), whose Runtime creates the stack's one
+Tenant. It writes the Project link and the derived application credentials to
 gitignored `.nylorun/`, and seeds the model provider from `.env`
 (`MODEL_PROVIDER`, `MODEL`, `MODEL_PROVIDER_API_KEY`) into the Tenant vault.
-Studio or `npx @nylorun/cli configure` sets or replaces the provider.
+`@nylorun/cli` (command `nylo`) is the Runtime client: `nylo status`,
+`nylo reset` and `nylo endpoints` work on the linked Tenant. Studio or
+`npx @nylorun/cli configure` sets or replaces the provider.
 `npm start` runs `node dist/src/main.js` with the same entry as development.
 Export the Project environment (`eval "$(npx @nylorun/cli env)"`) before a
 production start when there is no Project link. Tenant data, including the
@@ -62,10 +64,10 @@ remain outside that registry for later migration.
 
 `npm run test:starter` (`create-agent/scripts/smoke-starter.mjs`) packs the
 workspace, scaffolds the starter from the packed creator, installs `nylorun`
-and `@nylorun/cli` beside it (never into it), runs `nylorun up`, then
-`nylo tenant create` and `npm run dev` against a temporary local Docker stack,
-then runs one turn on a temporary fixture-model Tenant and checks that it is
-deleted.
+and `@nylorun/cli` beside it (never into it), runs `nylorun start` in it and
+`npm run dev` against a temporary local Docker stack, then resets the stack's
+Tenant, seeds the fixture model and runs one turn that calls the starter's
+tool.
 
 See [RELEASING](../RELEASING.md) for the Changesets beta workflow. Nothing is
 published by the smoke check.

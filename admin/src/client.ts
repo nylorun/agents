@@ -1,32 +1,21 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import {
   AdminStatusSchema,
+  ProjectLinkFileSchema,
   RejectedResponseSchema,
-  TenantEnvelopeSchema,
   type AdminStatus,
-  type TenantEnvelope,
 } from "@nylorun/core/contracts";
 import {
   PROTOCOL_FEATURES,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
   checkCompatibility,
-  DERIVED_PRINCIPAL_ID_PATTERN,
-  newPrincipalId,
-  newTenantId,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
-import { deriveStudioToken, deriveTenantKey } from "./derived-credentials.js";
+import { deriveTenantKey } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
-import {
-  AdminTenantSchema,
-  AdminTenantStatusSchema,
-  type AdminTenant,
-  type AdminTenantStatus,
-} from "./legacy-tenants.js";
 
 export type AdminSource = "options" | "environment" | "local-host";
 
@@ -40,7 +29,19 @@ export interface ResolvedAdmin {
   adminUrl?: string;
   key: string;
   source: AdminSource;
-  home: string;
+  /** The Host root read for local Host settings, when one was found. */
+  home?: string;
+}
+
+export interface AdminConnectionOptions {
+  url?: string;
+  key?: string;
+  /** The Host root itself (overrides `NYLORUN_HOME` and the stack). */
+  home?: string;
+  /** The local stack whose Host root (`~/.nylorun/stacks/<stack>/`) to read. */
+  stack?: string;
+  /** Where to look for a Project link naming the stack; defaults to the working directory. */
+  cwd?: string;
 }
 
 function env(name: string): string | undefined {
@@ -48,21 +49,73 @@ function env(name: string): string | undefined {
   return value === undefined || value.trim() === "" ? undefined : value;
 }
 
-function resolveHome(home?: string): string {
-  if (home !== undefined && home.trim() !== "") return resolve(home);
+/** A local stack's Host root: `~/.nylorun/stacks/<name>/`. */
+export function stackHostRoot(name: string): string {
+  return resolve(join(homedir(), ".nylorun", "stacks", name));
+}
+
+/**
+ * The stack a Project link names (`.nylorun/link.json`, format 2), from `cwd` upwards. The walk
+ * stops at the home directory, which holds the stacks and is never a Project.
+ */
+function linkedStack(cwd: string): string | undefined {
+  const real = (path: string) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path;
+    }
+  };
+  const stop = real(homedir());
+  let directory = real(resolve(cwd));
+  const root = parse(directory).root;
+  while (directory !== stop) {
+    let raw: string | undefined;
+    try {
+      raw = readFileSync(join(directory, ".nylorun", "link.json"), "utf8");
+    } catch {
+      /* no link here */
+    }
+    if (raw !== undefined) {
+      try {
+        return ProjectLinkFileSchema.parse(JSON.parse(raw)).stack;
+      } catch {
+        return undefined;
+      }
+    }
+    if (directory === root) return undefined;
+    directory = dirname(directory);
+  }
+  return undefined;
+}
+
+/**
+ * The Host root of the local Host: `options.home`, `NYLORUN_HOME`, or the Host root of the stack
+ * named by `options.stack`, `NYLORUN_STACK` or the Project link. Undefined when none names one.
+ */
+function resolveHome(options?: AdminConnectionOptions): string | undefined {
+  if (options?.home !== undefined && options.home.trim() !== "")
+    return resolve(options.home);
   const fromEnv = env("NYLORUN_HOME");
   if (fromEnv) return resolve(fromEnv);
-  return resolve(join(homedir(), ".nylorun"));
+  const stack =
+    options?.stack?.trim() ||
+    env("NYLORUN_STACK")?.trim() ||
+    linkedStack(options?.cwd ?? process.cwd());
+  return stack ? stackHostRoot(stack) : undefined;
 }
 
 function connectionMissing(message: string): never {
   throw new AdminError("connection_missing", message);
 }
 
-function sourcesTriedMessage(home: string): string {
+function sourcesTriedMessage(home: string | undefined): string {
   return (
     `Tried options (url + key), environment (NYLORUN_ADMIN_URL + NYLORUN_ADMIN_KEY), ` +
-    `and local Host settings (host.json + host-credentials.json under ${home}).`
+    (home
+      ? `and local Host settings (host.json + host-credentials.json under ${home}).`
+      : "and local Host settings (no stack named: pass `stack`, set NYLORUN_STACK or " +
+        "NYLORUN_HOME, or run in a Project that `npx nylorun start` linked).")
   );
 }
 
@@ -136,12 +189,10 @@ function readLocalHost(
 /**
  * Resolve Admin API connection once: options → environment → local Host.
  */
-export function resolveAdminConnection(options?: {
-  url?: string;
-  key?: string;
-  home?: string;
-}): ResolvedAdmin {
-  const home = resolveHome(options?.home);
+export function resolveAdminConnection(
+  options?: AdminConnectionOptions,
+): ResolvedAdmin {
+  const home = resolveHome(options);
   const optionUrl = options?.url?.trim() || undefined;
   const optionKey = options?.key?.trim() || undefined;
   if (optionUrl || optionKey) {
@@ -154,7 +205,7 @@ export function resolveAdminConnection(options?: {
       url: optionUrl.replace(/\/$/, ""),
       key: optionKey,
       source: "options",
-      home,
+      ...(home ? { home } : {}),
     };
   }
 
@@ -170,11 +221,11 @@ export function resolveAdminConnection(options?: {
       url: envUrl.replace(/\/$/, ""),
       key: envKey,
       source: "environment",
-      home,
+      ...(home ? { home } : {}),
     };
   }
 
-  const local = readLocalHost(home);
+  const local = home === undefined ? undefined : readLocalHost(home);
   if (local) {
     return {
       url: local.url.replace(/\/$/, ""),
@@ -210,14 +261,6 @@ function parseProtocolRange(value: unknown): ProtocolRange | undefined {
   };
 }
 
-function hashCredential(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
-}
-
-function mintApplicationKey(): string {
-  return randomBytes(32).toString("hex");
-}
-
 function throwFromResponse(status: number, body: unknown): never {
   const parsed = RejectedResponseSchema.safeParse(body);
   if (parsed.success) {
@@ -225,13 +268,6 @@ function throwFromResponse(status: number, body: unknown): never {
       status,
       details: parsed.data.details,
     });
-  }
-  if (status === 409) {
-    throw new AdminError(
-      "tenant_conflict",
-      `Admin request conflict (${status})`,
-      { status, details: body },
-    );
   }
   if (status === 404) {
     throw new AdminError("not_found", `Admin request not found (${status})`, {
@@ -263,8 +299,6 @@ export class AdminClient {
   readonly source: AdminSource;
   private readonly key: string;
   private compatible = false;
-  /** Features the Host advertised at the last compatibility check. */
-  private features: readonly string[] = [];
 
   constructor(resolved: ResolvedAdmin) {
     this.url = resolved.url;
@@ -323,7 +357,6 @@ export class AdminClient {
         { details: result },
       );
     }
-    this.features = [...protocol.features];
     this.compatible = true;
   }
 
@@ -393,132 +426,12 @@ export class AdminClient {
     return AdminStatusSchema.parse(body);
   }
 
-  async listTenants(): Promise<AdminTenant[]> {
-    const body = await this.json<unknown>("/v1/admin/tenants");
-    if (!Array.isArray(body)) {
-      throw new AdminError(
-        "not_found",
-        "Admin list tenants response was not an array.",
-        { details: body },
-      );
-    }
-    return body.map((item) => AdminTenantSchema.parse(item));
-  }
-
-  async getTenant(id: string): Promise<AdminTenantStatus> {
-    const body = await this.json<unknown>(
-      `/v1/admin/tenants/${encodeURIComponent(id)}`,
-    );
-    return AdminTenantStatusSchema.parse(body);
-  }
-
-  async deleteTenant(
-    id: string,
-    options?: { activeWork?: "refuse" | "drain" | "cancel" },
-  ): Promise<void> {
-    const activeWork = options?.activeWork ?? "refuse";
-    await this.json<void>(
-      `/v1/admin/tenants/${encodeURIComponent(id)}?activeWork=${activeWork}`,
-      "DELETE",
-    );
-  }
-
   /**
    * The key of derived principal `principalId` on `tenantId`, from this client's admin key.
-   * Valid once the Tenant was created with that principal in `principals`.
+   * Valid when the Host registered that principal (`NYLORUN_DERIVED_PRINCIPALS`, default
+   * `project`) on its Tenant.
    */
   deriveTenantKey(tenantId: string, principalId: string): string {
     return deriveTenantKey(this.key, tenantId, principalId);
-  }
-
-  async createTenant(options: {
-    name: string;
-    principals?: readonly string[];
-  }): Promise<{ tenant: TenantEnvelope; applicationKey: string }> {
-    const principals = options.principals ?? [];
-    for (const id of principals)
-      if (!DERIVED_PRINCIPAL_ID_PATTERN.test(id) || id === "studio")
-        throw new TypeError(
-          `Principal id '${id}' must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be 'studio'.`,
-        );
-    if (new Set(principals).size !== principals.length)
-      throw new TypeError("Principal ids must be unique.");
-    if (principals.length) {
-      await this.ensureCompatible();
-      if (!this.features.includes("derived-principals"))
-        throw new AdminError(
-          "incompatible_host",
-          "Host does not support derived principals (feature derived-principals); upgrade it with `nylorun up`.",
-        );
-    }
-    const applicationKey = mintApplicationKey();
-    const tenantId = newTenantId();
-    const body = {
-      tenantId,
-      name: options.name,
-      principalId: newPrincipalId(),
-      credentialHash: hashCredential(applicationKey),
-      idempotencyKey: randomUUID(),
-      studioCredentialHash: hashCredential(deriveStudioToken(this.key, tenantId)),
-      ...(principals.length
-        ? {
-            derivedPrincipals: principals.map((id) => ({
-              id,
-              credentialHash: hashCredential(
-                deriveTenantKey(this.key, tenantId, id),
-              ),
-            })),
-          }
-        : {}),
-    };
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      let response: Response;
-      try {
-        response = await this.request("/v1/admin/tenants", {
-          method: "POST",
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(15_000),
-        });
-      } catch (error) {
-        if (error instanceof AdminError) throw error;
-        lastError = error;
-        if (attempt === 2) {
-          throw new AdminError(
-            "not_found",
-            `Could not create Tenant after network errors: ${error instanceof Error ? error.message : String(error)}`,
-            { details: error },
-          );
-        }
-        continue;
-      }
-      if (response.status === 409) {
-        const parsed = await readBody(response);
-        throw new AdminError("tenant_conflict", "Tenant id conflict.", {
-          status: 409,
-          details: parsed,
-        });
-      }
-      if (response.status >= 500) {
-        lastError = await readBody(response);
-        if (attempt === 2) {
-          throwFromResponse(response.status, lastError);
-        }
-        continue;
-      }
-      const parsed = await readBody(response);
-      if (response.status !== 201 && response.status !== 200) {
-        throwFromResponse(response.status, parsed);
-      }
-      return {
-        tenant: TenantEnvelopeSchema.parse(parsed),
-        applicationKey,
-      };
-    }
-    throw lastError instanceof AdminError
-      ? lastError
-      : new AdminError("not_found", "Could not create Tenant after retries.", {
-          details: lastError,
-        });
   }
 }

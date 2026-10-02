@@ -114,7 +114,6 @@ describe("observeSSE", () => {
     const client = new AgentsClient({
       url: "http://runtime.test",
       key: "k".repeat(64),
-      tenant: "tn_00000000000000000000000001",
       fetch: async (input, init) => {
         const url = new URL(String(input));
         if (url.pathname === "/health")

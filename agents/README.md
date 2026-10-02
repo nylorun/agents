@@ -24,11 +24,11 @@ The Runtime delivers each tool call, hook and workflow function of these agents
 to `url`, signed with a short-lived **delivery token** that the handler checks
 (Tenant, URL, Action, generation and body) before any code runs. `register`
 saves the definitions, registers the URL and pings it through the Runtime. A
-process that only serves Actions needs no key: pass `runtime: { url, tenant }`
-and it reads the Tenant's public keys. Mark a long tool
+process that only serves Actions needs no key: pass `runtime: { url }` and it
+reads the Tenant's public keys. Mark a long tool
 `tool({ …, background: true })`: the handler answers at once, heartbeats and
-posts the result. `npx @nylorun/cli tenant endpoints` shows each endpoint and
-how its deliveries are doing.
+posts the result. `npx @nylorun/cli endpoints` shows each endpoint and how its
+deliveries are doing.
 
 The URL must be one the Runtime can reach: `localhost` on the local stack
 (its Runtime runs in Docker and maps `localhost` to this machine), a public URL
@@ -36,21 +36,26 @@ in production, or a tunnel (ngrok, Cloudflare Tunnel) for a remote Runtime.
 
 `connectAgents` and executors were removed in protocol 3: mount
 `createActionHandler` instead (see [MIGRATION.md](../MIGRATION.md)). The handler
-finds the Runtime through the three `NYLORUN_*` variables or the Project link
-that `npx @nylorun/cli tenant create` writes; with neither, `register` fails
-with `connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
+finds the Runtime through the two `NYLORUN_*` variables or the Project link
+that `npx nylorun start` writes; with neither, `register` fails with
+`connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
 for upgrading from `nylorun serve`.
 
 ## Connection resolution
 
 `resolveConnection` / `createClient()` / `createActionHandler({ agents })`:
 
-1. Explicit `{ url, tenant, key }`
-2. Environment — if any of `NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT` or
-   `NYLORUN_SERVER_KEY` is set, all three must be present
-3. Project link — `.nylorun/link.json` + `credentials.json` (the application key)
+1. Explicit `{ url, key }`
+2. Environment — if `NYLORUN_RUNTIME_URL` or `NYLORUN_SERVER_KEY` is set, both
+   must be present
+3. Project link — `.nylorun/link.json` + `credentials.json` (the application
+   key), written by `npx nylorun start`. A link from before one Tenant per
+   installation (format 0 or 1) fails with `connection_missing`: run
+   `npx nylorun start` in the project again.
 
-Sources never mix. Partial environment fails with `connection_missing`.
+Sources never mix. Partial environment fails with `connection_missing`. A
+Runtime serves one Tenant, so nothing names it: the `tenant` option and
+`NYLORUN_TENANT` are gone (protocol 5).
 
 ```ts
 import { Agent, createActionHandler, createClient, tool } from "@nylorun/agents";
@@ -72,7 +77,6 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
 const client = createClient({
   url: process.env.NYLORUN_RUNTIME_URL,
   key: process.env.NYLORUN_SERVER_KEY,
-  tenant: process.env.NYLORUN_TENANT,
 });
 await client.saveAgent(assistant, { implementationVersion: "app-1" });
 const session = await client.createSession({
@@ -86,10 +90,7 @@ const history = await session.history();
 const actions = createActionHandler({
   agents: [assistant],
   implementationVersion: "app-1",
-  runtime: {
-    url: process.env.NYLORUN_RUNTIME_URL!,
-    tenant: process.env.NYLORUN_TENANT!,
-  },
+  runtime: { url: process.env.NYLORUN_RUNTIME_URL! },
   url: "https://app.example.com/nylorun/actions",
   onError: console.error,
 });
@@ -102,11 +103,11 @@ await createActionHandler({ agents: [assistant], client }).register({
 
 ```sh
 eval "$(npx @nylorun/cli env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
+# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
-Every request sets `Nylorun-Tenant` and `Nylorun-Protocol`. A `tenant` field in a
-body or query is never read from caller input. Before the first authenticated
+Every request sets `Nylorun-Protocol` (5) and no `Nylorun-Tenant`: the Runtime
+serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
 required features do not match. Re-exports include `PROTOCOL_FEATURES`,
@@ -494,7 +495,7 @@ const { token, expiresAt } = await app.tokens.create({
 });
 ```
 
-The client sends it as `Authorization: Bearer <token>` with `Nylorun-Tenant`.
+The client sends it as `Authorization: Bearer <token>`.
 Tokens carry only `sessions:own`, `vaults:own` and `agents:read`, live at most
 15 minutes, and see only `{ agentId, name, description }` of their role's
 agents. A token that expired or was revoked answers `401` with

@@ -55,11 +55,7 @@ async function linkedClient(): Promise<AgentsClient> {
   } catch (error) {
     throw new CliError(error instanceof Error ? error.message : String(error), 1);
   }
-  return createClient({
-    url: connection.url,
-    key: connection.key,
-    tenant: connection.tenant,
-  });
+  return createClient({ url: connection.url, key: connection.key });
 }
 
 const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));

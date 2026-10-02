@@ -48,7 +48,6 @@ beforeAll(async () => {
   const client = createClient({
     url: runtime.url,
     key: runtime.applicationKey,
-    tenant: runtime.tenantId,
   });
   const { publishableKey } = await setUpAccess(client);
   // Running setup again keeps the same key.

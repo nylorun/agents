@@ -1,5 +1,5 @@
 /**
- * A database of its own for a test file's Runtime (`startEphemeralRuntime` keeps its Tenants
+ * A database of its own for a test file's Runtime (`startEphemeralRuntime` keeps its Tenant
  * in Postgres), on the runtime test stack: `npm run test:stack:up -w @nylorun/runtime` from
  * the repository root. `NYLORUN_TEST_POSTGRES_PORT` moves it, as for the runtime tests.
  */

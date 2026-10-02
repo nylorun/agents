@@ -264,13 +264,6 @@ export function AppSidebar({
                 <div className="truncate font-mono">
                   {shortTenantId(tenant.id)}
                 </div>
-                {/* The picker lives outside this Tenant's router basename. */}
-                <a
-                  className="mt-1 inline-block text-primary underline-offset-2 hover:underline"
-                  href="/"
-                >
-                  Switch Tenant
-                </a>
               </div>
             </SidebarMenuItem>
           ) : null}

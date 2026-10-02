@@ -35,7 +35,6 @@ beforeAll(async () => {
   const client = createClient({
     url: runtime.url,
     key: runtime.applicationKey,
-    tenant: runtime.tenantId,
   });
   const app = createSupportApp({ client });
   server = createServer(app.listener);

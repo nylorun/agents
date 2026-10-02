@@ -1,61 +1,58 @@
 # @nylorun/admin
 
-Admin API client for creating, listing, inspecting and deleting Tenants, and
-reading Host service status. Depends only on `@nylorun/core`. Requires Node
-24+. Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
+Admin API client for a Runtime installation: its status, with the one Tenant it
+serves, and the keys the admin key derives. Depends only on `@nylorun/core`.
+Requires Node 24+. Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 ```ts
 import { createAdmin } from "@nylorun/admin";
 
 // Resolution: explicit options → NYLORUN_ADMIN_URL + NYLORUN_ADMIN_KEY → local Host
 const admin = createAdmin();
-// or: createAdmin({ url, key }) / createAdmin({ home: "/path/to/host-root" })
+// or: createAdmin({ url, key }) / createAdmin({ stack: "my-app" }) / createAdmin({ home })
 
-const status = await admin.status();
-const { tenant, applicationKey } = await admin.createTenant({ name: "my-app" });
-await admin.listTenants();
-await admin.getTenant(tenant.id);
-await admin.deleteTenant(tenant.id, { activeWork: "refuse" });
+const { tenant } = await admin.status();
+// tenant: { id, name, state: "open" | "unavailable", envelope, cause? }
 ```
 
-`createTenant` generates the Tenant id, principal, application key and
-idempotency key locally; only the key's hash is sent. On network error or
-`5xx` it retries up to three times with identical values. Persist the returned
-`applicationKey` — the Host never sees it in cleartext again.
+An installation serves one Tenant, which its Host creates on first start. There
+are no Tenant routes: `createTenant`, `listTenants`, `getTenant` and
+`deleteTenant` are gone, and a Host answers `/v1/admin/tenants*` with `404`.
+When the Tenant cannot be opened, `status.tenant.state` is `unavailable` and
+`cause` names why (`schema-too-new`, `kek-missing`, `database-layout-old`, …).
 
-`createTenant` also registers the Tenant's Studio principal (`studio`) by
-sending the hash of `deriveStudioToken(adminKey, tenantId)`. Studio derives the
-same key from the admin key to call that Tenant's API, so whoever holds the
-admin key can reach every Tenant created this way.
-
-A client on the Host's machine or server that holds the admin key can avoid
-storing an application key too. Name it as a **derived principal** when the
-Tenant is created, then recompute its key whenever it needs one:
+Whoever holds the admin key can derive the keys of the Tenant's derived
+principals and of its Studio principal, so those clients store no key:
 
 ```ts
-const { tenant } = await admin.createTenant({
-  name: "my-app",
-  principals: ["babai"],
-});
-// Later, in any process that holds the admin key:
-const key = admin.deriveTenantKey(tenant.id, "babai");
+const key = admin.deriveTenantKey(tenant.id!, "project");
+// deriveTenantKey(adminKey, tenantId, principalId) and
+// deriveStudioToken(adminKey, tenantId) are exported too.
 ```
 
-Ids match `^[a-z][a-z0-9-]{0,31}$`; `studio` is reserved. Only each key's hash
-is sent. The key is `deriveTenantKey(adminKey, tenantId, principalId)`, so
-rotating the admin key rotates every derived key. Principals are named when the
-Tenant is created; an older Tenant keeps its application key. This needs the
-optional Host feature `derived-principals`: `createTenant` checks `/health` and
-throws `incompatible_host` before sending anything to a Host without it.
+The Host registers the derived principals it is configured with
+(`NYLORUN_DERIVED_PRINCIPALS`, default `project`; Babai uses `project,babai`)
+when it creates its Tenant, and `studio` always. Ids match
+`^[a-z][a-z0-9-]{0,31}$`; `studio` is reserved. Only each key's hash is stored,
+so rotating the admin key rotates every derived key. `nylorun start` writes the
+`project` key into a Project's `.nylorun/credentials.json`.
 
-Local Host resolution reads `host.json` and `host-credentials.json` under
-`NYLORUN_HOME` / `~/.nylorun` (or `options.home`). On POSIX the credentials
-file must be owned by the user and not group- or world-readable. First use
-checks `/health` compatibility and throws `incompatible_host` on mismatch.
+Local Host resolution reads `host.json` and `host-credentials.json` from the
+Host root: `options.home`, else `NYLORUN_HOME`, else the stack's Host root
+`~/.nylorun/stacks/<stack>/` for the stack named by `options.stack`,
+`NYLORUN_STACK` or the Project link (`stack` in `.nylorun/link.json`, found
+from `options.cwd` upwards). On POSIX the credentials file must be owned by the
+user and not group- or world-readable. First use checks `/health`
+compatibility and throws `incompatible_host` on mismatch.
+
+`mintStudioLoginToken({ studioUrl, adminKey })` mints a single-use Studio login
+token for an app that embeds Studio; its optional `tenant` must name the Host's
+Tenant.
 
 Errors are `AdminError` with a registry `code` from `@nylorun/core`
 (`ERROR_CODES`). Re-exports: `PROTOCOL_FEATURES`, `ERROR_CODES`,
-`compareVersions`, `deriveStudioToken`, `deriveTenantKey`.
+`compareVersions`, `deriveStudioToken`, `deriveTenantKey`, `stackHostRoot`,
+`PROJECT_PRINCIPAL_ID`.
 
 Developer applications do **not** depend on this package — only managing
 clients (CLI, desktop Runtime panel, CI) do.

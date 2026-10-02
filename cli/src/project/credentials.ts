@@ -1,10 +1,6 @@
-import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { chmod, readFile } from "node:fs/promises";
 import { CliError } from "../errors.js";
-import {
-  credentialsPath,
-  ensureProjectNylorunDir,
-} from "./link.js";
+import { credentialsPath } from "./link.js";
 
 /**
  * Project-local credentials (mode 0600): the application key and its principal. A format 0
@@ -16,12 +12,11 @@ export interface ProjectCredentials {
   principalId: string;
 }
 
-/** The Project's credentials, or with `tenantId` the key kept for that Tenant. */
+/** The Project's credentials, which `nylorun start` writes beside the link. */
 export async function readCredentials(
   projectRoot: string,
-  tenantId?: string,
 ): Promise<ProjectCredentials | undefined> {
-  const path = credentialsPath(projectRoot, tenantId);
+  const path = credentialsPath(projectRoot);
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as {
       format?: unknown;
@@ -35,7 +30,7 @@ export async function readCredentials(
       value.principalId.length === 0
     ) {
       throw new CliError(
-        `Invalid Project credentials at ${path}. Remove .nylorun/credentials.json and run nylo tenant create.`,
+        `Invalid Project credentials at ${path}. Remove .nylorun/credentials.json and run "npx nylorun start".`,
         1,
       );
     }
@@ -61,42 +56,4 @@ export async function readCredentials(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   }
-}
-
-export async function writeCredentials(
-  projectRoot: string,
-  credentials: {
-    applicationKey: string;
-    principalId: string;
-    format?: 0 | 1;
-  },
-  tenantId?: string,
-): Promise<void> {
-  await ensureProjectNylorunDir(projectRoot);
-  const path = credentialsPath(projectRoot, tenantId);
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  // Version 1 writes format 1 with only the application key and principal (D§3.7).
-  const body = `${JSON.stringify(
-    {
-      format: credentials.format ?? 1,
-      applicationKey: credentials.applicationKey,
-      principalId: credentials.principalId,
-    },
-    null,
-    2,
-  )}\n`;
-  try {
-    await writeFile(temporary, body, { mode: 0o600 });
-    await rename(temporary, path);
-    await chmod(path, 0o600);
-  } finally {
-    await rm(temporary, { force: true });
-  }
-}
-
-export async function removeCredentials(
-  projectRoot: string,
-  tenantId?: string,
-): Promise<void> {
-  await rm(credentialsPath(projectRoot, tenantId), { force: true });
 }

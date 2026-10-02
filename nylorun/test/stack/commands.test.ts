@@ -10,7 +10,6 @@ import {
   runStudioCommand,
   stackProject,
   STUDIO_SIGN_IN_HINT,
-  TENANT_HINT,
   tenantStudioPath,
   withNext,
 } from "../../src/stack/commands.js";
@@ -22,18 +21,34 @@ import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
 
+const TENANT_ID = "tn_01TESTSTACK000000000000001";
+
+/** `/v1/admin/status` of a stack whose Tenant is open. */
+const openTenant = (name = "home-root") =>
+  json({ tenant: { id: TENANT_ID, name, state: "open", envelope: null } });
+
 /** A fetch that answers like a healthy stack on the persisted ports. */
 async function healthyFetch(home: string, loginBody: unknown = { token: "tok en" }) {
   return fakeFetch((url) => {
     if (url.endsWith("/health"))
       return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
-    if (url.endsWith("/v1/admin/status")) return json({ tenants: [{ id: "a" }, { id: "b" }] });
+    if (url.endsWith("/v1/admin/status")) return openTenant();
     if (url.endsWith("/_studio/login-tokens")) return json(loginBody, 201);
     return undefined;
   });
 }
 
-const compose = (home: string, project = "nylorun") => [
+/** What `start` prints for the stack under `home`. */
+const startLines = (home: string, studio = true) => [
+  `Stack     home-root  (${home})`,
+  `Tenant    ${TENANT_ID}  (home-root)`,
+  "Runtime   http://localhost:8787",
+  ...(studio ? ["Studio    http://localhost:4161"] : []),
+];
+
+const NEXT = `next=%2Ftenants%2F${TENANT_ID}`;
+
+const compose = (home: string, project = "nylorun-home-root") => [
   "compose",
   "--project-name",
   project,
@@ -44,18 +59,18 @@ const compose = (home: string, project = "nylorun") => [
 ];
 
 describe("command names", () => {
-  it("knows the six stack commands and the Compose spellings up and down", () => {
-    for (const name of ["start", "stop", "status", "logs", "reset", "studio", "up", "down"])
+  it("knows the stack commands and the Compose spellings up and down", () => {
+    for (const name of ["start", "stop", "status", "logs", "reset", "studio", "up", "down", "ls", "delete", "legacy"])
       expect(isStackCommand(name)).toBe(true);
     expect(isStackCommand("dev")).toBe(false);
     expect(isStackCommand("tenant")).toBe(false);
     expect(isStackCommand(undefined)).toBe(false);
   });
 
-  it("takes the Compose project from NYLORUN_STACK_PROJECT", () => {
-    expect(stackProject({})).toBe("nylorun");
-    expect(stackProject({ NYLORUN_STACK_PROJECT: "nylorun-f-test" })).toBe("nylorun-f-test");
-    expect(() => stackProject({ NYLORUN_STACK_PROJECT: "Bad Name" })).toThrow(/NYLORUN_STACK_PROJECT/);
+  it("names the Compose project after the stack, unless NYLORUN_STACK_PROJECT overrides it", () => {
+    expect(stackProject({}, "shop")).toBe("nylorun-shop");
+    expect(stackProject({ NYLORUN_STACK_PROJECT: "nylorun-f-test" }, "shop")).toBe("nylorun-f-test");
+    expect(() => stackProject({ NYLORUN_STACK_PROJECT: "Bad Name" }, "shop")).toThrow(/NYLORUN_STACK_PROJECT/);
   });
 });
 
@@ -69,8 +84,9 @@ describe("start", () => {
       [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "postgres", "restate", "s2", "gateway", "runtime"],
       [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "120", "studio"],
     ]);
-    expect(deps.lines).toEqual(["Runtime   http://localhost:8787", "Studio    http://localhost:4161"]);
+    expect(deps.lines).toEqual(startLines(home));
     expect(existsSync(stackPaths(home).compose)).toBe(true);
+    expect(JSON.parse(readFileSync(join(home, "stack.json"), "utf8"))).toEqual({ format: 1, name: "home-root" });
   });
 
   it("outside a terminal, mints no login and says how to sign in", async () => {
@@ -88,8 +104,8 @@ describe("start", () => {
     const fetch = await healthyFetch(home);
     const deps = testDeps(home, { fetch, interactive: true });
     expect(await runStackCommand("up", [], deps)).toBe(0);
-    expect(deps.lines).toEqual(["Runtime   http://localhost:8787", "Studio    http://localhost:4161"]);
-    expect(deps.opened).toEqual(["http://localhost:4161/login?token=tok%20en"]);
+    expect(deps.lines).toEqual(startLines(home));
+    expect(deps.opened).toEqual([`http://localhost:4161/login?token=tok+en&${NEXT}`]);
     expect(deps.errors).not.toContain(STUDIO_SIGN_IN_HINT);
     const login = fetch.requests.find((r) => r.url.endsWith("/_studio/login-tokens"));
     expect(login?.url).toBe("http://localhost:4161/_studio/login-tokens");
@@ -121,9 +137,8 @@ describe("start", () => {
     });
     expect(await runStackCommand("up", [], deps)).toBe(0);
     expect(deps.lines).toEqual([
-      "Runtime   http://localhost:8787",
-      "Studio    http://localhost:4161",
-      "Sign in   http://localhost:4161/login?token=tok%20en",
+      ...startLines(home),
+      `Sign in   http://localhost:4161/login?token=tok+en&${NEXT}`,
     ]);
   });
 
@@ -134,31 +149,60 @@ describe("start", () => {
     expect(await runStackCommand("up", [], deps)).toBe(0);
     const compose = readFileSync(stackPaths(home).compose, "utf8");
     const env = readFileSync(stackPaths(home).env, "utf8");
-    expect(deps.errors.some((line) => line.startsWith("Wrote "))).toBe(true);
+    expect(deps.errors.some((line) => line.startsWith("Created stack home-root "))).toBe(true);
     deps.errors.length = 0;
     expect(await runStackCommand("up", ["--no-studio"], deps)).toBe(0);
-    expect(deps.errors.some((line) => line.startsWith("Wrote "))).toBe(false);
+    expect(deps.errors.some((line) => line.startsWith("Created stack"))).toBe(false);
     expect(readFileSync(stackPaths(home).compose, "utf8")).toBe(compose);
     expect(readFileSync(stackPaths(home).env, "utf8")).toBe(env);
   });
 
-  it("points to Tenant creation while the Host has no Tenant, and creates none", async () => {
+  it("waits for the stack's Tenant to open, and creates nothing itself", async () => {
     const home = await temporaryHome();
+    let polls = 0;
     const fetch = fakeFetch((url) => {
       if (url.endsWith("/health"))
         return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
-      if (url.endsWith("/v1/admin/status")) return json({ tenants: [] });
-      if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
+      if (url.endsWith("/v1/admin/status"))
+        return (polls += 1) < 3
+          ? json({ tenant: { id: null, name: null, state: "unavailable", envelope: null } })
+          : openTenant();
       return undefined;
     });
-    const deps = testDeps(home, { docker: fakeDocker(), fetch });
-    expect(await runStackCommand("up", [], deps)).toBe(0);
-    expect(deps.errors).toContain(TENANT_HINT);
+    const deps = testDeps(home, { fetch });
+    expect(await runStackCommand("up", ["--no-studio"], deps)).toBe(0);
+    expect(polls).toBe(3);
+    expect(deps.lines).toEqual(startLines(home, false));
+    const admin = fetch.requests.find((r) => r.url.endsWith("/v1/admin/status"))!;
+    expect(admin.url).toBe("http://localhost:8788/v1/admin/status");
+    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe("5");
     expect(fetch.requests.filter((request) => request.init?.method === "POST")).toEqual([]);
+  });
 
-    const withTenants = testDeps(home, { docker: fakeDocker(), fetch: await healthyFetch(home) });
-    await runStackCommand("up", [], withTenants);
-    expect(withTenants.errors).not.toContain(TENANT_HINT);
+  it("reports why the Tenant is unavailable (exit 7)", async () => {
+    const home = await temporaryHome();
+    const unavailable = json({
+      tenant: {
+        id: TENANT_ID,
+        name: "home-root",
+        state: "unavailable",
+        envelope: null,
+        cause: { code: "kek-missing", message: "The vault key is missing.", repair: "Restore tenant/vault-kek." },
+      },
+    });
+    const fetch = fakeFetch((url) => {
+      if (url.endsWith("/health")) return json({ status: "ok", hostId: hostId(home) });
+      if (url.endsWith("/v1/admin/status")) return unavailable.clone();
+      return undefined;
+    });
+    const started = runStackCommand("up", ["--no-studio"], testDeps(home, { fetch }));
+    await expect(started).rejects.toMatchObject({ exitCode: 7 });
+    await expect(started).rejects.toThrow(
+      /Tenant of stack home-root is unavailable \(kek-missing\): The vault key is missing\. Restore tenant\/vault-kek\./,
+    );
+    // The Runtime fails readiness, so Compose fails first: the cause is reported all the same.
+    const composeFails = testDeps(home, { fetch, docker: fakeDocker({ streamCode: () => 1 }) });
+    await expect(runStackCommand("up", [], composeFails)).rejects.toThrow(/unavailable \(kek-missing\)/);
   });
 
   it("uses a login URL Studio returns, and the project override", async () => {
@@ -172,7 +216,7 @@ describe("start", () => {
     });
     await runStackCommand("start", [], deps);
     expect(docker.streamed[0]!.slice(0, 3)).toEqual(["compose", "--project-name", "nylorun-f-test"]);
-    expect(deps.opened).toEqual(["http://localhost:4161/login?token=abc"]);
+    expect(deps.opened).toEqual([`http://localhost:4161/login?token=abc&${NEXT}`]);
   });
 
   it("--no-studio starts only the core services", async () => {
@@ -181,7 +225,7 @@ describe("start", () => {
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
     expect(docker.streamed).toHaveLength(1);
-    expect(deps.lines).toEqual(["Runtime   http://localhost:8787"]);
+    expect(deps.lines).toEqual(startLines(home, false));
   });
 
   it("warns and still succeeds when Studio does not start", async () => {
@@ -190,7 +234,7 @@ describe("start", () => {
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     expect(await runStackCommand("start", [], deps)).toBe(0);
     expect(deps.errors.some((line) => line.startsWith("Warning: Studio did not start"))).toBe(true);
-    expect(deps.lines).toEqual(["Runtime   http://localhost:8787"]);
+    expect(deps.lines).toEqual(startLines(home, false));
   });
 
   it("warns when Studio is up but refuses a login token", async () => {
@@ -199,6 +243,7 @@ describe("start", () => {
       interactive: true,
       fetch: fakeFetch((url) => {
         if (url.endsWith("/health")) return json({ status: "ok", hostId: hostId(home) });
+        if (url.endsWith("/v1/admin/status")) return openTenant();
         if (url.endsWith("/_studio/login-tokens")) return json({}, 401);
         return undefined;
       }),
@@ -236,7 +281,7 @@ describe("start", () => {
   });
 });
 
-describe("start never downgrades the shared stack", () => {
+describe("start never runs a Runtime older than the stack's database", () => {
   const recorded = (home: string) =>
     (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { runtimeVersion?: string })
       .runtimeVersion;
@@ -245,7 +290,7 @@ describe("start never downgrades the shared stack", () => {
   const runningFetch = (home: string, version: string) =>
     fakeFetch((url) => {
       if (url.endsWith("/health")) return json({ status: "ok", version, hostId: hostId(home) });
-      if (url.endsWith("/v1/admin/status")) return json({ tenants: [{ id: "a" }] });
+      if (url.endsWith("/v1/admin/status")) return openTenant();
       return undefined;
     });
 
@@ -316,7 +361,7 @@ describe("start never downgrades the shared stack", () => {
     const refused = runStackCommand("up", [], deps);
     await expect(refused).rejects.toMatchObject({ exitCode: 5 });
     await expect(refused).rejects.toThrow(
-      /pins Runtime 0\.10\.0-beta, but the Host last ran Runtime 0\.10\.0 .*npx nylorun@latest up.*--allow-downgrade/,
+      /Refusing to start Runtime 0\.10\.0-beta on stack home-root: Runtime 0\.10\.0 last ran it .*npx nylorun@latest start.*--allow-downgrade/,
     );
     expect(docker.streamed).toEqual([]);
     expect(recorded(home)).toBe("0.10.0");
@@ -327,16 +372,6 @@ describe("start never downgrades the shared stack", () => {
     expect(docker.streamed).toEqual([]);
   });
 
-  it("refuses a Runtime older than the running one", async () => {
-    const home = await startedBy("0.10.0-beta");
-    const docker = fakeDocker();
-    const deps = testDeps(home, { docker, fetch: runningFetch(home, "0.11.0-beta") });
-    await expect(runStackCommand("start", [], deps)).rejects.toThrow(
-      /pins Runtime 0\.10\.0-beta, but Runtime 0\.11\.0-beta is running/,
-    );
-    expect(docker.streamed).toEqual([]);
-  });
-
   it("downgrades with --allow-downgrade, warns, and records the older Runtime", async () => {
     const home = await startedBy("0.11.0-beta");
     const docker = fakeDocker();
@@ -344,8 +379,8 @@ describe("start never downgrades the shared stack", () => {
     expect(await runStackCommand("start", ["--no-studio", "--allow-downgrade"], deps)).toBe(0);
     expect(docker.streamed).toHaveLength(1);
     expect(deps.errors).toContain(
-      "Warning: downgrading to Runtime 0.10.0-beta: the Host last ran Runtime 0.11.0-beta " +
-        `(${stackPaths(home).config}). Tenants a newer Runtime migrated are quarantined.`,
+      "Warning: starting Runtime 0.10.0-beta on stack home-root, which Runtime 0.11.0-beta last ran. " +
+        "If that Runtime migrated the database, the Tenant stays unavailable (schema-too-new).",
     );
     expect(recorded(home)).toBe("0.10.0-beta");
     expect(readFileSync(stackPaths(home).env, "utf8")).toContain("ghcr.io/nylorun/runtime:0.10.0-beta");
@@ -448,14 +483,17 @@ describe("stop, logs, status", () => {
     await expect(runStackCommand("logs", ["--tail", "x"], deps)).rejects.toThrow(/Invalid --tail/);
   });
 
-  it("status reports health, Tenants and services as JSON", async () => {
-    const { deps } = await started();
+  it("status reports the stack, its Tenant, health and services as JSON", async () => {
+    const { home, deps } = await started();
     expect(await runStackCommand("status", ["--json"], deps)).toBe(0);
     const status = JSON.parse(deps.lines.join("\n"));
     expect(status).toMatchObject({
-      project: "nylorun",
+      name: "home-root",
+      project: "nylorun-home-root",
+      home,
       state: "running",
-      runtime: { url: "http://localhost:8787", healthy: true, version: "0.10.0-beta", tenants: 2 },
+      runtime: { url: "http://localhost:8787", healthy: true, version: "0.10.0-beta" },
+      tenant: { id: TENANT_ID, name: "home-root", state: "open" },
       studio: { url: "http://localhost:4161", state: "running, healthy" },
       restate: { url: "http://localhost:9070" },
     });
@@ -468,11 +506,15 @@ describe("stop, logs, status", () => {
   it("status in words, and exit 3 when the Runtime does not answer", async () => {
     const { deps } = await started();
     await runStackCommand("status", [], deps);
-    expect(deps.lines[0]).toBe("Stack       running (project nylorun)");
-    expect(deps.lines[1]).toMatch(/^Runtime     http:\/\/localhost:8787  healthy, 0\.10\.0-beta, host_\w+, 2 Tenant\(s\)$/);
+    expect(deps.lines.slice(0, 4)).toEqual([
+      "Stack       home-root running (Compose project nylorun-home-root)",
+      `Host root   ${deps.env.NYLORUN_HOME} (admin key in host-credentials.json, mode 0600)`,
+      `Tenant      ${TENANT_ID} (home-root)  open`,
+      expect.stringMatching(/^Runtime     http:\/\/localhost:8787  healthy, 0\.10\.0-beta, host_\w+$/),
+    ]);
     const down = testDeps(deps.env.NYLORUN_HOME!, { docker: fakeDocker() });
     expect(await runStackCommand("status", [], down)).toBe(3);
-    expect(down.lines[0]).toBe("Stack       stopped (project nylorun)");
+    expect(down.lines[0]).toBe("Stack       home-root stopped (Compose project nylorun-home-root)");
   });
 
   it("status of an absent stack exits 3 without touching Docker", async () => {
@@ -498,22 +540,22 @@ describe("reset", () => {
     expect(docker.streamed).toEqual([]);
   });
 
-  it("removes volumes and Tenant directories, keeping host files", async () => {
+  it("removes the volumes and the Tenant directory, keeping host files", async () => {
     const home = await temporaryHome();
     const docker = fakeDocker();
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     await runStackCommand("start", ["--no-studio"], deps);
     const paths = stackPaths(home);
-    await mkdir(join(paths.tenants, "tn_x"), { recursive: true });
+    await writeFile(join(paths.tenant, "vault-kek"), "kek");
     const env = await readFile(paths.env, "utf8");
     docker.streamed.length = 0;
     let asked = "";
     const confirming = { ...deps, confirm: async (q: string) => ((asked = q), true) };
     expect(await runStackCommand("reset", [], confirming)).toBe(0);
-    expect(asked).toMatch(/Delete the stack's volumes/);
+    expect(asked).toMatch(/Delete stack home-root's volumes \(Compose project nylorun-home-root\)/);
     expect(docker.streamed).toEqual([[...compose(home), "down", "--volumes", "--remove-orphans"]]);
-    expect(existsSync(join(paths.tenants, "tn_x"))).toBe(false);
-    expect(existsSync(paths.tenants)).toBe(true);
+    expect(existsSync(join(paths.tenant, "vault-kek"))).toBe(false);
+    expect(existsSync(paths.tenant)).toBe(true);
     expect(await readFile(paths.env, "utf8")).toBe(env);
     expect(existsSync(paths.credentials)).toBe(true);
   });
@@ -538,8 +580,8 @@ describe("studio", () => {
     deps.lines.length = 0;
     expect(await runStackCommand("studio", [], deps)).toBe(0);
     expect(docker.streamed).toEqual([]);
-    expect(deps.lines).toEqual(["Studio    http://localhost:4161"]);
-    expect(deps.opened).toEqual(["http://localhost:4161/login?token=tok%20en"]);
+    expect(deps.lines).toEqual([`Studio    http://localhost:4161/tenants/${TENANT_ID}`]);
+    expect(deps.opened).toEqual([`http://localhost:4161/login?token=tok+en&${NEXT}`]);
   });
 
   it("starts a stopped stack first; --no-open only prints", async () => {
@@ -550,12 +592,12 @@ describe("studio", () => {
     expect(docker.streamed.map((args) => args.at(-1))).toEqual(["runtime", "studio"]);
     expect(deps.lines).toEqual([
       "Runtime   http://localhost:8787",
-      "Studio    http://localhost:4161/login?token=tok%20en",
+      `Studio    http://localhost:4161/login?token=tok+en&${NEXT}`,
     ]);
     expect(deps.opened).toEqual([]);
   });
 
-  it("lands on a Tenant page when given one", async () => {
+  it("lands on the page it is given", async () => {
     const home = await temporaryHome();
     const docker = fakeDocker();
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
@@ -605,8 +647,10 @@ describe("ensureStack", () => {
     expect(docker.streamed).toEqual([]);
     expect(deps.lines).toEqual([]);
     expect(stack).toMatchObject({
+      name: "home-root",
       home,
       runtimeUrl: "http://localhost:8787",
+      adminUrl: "http://localhost:8788",
       hostId: hostId(home),
       studioPort: 4161,
       studioUp: true,

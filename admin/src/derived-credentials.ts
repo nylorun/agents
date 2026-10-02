@@ -17,17 +17,18 @@ export function deriveStudioToken(adminKey: string, tenantId: string): string {
 }
 
 /**
- * The derived principal that Projects on this machine use. A Tenant created
- * with it (Studio creates every Tenant this way) can be linked to a Project by
- * `nylo tenant use`, which derives the key from the local admin key.
+ * The derived principal that Projects use. The Host registers it on its Tenant by default
+ * (`NYLORUN_DERIVED_PRINCIPALS`), and `nylorun start` derives its key from the stack's admin
+ * key into the Project's `.nylorun/credentials.json`.
  */
 export const PROJECT_PRINCIPAL_ID = "project";
 
 /**
  * Deterministic key of a derived principal (`principalId`, e.g. `babai`) on one Tenant,
- * derived from the admin key. The Tenant stores only its hash, registered when the Tenant
- * is created with `principals` (feature `derived-principals`); the client recomputes the
- * key when it needs it and stores nothing. Rotating the admin key rotates every derived key.
+ * derived from the admin key. The Tenant stores only its hash, registered when the Host creates
+ * its Tenant with the principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, feature
+ * `derived-principals`); the client recomputes the key when it needs it and stores nothing.
+ * Rotating the admin key rotates every derived key.
  */
 export function deriveTenantKey(
   adminKey: string,

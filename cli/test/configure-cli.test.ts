@@ -1,17 +1,13 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { createServer } from "node:http";
+import { rm } from "node:fs/promises";
+import { createServer, type IncomingHttpHeaders } from "node:http";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import {
   PROTOCOL_FEATURES,
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
-import { writeLink } from "../src/project/link.js";
-import { writeCredentials } from "../src/project/credentials.js";
-import { newTenantId } from "@nylorun/agents";
+import { link2, project, writeProjectLink } from "./helpers/project.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const roots: string[] = [];
@@ -33,8 +29,10 @@ async function startHost() {
       },
     ],
   };
+  const headers: IncomingHttpHeaders[] = [];
   const server = createServer(async (request, response) => {
     const url = request.url ?? "/";
+    if (url !== "/health") headers.push(request.headers);
     if (url === "/health") {
       response.setHeader("content-type", "application/json");
       response.end(
@@ -61,31 +59,26 @@ async function startHost() {
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
-  return { url: `http://127.0.0.1:${port}` };
+  return { url: `http://127.0.0.1:${port}`, headers };
 }
 
 it(
   "F2-4: configure lists Tenant /models catalog then cancels cleanly",
   { timeout: 15_000 },
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "configure-cli-"));
+    const root = await project("configure-cli-");
     roots.push(root);
     const host = await startHost();
-    const tenantId = newTenantId();
-    await writeFile(join(root, "package.json"), '{"type":"module"}');
-    await writeLink(root, {
-      hostUrl: host.url,
-      hostId: "host_01habcdefghijklmnopqrstuvw",
-      tenantId,
-    });
-    await writeCredentials(root, {
-      applicationKey: "ab".repeat(32),
-      principalId: "pr_test",
-    });
+    await writeProjectLink(root, link2(host.url));
     const child = spawn(process.execPath, [cli, "configure"], {
       cwd: root,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, MODEL_PROVIDER_API_KEY: "" },
+      env: {
+        ...process.env,
+        MODEL_PROVIDER_API_KEY: "",
+        NYLORUN_RUNTIME_URL: "",
+        NYLORUN_SERVER_KEY: "",
+      },
     });
     let text = "";
     child.stdout!.on("data", (data) => {
@@ -103,6 +96,10 @@ it(
     });
     expect(text).toContain("0. Custom OpenAI-compatible provider");
     expect(text).toContain("1. OpenAI (openai)");
+    // The catalog request names no Tenant: the installation serves one.
+    expect(host.headers).toHaveLength(1);
+    expect(host.headers[0]!.authorization).toBe(`Bearer ${"ab".repeat(32)}`);
+    expect(host.headers[0]!["nylorun-tenant"]).toBeUndefined();
     // SIGINT may surface as 130, 143, null, or 1 depending on timing.
     expect([0, 1, 130, 143, null]).toContain(code);
   },

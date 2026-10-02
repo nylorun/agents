@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +34,11 @@ function stub() {
   return { calls, run: (args: string[]) => accessCommand(args, async () => client) };
 }
 
-afterEach(() => vi.restoreAllMocks());
+const dirs: string[] = [];
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 describe("nylo access", () => {
   it("writes the starter policy and reads it back", async () => {
@@ -48,6 +52,7 @@ describe("nylo access", () => {
   it("sets the policy from a file, as printed by policy get or bare", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const dir = await mkdtemp(join(tmpdir(), "nylo-access-"));
+    dirs.push(dir);
     const wrapped = join(dir, "wrapped.json");
     const bare = join(dir, "bare.json");
     await writeFile(wrapped, JSON.stringify({ policy: STARTER_POLICY }));

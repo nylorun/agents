@@ -34,50 +34,24 @@ afterEach(() => {
   delete process.env.NYLORUN_SERVER_KEY;
 });
 
-describe("Transport tenant resolution", () => {
-  it('throws "Set tenant explicitly or via NYLORUN_TENANT" before any request', async () => {
-    const calls: string[] = [];
-    expect(
-      () =>
-        new Transport({
-          url: "http://127.0.0.1:8787",
-          key: "k",
-          fetch: async (url) => {
-            calls.push(String(url));
-            return healthOk();
-          },
-        }),
-    ).toThrow("Set tenant explicitly or via NYLORUN_TENANT");
-    expect(calls).toEqual([]);
-  });
-
-  it("resolves tenant from NYLORUN_TENANT when Destination.tenant is omitted", () => {
+describe("Transport destination", () => {
+  it("needs a URL and a key, and names no Tenant (protocol 5)", () => {
     process.env.NYLORUN_TENANT = TENANT;
-    const transport = new Transport({
-      url: "http://127.0.0.1:8787",
-      key: "k",
-    });
-    expect(transport.tenant).toBe(TENANT);
-  });
-
-  it("prefers Destination.tenant over the environment", () => {
-    process.env.NYLORUN_TENANT = "tn_00000000000000000000000099";
-    const transport = new Transport({
-      url: "http://127.0.0.1:8787",
-      key: "k",
-      tenant: TENANT,
-    });
-    expect(transport.tenant).toBe(TENANT);
+    const transport = new Transport({ url: "http://127.0.0.1:8787", key: "k" });
+    expect(transport.url).toBe("http://127.0.0.1:8787");
+    expect("tenant" in transport).toBe(false);
+    expect(() => new Transport({ url: "http://127.0.0.1:8787" })).toThrow(
+      "Set Runtime url and server key",
+    );
   });
 });
 
 describe("Transport headers and compatibility", () => {
-  it("fetches /health once, then sends Tenant and Protocol on authenticated requests", async () => {
+  it("fetches /health once, then sends Protocol and no Tenant on authenticated requests", async () => {
     const calls: { url: string; headers: Headers }[] = [];
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url, init) => {
         calls.push({ url: String(url), headers: new Headers(init?.headers) });
         if (String(url).endsWith("/health")) return healthOk();
@@ -94,17 +68,16 @@ describe("Transport headers and compatibility", () => {
     expect(calls[0]!.headers.get("authorization")).toBeNull();
     for (const call of calls.slice(1)) {
       expect(call.headers.get("authorization")).toBe("Bearer secret");
-      expect(call.headers.get(TENANT_HEADER)).toBe(TENANT);
+      expect(call.headers.get(TENANT_HEADER)).toBeNull();
       expect(call.headers.get(PROTOCOL_HEADER)).toBe(String(PROTOCOL_VERSION));
     }
   });
 
-  it("never reads tenant from a request body or query for the header", async () => {
+  it("never takes a Tenant header from a request body or query", async () => {
     const seen: Headers[] = [];
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url, init) => {
         seen.push(new Headers(init?.headers));
         if (String(url).endsWith("/health")) return healthOk();
@@ -115,9 +88,7 @@ describe("Transport headers and compatibility", () => {
       tenant: "from-body",
       requestId: "r1",
     });
-    expect(seen[1]!.get(TENANT_HEADER)).toBe(TENANT);
-    expect(seen[1]!.get(TENANT_HEADER)).not.toBe("from-body");
-    expect(seen[1]!.get(TENANT_HEADER)).not.toBe("from-query");
+    expect(seen[1]!.get(TENANT_HEADER)).toBeNull();
   });
 
   it("throws IncompatibleRuntimeError before the authenticated request when features are missing", async () => {
@@ -125,7 +96,6 @@ describe("Transport headers and compatibility", () => {
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url) => {
         calls.push(String(url));
         if (String(url).endsWith("/health"))
@@ -143,7 +113,6 @@ describe("Transport headers and compatibility", () => {
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url) => {
         if (String(url).endsWith("/health"))
           return healthOk({
@@ -164,7 +133,6 @@ describe("Transport headers and compatibility", () => {
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url) => {
         if (String(url).endsWith("/health")) {
           health += 1;
@@ -207,7 +175,6 @@ describe("Transport headers and compatibility", () => {
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url) => {
         if (String(url).endsWith("/health")) {
           health += 1;
@@ -239,7 +206,6 @@ describe("Transport headers and compatibility", () => {
     const transport = new Transport({
       url: "http://127.0.0.1:8787",
       key: "secret",
-      tenant: TENANT,
       fetch: async (url) => {
         if (String(url).endsWith("/health")) {
           health += 1;
@@ -260,18 +226,16 @@ describe("Transport headers and compatibility", () => {
   });
 });
 
-describe("createClient({ url, key, tenant })", () => {
+describe("createClient({ url, key })", () => {
   it("accepts the public signature and wires Transport", async () => {
     const client = createClient({
       url: "http://127.0.0.1:8787",
       key: "k",
-      tenant: TENANT,
       fetch: async (url) => {
         if (String(url).endsWith("/health")) return healthOk();
         return Response.json({ agents: [] });
       },
     });
-    expect(client.transport.tenant).toBe(TENANT);
     await expect(client.listAgents()).resolves.toEqual({ agents: [] });
   });
 });

@@ -9,9 +9,9 @@
     "core": "0.9.0-beta",
     "cli": "0.6.0-beta"
   },
-  "templateHash": "c45ee1b0d548929f6476120bd47a55ddef155af5983dcab33b8f32b0d5ffe6bc",
+  "templateHash": "75e7d2447823c836ede86b1df689f4cde60c0835660712176f463f7db16bc48b",
   "files": {
-    ".env.example": "3fc4b40839a19eab373ff8625e9f9588ec62537e1efa547e4102e997d807501e",
+    ".env.example": "d77706d571aa294e228c53aa5c95e042f84390bb2fa2750b02f477a978cff023",
     ".gitignore": "35d28e69221a58d60f19655637c7d99310a6dd6e0fda5f51c544d876ad19a3a0",
     "package.json": "8469ed16d7065ed3652a5186d0f5599973e14904cbe208ea7d5bdb97c57d59d1",
     "src/index.ts": "d61a6b97f77f2f813384e82ded8f7a2905f98f2b75399b32510d6f266d057b8e",

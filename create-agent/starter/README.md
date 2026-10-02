@@ -15,31 +15,32 @@ keep the project in the Linux filesystem (`~/…`, not `/mnt/c/…`), where file
 watching works.
 
 Agent and tool definitions live in `agents/`. The **Runtime** holds your
-sessions in isolated **Tenants**; this project attaches through a **Project
-link**. Your tools run in this app: `src/main.ts` serves them as an **Action
+sessions in its **Tenant**, one per installation; this project attaches to
+its own local stack through a **Project link**. Your tools run in this app: `src/main.ts` serves them as an **Action
 endpoint** (`createActionHandler`) on `http://localhost:3001/nylorun/actions`
 and registers that URL, and the Runtime delivers each tool call there, signed.
 The project depends only on `@nylorun/agents`; the two Nylorun tools run with
 `npx`:
 
-- `nylorun` sets up and runs the local stack (Runtime and Studio).
-- `@nylorun/cli` (command `nylo`) talks to a Runtime: Tenants, the Project
-  link and the model provider.
+- `nylorun` sets up and runs this project's local stack (Runtime and Studio)
+  and links the project to it.
+- `@nylorun/cli` (command `nylo`) talks to a Runtime: its Tenant's status,
+  reset, Action endpoints and model provider.
 
 ```sh
-npx nylorun@beta up                  # the local stack; the first run pulls the images
-npx @nylorun/cli@beta tenant create  # this project's Tenant, linked in .nylorun/
+npx nylorun@beta start  # this project's stack, its Tenant and the link; the first run pulls the images
 npm run dev
 ```
 
-`nylorun up` sets up the stack under `~/.nylorun` on the first run and just
-starts it after that. It prints the Runtime and Studio URLs and opens Studio,
-signed in, in your browser. The
+`nylorun start` in this directory sets up the project's stack on the first
+run (named after the directory, under `~/.nylorun/stacks/<name>/`) and just
+starts it after that; its Runtime creates the stack's one Tenant. It prints
+the Runtime and Studio URLs and opens Studio, signed in, in your browser. The
 stack keeps running after you stop `npm run dev`, so sessions survive a source
-change; `npx nylorun down` stops it (volumes are kept), `npx nylorun status`
+change; `npx nylorun stop` stops it (volumes are kept), `npx nylorun status`
 shows its health, and `npx nylorun logs runtime -f` its logs.
 
-`tenant create` creates this project's Tenant, writes `.nylorun/link.json` and
+The first `nylorun start` writes `.nylorun/link.json` and
 `.nylorun/credentials.json`, and seeds the Tenant's model provider from
 `MODEL_PROVIDER`, `MODEL` and `MODEL_PROVIDER_API_KEY` in `.env` (see
 `.env.example`). The key is stored in the Tenant vault, never back in `.env`.
@@ -50,8 +51,8 @@ incur its usual charges.
 `npm run dev` runs `src/main.ts` with `tsx watch`: it serves the Action
 endpoint on port 3001 (`PORT` changes it) and registers it with the Runtime,
 which it finds through the Project link. The local stack's Runtime runs in
-Docker and reaches `localhost` on this machine. `npx @nylorun/cli tenant
-endpoints` shows the endpoint and how its deliveries are doing. `npx nylorun studio` opens Studio on this
+Docker and reaches `localhost` on this machine. `npx @nylorun/cli endpoints`
+shows the endpoint and how its deliveries are doing. `npx nylorun studio` opens Studio on this
 project's Tenant, and signs in a browser that is not signed in yet. In
 Studio, ask **Look up order demo-123**. The local tool returns `shipped`;
 Studio shows the tool call and assistant response. The Runtime listens on
@@ -64,7 +65,7 @@ npm start
 ```
 
 `npm start` runs `node dist/src/main.js`, the same entry as development. Set
-`NYLORUN_RUNTIME_URL`, `NYLORUN_TENANT`, and `NYLORUN_SERVER_KEY` before
+`NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` before
 starting, or keep the Project link beside this directory, and set
 `NYLORUN_ACTIONS_URL` to the URL the Runtime reaches this app at (a public URL,
 or a tunnel such as ngrok for a remote Runtime). `agents/index.ts` exports the
@@ -77,19 +78,20 @@ Export the linked Project environment:
 
 ```sh
 eval "$(npx @nylorun/cli@beta env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
+# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
 Project link and credentials live in gitignored `.nylorun/` beside this project.
-The Host root (`NYLORUN_HOME` or `~/.nylorun`) holds the stack's files and the
-admin key; Tenant data lives in the stack's Docker volumes. A fresh clone or
-second worktree does not reuse this link: run `tenant create` there, or
-`npx @nylorun/cli tenant use <name>` with that Tenant's credentials.
-Keep `.nylorun/` private. Application credentials are generated when the
-Tenant is created. Each delivery carries a short-lived token the endpoint
-verifies with the Tenant's public keys. Ordinary
-shutdown/restart preserves completed session history; `npx nylorun reset`
-deletes every Tenant.
+The stack's Host root (`~/.nylorun/stacks/<name>/`, or `NYLORUN_HOME`) holds
+its files and the admin key; Tenant data lives in the stack's Docker volumes.
+A fresh clone or second worktree does not reuse this link: `npx nylorun start`
+there gives it a stack of its own, and `npx nylorun start --name <stack>`
+links it to this project's stack instead.
+Keep `.nylorun/` private. The application key is derived from the stack's
+admin key when the project is linked. Each delivery carries a short-lived
+token the endpoint verifies with the Tenant's public keys. Ordinary
+shutdown/restart preserves completed session history; `npx @nylorun/cli reset
+--all` empties the Tenant, and `npx nylorun reset` deletes the stack's data.
 `NYLORUN_IMPLEMENTATION_VERSION` defaults to `dev`; assign an explicit version
 when changing a versioned implementation.
 

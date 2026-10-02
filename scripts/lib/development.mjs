@@ -5,15 +5,17 @@
  *    harness, agents, admin, runtime, nylorun, cli).
  * 2. Build the Runtime and Studio images from this checkout
  *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
- *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` the stack on them.
- * 3. Link examples/ to a Tenant once (`nylo tenant create`), print a Studio
- *    login on it (`nylorun studio`), and run the examples Action endpoint with its own
- *    `npm run dev` (`tsx watch`), as a developer's project runs.
+ *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` examples/' stack on
+ *    them, in examples/: it creates the stack (named after examples/ unless
+ *    NYLORUN_STACK names one) and its Tenant, and links examples/ to it.
+ * 3. Print a Studio login on the Tenant (`nylorun studio`), and run the
+ *    examples Action endpoint with its own `npm run dev` (`tsx watch`), as a
+ *    developer's project runs.
  * 4. Watch the packages: an edit rebuilds what depends on it, rebuilds the
  *    affected images (Compose then recreates only those containers), and
  *    restarts the examples runner. A failed build keeps everything running.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { watch } from "chokidar";
 import { ProcessGroup } from "./processes.mjs";
@@ -90,13 +92,11 @@ export function packageOf(repo, path) {
 }
 
 /**
- * The real commands: npm builds, `docker build`, the workspace nylorun (the
- * stack) and nylo (the Runtime client). `develop` takes these as a parameter
- * so tests can replace them.
+ * The real commands: npm builds, `docker build` and the workspace nylorun
+ * (the stack). `develop` takes these as a parameter so tests can replace them.
  */
 export function workspaceCommands({ repo = root, project = join(repo, "examples"), env = process.env } = {}) {
   const nylorun = join(repo, "nylorun/dist/cli.js");
-  const nylo = join(repo, "cli/dist/cli.js");
   const images = { runtime: "nylorun-runtime:dev", studio: "nylorun-studio:dev" };
   const stackEnv = () => ({
     ...env,
@@ -125,6 +125,7 @@ export function workspaceCommands({ repo = root, project = join(repo, "examples"
       }
       await buildImage(name, images[name], { log });
     },
+    /** `nylorun start` in examples/: the stack, its Tenant, and the Project link once. */
     async startStack(group, { studio }) {
       const child = group.start(
         "stack",
@@ -133,19 +134,6 @@ export function workspaceCommands({ repo = root, project = join(repo, "examples"
         { cwd: project, env: stackEnv() },
       );
       if ((await child.exit) !== 0) throw new Error("nylorun start failed; see the output above.");
-    },
-    /** Create and link the examples' Tenant unless examples/ is linked already. */
-    async linkProject(group) {
-      if (existsSync(join(project, ".nylorun", "link.json"))) return;
-      // The Project lookup stops at the home directory before it falls back
-      // to the nearest package.json (cli/src/project/root.ts), so a checkout
-      // under $HOME needs the Project's .nylorun/ to exist.
-      mkdirSync(join(project, ".nylorun"), { recursive: true, mode: 0o700 });
-      const child = group.start("link", process.execPath, [nylo, "tenant", "create"], {
-        cwd: project,
-        env: stackEnv(),
-      });
-      if ((await child.exit) !== 0) throw new Error("nylo tenant create failed; see the output above.");
     },
     /** A Studio login on the examples' Tenant (`nylorun studio` reads the link). */
     async openStudio(group, { open }) {
@@ -252,7 +240,6 @@ export async function develop(
     if (stopping) throw new Error("Development stopped.");
     await commands.startStack(group, options);
     if (stopping) throw new Error("Development stopped.");
-    await commands.linkProject(group);
     if (options.studio && !stopping) await commands.openStudio(group, { open: options.open });
     startRunner();
     if (!options.watch) return { close, done };

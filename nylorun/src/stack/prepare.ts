@@ -5,6 +5,7 @@ import { parseFrameAncestors } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
 import {
   DEFAULT_STUDIO_FRAME_ANCESTORS,
+  parseDerivedPrincipals,
   parsePersisted,
   renderEnvFile,
   type StackEnv,
@@ -57,12 +58,19 @@ export async function readStackEnv(paths: StackPaths) {
  */
 export async function prepareStack(input: {
   paths: StackPaths;
+  /** The stack's name (its Tenant's name) and its Compose project. */
+  name: string;
+  project: string;
   images: StackImages;
   uid: number;
   gid: number;
   /** Recorded in host.json; undefined keeps the recorded version. */
   runtimeVersion: string | undefined;
   ports: PortProbe;
+  /** Ports other stacks keep in their `.env`: never chosen for a port not chosen yet. */
+  reserved?: ReadonlySet<number>;
+  /** `NYLORUN_DERIVED_PRINCIPALS` from the environment of `nylorun start`; else kept. */
+  derivedPrincipals?: string;
   /**
    * Changes to the origins that may embed Studio: `reset` goes back to the
    * defaults, `add` appends (for example a desktop app's dev server).
@@ -75,33 +83,17 @@ export async function prepareStack(input: {
   const firstRun = persisted.runtimePort === undefined;
 
   const taken = new Set<number>();
-  const runtimePort = await choosePort(
-    input.ports,
-    DEFAULT_PORTS.runtime,
-    persisted.runtimePort,
-    taken,
-  );
-  taken.add(runtimePort);
-  const adminPort = await choosePort(
-    input.ports,
-    DEFAULT_PORTS.admin,
-    persisted.adminPort,
-    taken,
-  );
-  taken.add(adminPort);
-  const studioPort = await choosePort(
-    input.ports,
-    DEFAULT_PORTS.studio,
-    persisted.studioPort,
-    taken,
-  );
-  taken.add(studioPort);
-  const restatePort = await choosePort(
-    input.ports,
-    DEFAULT_PORTS.restate,
-    persisted.restatePort,
-    taken,
-  );
+  const reserved = input.reserved ?? new Set<number>();
+  const pick = async (preferred: number, persistedPort: number | undefined) => {
+    const avoid = persistedPort === undefined ? new Set([...taken, ...reserved]) : taken;
+    const port = await choosePort(input.ports, preferred, persistedPort, avoid);
+    taken.add(port);
+    return port;
+  };
+  const runtimePort = await pick(DEFAULT_PORTS.runtime, persisted.runtimePort);
+  const adminPort = await pick(DEFAULT_PORTS.admin, persisted.adminPort);
+  const studioPort = await pick(DEFAULT_PORTS.studio, persisted.studioPort);
+  const restatePort = await pick(DEFAULT_PORTS.restate, persisted.restatePort);
 
   const identity = await ensureIdentityKey(paths.restateIdentity, writeFileMode);
 
@@ -135,6 +127,11 @@ export async function prepareStack(input: {
     runtimeImage: input.images.runtime,
     studioImage: input.images.studio,
     studioFrameAncestors,
+    stackName: input.name,
+    derivedPrincipals: (input.derivedPrincipals?.trim()
+      ? parseDerivedPrincipals(input.derivedPrincipals, "NYLORUN_DERIVED_PRINCIPALS")
+      : (persisted.derivedPrincipals ?? ["project"])
+    ).join(","),
   };
 
   const { adminKey } = await ensureHostCredentials(paths);
@@ -144,6 +141,6 @@ export async function prepareStack(input: {
     runtimeVersion: input.runtimeVersion,
   });
   await writeFileMode(paths.env, renderEnvFile(env), 0o600);
-  await writeFileMode(paths.compose, renderComposeFile(), 0o644);
+  await writeFileMode(paths.compose, renderComposeFile(input.project), 0o644);
   return { env, host, adminKey, firstRun };
 }

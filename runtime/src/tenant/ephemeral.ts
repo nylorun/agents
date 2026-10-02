@@ -6,9 +6,8 @@
  * is not durable: Durable Streams are in memory and gone after `close()`, and scheduling is
  * the in-process execution the Tenant starts for itself.
  *
- * It is not the temporary Tenant the smoke checks use (scripts/lib/temporary-tenant.mjs):
- * that one is created on the running stack, with the Tenant-level fixture model
- * (`model-setting.ts`), and deleted afterwards.
+ * The smoke checks do not use it: they reset the Tenant of a temporary Docker stack and seed
+ * the Tenant-level fixture model (`model-setting.ts`, scripts/lib/stack-tenant.mjs).
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";

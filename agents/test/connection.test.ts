@@ -19,6 +19,13 @@ const envKeys = [
   "NYLORUN_TENANT",
   "NYLORUN_SERVER_KEY",
 ] as const;
+const STACK_LINK = {
+  format: 2,
+  stack: "my-app",
+  hostUrl: URL,
+  hostId: "host_00000000000000000000000001",
+  tenantId: TENANT,
+};
 
 afterEach(() => {
   for (const key of envKeys) delete process.env[key];
@@ -36,12 +43,7 @@ async function writeProjectLink(
   await writeFile(
     join(dir, "link.json"),
     JSON.stringify(
-      options.link ?? {
-        format: 1,
-        hostUrl: URL,
-        hostId: "host_00000000000000000000000001",
-        tenantId: TENANT,
-      },
+      options.link ?? STACK_LINK,
     ),
     { mode: 0o600 },
   );
@@ -64,41 +66,34 @@ describe("resolveConnection (C1)", () => {
     process.env.NYLORUN_RUNTIME_URL = "http://env.example";
     process.env.NYLORUN_TENANT = "tn_00000000000000000000000099";
     process.env.NYLORUN_SERVER_KEY = "b".repeat(64);
-    const resolved = await resolveConnection({
-      url: URL,
-      tenant: TENANT,
-      key: KEY,
-    });
-    expect(resolved).toEqual({
-      url: URL,
-      tenant: TENANT,
-      key: KEY,
-      source: "options",
-    });
+    const resolved = await resolveConnection({ url: URL, key: KEY });
+    expect(resolved).toEqual({ url: URL, key: KEY, source: "options" });
   });
 
   it("fails when options are partial and names every source tried", async () => {
-    await expect(
-      resolveConnection({ url: URL, tenant: TENANT }),
-    ).rejects.toMatchObject({
+    await expect(resolveConnection({ url: URL })).rejects.toMatchObject({
       code: "connection_missing",
     });
-    await expect(resolveConnection({ url: URL, tenant: TENANT })).rejects.toThrow(
+    await expect(resolveConnection({ url: URL })).rejects.toThrow(
       /options.*environment.*project-link/s,
     );
   });
 
-  it("uses the application key from a complete environment", async () => {
+  it("uses the application key from a complete environment, which names no Tenant", async () => {
     process.env.NYLORUN_RUNTIME_URL = URL;
-    process.env.NYLORUN_TENANT = TENANT;
     process.env.NYLORUN_SERVER_KEY = KEY;
     const resolved = await resolveConnection();
-    expect(resolved).toEqual({
-      url: URL,
-      tenant: TENANT,
-      key: KEY,
-      source: "environment",
+    expect(resolved).toEqual({ url: URL, key: KEY, source: "environment" });
+  });
+
+  it("ignores the removed NYLORUN_TENANT", async () => {
+    process.env.NYLORUN_TENANT = "tn_00000000000000000000000099";
+    await expect(resolveConnection({ cwd: tmpdir() })).rejects.toMatchObject({
+      code: "connection_missing",
     });
+    process.env.NYLORUN_RUNTIME_URL = URL;
+    process.env.NYLORUN_SERVER_KEY = KEY;
+    expect(await resolveConnection()).toEqual({ url: URL, key: KEY, source: "environment" });
   });
 
   it("ignores the removed NYLORUN_EXECUTOR_KEY", async () => {
@@ -131,32 +126,38 @@ describe("resolveConnection (C1)", () => {
     const nested = join(root, "src", "deep");
     await mkdir(nested, { recursive: true });
     const resolved = await resolveConnection({ cwd: nested });
-    expect(resolved).toEqual({
-      url: URL,
-      tenant: TENANT,
-      key: KEY,
-      source: "project-link",
-    });
+    expect(resolved).toEqual({ url: URL, key: KEY, source: "project-link" });
   });
 
-  it("reads format-0 link and credentials (missing format defaults to 0)", async () => {
+  it("reads a format 2 link without a Tenant id and format-0 credentials", async () => {
     const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
     await writeProjectLink(root, {
-      link: {
-        hostUrl: `${URL}/`,
-        hostId: "host_00000000000000000000000001",
-        tenantId: TENANT,
-      },
+      link: { format: 2, stack: "my-app", hostUrl: `${URL}/`, hostId: "host_1" },
       credentials: {
         applicationKey: KEY,
-        principalId: "pr_00000000000000000000000001",
+        principalId: "project",
         executors: { assistant: "d".repeat(64) },
       },
     });
     const resolved = await resolveConnection({ cwd: root });
-    expect(resolved.source).toBe("project-link");
-    expect(resolved.url).toBe(URL);
-    expect(resolved.key).toBe(KEY);
+    expect(resolved).toEqual({ url: URL, key: KEY, source: "project-link" });
+  });
+
+  it("refuses a format 0 or 1 link, written for a multi-Tenant Host, naming nylorun start", async () => {
+    for (const format of [undefined, 0, 1]) {
+      const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
+      await writeProjectLink(root, {
+        link: {
+          ...(format === undefined ? {} : { format }),
+          hostUrl: URL,
+          hostId: "host_00000000000000000000000001",
+          tenantId: TENANT,
+        },
+      });
+      const error = await resolveConnection({ cwd: root }).catch((e) => e);
+      expect(error).toMatchObject({ code: "connection_missing" });
+      expect(String(error.message)).toMatch(/older Runtime.*npx nylorun start/s);
+    }
   });
 
   it("names every source tried when nothing resolves", async () => {
@@ -180,7 +181,6 @@ describe("createClient (C2)", () => {
     try {
       const client = await createClient();
       expect(client.transport.url).toBe(URL);
-      expect(client.transport.tenant).toBe(TENANT);
       expect(client.transport.key).toBe(KEY);
     } finally {
       process.chdir(previous);
@@ -188,18 +188,15 @@ describe("createClient (C2)", () => {
   });
 
   it("keeps explicit destination behavior synchronous", () => {
-    const client = createClient({
-      url: URL,
-      key: KEY,
-      tenant: TENANT,
-    });
-    expect(client.transport.tenant).toBe(TENANT);
+    const client = createClient({ url: URL, key: KEY });
+    expect(client.transport.url).toBe(URL);
+    expect(client.transport.key).toBe(KEY);
   });
 
   it("keeps environment resolution for explicit-partial destinations", () => {
-    process.env.NYLORUN_TENANT = TENANT;
-    const client = createClient({ url: URL, key: KEY });
-    expect(client.transport.tenant).toBe(TENANT);
+    process.env.NYLORUN_SERVER_KEY = KEY;
+    const client = createClient({ url: URL });
+    expect(client.transport.key).toBe(KEY);
   });
 });
 

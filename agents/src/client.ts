@@ -14,11 +14,7 @@ export function createClient(destination?: undefined): Promise<AgentsClient>;
 export function createClient(
   destination: Destination = {},
 ): AgentsClient | Promise<AgentsClient> {
-  if (
-    destination.url !== undefined ||
-    destination.key !== undefined ||
-    destination.tenant !== undefined
-  ) {
+  if (destination.url !== undefined || destination.key !== undefined) {
     return new AgentsClient(destination);
   }
   return resolveConnection().then(
@@ -26,7 +22,6 @@ export function createClient(
       new AgentsClient({
         url: connection.url,
         key: connection.key,
-        tenant: connection.tenant,
         ...(destination.fetch ? { fetch: destination.fetch } : {}),
       }),
   );

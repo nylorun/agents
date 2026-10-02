@@ -7,18 +7,19 @@
  *   credentials in the environment. The creator installs the starter (only
  *   @nylorun/agents) and starts nothing.
  * - The published `nylorun` and `@nylorun/cli`, installed from the registry
- *   beside the project (what `npx` runs): `nylorun up` starts the stack on the
- *   images it pins (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from
- *   GHCR, never built here), `nylo tenant create` creates and links the
- *   Project's Tenant, and the project's `npm run dev` serves and registers its
- *   Action endpoint.
- * - Checks: the stack runs exactly the pinned images; the Admin API lists the
- *   Tenant; `assistant` is registered and the Runtime reaches its Action
- *   endpoint (a ping through the Runtime answers 200); the login
+ *   beside the project (what `npx` runs): `nylorun start` in the project
+ *   creates and starts its stack on the images it pins
+ *   (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from GHCR, never built
+ *   here), whose Runtime creates its one Tenant, and links the project to it;
+ *   the project's `npm run dev` serves and registers its Action endpoint.
+ * - Checks: the stack runs exactly the pinned images; the Admin API reports
+ *   the linked Tenant open; `assistant` is registered and the Runtime reaches
+ *   its Action endpoint (a ping through the Runtime answers 200); the login
  *   from `nylorun studio` lands on the Tenant and Studio proxies its API.
  *
  * Runs under `withStack` (scripts/lib/stack.mjs): a temporary NYLORUN_HOME and
- * a unique Compose project, always reset (containers and volumes) at the end.
+ * a unique stack name (NYLORUN_STACK), always reset (containers and volumes)
+ * at the end.
  */
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -29,9 +30,9 @@ import { npmCli } from "../lib/repo.mjs";
 import { ProcessGroup } from "../lib/processes.mjs";
 import {
   eventually,
+  runtimeGet,
+  runtimeHeaders,
   studioSession,
-  tenantGet,
-  tenantHeaders,
   withStack,
 } from "../lib/stack.mjs";
 
@@ -73,7 +74,7 @@ export function publicCreatorEnvironment(environment, npmrc, extras = {}) {
   };
 }
 
-/** The value of a printed field (`Runtime`, `Studio`, `Tenant`). */
+/** The value of a printed field (`Runtime`, `Studio`). */
 export function bannerField(lines, name) {
   for (const line of lines) {
     const match = new RegExp(`^${name}\\s+(\\S+)`).exec(line);
@@ -157,8 +158,8 @@ export async function publicCreatorSmoke(versions, pins) {
             "the published nylorun pins this release's images",
           );
 
-          // Registry install is done; image pulls and the first stack start.
-          const up = (await stack.nylorun(["up"], { cwd: project, timeout: 900_000 })).stdout;
+          // Registry install is done; image pulls, the first stack start and the link.
+          const up = (await stack.nylorun(["start"], { cwd: project, timeout: 900_000 })).stdout;
           const running = composeServices(await stack.compose(["ps", "--format", "json"]));
           for (const name of ["runtime", "studio"])
             assert.equal(
@@ -169,8 +170,6 @@ export async function publicCreatorSmoke(versions, pins) {
           const runtimeUrl = bannerField(up.split("\n"), "Runtime");
           assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/, up);
 
-          const created = (await stack.nylo(["tenant", "create"], { cwd: project })).stdout;
-          assert.match(created, /^Tenant\s.*\(created\)$/m, created);
           const [link, credentials] = await Promise.all(
             ["link.json", "credentials.json"].map(async (file) =>
               JSON.parse(await readFile(join(project, ".nylorun", file), "utf8")),
@@ -179,15 +178,17 @@ export async function publicCreatorSmoke(versions, pins) {
           assert.equal(link.hostUrl, runtimeUrl);
           const { tenantId } = link;
           const key = credentials.applicationKey;
+          // The published nylo works on the link.
+          await stack.nylo(["status"], { cwd: project });
 
           const admin = await stack.admin(
             pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
           );
-          assert.ok(
-            (await admin.listTenants()).some(
-              (tenant) => tenant.id === tenantId && tenant.state === "open",
-            ),
-            "the Admin API lists the Project's Tenant",
+          const { tenant } = await admin.status();
+          assert.deepEqual(
+            { id: tenant.id, state: tenant.state },
+            { id: tenantId, state: "open" },
+            "the Admin API reports the Project's Tenant open",
           );
           group.start("dev", process.execPath, [npmCli(), "run", "dev"], {
             cwd: project,
@@ -195,7 +196,7 @@ export async function publicCreatorSmoke(versions, pins) {
           });
           await eventually(
             async () =>
-              (await tenantGet(runtimeUrl, tenantId, key, "/v1/agents")).agents?.some(
+              (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.some(
                 (agent) => agent.manifest?.id === "assistant",
               ),
             { timeout: 120_000, message: 'the seed agent "assistant"' },
@@ -206,7 +207,7 @@ export async function publicCreatorSmoke(versions, pins) {
               (
                 await fetch(`${runtimeUrl}/v1/endpoints/assistant/ping`, {
                   method: "POST",
-                  headers: tenantHeaders(tenantId, key),
+                  headers: runtimeHeaders(key),
                   signal: AbortSignal.timeout(15_000),
                 })
               ).status === 200,
@@ -220,17 +221,14 @@ export async function publicCreatorSmoke(versions, pins) {
           assert.match(studioUrl ?? "", /^http:\/\/localhost:\d+\/login\?token=/);
           const studio = await studioSession(studioUrl);
           assert.equal(studio.location, `/tenants/${tenantId}`);
-          const listed = await (await studio.get("/_studio/tenants")).json();
-          assert.ok(
-            listed.tenants?.some((tenant) => tenant.id === tenantId),
-            "Studio lists the Tenant",
-          );
+          const hello = await (await studio.get("/_studio/hello")).json();
+          assert.equal(hello.tenant?.id, tenantId, "Studio serves the Tenant");
           const proxied = await studio.get(
             `/_studio/tenants/${tenantId}/runtime/v1/agents`,
           );
           assert.equal(proxied.status, 200, await proxied.clone().text());
           console.log(
-            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: Tenant created, Action endpoint reachable, Studio login works.`,
+            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its stack's Tenant, Action endpoint reachable, Studio login works.`,
           );
         } finally {
           // Stop the Project before the stack is reset.

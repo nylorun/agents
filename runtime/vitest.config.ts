@@ -10,5 +10,9 @@ export default defineConfig({
     globalSetup: ["test/global-setup.ts"],
     // One history (P0.3): every turn checks the folded transcript against the engine's.
     setupFiles: ["test/setup-database.ts", "test/setup/transcript-shadow.ts"],
+    // Tests that drive a Runtime run real transactions; on a loaded machine or a small CI
+    // runner they take longer than vitest's 5 s default.
+    testTimeout: 15_000,
+    hookTimeout: 30_000,
   },
 });

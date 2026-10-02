@@ -42,7 +42,7 @@ async function writeAtomic(path: string, text: string): Promise<void> {
 
 /** The Host root layout, mode 0700. */
 export async function ensureHostLayout(paths: StackPaths): Promise<void> {
-  for (const dir of [paths.root, paths.home, paths.tmp, paths.tenants, paths.stack])
+  for (const dir of [paths.root, paths.home, paths.tmp, paths.tenant, paths.stack])
     await mkdir(dir, { recursive: true, mode: 0o700 });
 }
 

@@ -36,9 +36,12 @@ imports to call one surface. Each depends only on `@nylorun/core`.
 _Avoid_: depending on `runtime` or `harness` from application code.
 
 **Local stack**: The Runtime image with Postgres, Restate and S2, run by
-`nylorun up` (the `nylorun` package) on a developer machine: one installation. Its
-Runtime creates the stack's one Tenant on first start. `@nylorun/runtime` is a library
-with no bin; the Runtime runs as the `ghcr.io/nylorun/runtime` image.
+`nylorun start` (the `nylorun` package) on a developer machine: one installation, one
+per project by default. A stack has a name (`--name`, else the project directory's),
+its Compose project `nylorun-<name>`, its Host root `~/.nylorun/stacks/<name>/`, ports
+and volumes. Its Runtime creates the stack's one Tenant on first start. Stacks start and
+stop only when the developer says so. `@nylorun/runtime` is a library with no bin; the
+Runtime runs as the `ghcr.io/nylorun/runtime` image.
 _Avoid_: "native Host", or installing `@nylorun/runtime` globally.
 
 **Prerequisites**: What a developer installs before using the Runtime: Node 24
@@ -68,8 +71,9 @@ Tenant Runtime, which it opens at start (`host/create-host.ts`: the listeners an
 `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`, `hostId`
 and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
 (`infra/readiness.ts`). The Tenant's data is its Postgres database; the Host keeps its
-key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME` or
-`~/.nylorun`). `nylorun up` writes `host.json` and `host-credentials.json`.
+key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or the
+stack's `~/.nylorun/stacks/<name>/`). `nylorun start` writes `host.json` and
+`host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
 **Tenant**: One isolated unit of sessions, principals, vault, sandboxes, plugin
@@ -90,16 +94,18 @@ endpoint (`api/ag-ui/`) and the A2A endpoint (`api/a2a/`).
 _Avoid_: equating "Runtime" alone with a single Project's process.
 
 **Host root**: The absolute directory that holds Host files and the Tenant directory
-`tenant/`. Resolved once from `NYLORUN_HOME` or `~/.nylorun`. The local stack
-bind-mounts it into the Runtime container at `/nylorun`.
+`tenant/`. Resolved once from `NYLORUN_HOME`, or for a local stack
+`~/.nylorun/stacks/<name>/`. The local stack bind-mounts it into the Runtime container
+at `/nylorun`.
 
 **Project link**: Project-local `.nylorun/link.json` with
-`{ format, hostUrl, hostId, tenantId }`, plus `.nylorun/credentials.json`
-(mode 0600) holding the application key and principal id. Format `0` (missing
-`format`) may still contain an `executors` map; version 1 ignores it and drops
-it on write. `nylo tenant create` writes it; `nylo tenant use` chooses another
-Tenant. A fresh clone or second worktree does not attach until it creates or
-chooses a link.
+`{ format: 2, stack, hostUrl, hostId, tenantId }` (`tenantId` is information:
+nothing selects a Tenant), plus `.nylorun/credentials.json` (mode 0600) holding the
+key of the derived principal `project` and its id. `nylorun start` writes both. A
+format 0 or 1 link named a Tenant on an older multi-Tenant Host; clients refuse it and
+`nylorun start` replaces it with a new stack. A fresh clone or second worktree does not
+attach until `nylorun start` creates its stack, or `nylorun start --name <stack>`
+attaches it to an existing one.
 _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
 flags and env vars that selected a database path.
 
@@ -323,8 +329,10 @@ One line each; the module named is where the term lives in code.
 | `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents` | Action endpoints: `createActionHandler` and `PUT /v1/endpoints` |
 | `nylorun serve` | `node dist/src/main.js` / the app's Action endpoint |
 | importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
-| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun up` |
-| `nylorun dev`, `nylorun dev --ephemeral` | `nylo tenant create` once, then the project's `npm run dev` |
+| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun start` |
+| `nylorun dev`, `nylorun dev --ephemeral` | `nylorun start` once, then the project's `npm run dev` |
+| `nylo tenant create\|use\|list\|current\|delete`, one stack for every project | `nylorun start` in the project: its own stack, Tenant and link |
+| `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation |
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres database (Session Store) |
 | `tenant_<id>` schemas, the Tenant catalog, quarantine | one Tenant per database; a readiness cause |
 | `Nylorun-Tenant` on new clients, `/v1/admin/tenants` | nothing selects the Tenant; `/v1/admin/status` names it |

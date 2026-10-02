@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
 import {
   createAdmin,
-  AdminError,
+  PROJECT_PRINCIPAL_ID,
   deriveStudioToken,
   deriveTenantKey,
 } from "../src/index.js";
-import { HOST_PROTOCOL, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import {
   ADMIN_KEY,
   healthBody,
-  sampleEnvelope,
   sampleStatus,
-  sampleTenant,
   startStubServer,
 } from "./helpers.js";
 
@@ -26,44 +23,17 @@ function sendJson(
 }
 
 describe("B4 Admin API methods", () => {
-  it("status, listTenants, getTenant, and deleteTenant parse schemas and auth", async () => {
-    const server = await startStubServer((request, response, body) => {
+  it("status parses the Host's one Tenant and sends the admin key and protocol", async () => {
+    const server = await startStubServer((request, response) => {
       if (request.url === "/health") {
         sendJson(response, 200, healthBody());
         return;
       }
       expect(request.headers.authorization).toBe(`Bearer ${ADMIN_KEY}`);
       expect(request.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
+      expect(request.headers["nylorun-tenant"]).toBeUndefined();
       if (request.url === "/v1/admin/status" && request.method === "GET") {
         sendJson(response, 200, sampleStatus());
-        return;
-      }
-      if (request.url === "/v1/admin/tenants" && request.method === "GET") {
-        sendJson(response, 200, [sampleTenant()]);
-        return;
-      }
-      if (
-        request.url === "/v1/admin/tenants/tn_00000000000000000000000001" &&
-        request.method === "GET"
-      ) {
-        sendJson(response, 200, {
-          ...sampleTenant(),
-          quarantine: {
-            code: "kek-missing",
-            message: "vault key missing",
-            repair: "restore vault-kek",
-          },
-        });
-        return;
-      }
-      if (
-        request.url ===
-          "/v1/admin/tenants/tn_00000000000000000000000001?activeWork=drain" &&
-        request.method === "DELETE"
-      ) {
-        expect(body).toBe("");
-        response.writeHead(204);
-        response.end();
         return;
       }
       sendJson(response, 404, {
@@ -76,23 +46,18 @@ describe("B4 Admin API methods", () => {
       const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
       await expect(admin.status()).resolves.toMatchObject({
         service: "nylorun-runtime",
+        tenant: { id: "tn_00000000000000000000000001", state: "open" },
         host: { hostId: "host_00000000000000000000000001", pid: 42 },
       });
-      await expect(admin.listTenants()).resolves.toEqual([sampleTenant()]);
-      await expect(
-        admin.getTenant("tn_00000000000000000000000001"),
-      ).resolves.toMatchObject({
-        id: "tn_00000000000000000000000001",
-        quarantine: { code: "kek-missing" },
-      });
-      await expect(
-        admin.deleteTenant("tn_00000000000000000000000001", {
-          activeWork: "drain",
-        }),
-      ).resolves.toBeUndefined();
     } finally {
       await server.close();
     }
+  });
+
+  it("has no Tenant management methods: the Host creates its one Tenant", () => {
+    const admin = createAdmin({ url: "http://127.0.0.1:1", key: ADMIN_KEY });
+    for (const name of ["listTenants", "getTenant", "deleteTenant", "createTenant"])
+      expect(name in admin).toBe(false);
   });
 
   it("throws AdminError with a registry code on rejected responses", async () => {
@@ -101,21 +66,18 @@ describe("B4 Admin API methods", () => {
         sendJson(response, 200, healthBody());
         return;
       }
-      sendJson(response, 409, {
+      sendJson(response, 401, {
         status: "rejected",
-        code: "active_work",
-        message: "sessions running",
-        details: { runningSessions: 1 },
+        code: "host_rejected",
+        message: "bad admin key",
       });
     });
     try {
       const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(
-        admin.deleteTenant("tn_00000000000000000000000001"),
-      ).rejects.toMatchObject({
+      await expect(admin.status()).rejects.toMatchObject({
         name: "AdminError",
-        code: "active_work",
-        status: 409,
+        code: "host_rejected",
+        status: 401,
       });
     } finally {
       await server.close();
@@ -123,215 +85,17 @@ describe("B4 Admin API methods", () => {
   });
 });
 
-describe("B5 createTenant", () => {
-  it("POSTs only credential hashes and retries identical values on 5xx", async () => {
-    let posts = 0;
-    const bodies: unknown[] = [];
-    const server = await startStubServer((request, response, body) => {
-      if (request.url === "/health") {
-        sendJson(response, 200, healthBody());
-        return;
-      }
-      if (request.url === "/v1/admin/tenants" && request.method === "POST") {
-        posts += 1;
-        const parsed = JSON.parse(body) as Record<string, unknown>;
-        bodies.push(parsed);
-        expect(parsed).not.toHaveProperty("applicationKey");
-        expect(typeof parsed.credentialHash).toBe("string");
-        expect(parsed.credentialHash).toMatch(/^[0-9a-f]{64}$/);
-        expect(Object.keys(parsed).sort()).toEqual([
-          "credentialHash",
-          "idempotencyKey",
-          "name",
-          "principalId",
-          "studioCredentialHash",
-          "tenantId",
-        ]);
-        if (posts < 3) {
-          sendJson(response, 503, {
-            status: "rejected",
-            code: "not_found",
-            message: "temporary",
-          });
-          return;
-        }
-        sendJson(response, 201, sampleEnvelope(String(parsed.tenantId)));
-        return;
-      }
-      sendJson(response, 404, {
-        status: "rejected",
-        code: "not_found",
-        message: "no",
-      });
-    });
-    try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      const result = await admin.createTenant({ name: "demo" });
-      expect(posts).toBe(3);
-      expect(bodies).toHaveLength(3);
-      expect(bodies[0]).toEqual(bodies[1]);
-      expect(bodies[1]).toEqual(bodies[2]);
-      expect(result.tenant.name).toBe("demo");
-      expect(result.applicationKey).toMatch(/^[0-9a-f]{64}$/);
-      const expectedHash = createHash("sha256")
-        .update(result.applicationKey, "utf8")
-        .digest("hex");
-      expect((bodies[0] as { credentialHash: string }).credentialHash).toBe(
-        expectedHash,
-      );
-      expect(JSON.stringify(bodies)).not.toContain(result.applicationKey);
-      const sent = bodies[0] as { tenantId: string; studioCredentialHash: string };
-      const studioToken = deriveStudioToken(ADMIN_KEY, sent.tenantId);
-      expect(sent.studioCredentialHash).toBe(
-        createHash("sha256").update(studioToken, "utf8").digest("hex"),
-      );
-      expect(JSON.stringify(bodies)).not.toContain(studioToken);
-      expect(JSON.stringify(bodies)).not.toContain(ADMIN_KEY);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("registers derived principals by hash when the Host supports them", async () => {
-    const bodies: Record<string, unknown>[] = [];
-    const server = await startStubServer((request, response, body) => {
-      if (request.url === "/health") {
-        sendJson(
-          response,
-          200,
-          healthBody({ protocol: { ...HOST_PROTOCOL } }),
-        );
-        return;
-      }
-      if (request.url === "/v1/admin/tenants" && request.method === "POST") {
-        const parsed = JSON.parse(body) as Record<string, unknown>;
-        bodies.push(parsed);
-        sendJson(response, 201, sampleEnvelope(String(parsed.tenantId)));
-        return;
-      }
-      sendJson(response, 404, { status: "rejected", code: "not_found", message: "no" });
-    });
-    try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      const { tenant } = await admin.createTenant({
-        name: "demo",
-        principals: ["babai", "smoke"],
-      });
-      const sent = bodies[0] as {
-        tenantId: string;
-        derivedPrincipals: { id: string; credentialHash: string }[];
-      };
-      expect(Object.keys(sent).sort()).toContain("derivedPrincipals");
-      const key = admin.deriveTenantKey(tenant.id, "babai");
-      expect(key).toBe(deriveTenantKey(ADMIN_KEY, sent.tenantId, "babai"));
-      expect(sent.derivedPrincipals).toEqual([
-        {
-          id: "babai",
-          credentialHash: createHash("sha256").update(key, "utf8").digest("hex"),
-        },
-        {
-          id: "smoke",
-          credentialHash: createHash("sha256")
-            .update(deriveTenantKey(ADMIN_KEY, sent.tenantId, "smoke"), "utf8")
-            .digest("hex"),
-        },
-      ]);
-      expect(JSON.stringify(bodies)).not.toContain(key);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("refuses principals before any POST when the Host lacks derived-principals", async () => {
-    let posts = 0;
-    const server = await startStubServer((request, response) => {
-      if (request.url === "/health") {
-        sendJson(response, 200, healthBody());
-        return;
-      }
-      posts += 1;
-      sendJson(response, 500, {});
-    });
-    try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(
-        admin.createTenant({ name: "demo", principals: ["babai"] }),
-      ).rejects.toMatchObject({ code: "incompatible_host" });
-      await expect(
-        admin.createTenant({ name: "demo", principals: ["Bad_Id"] }),
-      ).rejects.toThrow(TypeError);
-      await expect(
-        admin.createTenant({ name: "demo", principals: ["studio"] }),
-      ).rejects.toThrow(TypeError);
-      await expect(
-        admin.createTenant({ name: "demo", principals: ["a", "a"] }),
-      ).rejects.toThrow(TypeError);
-      expect(posts).toBe(0);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("retries identical values after a network error", async () => {
-    let posts = 0;
-    const bodies: string[] = [];
-    const server = await startStubServer((request, response, body) => {
-      if (request.url === "/health") {
-        sendJson(response, 200, healthBody());
-        return;
-      }
-      if (request.url === "/v1/admin/tenants" && request.method === "POST") {
-        posts += 1;
-        bodies.push(body);
-        if (posts === 1) {
-          request.socket.destroy();
-          return;
-        }
-        const parsed = JSON.parse(body) as { tenantId: string };
-        sendJson(response, 201, sampleEnvelope(parsed.tenantId));
-        return;
-      }
-      sendJson(response, 404, {
-        status: "rejected",
-        code: "not_found",
-        message: "no",
-      });
-    });
-    try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      const result = await admin.createTenant({ name: "retry-net" });
-      expect(posts).toBe(2);
-      expect(bodies[0]).toBe(bodies[1]);
-      expect(result.applicationKey).toMatch(/^[0-9a-f]{64}$/);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("throws tenant_conflict on 409", async () => {
-    const server = await startStubServer((request, response) => {
-      if (request.url === "/health") {
-        sendJson(response, 200, healthBody());
-        return;
-      }
-      sendJson(response, 409, {
-        status: "rejected",
-        code: "tenant_conflict",
-        message: "id taken",
-      });
-    });
-    try {
-      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.createTenant({ name: "x" })).rejects.toMatchObject({
-        code: "tenant_conflict",
-        status: 409,
-      });
-      await expect(admin.createTenant({ name: "x" })).rejects.toBeInstanceOf(
-        AdminError,
-      );
-    } finally {
-      await server.close();
-    }
+describe("B5 derived keys", () => {
+  it("derives the Studio and project keys of the Host's Tenant from the admin key", () => {
+    const admin = createAdmin({ url: "http://127.0.0.1:1", key: ADMIN_KEY });
+    const tenantId = sampleStatus().tenant.id;
+    expect(admin.deriveTenantKey(tenantId, PROJECT_PRINCIPAL_ID)).toBe(
+      deriveTenantKey(ADMIN_KEY, tenantId, "project"),
+    );
+    expect(admin.deriveTenantKey(tenantId, "project")).not.toBe(
+      deriveStudioToken(ADMIN_KEY, tenantId),
+    );
+    expect(admin.deriveTenantKey(tenantId, "project")).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

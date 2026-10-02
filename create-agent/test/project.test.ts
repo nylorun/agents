@@ -169,18 +169,17 @@ it("renders a fresh project before installation, then installs and starts nothin
   expect(commands).toEqual([["npm", ["install", "--yes"], "/workspace/demo"]]);
 });
 
-it("prints the next steps: the stack, the Tenant, then development", async () => {
+it("prints the next steps: the stack with its Tenant and link, then development", async () => {
   const deps = fixture();
   await createProject({ ...options, yes: true }, compatibility, deps);
   const next = deps.log.mock.calls.at(-1)?.[0] as string;
   expect(next).toContain("cd '/workspace/my agent'");
-  expect(next.indexOf("npx nylorun@beta up")).toBeGreaterThan(-1);
-  expect(next.indexOf("npx @nylorun/cli@beta tenant create")).toBeGreaterThan(
-    next.indexOf("npx nylorun@beta up"),
-  );
+  expect(next.indexOf("npx nylorun@beta start")).toBeGreaterThan(-1);
   expect(next.indexOf("npm run dev")).toBeGreaterThan(
-    next.indexOf("npx @nylorun/cli@beta tenant create"),
+    next.indexOf("npx nylorun@beta start"),
   );
+  expect(next).not.toContain("tenant create");
+  expect(next).not.toContain("nylorun@beta up");
 });
 
 function fixture() {
@@ -264,7 +263,7 @@ it("shows recovery instructions when installation fails to spawn", async () => {
   const deps = fixture();
   deps.run.mockRejectedValueOnce(new Error("spawn failed"));
   await expect(createProject(options, compatibility, deps)).rejects.toThrow(
-    /npm install\n.*nylorun@beta up[\s\S]*npm run dev/
+    /npm install\n.*nylorun@beta start[\s\S]*npm run dev/
   );
   expect(deps.run).toHaveBeenCalledTimes(1);
 });
@@ -284,7 +283,7 @@ it("stops before development and names missing prerequisites; installs nothing",
   expect(message).toContain("Node.js 24 or newer (found 22.19.0)");
   expect(message).toContain("Install Docker with Compose v2");
   expect(message).not.toContain("@nylorun/runtime");
-  expect(message).toContain("npx nylorun@beta up");
+  expect(message).toContain("npx nylorun@beta start");
   expect(message).toContain("npm run dev");
   expect(deps.checkDocker).toHaveBeenCalled();
   // Only the project's own dependencies were installed.

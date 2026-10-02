@@ -1624,12 +1624,20 @@ export const AdminStatusSchema = z
   .strict();
 export type AdminStatus = z.infer<typeof AdminStatusSchema>;
 
+/**
+ * `.nylorun/link.json`: the installation a Project uses. Format 2 (one Tenant per
+ * installation) names the local `stack` that `nylorun start` created or attached; `tenantId`
+ * is information only, since nothing in a request selects a Tenant. Formats 0 and 1 named a
+ * Tenant on a multi-Tenant Host of an older Runtime.
+ */
 export const ProjectLinkFileSchema = z
   .object({
-    format: z.union([z.literal(0), z.literal(1)]).default(0),
+    format: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
+    /** The local stack's name (format 2); absent for an installation that is not a stack. */
+    stack: z.string().min(1).optional(),
     hostUrl: z.string().min(1),
     hostId: z.string().min(1),
-    tenantId: z.string().min(1),
+    tenantId: z.string().min(1).optional(),
   })
   .passthrough();
 export type ProjectLinkFile = z.infer<typeof ProjectLinkFileSchema>;
@@ -1766,7 +1774,7 @@ export const SeedTenantConfigRequestSchema = z
     model: seedModelSchema.optional(),
     /**
      * The Tenant's model calls use the Runtime's deterministic fixture model instead of its
-     * host model, e.g. for a temporary test Tenant (scripts/lib/temporary-tenant.mjs). Stored
+     * host model, e.g. for the stack Tenant a smoke check resets (scripts/lib/stack-tenant.mjs). Stored
      * as Tenant setting `model.fixture`. Host feature `tenant-fixture-model`.
      */
     fixtureModel: z.literal(true).optional(),

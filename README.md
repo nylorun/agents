@@ -1,8 +1,8 @@
 # Nylorun Agents
 
 Observable, portable, composable TypeScript agent execution. Harness is
-state-in/state-out; the optional **Runtime Host** owns sessions across isolated
-**Tenants**.
+state-in/state-out; the optional **Runtime Host** owns sessions for the one
+**Tenant** of its installation.
 
 This repository contains core (definitions/contracts), harness (engine), agents
 (SDK), admin (Admin API client), runtime (OSS Host), CLI, Studio and the project
@@ -11,8 +11,9 @@ creator. Cloud lives in the private agents-api repository. Vocabulary:
 
 The Runtime runs as a container next to Postgres (the Session Store), Restate
 (Durable Session Execution) and S2 (Durable Streams, `s2-lite` locally). Studio,
-the dashboard, is a service of the same stack. On a developer machine
-`nylorun start` runs all five with Docker Compose.
+the dashboard, is a service of the same stack. Each installation has its own
+database and serves one Tenant. On a developer machine `nylorun start` runs all
+five with Docker Compose, one stack per project.
 
 For the core-runtime beta, start with [the SDK](agents/README.md),
 [Runtime Host](runtime/README.md), and [host contract](harness/HOST_CONTRACT.md).
@@ -46,22 +47,24 @@ you. Then:
 
 ```sh
 cd my-agent
-npx nylorun@beta up                  # pull and start the local stack (Runtime and Studio)
-npx @nylorun/cli@beta tenant create  # the project's Tenant and its Project link in .nylorun/
-npm run dev                          # tsx watch src/main.ts
+npx nylorun@beta start   # the project's stack (Runtime and Studio), its Tenant and the Project link in .nylorun/
+npm run dev              # tsx watch src/main.ts
 ```
 
 `--yes` (after `--`) accepts npm install prompts.
 
 The generated app depends on `@nylorun/agents` alone; the two tools run with
-`npx`. `nylorun` sets up and runs the local stack
-(`nylorun up|down|status|logs|studio|reset`; `nylorun doctor` checks the
-prerequisites) and never creates Tenants. `@nylorun/cli`, command `nylo`, is
-the Runtime client: `tenant create` creates a **Tenant** for the project,
-writes a **Project link** under `.nylorun/`, and seeds the model provider from
-`.env` into the Tenant's vault (or set it in Studio). Studio ships in the stack
-as the `ghcr.io/nylorun/studio` image. You can also run the stack without a
-project: `npx nylorun up` from any directory.
+`npx`. `nylorun` sets up and runs the project's local stack
+(`nylorun start|stop|status|logs|studio|reset`, `nylorun ls` and
+`nylorun delete <stack>`; `nylorun doctor` checks the prerequisites). The
+stack's Runtime creates the stack's one **Tenant** on first start, and
+`nylorun start` writes the **Project link** under `.nylorun/` and seeds the
+model provider from `.env` into the Tenant's vault (or set it in Studio).
+Projects that must not share agents, credentials or history run separate
+stacks; `nylorun start --name <stack>` attaches a checkout to an existing one.
+`@nylorun/cli`, command `nylo`, is the Runtime client for the linked
+installation (`nylo status|reset|endpoints|configure|access`). Studio ships in
+the stack as the `ghcr.io/nylorun/studio` image.
 
 ## Develop this repository
 
@@ -76,15 +79,15 @@ npm run dev
 
 `npm run setup` installs both lockfiles and builds packages. `npm run dev`
 builds the Runtime and Studio images from your checkout, runs the stack on them
-(`nylorun start`), and runs the examples on their own Tenant, rebuilding
+(`nylorun start`), and runs the examples on that stack's Tenant, rebuilding
 packages and images as you edit. The stack keeps running after you stop `dev`,
 so sessions survive a source change; `npx nylorun down` stops it.
 
-Print the three export lines for a linked Project:
+Print the export lines for a linked Project:
 
 ```sh
 eval "$(npx @nylorun/cli env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
+# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
 ## Packages
@@ -93,10 +96,10 @@ eval "$(npx @nylorun/cli env)"
 | ----------------------------------------- | ----------------------------------------------------------------- |
 | [`@nylorun/core`](./core)                 | Shared definitions, contracts and manifest identity               |
 | [`@nylorun/harness`](./harness)           | Execution engine and checkpoints                                  |
-| [`nylorun`](./nylorun)                    | `npx nylorun up`: sets up and runs the local Docker stack         |
-| [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): Tenants, Project link, model provider    |
+| [`nylorun`](./nylorun)                    | `npx nylorun start`: a project's local Docker stack and its link  |
+| [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): status, reset, access, model provider    |
 | [`@nylorun/agents`](./agents)             | Session SDK, authoring, and the Action endpoint that runs your tools |
-| [`@nylorun/admin`](./admin)               | Admin API client: Tenants and Host status                         |
+| [`@nylorun/admin`](./admin)               | Admin API client: Host status, its Tenant, derived keys           |
 | [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
 | [`@nylorun/studio`](./studio)             | Dashboard and trusted proxy; the `ghcr.io/nylorun/studio` image   |
 | [`@nylorun/create-agent`](./create-agent) | Project scaffolding, compatibility pins, and examples sync        |

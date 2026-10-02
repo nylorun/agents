@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach } from "vitest";
 import type { StackDeps } from "../../src/stack/commands.js";
 import type { DockerResult, DockerRunner } from "../../src/stack/docker.js";
@@ -11,10 +11,21 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
+/**
+ * A Host root (`NYLORUN_HOME`) in a new temporary directory, which `testDeps` also uses as the
+ * working directory (not a project) and, under `nylorun/`, as `~/.nylorun`.
+ */
 export async function temporaryHome(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "nylorun-stack-"));
   roots.push(root);
   return join(root, "home-root");
+}
+
+/** A temporary directory removed after the test. */
+export async function temporaryDir(prefix = "nylorun-test-"): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  roots.push(root);
+  return root;
 }
 
 /** Ports probe: `busy` ports are taken; free picks count up from 50000. */
@@ -110,6 +121,8 @@ export function testDeps(
       return true;
     },
     pidAlive: () => false,
+    cwd: dirname(home),
+    nylorunRoot: join(dirname(home), "nylorun"),
     pollMs: 1,
     healthTimeoutMs: 50,
     ...overrides,

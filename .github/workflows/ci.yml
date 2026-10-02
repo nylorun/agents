@@ -108,14 +108,15 @@ jobs:
       - name: Test setup
         timeout-minutes: 10
         run: npm run test:setup
-  # Tenant acceptance (H1–H9) on the Docker stack with this PR's images, driven
-  # by the packed CLI and @nylorun/admin under a temporary Host root; split into
-  # two groups with one stack each.
+  # Installation acceptance (I1–I9: one Tenant per installation) on the Docker
+  # stack with this PR's images, driven by the packed nylorun, CLI and
+  # @nylorun/admin under a temporary Host root; split into two groups with one
+  # stack each.
   acceptance:
     strategy:
       fail-fast: false
       matrix:
-        scenarios: ["H1,H3,H4,H5,H7,H8", "H2,H6,H9"]
+        scenarios: ["I1,I2,I3,I4,I5", "I6,I7,I8,I9"]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -135,7 +136,7 @@ jobs:
       # The Runtime and Studio images from this PR, from the layer cache that
       # cache.yml writes on main.
       - uses: ./.github/actions/stack-images
-      - name: Tenant acceptance
+      - name: Installation acceptance
         timeout-minutes: 15
         run: npm run test:acceptance -- --only ${{ matrix.scenarios }}
   # macOS, the other supported developer OS (Windows developers use WSL2, which
@@ -196,8 +197,9 @@ jobs:
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
   # `nylorun start` on Linux with the Runtime and Studio images built from this
-  # PR, under a temporary Host root: status, /ready (Postgres, Restate, S2), a
-  # Tenant through @nylorun/admin, a Studio login, the Restate identity key,
+  # PR, under a temporary Host root: status, /ready (Postgres, Restate, S2), the
+  # stack's Tenant through @nylorun/admin, a Studio login, a Project linked by
+  # `nylorun start`, the Restate identity key,
   # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`. In
   # parallel, architecture §17 case 3 on its own stack (test:failure): the
   # runtime container killed mid model call (`docker compose kill`), then

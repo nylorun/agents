@@ -152,9 +152,9 @@ Tenant there on first start, as a Host does (with `tenantId`, `name` and an appl
 principal for `applicationKey`), and serves the Tenant a database already holds. The
 data stays after `close()`; give each test Tenant its own database and drop it
 afterwards. Its
-streams and scheduling are in process and gone after `close()`. The smoke checks'
-temporary Tenants (`scripts/lib/temporary-tenant.mjs`) do not use it; they are
-created on the Docker stack.
+streams and scheduling are in process and gone after `close()`. The smoke checks do
+not use it; they reset and seed the Tenant of a temporary Docker stack
+(`scripts/lib/stack-tenant.mjs`).
 
 ```ts
 const runtime = await startEphemeralRuntime({
@@ -193,10 +193,10 @@ Tenant owns each sandbox; backend names are prefixed `nylorun-<tenant-id>-`.
 
 ## Local Project workflow
 
-A project depends on `@nylorun/agents` only. `npx nylorun up` runs the local
-stack (Docker); `npx @nylorun/cli tenant create` (`nylo`) creates the
-project's Tenant and writes its Project link; the project's `npm run dev` runs
-`src/main.ts` under `tsx watch`; `npx nylorun studio` opens Studio.
+A project depends on `@nylorun/agents` only. `npx nylorun start` in the project
+runs its local stack (Docker), whose Runtime creates the stack's one Tenant, and
+writes the Project link; the project's `npm run dev` runs `src/main.ts` under
+`tsx watch`; `npx nylorun studio` opens Studio on that Tenant.
 
 ## Troubleshooting
 
@@ -210,7 +210,7 @@ project's Tenant and writes its Project link; the project's `npm run dev` runs
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
-| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun up` |
+| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun start` |
 | Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.

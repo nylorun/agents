@@ -1,5 +1,5 @@
 /**
- * Image pins (D7, G3). `nylorun up` runs `ghcr.io/nylorun/runtime:<nylorun.runtime>`
+ * Image pins (D7, G3). `nylorun start` runs `ghcr.io/nylorun/runtime:<nylorun.runtime>`
  * and `ghcr.io/nylorun/studio:<nylorun.studio>` from nylorun/package.json, so
  * each pin must equal the version of the package that the image is built from.
  * The release publishes both images before it publishes nylorun.
