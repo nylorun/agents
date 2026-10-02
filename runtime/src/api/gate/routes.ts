@@ -22,6 +22,9 @@ import { InflightConflict, type InflightCalls } from "../../gates/inflight.js";
 import type { ModelGateOutcome } from "../../gates/model-gate.js";
 import type { McpHandler } from "../../gates/mcp-handler.js";
 import type { ToolCalls } from "../../gates/tool-calls.js";
+import type { Keys } from "../../keys/keys.js";
+import { mountKeysRoutes } from "./keys.js";
+import type { Logger } from "../../tenant/types.js";
 import {
   DELIVERIES_PATH,
   DELIVERY_HEADERS,
@@ -55,6 +58,10 @@ export interface GatesAppOptions {
   readonly mcp?: McpHandler;
   /** Keyed MCP calls, which outlive their client and run once (F4.1 G3). Needs `mcp`. */
   readonly toolCalls?: ToolCalls;
+  /** The keys service's operations (F4.2). Without it the keys route answers 404. */
+  readonly keys?: () => Promise<Keys>;
+  /** Logs the keys service's requests. */
+  readonly logger?: Logger;
   /**
    * How the gate may call Action endpoints (the gateway's own `NYLORUN_ENDPOINT_*`), for
    * deliveries (F4.1). Without it the delivery route answers 404.
@@ -119,6 +126,13 @@ export function createGatesApp(options: GatesAppOptions): Hono {
       };
     return { ok: true, tenantId, body: parsed.data };
   }
+
+  if (options.keys)
+    mountKeysRoutes(app, {
+      authorized,
+      keys: options.keys,
+      logger: options.logger ?? { info() {}, warn() {}, error() {} },
+    });
 
   const mcp = options.mcp;
   if (mcp) {

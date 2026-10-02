@@ -3,7 +3,7 @@ import { getRequestListener } from "@hono/node-server";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
   PROTOCOL_HEADER,
@@ -27,6 +27,9 @@ import { httpToolGate } from "../../src/gates/tool-client.js";
 import type { ToolGate } from "../../src/gates/tool-gate.js";
 import { authorizeSessionMcp } from "../../src/gates/tenant-vaults.js";
 import { VaultService } from "../../src/vault/service.js";
+import { httpKeys } from "../../src/keys/client.js";
+import { inProcessKeys, type Keys } from "../../src/keys/keys.js";
+import { SigningKeys } from "../../src/tenant/signing-keys.js";
 import type { Session } from "../../src/tenant/context.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
@@ -136,6 +139,7 @@ export async function startTestTenant(
     paths.sandboxes,
     paths.pluginData,
     paths.logs,
+    dirname(paths.kek),
   ])
     mkdirSync(dir, { recursive: true });
 
@@ -226,7 +230,7 @@ export async function startTestTenant(
     createKekFile(paths.kek);
   }
 
-  let gate: (GatesServer & { modelGate: ModelGate; toolGate: ToolGate }) | undefined;
+  let gate: (GatesServer & { modelGate: ModelGate; toolGate: ToolGate; keys: Keys }) | undefined;
   if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
     const kek = () => {
       const found = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
@@ -242,6 +246,7 @@ export async function startTestTenant(
         kek,
         fetch: options.vaultFetch ?? globalThis.fetch,
       }),
+      kek,
       root: paths.home,
       logger,
       ...(options.modelCall ? { settings: options.modelCall } : {}),
@@ -252,6 +257,8 @@ export async function startTestTenant(
   else if (options.useHostModel && gate) hooks.modelGate = gate.modelGate;
   if (options.toolGate) hooks.toolGate = options.toolGate;
   else if (gate) hooks.toolGate = gate.toolGate;
+  // The keys service (F4.2): the Tenant never reads the vault key; the gate does.
+  if (gate) hooks.keys = gate.keys;
 
   const handle = await openTenantRuntime(config, hooks);
   const tenant = getRequestListener((request, node) => handle.fetch(request, node), {
@@ -352,16 +359,26 @@ export async function startTestGate(options: {
   tenantId: string;
   store: SessionStore;
   vault: HostModelVault;
-  /** The vault service remote MCP servers are authorized from. */
+  /** The vault service remote MCP servers are authorized from, and keys seal with. */
   credentials?: VaultService;
+  /** The vault key, for the keys service. */
+  kek?: () => Buffer;
   root: string;
   logger: TenantConfig["logger"];
   settings?: TenantConfig["modelCall"];
   delivery?: TenantConfig["delivery"];
-}): Promise<GatesServer & { modelGate: ModelGate; toolGate: ToolGate }> {
+}): Promise<GatesServer & { modelGate: ModelGate; toolGate: ToolGate; keys: Keys }> {
   const token = randomBytes(32).toString("hex");
   const session = (sessionId: string) =>
     options.store.tx((t) => t.get<Session>("sessions", sessionId));
+  const keys = options.credentials
+    ? inProcessKeys({
+        store: options.store,
+        vault: options.credentials,
+        signingKeys: new SigningKeys({ tenantId: options.tenantId, kek: options.kek! }),
+        kek: options.kek!,
+      })
+    : undefined;
   const server = await startGates({
     gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
     logger: options.logger,
@@ -377,14 +394,20 @@ export async function startTestGate(options: {
           if (!options.credentials) throw new Error("This test gate serves no MCP credentials");
           return authorizeSessionMcp(options.credentials, session, sessionId, request);
         },
+        keys: () => {
+          if (!keys) throw new Error("This test gate serves no keys");
+          return keys;
+        },
       }),
     },
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.delivery ? { delivery: options.delivery } : {}),
+    keys: true,
     drainMs: 0,
   });
   return Object.assign(server, {
     modelGate: httpModelGate({ url: server.url, token }),
     toolGate: httpToolGate({ url: server.url, token }),
+    keys: httpKeys({ url: server.url, token }),
   });
 }

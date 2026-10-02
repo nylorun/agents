@@ -21,6 +21,8 @@ import { HostModelVault } from "../vault/host-model.js";
 import { VaultService, type AuthorizeResult, type HostModelSecret } from "../vault/service.js";
 import type { SessionStore } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
+import { inProcessKeys, type Keys } from "../keys/keys.js";
+import { SigningKeys } from "../tenant/signing-keys.js";
 
 /** The Tenant, as a model call needs it. */
 export interface TenantVault {
@@ -39,6 +41,8 @@ export interface TenantVault {
    * from the session's attached vaults, refreshed when due (F4.1).
    */
   authorizeMcp(sessionId: string, request: { url: string; serverName: string }): Promise<AuthorizeResult>;
+  /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */
+  keys(): Keys;
 }
 
 export interface TenantVaults {
@@ -59,7 +63,7 @@ export class GateRefusal extends Error {
 
 export interface TenantVaultsOptions {
   readonly sql: PostgresClient;
-  /** The Host root; the gate reads `tenant/vault-kek` and `tenant/home` under it. */
+  /** The Host root; the gate reads `keys/vault-kek` and `tenant/home` under it. */
   readonly hostRoot: string;
 }
 
@@ -77,7 +81,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
         throw new GateRefusal(
           failure(
             "auth",
-            "The Tenant's vault key is missing on the gateway container; check that it mounts the Host's tenant directory",
+            "The Tenant's vault key is missing on the gateway container; check that it mounts the Host's keys directory, which `nylorun start` creates",
             false,
           ),
         );
@@ -85,6 +89,12 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
     };
     const vault = new HostModelVault({ store, kek: readKek });
     const credentials = new VaultService({ store, kek: readKek, fetch: globalThis.fetch });
+    const keys = inProcessKeys({
+      store,
+      vault: credentials,
+      signingKeys: new SigningKeys({ tenantId, kek: readKek }),
+      kek: readKek,
+    });
     const session = (sessionId: string) =>
       store.tx((t) => t.get<Session>("sessions", sessionId));
     return {
@@ -96,6 +106,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       session,
       authorizeMcp: (sessionId, request) =>
         authorizeSessionMcp(credentials, session, sessionId, request),
+      keys: () => keys,
     };
   }
 

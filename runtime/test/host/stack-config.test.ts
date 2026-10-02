@@ -36,6 +36,27 @@ describe("parseServices", () => {
     });
   });
 
+  it("runs keys with gates (F4.2), and never with core or loop", () => {
+    expect(parseServices(["--service", "gates,keys"])).toEqual({ services: services("gates", "keys") });
+    expect(() => parseServices(["--service", "core,keys"])).toThrow(/may not share a process/);
+  });
+
+  it("reads the keys service's URL, defaulting to the gateway's", () => {
+    const token = "ab".repeat(32);
+    expect(
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, []).keys,
+    ).toEqual({ url: "http://gateway:4100", token });
+    expect(
+      parseStackConfig(
+        { NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_KEYS_URL: "http://keys:4200/", NYLORUN_GATES_TOKEN: token },
+        [],
+      ).keys,
+    ).toEqual({ url: "http://keys:4200", token });
+    expect(() => parseStackConfig({ NYLORUN_KEYS_URL: "http://keys:4200" }, [])).toThrow(
+      /NYLORUN_GATES_TOKEN is required with NYLORUN_KEYS_URL/,
+    );
+  });
+
   it("runs gates alone: never in a process with core or loop", () => {
     expect(parseServices(["--service", "gates"])).toEqual({ services: services("gates") });
     expect(() => parseServices(["--service", "core,gates"])).toThrow(
@@ -99,6 +120,7 @@ describe("parseStackConfig", () => {
         NYLORUN_S2_TOKEN: "ignored",
         NYLORUN_WORKSPACE_STORE_URL: "file:///workspaces",
         NYLORUN_GATES_URL: "http://gateway:4100",
+        NYLORUN_KEYS_URL: "http://gateway:4100",
         NYLORUN_GATES_TOKEN: "ab".repeat(32),
         NYLORUN_PACKING: "combined",
       },
@@ -107,6 +129,7 @@ describe("parseStackConfig", () => {
     expect(config).toEqual({
       services: new Set(["core", "loop"]),
       modelGate: { url: "http://gateway:4100", token: "ab".repeat(32) },
+      keys: { url: "http://gateway:4100", token: "ab".repeat(32) },
       packing: "combined",
       listen: {
         host: "0.0.0.0",

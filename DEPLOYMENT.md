@@ -30,14 +30,16 @@ start the stack, Studio or a file watcher; start the stack first
 
 Keep the stack's **Host root** (`~/.nylorun/stacks/<stack>/`, or `NYLORUN_HOME`)
 private and persistent across ordinary restarts: `host.json`, the admin key in
-`host-credentials.json`, the stack's `stack/.env` and Compose file, and the
-Tenant directory `tenant/` (the vault key). The Tenant's data lives in the
+`host-credentials.json`, the stack's `stack/.env` and Compose file, the
+Tenant directory `tenant/`, and the vault key in `keys/vault-kek`. Back up the
+vault key with the Postgres volume: the Tenant's stored credentials cannot be
+read without it. The Tenant's data lives in the
 stack's Docker volumes: Postgres (its database, schemas `nylorun` and
 `nylorun_streams`), s2-lite (session history), Restate and the workspaces. Keep
 each Project's `.nylorun/link.json` and `credentials.json` private as well;
 model credentials live in the Tenant's vault. `nylorun stop` stops the
-containers and keeps the volumes; `nylorun reset` deletes the volumes and the
-Tenant directory, so the next start creates a new Tenant; `nylorun delete
+containers and keeps the volumes; `nylorun reset` deletes the volumes, the
+Tenant directory and the vault key, so the next start creates a new Tenant; `nylorun delete
 <stack>` removes the stack altogether.
 
 Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
@@ -227,8 +229,11 @@ a model credential.
 - The gateway has no published port; only the runtime reaches it, on the stack
   network, with `NYLORUN_GATES_TOKEN` from `stack/.env`. `nylorun up` generates
   the token once and keeps it.
-- It mounts only the Host root's `tenant/` directory, read-only (the Tenant's
-  vault key), never `host-credentials.json`, and writes nothing there.
+- It mounts only the Host root's `tenant/` and `keys/` directories, read-only
+  (the Tenant's homes and its vault key), never `host-credentials.json`, and
+  writes nothing there. It is not ready until `keys/vault-kek` is there;
+  `nylorun start` writes it once, and moves the key a stack before this release
+  kept in `tenant/vault-kek`.
 - It reaches model servers on this machine (Ollama, for example) at
   `host.docker.internal`.
 - While it is down, model calls fail with a retryable `transient` outcome and
@@ -267,9 +272,18 @@ the runtime container never holds an MCP credential or calls a tool's server:
   restart a call that was in flight is `uncertain`: it may have run, and it is
   never run again.
 
-The combined packing suits one developer on one machine. The vault key files
-are still mounted into the runtime container too, for MCP and signing keys,
-until a later release moves them into a keys service.
+The gateway also runs `keys`, the only process that reads the vault key: it
+runs every vault write that touches a secret (creating and rotating a
+credential, setting and selecting the host model) and signs every token
+(subject tokens, Action deliveries, signing-key rotation). The runtime reaches
+it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
+never reads the key: Compose covers `keys/` and `stack/` in the runtime
+container with empty read-only mounts. While the gateway is down, those
+requests answer `503 keys_unavailable`.
+
+The combined packing suits one developer on one machine: the gateway holds
+every secret of the stack in one process. Kubernetes splits it into separate
+services in a later release.
 
 ## Container images
 

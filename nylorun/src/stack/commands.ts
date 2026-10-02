@@ -908,7 +908,7 @@ async function reset(deps: StackDeps, args: readonly string[]): Promise<number> 
   const ctx = await selectStack(deps, nameOption(flags));
   const { paths } = ctx;
   if (!flags.booleans.has("--yes")) {
-    const question = `Delete stack ${ctx.name}'s volumes (Compose project ${ctx.project}) and its Tenant directory ${paths.tenant}, with the vault key? Its Tenant's data is lost and the next start creates a new Tenant. [y/N] `;
+    const question = `Delete stack ${ctx.name}'s volumes (Compose project ${ctx.project}) and its Tenant directory ${paths.tenant} and vault key ${paths.vaultKey}? Its Tenant's data is lost and the next start creates a new Tenant. [y/N] `;
     if (!deps.confirm)
       throw usageError(
         `nylorun reset deletes stack ${ctx.name}'s Tenant and all its data; pass --yes to confirm when not in a terminal.`,
@@ -927,6 +927,8 @@ async function reset(deps: StackDeps, args: readonly string[]): Promise<number> 
   }
   await rm(paths.tenant, { recursive: true, force: true });
   await mkdir(paths.tenant, { recursive: true, mode: 0o700 });
+  // The vault key goes with the Tenant's data; the next start writes a new one.
+  await rm(paths.keys, { recursive: true, force: true });
   deps.out(
     `Reset stack ${ctx.name}: volumes and the Tenant directory deleted. Run "nylorun start" to start again with a new Tenant (it relinks the project).`,
   );

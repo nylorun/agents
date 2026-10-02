@@ -51,6 +51,7 @@ import { createExecution, createInfra } from "../infra/index.js";
 import { createDatabase } from "../infra/database.js";
 import { startGates } from "./gates.js";
 import { httpToolGate } from "../gates/tool-client.js";
+import { httpKeys } from "../keys/client.js";
 import { httpModelGate } from "../gates/http-client.js";
 import type { StackConfig } from "./stack-config.js";
 
@@ -108,6 +109,7 @@ async function runGates(stack: StackConfig): Promise<void> {
       hostRoot: resolveHostRoot(),
       logger,
       ...(stack.delivery ? { delivery: stack.delivery } : {}),
+      ...(stack.services.has("keys") ? { keys: true } : {}),
     });
   } catch (error) {
     await database.end({ timeout: 5 });
@@ -133,7 +135,7 @@ async function runGates(stack: StackConfig): Promise<void> {
 
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
-  if (stack.services.has("gates")) return runGates(stack);
+  if (stack.services.has("gates") || stack.services.has("keys")) return runGates(stack);
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
@@ -240,6 +242,9 @@ export async function main(): Promise<void> {
   const toolGate = stack.modelGate
     ? httpToolGate({ url: stack.modelGate.url, token: stack.modelGate.token })
     : undefined;
+  // With the keys service, vault writes and token signing cross it, and this process never
+  // reads the vault key (F4.2).
+  const keys = stack.keys ? httpKeys({ url: stack.keys.url, token: stack.keys.token }) : undefined;
   const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
   const module = createTenantModule({
     open: createPostgresTenantOpener({
@@ -260,6 +265,7 @@ export async function main(): Promise<void> {
           execution: hostExecution.tenantExecution,
           ...(modelGate ? { modelGate } : {}),
           ...(toolGate ? { toolGate } : {}),
+          ...(keys ? { keys } : {}),
           ...(streams ? { streams, hostRelay: true } : {}),
           ...opened,
         }),

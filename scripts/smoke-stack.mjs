@@ -65,7 +65,38 @@ try {
       "the runtime and the gateway share the gates token",
     );
     const mounted = (await stack.compose(["exec", "-T", "gateway", "ls", "-A", "/nylorun"])).trim();
-    assert.equal(mounted, "tenant", "the gateway mounts only the Tenant directory");
+    assert.equal(mounted, "keys\ntenant", "the gateway mounts only the Tenant directory and the vault key");
+
+    // Custody (F4.2): the vault key and the stack's secrets are hidden from the runtime
+    // container, and no file it can read holds the key.
+    const vaultKey = (await readFile(join(home, "keys", "vault-kek"), "utf8")).trim();
+    assert.equal(Buffer.from(vaultKey, "base64").length, 32, "nylorun start wrote the vault key");
+    for (const hidden of ["/nylorun/keys", "/nylorun/stack"])
+      assert.equal(
+        (await stack.compose(["exec", "-T", "runtime", "ls", "-A", hidden])).trim(),
+        "",
+        `${hidden} is empty in the runtime container`,
+      );
+    const scan = String.raw`
+const fs = require("node:fs"), path = require("node:path");
+const key = process.argv[1];
+const found = [];
+const walk = (dir) => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full);
+    else if (entry.isFile() && fs.statSync(full).size < 4 * 1024 * 1024)
+      try { if (fs.readFileSync(full, "utf8").includes(key)) found.push(full); } catch {}
+  }
+};
+walk("/nylorun");
+console.log(JSON.stringify(found));
+`;
+    const holding = JSON.parse(
+      (await stack.compose(["exec", "-T", "runtime", "node", "-e", scan, vaultKey])).trim(),
+    );
+    assert.deepEqual(holding, [], "no file the runtime container reads holds the vault key");
+    assert.equal(await printenv("runtime", "NYLORUN_KEYS_URL"), "http://gateway:4100");
 
     const ready = await fetch(`${runtimeUrl}/ready`);
     const readyBody = await ready.json();

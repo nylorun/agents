@@ -43,7 +43,7 @@ export function causeOf(error: unknown): TenantCause | undefined {
 export function repairFor(code: TenantCause["code"]): string {
   switch (code) {
     case "kek-missing":
-      return "restore the vault key (vault-kek in the Host root's tenant/ directory) from a backup, then restart the Runtime: the Tenant's ciphertext cannot be opened without it";
+      return "restore the vault key (vault-kek in the Host root's keys/ directory) from a backup, then restart the Runtime and its gateway: the Tenant's ciphertext cannot be opened without it";
     case "corrupt":
       return "restore the database from a backup, then restart the Runtime";
     case "schema-too-new":

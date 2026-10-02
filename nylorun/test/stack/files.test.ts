@@ -111,8 +111,9 @@ describe("compose.yaml", () => {
 
   it("packs core and loop into runtime and the Model Gate into gateway (combined packing)", () => {
     expect(compose).toContain('command: ["--service", "core,loop"]');
-    expect(compose).toContain('command: ["--service", "gates"]');
+    expect(compose).toContain('command: ["--service", "gates,keys"]');
     expect(compose).toContain("NYLORUN_GATES_URL: http://gateway:4100");
+    expect(compose).toContain("NYLORUN_KEYS_URL: http://gateway:4100");
     expect(compose).toContain("NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100");
     expect(compose.match(/NYLORUN_GATES_TOKEN: \$\{NYLORUN_GATES_TOKEN:\?run nylorun start\}/g)).toHaveLength(2);
     expect(compose.match(/NYLORUN_PACKING: combined/g)).toHaveLength(2);
@@ -121,11 +122,23 @@ describe("compose.yaml", () => {
   it("mounts only the Tenant directory into the gateway, read-only, and never the admin key", () => {
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     expect(gateway).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro");
+    expect(gateway).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}/keys:/nylorun/keys:ro");
     expect(gateway).not.toContain("host-credentials");
     expect(gateway).not.toMatch(/^\s+ports:/m);
     // The runtime does not wait for the gateway: a gate outage fails model calls, nothing else.
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
     expect(runtime).not.toContain("gateway: {");
+  });
+
+  it("hides the vault key and the stack's secrets from the runtime container (F4.2)", () => {
+    const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
+    for (const target of ["/nylorun/keys", "/nylorun/stack"])
+      expect(runtime).toMatch(
+        new RegExp(`- type: tmpfs\\n\\s+target: ${target}\\n\\s+read_only: true`),
+      );
+    // Nothing but the gateway mounts keys/.
+    const others = compose.slice(0, compose.indexOf("  gateway:")) + compose.slice(compose.indexOf("  runtime:"));
+    expect(others).not.toContain("/keys:/nylorun/keys");
   });
 
   it("keeps s2-lite's data in a volume its non-root user can write", () => {

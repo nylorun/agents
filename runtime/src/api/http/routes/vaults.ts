@@ -170,7 +170,7 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
         });
       return jsonResponse(
         200,
-        await c.env.tenant.vault.createCredential(c.req.param("vaultId")!, request),
+        await c.env.tenant.keys.createCredential(c.req.param("vaultId")!, request),
       );
     },
   );
@@ -233,7 +233,7 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       const request = RotateCredentialRequestSchema.parse(await readJson(c.req.raw));
       return jsonResponse(
         200,
-        await c.env.tenant.vault.rotateCredential(
+        await c.env.tenant.keys.rotateCredential(
           c.req.param("vaultId")!,
           c.req.param("credentialId")!,
           request,

@@ -37,8 +37,10 @@ export function hostPaths(hostRoot: string): HostPaths {
  * (tenancy.md §1), so the directory has no id segment. Asserts that it stays inside the Host
  * root after realpath.
  *
- * The directory holds what stays on the Host (the Tenant's data is its database):
- * `vault-kek`, `home/`, `tmp/`, `sandboxes/`, `plugin-data/`, `logs/tenant.log`.
+ * The directory holds what stays on the Host (the Tenant's data is its database): `home/`,
+ * `tmp/`, `sandboxes/`, `plugin-data/`, `logs/tenant.log`. The vault key is the one exception:
+ * it lives beside the Tenant directory, in `<hostRoot>/keys/vault-kek`, which the local stack
+ * mounts only into the gateway (F4.2), never into the runtime container.
  */
 export function tenantPaths(hostRoot: string): TenantPaths {
   mkdirSync(hostRoot, { recursive: true });
@@ -47,7 +49,7 @@ export function tenantPaths(hostRoot: string): TenantPaths {
   if (existsSync(root)) assertContained(host, realpathSync(root));
   return {
     root,
-    kek: join(root, "vault-kek"),
+    kek: join(host, "keys", "vault-kek"),
     home: join(root, "home"),
     tmp: join(root, "tmp"),
     sandboxes: join(root, "sandboxes"),

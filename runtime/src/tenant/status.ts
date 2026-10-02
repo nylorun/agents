@@ -12,6 +12,7 @@ import type { StuckInvocation } from "../execution/types.js";
 import type { StreamsStatus } from "./streams.js";
 import { FIXTURE_MODEL_SETTING, seedFixtureModel } from "./model-setting.js";
 import { SANDBOX_CONFIG_SETTING, writeSandboxConfig } from "../sandbox/tenant-config.js";
+import type { Keys } from "../keys/keys.js";
 
 export interface TenantStatusContext {
   envelope: TenantEnvelope;
@@ -140,6 +141,8 @@ export async function seedTenantConfig(
   ctx: {
     store: SessionStore;
     vault: VaultService;
+    /** Seals the seeded model credential (F4.2). */
+    keys: Pick<Keys, "putHostModel">;
   },
   body: SeedTenantConfigRequest,
 ): Promise<SeedTenantConfigResponse> {
@@ -176,7 +179,7 @@ export async function seedTenantConfig(
     if (current.configured) {
       kept.push("model");
     } else {
-      await ctx.vault.putHostModel({
+      await ctx.keys.putHostModel({
         requestId: body.requestId,
         idempotencyKey: `seed-model:${body.requestId}`,
         ...body.model,

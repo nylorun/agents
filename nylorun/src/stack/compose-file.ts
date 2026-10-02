@@ -25,10 +25,15 @@ import { PINNED_IMAGES } from "./images.js";
  * holds remote MCP connections and their credentials and POSTs every Action
  * delivery. Every model call, remote MCP call and delivery of the loop crosses it
  * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`); stdio MCP servers
- * still run in the runtime container. The gateway mounts only the Host's Tenant
- * directory (`tenant/`), read-only: never host-credentials.json. The runtime does
- * not wait for the gateway: while it is down, model and MCP calls fail, deliveries
- * are retried, and the session takes the next message.
+ * still run in the runtime container. The gateway also runs keys (F4.2): the only
+ * holder of the vault key, it runs every vault write that touches a secret and signs
+ * every token (NYLORUN_KEYS_URL). The gateway mounts only the Host's Tenant directory
+ * (`tenant/`) and its keys directory (`keys/`, the vault key), read-only: never
+ * host-credentials.json. The runtime mounts the Host root with `keys/` and `stack/`
+ * covered by empty read-only mounts, so it can read neither the vault key nor
+ * Restate's private key and `.env`. The runtime does not wait for the gateway: while
+ * it is down, model and MCP calls fail, deliveries are retried, vault writes and
+ * token minting answer 503, and the session takes the next message.
  */
 export function renderComposeFile(project: string): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -82,9 +87,9 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
-  gateway: # the Model and Tool Gates: model and MCP credentials, provider, MCP and Action endpoint calls; not published
+  gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
-    command: ["--service", "gates"]
+    command: ["--service", "gates,keys"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
       postgres: { condition: service_healthy }
@@ -100,8 +105,9 @@ services:
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
-      # The Tenant's vault key and homes only, read-only.
+      # The Tenant's homes and its vault key only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/keys:/nylorun/keys:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
@@ -123,8 +129,11 @@ services:
       # The Tenant the Runtime creates on its first start (later starts open it).
       NYLORUN_TENANT_NAME: \${NYLORUN_STACK_NAME:?run nylorun start}
       NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
-      # Model calls go through the gateway; this container never reads a model credential.
+      # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
+      # and token signing through its keys service: this container never reads a credential
+      # or the vault key.
       NYLORUN_GATES_URL: http://gateway:4100
+      NYLORUN_KEYS_URL: http://gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_LISTEN_HOST: 0.0.0.0
       NYLORUN_LISTEN_PORT: "4000"
@@ -150,6 +159,16 @@ services:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
+      # Empty and read-only over the vault key (keys/) and the stack's secrets (stack/):
+      # only the gateway reads the key, and only Restate its private key.
+      - type: tmpfs
+        target: /nylorun/keys
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
+      - type: tmpfs
+        target: /nylorun/stack
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
