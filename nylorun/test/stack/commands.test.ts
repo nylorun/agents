@@ -1,6 +1,6 @@
 import { doctorStack } from "../../src/doctor.js";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -38,9 +38,9 @@ const compose = (home: string, project = "nylorun") => [
   "--project-name",
   project,
   "--file",
-  join(stackPaths(home).stack, "compose.yaml"),
+  join(stackPaths(home).docker, "compose.yaml"),
   "--env-file",
-  join(stackPaths(home).stack, ".env"),
+  join(stackPaths(home).docker, ".env"),
 ];
 
 describe("command names", () => {
@@ -140,6 +140,35 @@ describe("start", () => {
     expect(deps.errors.some((line) => line.startsWith("Wrote "))).toBe(false);
     expect(readFileSync(stackPaths(home).compose, "utf8")).toBe(compose);
     expect(readFileSync(stackPaths(home).env, "utf8")).toBe(env);
+  });
+
+  it("moves the files of an older release from stack/ to docker/ and keeps their settings", async () => {
+    const home = await temporaryHome();
+    const paths = stackPaths(home);
+    const deps = testDeps(home, { fetch: await healthyFetch(home) });
+    expect(await runStackCommand("up", [], deps)).toBe(0);
+    const env = readFileSync(paths.env, "utf8");
+    const identity = readFileSync(paths.restateIdentity, "utf8");
+    await rename(paths.docker, paths.legacyDocker);
+
+    expect(await runStackCommand("status", ["--json"], deps)).toBe(0);
+    expect(existsSync(paths.legacyDocker)).toBe(false);
+    expect(readFileSync(paths.env, "utf8")).toBe(env);
+    expect(readFileSync(paths.restateIdentity, "utf8")).toBe(identity);
+  });
+
+  it("leaves stack/ alone when docker/ already exists", async () => {
+    const home = await temporaryHome();
+    const paths = stackPaths(home);
+    const deps = testDeps(home, { fetch: await healthyFetch(home) });
+    expect(await runStackCommand("up", [], deps)).toBe(0);
+    const env = readFileSync(paths.env, "utf8");
+    await mkdir(paths.legacyDocker);
+    await writeFile(join(paths.legacyDocker, ".env"), "NYLORUN_PORT=1\n");
+
+    expect(await runStackCommand("up", ["--no-studio"], deps)).toBe(0);
+    expect(readFileSync(paths.env, "utf8")).toBe(env);
+    expect(readFileSync(join(paths.legacyDocker, ".env"), "utf8")).toBe("NYLORUN_PORT=1\n");
   });
 
   it("points to Tenant creation while the Host has no Tenant, and creates none", async () => {

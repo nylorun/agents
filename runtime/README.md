@@ -184,7 +184,7 @@ project's Tenant and writes its Project link; the project's `npm run dev` runs
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
-| Port in use | Change `NYLORUN_PORT` in `<Host root>/stack/.env` and run `nylorun up` |
+| Port in use | Change `NYLORUN_PORT` in `~/.nylorun/docker/.env` and run `nylorun up` |
 | Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.

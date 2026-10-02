@@ -29,7 +29,7 @@ start the stack, Studio or a file watcher; start the stack first
 
 Keep the **Host root** (`NYLORUN_HOME` or `~/.nylorun`) private and persistent
 across ordinary restarts: `host.json`, the admin key in
-`host-credentials.json`, the stack's `stack/.env` and Compose file, and every
+`host-credentials.json`, the Docker setup in `docker/` (`compose.yaml` and `.env`), and every
 Tenant directory. Tenant data lives in the stack's Docker volumes: Postgres (each
 Tenant's schema), s2-lite (session history), Restate and the workspaces. Keep each
 Project's `.nylorun/link.json` and `credentials.json` private as well; model
@@ -220,7 +220,7 @@ sends every vault-backed model call to it (`NYLORUN_GATES_URL`) and never holds
 a model credential.
 
 - The gateway has no published port; only the runtime reaches it, on the stack
-  network, with `NYLORUN_GATES_TOKEN` from `stack/.env`. `nylorun up` generates
+  network, with `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up` generates
   the token once and keeps it.
 - It mounts only the Host root's `tenants/` directory, read-only (the Tenants'
   vault keys), never `host-credentials.json`, and writes nothing there.

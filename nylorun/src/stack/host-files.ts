@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { CliError } from "../errors.js";
@@ -42,8 +43,19 @@ async function writeAtomic(path: string, text: string): Promise<void> {
 
 /** The Host root layout, mode 0700. */
 export async function ensureHostLayout(paths: StackPaths): Promise<void> {
-  for (const dir of [paths.root, paths.home, paths.tmp, paths.tenants, paths.stack])
+  for (const dir of [paths.root, paths.home, paths.tmp, paths.tenants, paths.docker])
     await mkdir(dir, { recursive: true, mode: 0o700 });
+}
+
+/**
+ * Move `stack/` to `docker/` once. Its .env holds the Postgres password and
+ * its PEM the Restate identity, both of which the existing volumes expect, so
+ * they move rather than being generated again. A `docker/` that already
+ * exists wins and `stack/` is left alone.
+ */
+export async function moveLegacyDockerDir(paths: StackPaths): Promise<void> {
+  if (existsSync(paths.docker) || !existsSync(paths.legacyDocker)) return;
+  await rename(paths.legacyDocker, paths.docker);
 }
 
 export async function readHostConfig(

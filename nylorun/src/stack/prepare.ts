@@ -51,8 +51,8 @@ export async function readStackEnv(paths: StackPaths) {
 
 /**
  * Write everything `docker compose up` needs under the Host root:
- * host.json, host-credentials.json (0600), stack/compose.yaml,
- * stack/.env (0600) and stack/restate-identity.pem (0600). Ports and the
+ * host.json, host-credentials.json (0600), docker/compose.yaml,
+ * docker/.env (0600) and docker/restate-identity.pem (0600). Ports and the
  * Postgres password persist in .env; the identity key persists in its PEM.
  */
 export async function prepareStack(input: {

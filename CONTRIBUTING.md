@@ -146,7 +146,7 @@ See [RELEASING.md](./RELEASING.md) for administrators and
 | Toolchain mismatch              | Use Node 24 and npm 11; setup prints the detected versions                                                                                                                      |
 | Docker missing or not running   | Start Docker Desktop, OrbStack or Colima; `npx nylorun doctor` reports what is missing                                                                                          |
 | Missing/stale package build     | Stop development and run `npm run setup`                                                                                                                                        |
-| Occupied port                   | The first `nylorun start` picks free loopback ports and keeps them in `<Host root>/stack/.env`; edit that file, or free the port, if another service takes one later          |
+| Occupied port                   | The first `nylorun start` picks free loopback ports and keeps them in `~/.nylorun/docker/.env`; edit that file, or free the port, if another service takes one later          |
 | Protocol `426`                  | Upgrade `nylorun` and run `nylorun up` (nylorun pins the Runtime image), or pin `@nylorun/agents` within the Runtime's protocol range                                          |
 | Quarantined Tenant              | `nylo tenant status` shows `code` and `repair` (`kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`)              |
 | Model setup error               | Run `npx nylorun up`, then `npm run configure` (`nylo configure`), or replace the vault credential from Studio                                                                 |

@@ -13,7 +13,12 @@ import {
   type ComposeService,
   type DockerRunner,
 } from "./docker.js";
-import { readAdminKey, readHostConfig, STACK_CLIENT_HOST } from "./host-files.js";
+import {
+  moveLegacyDockerDir,
+  readAdminKey,
+  readHostConfig,
+  STACK_CLIENT_HOST,
+} from "./host-files.js";
 import { runtimeImageOverridden, stackImages } from "./images.js";
 import { stackPaths, type StackPaths } from "./paths.js";
 import type { PortProbe } from "./ports.js";
@@ -80,12 +85,10 @@ interface Context {
   project: string;
 }
 
-function context(deps: StackDeps): Context {
-  return {
-    deps,
-    paths: stackPaths(resolveHome(undefined, deps.env)),
-    project: stackProject(deps.env),
-  };
+async function context(deps: StackDeps): Promise<Context> {
+  const paths = stackPaths(resolveHome(undefined, deps.env));
+  await moveLegacyDockerDir(paths);
+  return { deps, paths, project: stackProject(deps.env) };
 }
 
 function composeArgs(ctx: Context, ...args: string[]): string[] {
@@ -571,7 +574,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
 
 /** What `nylorun status` reports, as data (`nylorun doctor`). */
 export async function readStackStatus(deps: StackDeps): Promise<StackStatus> {
-  return await stackStatus(context(deps));
+  return await stackStatus(await context(deps));
 }
 
 async function status(ctx: Context, args: readonly string[]): Promise<number> {
@@ -723,7 +726,7 @@ export async function ensureStack(
   deps: StackDeps,
   options: { studio: boolean },
 ): Promise<StackEndpoints> {
-  const ctx = context(deps);
+  const ctx = await context(deps);
   await dockerPreflight(deps.docker);
   const running = await runningStack(ctx, options);
   if (running) return running;
@@ -765,7 +768,7 @@ export async function studioLoginUrl(
   stack: Pick<StackEndpoints, "studioPort" | "adminKey">,
   next?: string,
 ): Promise<string | undefined> {
-  const login = await tryStudioLogin(context(deps), stack.studioPort, stack.adminKey);
+  const login = await tryStudioLogin(await context(deps), stack.studioPort, stack.adminKey);
   return login === undefined ? undefined : withNext(login, next);
 }
 
@@ -798,7 +801,7 @@ export async function runStudioCommand(
   deps: StackDeps,
   options: { next?: string } = {},
 ): Promise<number> {
-  return await studio(context(deps), args, options);
+  return await studio(await context(deps), args, options);
 }
 
 const COMMANDS: Record<string, (ctx: Context, args: readonly string[]) => Promise<number>> = {
@@ -825,5 +828,5 @@ export async function runStackCommand(
 ): Promise<number> {
   const command = COMMANDS[name];
   if (!command) throw usageError(`Unknown stack command ${name}.\n${stackUsage}`);
-  return await command(context(deps), args);
+  return await command(await context(deps), args);
 }

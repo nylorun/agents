@@ -74,7 +74,7 @@ try {
     );
 
     // Restate loaded the key whose public half the Runtime was given.
-    const stackEnv = await readFile(join(home, "stack", ".env"), "utf8");
+    const stackEnv = await readFile(join(home, "docker", ".env"), "utf8");
     const identityKey = /^NYLORUN_RESTATE_IDENTITY_KEY=(publickeyv1_\w+)$/m.exec(stackEnv)?.[1];
     assert.ok(identityKey, ".env holds the Restate identity key");
     const logs = await stack.nylorun(["logs", "restate", "--tail", "100000"], { echo: false });
@@ -150,8 +150,8 @@ try {
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
     // `up` reuses the stack it set up, and the stopped volumes keep the Tenant.
     const stackFiles = async () => [
-      await readFile(join(home, "stack", "compose.yaml"), "utf8"),
-      await readFile(join(home, "stack", ".env"), "utf8"),
+      await readFile(join(home, "docker", "compose.yaml"), "utf8"),
+      await readFile(join(home, "docker", ".env"), "utf8"),
     ];
     const before = await stackFiles();
     await stack.nylorun(["down"]);

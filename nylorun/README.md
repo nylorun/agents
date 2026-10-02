@@ -49,7 +49,7 @@ and `nylorun doctor sandbox`.
 ## The stack
 
 `nylorun up` writes `compose.yaml` and `.env` (mode 0600) under
-`<Host root>/stack/` on the first run and reuses them after that. It runs the
+`~/.nylorun/docker/` (`$NYLORUN_HOME/docker/`) on the first run and reuses them after that. It runs the
 Compose project `nylorun` (override with `NYLORUN_STACK_PROJECT`): `postgres`,
 `restate`, `s2`, `runtime` and `studio`. The Runtime and Studio images are
 pinned by this release (`package.json` `nylorun.runtime` and `nylorun.studio`);
@@ -82,7 +82,7 @@ reads `.nylorun/link.json` (never writes it) and lands on that project's Tenant.
 A desktop app such as Babai Desktop can show Studio inside its own window, in
 an iframe loaded from Studio's URL (`studio.url` in `nylorun status --json`).
 Only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
-`<Host root>/stack/.env`) may frame it. The default is Babai's
+`~/.nylorun/docker/.env`) may frame it. The default is Babai's
 `nylorun://localhost http://nylorun.localhost`; `nylorun status` lists them
 under `Embeds`. While building such an app, add its dev server once with
 `nylorun start --studio-embed-origin http://localhost:1420`; the list is kept
@@ -129,7 +129,7 @@ each with its own Tenant.
 | Docker missing or not running | Install or start Docker Desktop, OrbStack or Colima; `nylorun doctor` checks |
 | `426` from the Runtime | Upgrade nylorun (`npx nylorun@latest up`), or pin a matching older set |
 | `Refusing to downgrade` (exit 5) | Upgrade nylorun (`npx nylorun@latest up`); `--allow-downgrade` only if you accept quarantined Tenants |
-| Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `<Host root>/stack/.env` |
+| Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `~/.nylorun/docker/.env` |
 | Logs | `nylorun logs runtime -f` |
 | Studio login expired | `nylorun studio` |
 

@@ -11,7 +11,7 @@ export const DEFAULT_STUDIO_FRAME_ANCESTORS = [
 ] as const;
 
 /**
- * Settings in `stack/.env` (mode 0600). Ports, the password and the gates token
+ * Settings in `docker/.env` (mode 0600). Ports, the password and the gates token
  * persist; the Restate identity public key is derived from `restate-identity.pem`.
  */
 export interface StackEnv {
@@ -26,7 +26,7 @@ export interface StackEnv {
   postgresPassword: string;
   /** The token the runtime presents to the gateway (`NYLORUN_GATES_TOKEN`), 32 bytes as hex. */
   gatesToken: string;
-  /** `publickeyv1_...` of `stack/restate-identity.pem`. */
+  /** `publickeyv1_...` of `docker/restate-identity.pem`. */
   restateIdentityKey: string;
   uid: number;
   gid: number;
@@ -165,7 +165,7 @@ export function parsePersisted(text: string): PersistedStackEnv {
       out.studioFrameAncestors = parseFrameAncestors(ancestors);
     } catch (error) {
       throw new CliError(
-        `${KEYS.studioFrameAncestors} in stack/.env: ${error instanceof Error ? error.message : String(error)}`,
+        `${KEYS.studioFrameAncestors} in docker/.env: ${error instanceof Error ? error.message : String(error)}`,
         1,
       );
     }

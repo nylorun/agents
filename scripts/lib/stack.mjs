@@ -144,9 +144,9 @@ export async function createStack({
     "--project-name",
     project,
     "--file",
-    join(home, "stack", "compose.yaml"),
+    join(home, "docker", "compose.yaml"),
     "--env-file",
-    join(home, "stack", ".env"),
+    join(home, "docker", ".env"),
     ...args,
   ];
 
@@ -221,7 +221,7 @@ export async function createStack({
       return createAdmin({ home });
     },
     async logs(tail = 200) {
-      if (!existsSync(join(home, "stack", "compose.yaml"))) return;
+      if (!existsSync(join(home, "docker", "compose.yaml"))) return;
       await stack.nylorun(["logs", "--tail", String(tail)], { check: false });
     },
     /** Delete containers and volumes, then the temporary Host root. */

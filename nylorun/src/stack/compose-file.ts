@@ -2,9 +2,9 @@ import { PINNED_IMAGES } from "./images.js";
 
 /**
  * The local stack's Compose file (Runtime Architecture §14.3), written to
- * `<Host root>/stack/compose.yaml` by `nylorun start`. It is the same for every
+ * `<Host root>/docker/compose.yaml` by `nylorun start`. It is the same for every
  * machine: everything that varies (ports, the Postgres password, UID/GID, the
- * Host root, the Runtime and Studio images) comes from `stack/.env`.
+ * Host root, the Runtime and Studio images) comes from `docker/.env`.
  *
  * Tenants are Postgres schemas, executed through Restate, with their history in
  * s2-lite; the Runtime's /ready checks all three. Postgres runs with
@@ -13,7 +13,7 @@ import { PINNED_IMAGES } from "./images.js";
  * relay can hold.
  *
  * Restate signs requests to the Worker endpoint with the private key in
- * `stack/restate-identity.pem`, mounted read-only; the Runtime gets the public
+ * `docker/restate-identity.pem`, mounted read-only; the Runtime gets the public
  * key as NYLORUN_RESTATE_IDENTITY_KEY.
  *
  * The combined packing (blueprint D12): the `runtime` container runs the core
@@ -53,7 +53,7 @@ services:
       RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
     volumes:
       - restate:/restate-data
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/stack/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
     ports:
       - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
     healthcheck:
