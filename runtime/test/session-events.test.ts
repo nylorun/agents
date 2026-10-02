@@ -129,4 +129,5 @@ it("numbers events per session and replays SSE after a cursor, then follows live
   } finally {
     await runtime.close();
   }
-});
+  // Two full turns: on Postgres this takes 4–5 s unloaded, so the 5 s default flakes.
+}, 20_000);
