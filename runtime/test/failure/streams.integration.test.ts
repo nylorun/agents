@@ -182,8 +182,11 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     const history = await completeHistory(b);
     await onB.until("the rest of the history on node B", (f) => f.length >= history.length - seen.length);
     const resumed = onB.close();
-    expect(seqsOf(seen)).toEqual(range(0, seen.length));
-    expect(seqsOf(resumed)).toEqual(range(seen.length, history.length));
+    // No gap or duplicate: together the two connections served exactly the history (which skips
+    // the seqs of internal events, so seqs only increase).
+    const served = seqsOf([...seen, ...resumed]);
+    expect(served[0]).toBe(0);
+    expect(served.every((seq, i) => i === 0 || seq > served[i - 1]!)).toBe(true);
     expect([...seen, ...resumed]).toEqual(history);
     expect(countOf(history, "turn.completed") - tickCount(history)).toBe(1);
   });

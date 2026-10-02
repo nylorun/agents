@@ -13,6 +13,7 @@
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
+import type { SessionHistory } from "./history.js";
 import type {
   RoleLimits,
   SubjectScope,
@@ -53,8 +54,11 @@ export interface Session {
   status: string;
   activeTurnId: string | null;
   checkpoint?: DurableCheckpoint | FlowCheckpoint;
+  /** The engine state; its transcript is folded from the record (`history.ts`), not stored. */
   state?: any;
   turnStartState?: any;
+  /** Where the transcript's fold starts in the session's record (`history.ts`). */
+  history?: SessionHistory;
   waits?: unknown;
   error?: string;
   /** Last completed turn output (for linked agent → workflow settle). */

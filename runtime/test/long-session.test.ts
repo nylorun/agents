@@ -8,6 +8,8 @@ import type { ModelCall } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 import { withTestSessionStore } from "./support/store.js";
+import type { LiveEvent } from "@nylorun/core/contracts";
+import { foldTranscript, setTranscriptShadow } from "../src/tenant/history.js";
 
 const APP = "long-session-app-token-aaaaaaaaa";
 const WINDOW = 16_384;
@@ -63,9 +65,15 @@ async function settle(session: ReturnType<AgentsClient["session"]>) {
   throw new Error("session did not settle");
 }
 
-it(
-  "runs 10 turns of 30 tool steps on a 16k window with bounded storage",
-  async () => {
+// Shadow mode keeps the transcript on the row and checks the fold at every segment; lean
+// mode is production: the row holds no transcript and the fold rebuilds it (blueprint P0.3).
+it.each([
+  ["shadow", true],
+  ["lean", false],
+] as const)(
+  "runs 10 turns of 30 tool steps on a 16k window with bounded storage (%s)",
+  async (_mode, shadow) => {
+    const previous = setTranscriptShadow(shadow);
     const stats = { overflows: 0, compactions: 0, largest: 0 };
     const runtime = await startTestTenant({
       applicationKey: APP,
@@ -102,11 +110,15 @@ it(
 
       const stored = await withTestSessionStore(
         { root: runtime.root, tenantId: runtime.tenantId },
-        (store) =>
-          store.tx(async (t) => ({
+        async (store) => ({
+          ...(await store.tx(async (t) => ({
             effects: await t.effectsForSession<any>("long"),
             session: await t.get<any>("sessions", "long"),
-          })),
+          }))),
+          events: (
+            await store.record().readRange(runtime.tenantId, "long", 0, Number.MAX_SAFE_INTEGER)
+          ).map((row) => row.body as LiveEvent),
+        }),
       );
       const models = stored.effects.filter((effect) => effect.request.kind === "model");
       expect(models.length).toBeGreaterThan(TURNS * STEPS);
@@ -115,8 +127,16 @@ it(
         models.reduce((sum, effect) => sum + JSON.stringify(effect).length, 0) / models.length;
       expect(perStep).toBeLessThanOrEqual(1_024);
       expect(JSON.stringify(stored.session).length).toBeLessThanOrEqual(3 * WINDOW * 4);
-      expect(stored.session.state.transcript[0].kind).toBe("compaction");
+      const folded = foldTranscript(stored.events) as { kind: string }[];
+      expect(folded[0]!.kind).toBe("compaction");
+      if (shadow) expect(stored.session.state.transcript).toEqual(folded);
+      else {
+        // One history: the row holds no transcript at all.
+        expect(stored.session.state.transcript).toEqual([]);
+        expect(JSON.stringify(stored.session).length).toBeLessThanOrEqual(WINDOW);
+      }
     } finally {
+      setTranscriptShadow(previous);
       await runtime.close();
     }
   },

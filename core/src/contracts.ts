@@ -1315,10 +1315,27 @@ export const LoopDecidedPayloadSchema = z
     patched: z.boolean(),
   })
   .passthrough();
+/**
+ * `transcript.updated` (internal; blueprint P0.3): the own loop's model-facing transcript after a
+ * settled segment, as an edit of the previous one: keep its first `keep` entries, then append
+ * `entries`; the result has `length` entries. `keep` is 0 for a snapshot (after compaction, or
+ * for a session written before transcripts were recorded). Large edits are split into
+ * consecutive events, each appending to the last. Entries are the engine's `TranscriptEntry`
+ * values, checked by the Runtime when it folds them. Never served to clients.
+ */
+export const TranscriptUpdatedPayloadSchema = z
+  .object({
+    keep: z.number().int().nonnegative(),
+    entries: z.array(z.unknown()),
+    length: z.number().int().nonnegative(),
+  })
+  .passthrough();
 
 /**
  * The event catalog (Durable Streams §9.5): every session event type, its payload schema, its
- * payload schema version and who writes it. A type not listed here cannot be written.
+ * payload schema version and who writes it. A type not listed here cannot be written. A type
+ * with `visibility: "internal"` is recorded and folded by the Runtime but never served to
+ * clients (SSE, history, AG-UI and A2A skip it).
  *
  * Evolution: new types and new optional payload fields are additive (clients ignore types
  * they do not know, and payloads pass unknown fields through). A breaking payload change is a
@@ -1355,9 +1372,20 @@ export const EVENT_CATALOG = {
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
   "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1 },
   "loop.decided": { payload: LoopDecidedPayloadSchema, source: "api", version: 1 },
+  "transcript.updated": {
+    payload: TranscriptUpdatedPayloadSchema,
+    source: "loop",
+    version: 1,
+    visibility: "internal",
+  },
 } as const satisfies Record<
   string,
-  { payload: z.ZodType; source: EventSourceKind; version: number }
+  {
+    payload: z.ZodType;
+    source: EventSourceKind;
+    version: number;
+    visibility?: "public" | "internal";
+  }
 >;
 export type EventType = keyof typeof EVENT_CATALOG;
 export const EVENT_TYPES = Object.keys(EVENT_CATALOG) as readonly EventType[];

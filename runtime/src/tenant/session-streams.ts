@@ -214,7 +214,7 @@ export async function readHistory(
       { follow: false }
     )) {
       last = record.seq;
-      if (agent === undefined || belongsTo(record.body, agent))
+      if (served(record.body) && (agent === undefined || belongsTo(record.body, agent)))
         items.push(record.body);
     }
   } catch (error) {
@@ -401,7 +401,12 @@ function leave(hub: SessionStreams, feed: SessionStream, observer: Observer): vo
 function deliver(observer: Observer, record: StreamRecord<LiveEvent>): void {
   if (record.seq < observer.next) return;
   observer.next = record.seq + 1;
-  observer.sink.write(record.body);
+  if (served(record.body)) observer.sink.write(record.body);
+}
+
+/** Internal events (`transcript.updated`) are recorded and streamed but never served. */
+export function served(event: LiveEvent): boolean {
+  return event.visibility !== "internal";
 }
 
 /**

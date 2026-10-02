@@ -231,6 +231,8 @@ export async function command(
         if (scope.kind === "token" && scope.limits)
           await chargeTurn(t, scope.subject, scope.limits);
         s.turnStartState = s.state;
+        // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
+        if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
         s.activeTurnId = randomUUID();
         if (isWorkflowManifest(s.manifest)) {
           const input: JsonValue =
