@@ -30,19 +30,19 @@
 import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
 
 /** A Runtime service this release has. */
-export type RuntimeService = "core" | "loop" | "gates";
+export type RuntimeService = "core" | "loop" | "gates" | "keys";
 
 export type RuntimeServices = ReadonlySet<RuntimeService>;
 
-export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates"];
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys"];
 
 /**
  * Services that may share a process (D12): they hold the same secrets and parse the same
- * trust class of input. Egress and keys join gates in later releases.
+ * trust class of input. keys joins gates (F4.2); egress joins them in a later release.
  */
 const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
   ["core", "loop"],
-  ["gates"],
+  ["gates", "keys"],
 ];
 
 /** Where the gates service listens by default. */
@@ -57,7 +57,6 @@ export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
 /** Services of the blueprint this release doesn't have yet. */
 const LATER_SERVICES: readonly string[] = [
   "egress",
-  "keys",
   "harness",
   "sandboxd",
 ];
@@ -137,6 +136,13 @@ export interface StackConfig {
    * its own process.
    */
   modelGate?: ModelGateEndpoint;
+  /**
+   * Present when the process runs core or loop and `NYLORUN_KEYS_URL`, or else
+   * `NYLORUN_GATES_URL`, is set (F4.2): its vault writes and token signing cross the gateway's
+   * keys service, with `NYLORUN_GATES_TOKEN`, and it never reads the vault key. A loop in a
+   * container always has it, since it requires `NYLORUN_GATES_URL`.
+   */
+  keys?: ModelGateEndpoint;
   /**
    * How the stack packs services into containers (`NYLORUN_PACKING`), for the startup log:
    * `combined` (the local stack: runtime and gateway) or `split` (one container per service).
@@ -427,9 +433,11 @@ export function parseStackConfig(
   const servesApi = services.has("core") || services.has("loop");
   const listen = servesApi ? parseListen(env) : undefined;
   const operator = servesApi ? parseAdminListen(env) : undefined;
-  const gates = services.has("gates") ? parseGates(env) : undefined;
+  const gates = services.has("gates") || services.has("keys") ? parseGates(env) : undefined;
   // The gates service's clients: the loop's model and tool calls, and core's endpoint pings.
   const modelGate = servesApi ? parseModelGate(env) : undefined;
+  // The keys service is the gateway's unless NYLORUN_KEYS_URL names another listener.
+  const keys = servesApi ? (parseKeysEndpoint(env) ?? modelGate) : undefined;
   if (operator && listen && operator.port === listen.port)
     throw new StackConfigError(
       "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
@@ -480,6 +488,7 @@ export function parseStackConfig(
     ...(deprecatedRole ? { deprecatedRole } : {}),
     ...(gates ? { gates } : {}),
     ...(modelGate ? { modelGate } : {}),
+    ...(keys ? { keys } : {}),
     ...(rawPacking ? { packing: rawPacking } : {}),
     ...(listen ? { listen } : {}),
     endpoints,
@@ -563,6 +572,20 @@ function parseModelGate(env: EnvSnapshot): ModelGateEndpoint | undefined {
   if (token === undefined)
     throw new StackConfigError(
       "NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL: the gates service refuses calls without it",
+    );
+  if (!GATES_TOKEN.test(token))
+    throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
+  return { url: url.replace(/\/+$/, ""), token };
+}
+
+/** `StackConfig.keys` from `NYLORUN_KEYS_URL` and `NYLORUN_GATES_TOKEN`. */
+function parseKeysEndpoint(env: EnvSnapshot): ModelGateEndpoint | undefined {
+  const url = parseUrl(env, "NYLORUN_KEYS_URL", ["http:", "https:"]);
+  if (url === undefined) return undefined;
+  const token = read(env, "NYLORUN_GATES_TOKEN");
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_GATES_TOKEN is required with NYLORUN_KEYS_URL: the keys service refuses calls without it",
     );
   if (!GATES_TOKEN.test(token))
     throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");

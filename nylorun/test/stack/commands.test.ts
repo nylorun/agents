@@ -547,6 +547,8 @@ describe("reset", () => {
     await runStackCommand("start", ["--no-studio"], deps);
     const paths = stackPaths(home);
     await writeFile(join(paths.tenant, "vault-kek"), "kek");
+    // `start` wrote the vault key beside the Tenant directory (F4.2); reset deletes it too.
+    expect(existsSync(paths.vaultKey)).toBe(true);
     const env = await readFile(paths.env, "utf8");
     docker.streamed.length = 0;
     let asked = "";
@@ -555,6 +557,7 @@ describe("reset", () => {
     expect(asked).toMatch(/Delete stack home-root's volumes \(Compose project nylorun-home-root\)/);
     expect(docker.streamed).toEqual([[...compose(home), "down", "--volumes", "--remove-orphans"]]);
     expect(existsSync(join(paths.tenant, "vault-kek"))).toBe(false);
+    expect(existsSync(paths.vaultKey)).toBe(false);
     expect(existsSync(paths.tenant)).toBe(true);
     expect(await readFile(paths.env, "utf8")).toBe(env);
     expect(existsSync(paths.credentials)).toBe(true);

@@ -19,6 +19,8 @@ import { createMcpHandler, GATE_MCP_IDLE_MS } from "../gates/mcp-handler.js";
 import { createToolCalls } from "../gates/tool-calls.js";
 import type { openMcpServer } from "../mcp/connect.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
+import { existsSync } from "node:fs";
+import { tenantPaths } from "../tenant/paths.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { probeDatabase } from "../infra/database.js";
@@ -53,6 +55,11 @@ export interface StartGatesOptions {
   readonly mcpIdleMs?: number;
   /** Tests replace how a remote MCP server is opened. */
   readonly openMcp?: typeof openMcpServer;
+  /**
+   * Serve the keys service too (`--service gates,keys`, F4.2): vault writes and token signing
+   * with the Tenant's vault key. The gateway is then not ready until the key file is there.
+   */
+  readonly keys?: boolean;
 }
 
 export interface GatesServer {
@@ -97,6 +104,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       ...(options.settings ? { settings: options.settings } : {}),
     }),
     ready: async () => {
+      // The keys service needs the vault key, which `nylorun start` writes; it never creates one.
+      if (options.keys && options.hostRoot !== undefined && !existsSync(tenantPaths(options.hostRoot).kek))
+        return false;
       if (!database) return true;
       try {
         await probeDatabase(database, AbortSignal.timeout(2000));
@@ -109,6 +119,8 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     mcp,
     toolCalls,
     delivery: options.delivery ?? {},
+    logger,
+    ...(options.keys ? { keys: async () => (await vaults.open()).keys() } : {}),
   });
   const listener = getRequestListener(app.fetch);
   const inFlight = new Set<ServerResponse>();

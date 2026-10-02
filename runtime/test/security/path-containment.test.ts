@@ -38,5 +38,5 @@ it("G7: the live Tenant directory is hostRoot/tenant", async () => {
   const a = host.tenant;
   expect(a.paths.root).toBe(join(host.hostRoot, "tenant"));
   expect(a.paths.home).toBe(join(host.hostRoot, "tenant", "home"));
-  expect(a.paths.kek).toBe(join(host.hostRoot, "tenant", "vault-kek"));
+  expect(a.paths.kek).toBe(join(host.hostRoot, "keys", "vault-kek"));
 });

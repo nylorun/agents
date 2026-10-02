@@ -12,8 +12,12 @@ export interface StackPaths {
   state: string;
   /** stack.json: the stack's name and the project it was created for. */
   record: string;
-  /** The Tenant directory: vault key (KEK), homes, sandboxes, logs. */
+  /** The Tenant directory: homes, sandboxes, plugin data, logs. */
   tenant: string;
+  /** The keys directory, mounted only into the gateway (F4.2). */
+  keys: string;
+  /** The Tenant's vault key (KEK), `keys/vault-kek`. */
+  vaultKey: string;
   home: string;
   tmp: string;
   stack: string;
@@ -33,6 +37,8 @@ export function stackPaths(hostRoot: string): StackPaths {
     state: join(root, "host-state.json"),
     record: join(root, "stack.json"),
     tenant: join(root, "tenant"),
+    keys: join(root, "keys"),
+    vaultKey: join(root, "keys", "vault-kek"),
     home: join(root, "home"),
     tmp: join(root, "tmp"),
     stack,

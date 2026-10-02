@@ -12,6 +12,7 @@ import {
 } from "./env-file.js";
 import {
   ensureHostCredentials,
+  ensureVaultKey,
   ensureHostLayout,
   writeStackHostConfig,
   type HostConfigFile,
@@ -135,6 +136,7 @@ export async function prepareStack(input: {
   };
 
   const { adminKey } = await ensureHostCredentials(paths);
+  await ensureVaultKey(paths);
   const host = await writeStackHostConfig(paths, {
     port: runtimePort,
     adminPort,

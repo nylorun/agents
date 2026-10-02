@@ -32,7 +32,8 @@ it("derives the Tenant directory without an id segment", async () => {
   const root = await tempRoot();
   const paths = tenantPaths(root);
   expect(paths.root).toBe(join(root, "tenant"));
-  expect(paths.kek).toBe(join(paths.root, "vault-kek"));
+  // The vault key lives beside the Tenant directory, in keys/ (F4.2).
+  expect(paths.kek).toBe(join(root, "keys", "vault-kek"));
   expect(paths.home).toBe(join(paths.root, "home"));
   expect(paths.log).toBe(join(paths.root, "logs", "tenant.log"));
 });

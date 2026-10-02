@@ -30,6 +30,7 @@ import type { FlowLimits } from "../core/limits.js";
 import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
+import type { Keys } from "../keys/keys.js";
 import type { VaultService } from "../vault/service.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
@@ -157,6 +158,12 @@ export interface TenantContext {
    * the gates service.
    */
   readonly toolGate: ToolGate;
+  /**
+   * Vault writes that touch a secret, and all token signing (blueprint §14, F4.2): in this
+   * process, or the gateway's keys service. Call it instead of `vault`'s sealing methods and
+   * `signingKeys`' private key.
+   */
+  readonly keys: Keys;
   /** Set by drain/close; reset clears it again. Stops new advances. */
   closing: boolean;
   /** Set once close has finished releasing resources. */

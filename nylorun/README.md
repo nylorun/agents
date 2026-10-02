@@ -164,11 +164,12 @@ The **Host root** is `~/.nylorun/stacks/<name>/`, or `NYLORUN_HOME`. It is
 bind-mounted into the Runtime and Studio containers, and holds `stack.json`
 (the stack's name and the project it was created for), `host.json` (the
 client-facing host and port), `host-credentials.json` (the admin key, mode
-0600), the stack files, and the Tenant directory `tenant/` (the vault key,
-homes, logs). The Tenant's data lives in the stack's Postgres, Restate and S2
+0600), the stack files, the Tenant directory `tenant/` (homes, logs) and
+`keys/vault-kek`, the Tenant's vault key, which only the gateway container
+mounts. The Tenant's data lives in the stack's Postgres, Restate and S2
 volumes.
 
-`nylorun reset` deletes the selected stack's volumes and `tenant/`, and keeps
+`nylorun reset` deletes the selected stack's volumes, `tenant/` and `keys/`, and keeps
 its files and ports; the next start creates a new Tenant and relinks the
 project. `nylorun delete <stack> --yes` removes the stack's containers,
 volumes and Host root: the vault key (KEK) and all the Tenant's data go with it.

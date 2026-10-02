@@ -188,7 +188,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const ctx = c.env.tenant;
       const request = SeedTenantConfigRequestSchema.parse(await readJson(c.req.raw));
-      return jsonResponse(200, await seedTenantConfig({ store: ctx.store, vault: ctx.vault }, request));
+      return jsonResponse(200, await seedTenantConfig({ store: ctx.store, vault: ctx.vault, keys: ctx.keys }, request));
     },
   );
 
@@ -362,7 +362,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       return jsonResponse(
         200,
-        await ctx.vault.putHostModel(PutHostModelRequestSchema.parse(await readJson(c.req.raw))),
+        await ctx.keys.putHostModel(PutHostModelRequestSchema.parse(await readJson(c.req.raw))),
       );
     },
   );
@@ -382,7 +382,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       return jsonResponse(
         200,
-        await ctx.vault.selectHostModel(
+        await ctx.keys.selectHostModel(
           SelectHostModelRequestSchema.parse(await readJson(c.req.raw)),
         ),
       );

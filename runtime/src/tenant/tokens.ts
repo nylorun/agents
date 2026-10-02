@@ -8,7 +8,7 @@
  * `401 token_expired`, so clients always react the same way: get a new token.
  */
 import { randomUUID } from "node:crypto";
-import { errors, jwtVerify, SignJWT } from "jose";
+import { errors, jwtVerify } from "jose";
 import {
   isSubject,
   SUBJECT_TOKEN_AUDIENCE,
@@ -54,9 +54,8 @@ export async function mintToken(
   ctx: TenantContext,
   body: CreateTokenRequest
 ): Promise<CreateTokenResponse> {
-  const kek = ctx.signingKeys.kek();
   const tenantId = ctx.config.tenantId;
-  const { access, epoch, row, ttl } = await ctx.store.tx(async (t) => {
+  const { access, epoch, ttl } = await ctx.store.tx(async (t) => {
     const policy = await readPolicy(t);
     const role = Object.hasOwn(policy.roles, body.role)
       ? policy.roles[body.role]
@@ -86,11 +85,9 @@ export async function mintToken(
     return {
       access: resolveRole(policy, body.role, scopes, body.agents)!,
       epoch: await t.subjectEpoch(body.subject),
-      row: await ctx.signingKeys.ensure(t, kek),
       ttl,
     };
   });
-  const signer = await ctx.signingKeys.privateKey(row, kek);
   const iat = Math.floor(Date.now() / 1000);
   const jti = randomUUID();
   const scopes = [...access.scopes];
@@ -101,15 +98,20 @@ export async function mintToken(
     ...(body.agents ? { agt: [...body.agents] } : {}),
     epc: epoch,
   };
-  const token = await new SignJWT(claims)
-    .setProtectedHeader({ alg: "ES256", typ: SUBJECT_TOKEN_TYPE, kid: signer.id })
-    .setIssuer(subjectTokenIssuer(tenantId))
-    .setAudience(SUBJECT_TOKEN_AUDIENCE)
-    .setSubject(body.subject)
-    .setIssuedAt(iat)
-    .setExpirationTime(iat + ttl)
-    .setJti(jti)
-    .sign(signer.key);
+  // Signed by the keys service (F4.2): this process never holds the private key.
+  const { token, keyId } = await ctx.keys.sign({
+    typ: SUBJECT_TOKEN_TYPE,
+    claims: {
+      ...claims,
+      iss: subjectTokenIssuer(tenantId),
+      aud: SUBJECT_TOKEN_AUDIENCE,
+      sub: body.subject,
+      iat,
+      exp: iat + ttl,
+      jti,
+    },
+  });
+  const signer = { id: keyId };
   ctx.config.logger.info("subject token minted", {
     jti,
     kid: signer.id,

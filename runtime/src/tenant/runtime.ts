@@ -72,6 +72,7 @@ import {
 } from "./worker.js";
 import { authorize } from "./effects.js";
 import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
+import { inProcessKeys, type Keys } from "../keys/keys.js";
 import { tenantApi } from "../api/http/app.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -87,6 +88,11 @@ export type TenantOpenHooks = {
    * Without one, the Tenant opens them and POSTs deliveries in this process.
    */
   toolGate?: ToolGate;
+  /**
+   * Runs vault writes and token signing (the `keys` service's client, F4.2). With one, this
+   * process never reads, creates or holds the vault key. Without one, it does them here.
+   */
+  keys?: Keys;
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
@@ -164,21 +170,31 @@ export class TenantRuntime implements TenantHandle {
     let wired: StreamsWiring | undefined;
     let detach: (() => Promise<void>) | undefined;
     try {
-      let kek = readVaultKek({
-        vaultKek: hooks.vaultKek,
-        vaultKekPath: paths.kek,
-      });
-      const sealed = await store.tx(
-        async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
-      );
-      if (sealed > 0 && !kek) {
-        throw openError(
-          "kek-missing",
-          "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant",
+      // With the keys service (F4.2) the key lives in the gateway: this process never reads,
+      // creates or holds it, and the gateway reports a missing key on its readiness.
+      let kek = hooks.keys
+        ? undefined
+        : readVaultKek({
+            vaultKek: hooks.vaultKek,
+            vaultKekPath: paths.kek,
+          });
+      if (!hooks.keys) {
+        const sealed = await store.tx(
+          async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
         );
+        if (sealed > 0 && !kek) {
+          throw openError(
+            "kek-missing",
+            "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant",
+          );
+        }
       }
       const createKekIfMissing = hooks.createKekIfMissing !== false;
       const ensureKek = (): Buffer => {
+        if (hooks.keys)
+          throw new Error(
+            "The vault key lives in the gateway's keys service: this process never reads it"
+          );
         if (kek) return kek;
         if (!createKekIfMissing)
           throw openError("kek-missing", "Vault key-encryption key is required");
@@ -199,6 +215,9 @@ export class TenantRuntime implements TenantHandle {
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
       const toolGate = hooks.toolGate ?? inProcessToolGate(config.delivery ?? {});
+      const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });
+      const keys =
+        hooks.keys ?? inProcessKeys({ store: opened, vault, signingKeys, kek: ensureKek });
       const mcp = new McpPool({
         pluginData: paths.pluginData,
         childEnv: config.childEnv,
@@ -276,7 +295,8 @@ export class TenantRuntime implements TenantHandle {
         closed: false,
         work: createWorkState(),
         sessionStreams,
-        signingKeys: new SigningKeys({ tenantId: config.tenantId, kek: ensureKek }),
+        signingKeys,
+        keys,
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
         wake: async (sessionId, wake) => {
