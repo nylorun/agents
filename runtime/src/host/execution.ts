@@ -6,8 +6,9 @@
  *   (`TenantOpenHooks.execution`): the execution, the `TenantWorkers` registry its handlers
  *   dispatch through (with `resolve` opening a Tenant on demand when an invocation arrives for
  *   one that is not open), and the Tenant status hook for stuck invocations.
- * - `start` serves the Worker endpoint for `--role worker|all` (`infra/workers.ts`) and does
- *   nothing for `api`, whose wakes, timers and sweep arming go through Restate's ingress.
+ * - `start` serves the Worker endpoint when the process runs loop (`infra/workers.ts`), and does
+ *   nothing for a core-only process, whose wakes, timers and sweep arming go through Restate's
+ *   ingress.
  * - `armAll` re-arms every Tenant's sweep at startup. Arming is idempotent, so it is safe on
  *   every start, and it is what recovers from lost Restate state: the sweep re-wakes `runnable`
  *   sessions without a live owner (§14.8).
@@ -15,14 +16,14 @@
  *
  * **Order at startup.** Call `start` before opening any Tenant. Opening a Tenant arms its
  * sweep through Restate's ingress, which answers 404 until a Worker has registered the
- * services, so the open would fail. An api-role process relies on a Worker having registered
+ * services, so the open would fail. A core-only process relies on a Worker having registered
  * them first.
  *
  * **One Worker URL.** `start` registers the Worker endpoint (`NYLORUN_WORKER_URL`) with
  * Restate once. Restate sends new invocations to the latest registered deployment, so
  * several Workers that each register their own URL do not share load: the last one to start
- * takes every new invocation. The V1 stack runs a single `runtime` container with
- * `--role all`. A deployment with several Worker processes (Helm, Cloud) must advertise one
+ * takes every new invocation. The local stack runs a single `runtime` container with
+ * `--service core,loop`. A deployment with several Worker processes (Helm, Cloud) must advertise one
  * load-balanced `NYLORUN_WORKER_URL` shared by all of them.
  */
 import type { DurableExecution } from "../execution/types.js";
@@ -33,11 +34,12 @@ import {
   type TenantExecution,
   type TenantWorker,
 } from "../tenant/worker.js";
-import type { RuntimeRole } from "./stack-config.js";
+import type { RuntimeServices } from "./stack-config.js";
 
 export interface CreateHostExecutionOptions {
   execution: DurableExecution;
-  role: RuntimeRole;
+  /** The services this process runs: it serves the Worker endpoint when they include loop. */
+  services: RuntimeServices;
   /** Finds or opens a Tenant an invocation arrived for that is not open on this process. */
   resolve: (tenantId: string) => Promise<TenantWorker | undefined>;
   logger?: Logger;
@@ -53,7 +55,7 @@ export interface CreateHostExecutionOptions {
 export interface HostExecution {
   /** Pass to every Tenant the Host opens (`TenantOpenHooks.execution`). */
   readonly tenantExecution: TenantExecution;
-  /** Serves the Worker endpoint for the worker and all roles. Idempotent. */
+  /** Serves the Worker endpoint when the process runs loop. Idempotent. */
   start(): Promise<void>;
   /** Stops serving: aborts running advances and waits for them. Idempotent. */
   stop(): Promise<void>;
@@ -72,7 +74,7 @@ const ARM_CONCURRENCY = 16;
 export function createHostExecution(
   options: CreateHostExecutionOptions
 ): HostExecution {
-  const { execution, role, logger } = options;
+  const { execution, services, logger } = options;
   const workers = new TenantWorkers({
     resolve: options.resolve,
     ...(options.advanceDeadlineMs !== undefined
@@ -98,7 +100,7 @@ export function createHostExecution(
   return {
     tenantExecution,
     async start() {
-      started ??= startWorker({ role, execution, handlers: workers.handlers });
+      started ??= startWorker({ services, execution, handlers: workers.handlers });
       try {
         await started;
       } catch (error) {

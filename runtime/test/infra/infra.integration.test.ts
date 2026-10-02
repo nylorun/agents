@@ -26,7 +26,7 @@ function stackConfig(overrides: Record<string, string> = {}) {
       NYLORUN_S2_TOKEN: "ignored",
       ...overrides,
     },
-    ["--role", "all"],
+    ["--service", "core,loop"],
   );
 }
 

@@ -91,7 +91,7 @@ afterEach(async () => {
 
 function hostExecution(offset: number, prefix: string) {
   const execution = recording(createRestateExecution(restateOptions(offset, prefix)));
-  const host = createHostExecution({ execution, role: "all", resolve: async () => undefined });
+  const host = createHostExecution({ execution, services: new Set(["core", "loop"] as const), resolve: async () => undefined });
   hosts.push(host);
   return { host, execution };
 }

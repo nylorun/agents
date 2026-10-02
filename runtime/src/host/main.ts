@@ -2,14 +2,14 @@
  * Runtime Host process entry (`@nylorun/runtime/server`).
  *
  * Reads `NYLORUN_HOME` (falls back to `~/.nylorun`), and hands an environment
- * snapshot and argv to `parseStackConfig` (container listen mode, `--role`,
+ * snapshot and argv to `parseStackConfig` (container listen mode, `--service`,
  * stack endpoints). Absolute Host root is resolved once and passed down.
  *
  * Composition: `createInfra` builds the Postgres pool, Durable Session
  * Execution and Durable Streams from the endpoints; `createHostExecution`
  * shares one execution across the Tenants; the Tenant store is Postgres
  * (`NYLORUN_DATABASE_URL`, required), with the shared record of session events
- * (`nylorun_streams`, migrated here); with S2, an `api` or `all` process runs
+ * (`nylorun_streams`, migrated here); with S2, a process running core runs
  * the stream relay, which feeds every Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
  * the infrastructure checks. See the startup order in `main()`. Tests compose a Host without this
@@ -42,7 +42,11 @@ import {
   EXIT_NON_LOOPBACK,
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
-import { describeEndpoints, parseStackConfig } from "./stack-config.js";
+import {
+  describeEndpoints,
+  describeServices,
+  parseStackConfig,
+} from "./stack-config.js";
 import { createExecution, createInfra } from "../infra/index.js";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -109,8 +113,13 @@ export async function main(): Promise<void> {
   const config = loadJson<HostConfigFile>(paths.config);
   const credentials = loadJson<HostCredentialsFile>(paths.credentials);
   const logger = createHostLogger();
+  if (stack.deprecatedRole)
+    logger.warn("deprecated_flag", {
+      flag: "--role",
+      use: `--service ${describeServices(stack.services)}`,
+    });
   logger.info("host_stack_config", {
-    role: stack.role,
+    services: [...stack.services],
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
@@ -136,7 +145,7 @@ export async function main(): Promise<void> {
   // invocation for a Tenant that is not open here opens it on demand.
   const hostExecution = createHostExecution({
     execution: infra.execution ?? createExecution(stack),
-    role: stack.role,
+    services: stack.services,
     resolve: (tenantId) => module.worker(tenantId),
     logger,
   });
@@ -149,11 +158,11 @@ export async function main(): Promise<void> {
     | undefined;
   // The record of session events is shared by every Tenant; it exists before any opens.
   await migrateStreamsSchema(database);
-  // With S2, the stream relay feeds every Tenant's streams from the record. Every api or all
-  // process runs one; the replication slot lets exactly one be active. Without S2, each
+  // With S2, the stream relay feeds every Tenant's streams from the record. Every process
+  // running core runs one; the replication slot lets exactly one be active. Without S2, each
   // Tenant relays its own commits to its in-process streams.
   let relay: StreamRelay | undefined;
-  if (streams && stack.role !== "worker") {
+  if (streams && stack.services.has("core")) {
     await assertLogicalReplication(database);
     const source = createPgoutputSource({
       connectionString: stack.endpoints.databaseUrl,
@@ -238,9 +247,9 @@ export async function main(): Promise<void> {
   // Startup order. The Worker starts first: opening a Tenant arms its sweep
   // through Restate's ingress, which answers 404 until a Worker has registered
   // the services, so no Tenant may open before `start` (the listener opens
-  // Tenants on demand). An api-role process serves no Worker endpoint, so it
+  // Tenants on demand). A core-only process serves no Worker endpoint, so it
   // can open Tenants only once some Worker process has registered. Container
-  // mode runs one `--role all` process, which registers here. Then the
+  // mode runs one `--service core,loop` process, which registers here. Then the
   // listener starts (and marks discovery done), and every listed Tenant's
   // sweep is re-armed, which recovers wakes lost with Restate's state (§14.8).
   try {

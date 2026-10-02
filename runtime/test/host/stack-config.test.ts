@@ -1,28 +1,61 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseRole,
+  parseServices,
   parseStackConfig,
   StackConfigError,
 } from "../../src/host/stack-config.js";
 import { isAllowedRequestHost } from "../../src/host/http.js";
 
-describe("parseRole", () => {
-  it("defaults to all", () => {
-    expect(parseRole([])).toBe("all");
+describe("parseServices", () => {
+  const services = (...names: string[]) => new Set(names);
+
+  it("defaults to core and loop", () => {
+    expect(parseServices([])).toEqual({ services: services("core", "loop") });
   });
 
-  it("accepts --role <value> and --role=<value>", () => {
-    expect(parseRole(["--role", "api"])).toBe("api");
-    expect(parseRole(["--role=worker"])).toBe("worker");
-    expect(parseRole(["--role", "all"])).toBe("all");
+  it("accepts --service <list> and --service=<list>", () => {
+    expect(parseServices(["--service", "core,loop"])).toEqual({
+      services: services("core", "loop"),
+    });
+    expect(parseServices(["--service=loop"])).toEqual({ services: services("loop") });
+    expect(parseServices(["--service", " core "])).toEqual({ services: services("core") });
   });
 
-  it("rejects unknown roles, missing values, repeats and unknown arguments", () => {
-    expect(() => parseRole(["--role", "db"])).toThrow(StackConfigError);
-    expect(() => parseRole(["--role"])).toThrow(/requires a value/);
-    expect(() => parseRole(["--role", "--x"])).toThrow(/requires a value/);
-    expect(() => parseRole(["--role", "api", "--role", "all"])).toThrow(/once/);
-    expect(() => parseRole(["--port", "1"])).toThrow(/Unknown argument/);
+  it("maps the deprecated --role to services", () => {
+    expect(parseServices(["--role", "api"])).toEqual({
+      services: services("core"),
+      deprecatedRole: "api",
+    });
+    expect(parseServices(["--role=worker"])).toEqual({
+      services: services("loop"),
+      deprecatedRole: "worker",
+    });
+    expect(parseServices(["--role", "all"])).toEqual({
+      services: services("core", "loop"),
+      deprecatedRole: "all",
+    });
+  });
+
+  it("rejects unknown, later, empty and repeated services", () => {
+    expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
+    expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
+    expect(() => parseServices(["--service", "egress"])).toThrow(/not in this release/);
+    expect(() => parseServices(["--service", "core,,loop"])).toThrow(/empty entry/);
+    expect(() => parseServices(["--service", "core,core"])).toThrow(/twice/);
+  });
+
+  it("rejects missing values, repeats, both flags and unknown arguments", () => {
+    expect(() => parseServices(["--role", "db"])).toThrow(StackConfigError);
+    expect(() => parseServices(["--role"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--service"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--service", "--x"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--role", "api", "--role", "all"])).toThrow(/once/);
+    expect(() => parseServices(["--service", "core", "--service", "loop"])).toThrow(/once/);
+    expect(() => parseServices(["--service", "core", "--role", "api"])).toThrow(
+      /only --service/,
+    );
+    expect(() => parseServices(["--port", "1"])).toThrow(/Unknown argument/);
+    expect(() => parseServices(["--services=core"])).toThrow(/Unknown argument/);
   });
 });
 
@@ -32,7 +65,7 @@ describe("parseStackConfig", () => {
       { NYLORUN_HOME: "/home/u/.nylorun", PATH: "/usr/bin" },
       [],
     );
-    expect(config).toEqual({ role: "all", endpoints: {} });
+    expect(config).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
   });
 
   it("parses the Compose runtime service environment", () => {
@@ -51,10 +84,10 @@ describe("parseStackConfig", () => {
         NYLORUN_S2_TOKEN: "ignored",
         NYLORUN_WORKSPACE_STORE_URL: "file:///workspaces",
       },
-      ["--role", "all"],
+      ["--service", "core,loop"],
     );
     expect(config).toEqual({
-      role: "all",
+      services: new Set(["core", "loop"]),
       listen: {
         host: "0.0.0.0",
         port: 4000,
@@ -180,7 +213,7 @@ describe("parseStackConfig", () => {
         },
         [],
       ),
-    ).toEqual({ role: "all", endpoints: {} });
+    ).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
   });
 });
 

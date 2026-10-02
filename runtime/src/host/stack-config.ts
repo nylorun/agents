@@ -3,6 +3,11 @@
  * snapshot and argv. Pure: `host/main.ts` passes the process environment and
  * arguments; nothing here reads ambient state.
  *
+ * `--service core,loop` names the Runtime services the process runs (blueprint
+ * §19, D12): one image runs every service, and a container may pack several.
+ * Without the flag a process runs core and loop. `--role api|worker|all` is
+ * the deprecated name of the same choice (core, loop, or both).
+ *
  * Two listen modes:
  * - **local** (no `NYLORUN_LISTEN_*` / `NYLORUN_ALLOWED_HOSTS`): the Host binds
  *   what `host.json` names, loopback only unless `allowNonLoopback`.
@@ -15,9 +20,47 @@
  * `infra/*` builds the clients from them.
  */
 
+/** A Runtime service this release has. */
+export type RuntimeService = "core" | "loop";
+
+export type RuntimeServices = ReadonlySet<RuntimeService>;
+
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop"];
+
+/** What a process runs without `--service`: core and loop, as `--role all` did. */
+export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
+  "core",
+  "loop",
+]);
+
+/** Services of the blueprint this release doesn't have yet. */
+const LATER_SERVICES: readonly string[] = [
+  "gates",
+  "egress",
+  "keys",
+  "harness",
+  "sandboxd",
+];
+
+/** The deprecated `--role` values, and the services each stands for. */
 export type RuntimeRole = "api" | "worker" | "all";
 
-export const RUNTIME_ROLES: readonly RuntimeRole[] = ["api", "worker", "all"];
+const ROLE_SERVICES: Readonly<Record<RuntimeRole, readonly RuntimeService[]>> = {
+  api: ["core"],
+  worker: ["loop"],
+  all: ["core", "loop"],
+};
+
+/** `services` as the `--service` value that selects them, e.g. `core,loop`. */
+export function describeServices(services: RuntimeServices): string {
+  return RUNTIME_SERVICES.filter((service) => services.has(service)).join(",");
+}
+
+export interface ServiceSelection {
+  services: RuntimeServices;
+  /** Set when the process was started with the deprecated `--role`. */
+  deprecatedRole?: RuntimeRole;
+}
 
 export const DEFAULT_CONTAINER_LISTEN_HOST = "0.0.0.0";
 export const DEFAULT_CONTAINER_LISTEN_PORT = 4000;
@@ -50,7 +93,10 @@ export interface StackEndpoints {
 }
 
 export interface StackConfig {
-  role: RuntimeRole;
+  /** The Runtime services this process runs. */
+  services: RuntimeServices;
+  /** Set when the process was started with the deprecated `--role` (logged at startup). */
+  deprecatedRole?: RuntimeRole;
   /** Present in container mode; absent means bind what host.json names. */
   listen?: ContainerListen;
   endpoints: StackEndpoints;
@@ -98,32 +144,70 @@ function read(env: EnvSnapshot, name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-export function parseRole(argv: readonly string[]): RuntimeRole {
-  let role: RuntimeRole | undefined;
+const USAGE = "Usage: main.js [--service core,loop]";
+
+/** Parses `--service a,b` (or the deprecated `--role`); throws `StackConfigError`. */
+export function parseServices(argv: readonly string[]): ServiceSelection {
+  let service: string | undefined;
+  let role: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
+    const flag = arg.startsWith("--service")
+      ? "--service"
+      : arg.startsWith("--role")
+        ? "--role"
+        : undefined;
     let value: string | undefined;
-    if (arg === "--role") {
+    if (flag && arg === flag) {
       value = argv[index + 1];
       index += 1;
       if (value === undefined || value.startsWith("-"))
-        throw new StackConfigError("--role requires a value: api, worker or all");
-    } else if (arg.startsWith("--role=")) {
-      value = arg.slice("--role=".length);
+        throw new StackConfigError(
+          flag === "--service"
+            ? "--service requires a value, e.g. core,loop"
+            : "--role requires a value: api, worker or all",
+        );
+    } else if (flag && arg.startsWith(`${flag}=`)) {
+      value = arg.slice(flag.length + 1);
     } else {
-      throw new StackConfigError(
-        `Unknown argument ${arg}. Usage: main.js [--role api|worker|all]`,
-      );
+      throw new StackConfigError(`Unknown argument ${arg}. ${USAGE}`);
     }
-    if (role !== undefined)
-      throw new StackConfigError("--role may only be supplied once");
-    if (!(RUNTIME_ROLES as readonly string[]).includes(value))
-      throw new StackConfigError(
-        `Invalid --role ${value}; expected api, worker or all`,
-      );
-    role = value as RuntimeRole;
+    if ((flag === "--service" ? service : role) !== undefined)
+      throw new StackConfigError(`${flag} may only be supplied once`);
+    if (flag === "--service") service = value;
+    else role = value;
   }
-  return role ?? "all";
+  if (service !== undefined && role !== undefined)
+    throw new StackConfigError(
+      "--role is the deprecated name of --service; supply only --service",
+    );
+  if (role !== undefined) {
+    if (!Object.hasOwn(ROLE_SERVICES, role))
+      throw new StackConfigError(
+        `Invalid --role ${role}; expected api, worker or all (deprecated: use --service core, loop or core,loop)`,
+      );
+    const deprecatedRole = role as RuntimeRole;
+    return { services: new Set(ROLE_SERVICES[deprecatedRole]), deprecatedRole };
+  }
+  if (service === undefined) return { services: DEFAULT_SERVICES };
+  const names = service.split(",").map((name) => name.trim());
+  const services = new Set<RuntimeService>();
+  for (const name of names) {
+    if (name === "")
+      throw new StackConfigError(`--service ${service} has an empty entry. ${USAGE}`);
+    if (name === "all")
+      throw new StackConfigError("--service all is not a service; use --service core,loop");
+    if (LATER_SERVICES.includes(name))
+      throw new StackConfigError(`The ${name} service is not in this release of the Runtime`);
+    if (!(RUNTIME_SERVICES as readonly string[]).includes(name))
+      throw new StackConfigError(
+        `Unknown service ${name}; expected ${RUNTIME_SERVICES.join(" or ")}`,
+      );
+    if (services.has(name as RuntimeService))
+      throw new StackConfigError(`--service names ${name} twice`);
+    services.add(name as RuntimeService);
+  }
+  return { services };
 }
 
 function parsePort(name: string, raw: string): number {
@@ -268,7 +352,7 @@ export function parseStackConfig(
   env: EnvSnapshot,
   argv: readonly string[],
 ): StackConfig {
-  const role = parseRole(argv);
+  const { services, deprecatedRole } = parseServices(argv);
   const listen = parseListen(env);
   const operator = parseAdminListen(env);
   if (operator && listen && operator.port === listen.port)
@@ -309,7 +393,8 @@ export function parseStackConfig(
     );
   const delivery = parseDelivery(env);
   return {
-    role,
+    services,
+    ...(deprecatedRole ? { deprecatedRole } : {}),
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),

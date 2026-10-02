@@ -5,9 +5,9 @@
  * With `NYLORUN_RESTATE_INGRESS_URL` and `NYLORUN_RESTATE_ADMIN_URL` the Host
  * uses Restate:
  *
- * - wakes, timers and sweep arming go through the ingress, so every role can
+ * - wakes, timers and sweep arming go through the ingress, so every process can
  *   call them;
- * - a Worker (`--role worker|all`) serves the Restate endpoint on
+ * - a Worker (a process running the loop service) serves the Restate endpoint on
  *   `0.0.0.0:9080` and registers `NYLORUN_WORKER_URL` with the admin API when
  *   `infra/workers.ts` starts it;
  * - with `NYLORUN_RESTATE_IDENTITY_KEY` the endpoint accepts only requests
@@ -19,7 +19,12 @@
 import { createRestateExecution } from "../adapters/execution/restate.js";
 import { MemoryExecution } from "../execution/memory.js";
 import type { DurableExecution } from "../execution/types.js";
-import type { RuntimeRole, StackConfig } from "../host/stack-config.js";
+import {
+  DEFAULT_SERVICES,
+  describeServices,
+  type RuntimeServices,
+  type StackConfig,
+} from "../host/stack-config.js";
 
 /** Where a Worker serves the Restate endpoint (architecture §14.3). */
 export const WORKER_LISTEN = { host: "0.0.0.0", port: 9080 } as const;
@@ -46,11 +51,11 @@ export function executionKind(
 
 /**
  * Throws naming the missing variable when the Restate endpoints are
- * incomplete for `role`. The api role never serves the Worker endpoint, so it
- * needs no `NYLORUN_WORKER_URL`.
+ * incomplete for `services`. Without the loop service a process never serves
+ * the Worker endpoint, so it needs no `NYLORUN_WORKER_URL`.
  */
 export function validateExecutionConfig(
-  config: Pick<StackConfig, "endpoints"> & { role?: RuntimeRole },
+  config: Pick<StackConfig, "endpoints"> & { services?: RuntimeServices },
 ): void {
   const { restateIngressUrl, restateAdminUrl, workerUrl, restateIdentityKeys } =
     config.endpoints;
@@ -65,14 +70,15 @@ export function validateExecutionConfig(
     throw new Error("NYLORUN_RESTATE_INGRESS_URL is required with NYLORUN_RESTATE_ADMIN_URL");
   if (!restateAdminUrl)
     throw new Error("NYLORUN_RESTATE_ADMIN_URL is required with NYLORUN_RESTATE_INGRESS_URL");
-  if ((config.role ?? "all") !== "api" && !workerUrl)
+  const services = config.services ?? DEFAULT_SERVICES;
+  if (services.has("loop") && !workerUrl)
     throw new Error(
-      `NYLORUN_WORKER_URL is required for --role ${config.role ?? "all"}: the Worker endpoint URL Restate calls`,
+      `NYLORUN_WORKER_URL is required for --service ${describeServices(services)}: the Worker endpoint URL Restate calls`,
     );
 }
 
 export function createExecution(
-  config: Pick<StackConfig, "endpoints"> & { role?: RuntimeRole },
+  config: Pick<StackConfig, "endpoints"> & { services?: RuntimeServices },
   options: CreateExecutionOptions = {},
 ): DurableExecution {
   validateExecutionConfig(config);

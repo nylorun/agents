@@ -39,7 +39,7 @@ export interface Infra {
  * incomplete (e.g. a Restate ingress without an admin URL).
  */
 export function createInfra(
-  config: Pick<StackConfig, "role" | "endpoints">,
+  config: Pick<StackConfig, "services" | "endpoints">,
   options: {
     logger?: Logger;
     execution?: CreateExecutionOptions;

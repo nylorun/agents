@@ -131,7 +131,7 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
     // Another process with the Tenant open; its advances are called directly, as a duplicate
     // delivery would call them.
     const nodeB = await t.node({
-      worker: t.worker({ offset: 1, prefix: "race", role: "api" }),
+      worker: t.worker({ offset: 1, prefix: "race", services: new Set(["core"] as const) }),
       workerId: "worker-b",
       ownerLeaseMs: 60_000,
       modelProvider: model.provider,
@@ -193,7 +193,7 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
       modelProvider: model.provider,
     });
     // The API node shares the Tenant but never serves the Worker endpoint.
-    const api = t.worker({ offset: 2, prefix: "cancel", role: "api" });
+    const api = t.worker({ offset: 2, prefix: "cancel", services: new Set(["core"] as const) });
     const apiNode = await t.node({ worker: api, workerId: "api-node", modelProvider: model.provider });
 
     await openSession(apiNode);

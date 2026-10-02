@@ -48,8 +48,8 @@ function stack(overrides: Record<string, string> = {}) {
       NYLORUN_S2_TOKEN: "ignored",
       ...overrides,
     },
-    // The api role serves no Worker endpoint; the Host execution here is in-process.
-    ["--role", "api"],
+    // Core serves no Worker endpoint; the Host execution here is in-process.
+    ["--service", "core"],
   );
 }
 
@@ -66,7 +66,7 @@ async function startHost(options: { overrides?: Record<string, string>; gate?: P
   const steps: string[] = [];
   const hostExecution = createHostExecution({
     execution: new MemoryExecution(),
-    role: "all",
+    services: new Set(["core", "loop"] as const),
     resolve: (tenantId) => module.worker(tenantId),
   });
   const streams = new MemoryStreams();
