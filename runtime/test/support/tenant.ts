@@ -23,6 +23,11 @@ import { createKekFile, readVaultKek } from "../../src/vault/kek.js";
 import { HostModelVault } from "../../src/vault/host-model.js";
 import type { ModelGate } from "../../src/gates/model-gate.js";
 import { httpModelGate } from "../../src/gates/http-client.js";
+import { httpToolGate } from "../../src/gates/tool-client.js";
+import type { ToolGate } from "../../src/gates/tool-gate.js";
+import { authorizeSessionMcp } from "../../src/gates/tenant-vaults.js";
+import { VaultService } from "../../src/vault/service.js";
+import type { Session } from "../../src/tenant/context.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import type { SessionStore } from "../../src/store/types.js";
@@ -50,6 +55,12 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   useHostModel?: boolean;
   /** Serves the Tenant's vault-backed calls instead (`TenantOpenHooks.modelGate`). */
   modelGate?: ModelGate;
+  /**
+   * Serves the Tenant's remote MCP servers and deliveries instead (`TenantOpenHooks.toolGate`).
+   * Without one, `NYLORUN_TEST_MODEL_GATE=http` sends them through a gates service on
+   * 127.0.0.1, as the local stack does.
+   */
+  toolGate?: ToolGate;
   /** Reuse an existing Host root (restart tests). */
   hostRoot?: string;
   applicationKey?: string;
@@ -215,26 +226,32 @@ export async function startTestTenant(
     createKekFile(paths.kek);
   }
 
-  let gate: GatesServer | undefined;
-  if (options.modelGate) hooks.modelGate = options.modelGate;
-  else if (options.useHostModel && process.env.NYLORUN_TEST_MODEL_GATE === "http") {
+  let gate: (GatesServer & { modelGate: ModelGate; toolGate: ToolGate }) | undefined;
+  if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
+    const kek = () => {
+      const found = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
+      if (!found) throw new Error("The test Tenant has no vault key");
+      return found;
+    };
     gate = await startTestGate({
       tenantId,
       store: opened.store,
-      vault: new HostModelVault({
+      vault: new HostModelVault({ store: opened.store, kek }),
+      credentials: new VaultService({
         store: opened.store,
-        kek: () => {
-          const kek = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
-          if (!kek) throw new Error("The test Tenant has no vault key");
-          return kek;
-        },
+        kek,
+        fetch: options.vaultFetch ?? globalThis.fetch,
       }),
       root: paths.home,
       logger,
       ...(options.modelCall ? { settings: options.modelCall } : {}),
+      ...(options.delivery ? { delivery: options.delivery } : {}),
     });
-    hooks.modelGate = gate.modelGate;
   }
+  if (options.modelGate) hooks.modelGate = options.modelGate;
+  else if (options.useHostModel && gate) hooks.modelGate = gate.modelGate;
+  if (options.toolGate) hooks.toolGate = options.toolGate;
+  else if (gate) hooks.toolGate = gate.toolGate;
 
   const handle = await openTenantRuntime(config, hooks);
   const tenant = getRequestListener((request, node) => handle.fetch(request, node), {
@@ -335,11 +352,16 @@ export async function startTestGate(options: {
   tenantId: string;
   store: SessionStore;
   vault: HostModelVault;
+  /** The vault service remote MCP servers are authorized from. */
+  credentials?: VaultService;
   root: string;
   logger: TenantConfig["logger"];
   settings?: TenantConfig["modelCall"];
-}): Promise<GatesServer & { modelGate: ModelGate }> {
+  delivery?: TenantConfig["delivery"];
+}): Promise<GatesServer & { modelGate: ModelGate; toolGate: ToolGate }> {
   const token = randomBytes(32).toString("hex");
+  const session = (sessionId: string) =>
+    options.store.tx((t) => t.get<Session>("sessions", sessionId));
   const server = await startGates({
     gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
     logger: options.logger,
@@ -350,10 +372,19 @@ export async function startTestGate(options: {
         root: options.root,
         readHostModel: () => options.vault.readHostModel(),
         writeHostCredential: (credential) => options.vault.updateHostCredential(credential),
+        session,
+        authorizeMcp: async (sessionId, request) => {
+          if (!options.credentials) throw new Error("This test gate serves no MCP credentials");
+          return authorizeSessionMcp(options.credentials, session, sessionId, request);
+        },
       }),
     },
     ...(options.settings ? { settings: options.settings } : {}),
+    ...(options.delivery ? { delivery: options.delivery } : {}),
     drainMs: 0,
   });
-  return Object.assign(server, { modelGate: httpModelGate({ url: server.url, token }) });
+  return Object.assign(server, {
+    modelGate: httpModelGate({ url: server.url, token }),
+    toolGate: httpToolGate({ url: server.url, token }),
+  });
 }

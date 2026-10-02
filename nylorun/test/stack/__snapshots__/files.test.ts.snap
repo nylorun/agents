@@ -94,7 +94,7 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
-  gateway: # the Model Gate: model credentials and provider calls; not published
+  gateway: # the Model and Tool Gates: model and MCP credentials, provider, MCP and Action endpoint calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     command: ["--service", "gates"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
@@ -107,8 +107,10 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
-      host.docker.internal: host-gateway # a model server on this machine, e.g. Ollama
+      host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
       # The Tenant's vault key and homes only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro

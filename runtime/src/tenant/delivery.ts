@@ -41,7 +41,7 @@ import { acceptedOutcome, recordActionOutcome } from "./commands.js";
 import { sandboxLookup, type Session, type TenantContext } from "./context.js";
 import { mintDeliveryToken, type DeliveryScope } from "./delivery-token.js";
 import { fail } from "./http.js";
-import { post, type OutboundResult } from "./outbound.js";
+import type { OutboundResult } from "./outbound.js";
 
 const DONE: DeliverResult = { status: "done" };
 /** Extra time past the endpoint's timeout before an unanswered delivery counts as lost. */
@@ -144,18 +144,19 @@ export async function deliverAction(
   const inFlight = track(ctx, action.sessionId, cancel);
   let result: OutboundResult;
   try {
-    result = await post(
-      endpoint.url,
-      body,
+    // Through the Tool Gate (F4.1): the gates service POSTs it under its own address policy.
+    result = await ctx.toolGate.post(
       {
-        [SIGNATURE_HEADER]: minted.token,
-        [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
-        "idempotency-key": actionId,
+        url: endpoint.url,
+        body,
+        headers: {
+          [SIGNATURE_HEADER]: minted.token,
+          [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          "idempotency-key": actionId,
+        },
+        timeoutMs: endpoint.timeoutMs,
       },
-      {
-        policy: ctx.config.delivery ?? {},
-        signal: AbortSignal.any([signal, cancel.signal, AbortSignal.timeout(endpoint.timeoutMs)]),
-      },
+      AbortSignal.any([signal, cancel.signal, AbortSignal.timeout(endpoint.timeoutMs)]),
     );
   } finally {
     inFlight();
@@ -438,14 +439,15 @@ export async function pingEndpoint(
     body,
     ttlSeconds: TOKEN_SLACK_SECONDS,
   });
-  const result = await post(
-    endpoint.url,
-    body,
-    { [SIGNATURE_HEADER]: minted.token, [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) },
+  const timeoutMs = Math.min(endpoint.timeoutMs, 10_000);
+  const result = await ctx.toolGate.post(
     {
-      policy: ctx.config.delivery ?? {},
-      signal: AbortSignal.timeout(Math.min(endpoint.timeoutMs, 10_000)),
+      url: endpoint.url,
+      body,
+      headers: { [SIGNATURE_HEADER]: minted.token, [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) },
+      timeoutMs,
     },
+    AbortSignal.timeout(timeoutMs),
   );
   const at = new Date().toISOString();
   const refuse = async (code: string, message: string): Promise<never> => {

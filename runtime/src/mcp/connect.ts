@@ -13,9 +13,62 @@ import {
 } from "./snapshot.js";
 import { prepareStdioLaunch } from "./stdio.js";
 
+/** Options of one MCP request. */
+export interface McpRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
+/** Options of one tool call. */
+export interface McpCallOptions extends McpRequestOptions {
+  /**
+   * The call's effect id. A gate runs a keyed call once and keeps its outcome, so a re-send
+   * after a takeover joins it (F4.1). An in-process connection ignores it.
+   */
+  readonly key?: string;
+}
+
+/** A page of `tools/list`, as the MCP SDK returns it. */
+export interface McpToolPage {
+  readonly tools: readonly {
+    readonly name: string;
+    readonly description?: string;
+    readonly inputSchema?: unknown;
+    readonly outputSchema?: unknown;
+  }[];
+  readonly nextCursor?: string;
+}
+
+/**
+ * What the pool needs of an MCP client: the SDK `Client` over a transport of this process
+ * (`sdkClient`), or a client of the gates service that holds the real connection
+ * (`gates/tool-client.ts`).
+ */
+export interface McpClient {
+  listTools(params?: { cursor?: string }, options?: McpRequestOptions): Promise<McpToolPage>;
+  /** The raw `CallToolResult`; `callMcpTool` reads it. */
+  callTool(
+    params: { name: string; arguments: Record<string, unknown> },
+    options?: McpCallOptions,
+  ): Promise<Record<string, unknown>>;
+}
+
 export interface LiveConnection {
-  readonly client: Client;
+  readonly client: McpClient;
   close(): Promise<void>;
+}
+
+/** An SDK `Client` as an `McpClient`. */
+export function sdkClient(client: Client): McpClient {
+  return {
+    listTools: (params, options) =>
+      client.listTools(params, options?.signal ? { signal: options.signal } : undefined),
+    callTool: (params, options) =>
+      client.callTool(
+        params,
+        undefined,
+        options?.signal ? { signal: options.signal } : undefined,
+      ) as Promise<Record<string, unknown>>,
+  };
 }
 
 export async function openMcpServer(input: {
@@ -42,7 +95,7 @@ export async function openMcpServer(input: {
     transport.stderr?.on("data", () => {});
     const client = createClient();
     await client.connect(transport);
-    return { client, close: () => client.close() };
+    return { client: sdkClient(client), close: () => client.close() };
   }
   const authorize = input.authorize;
   if (!authorize) throw new Error("HTTP MCP server requires authorization");
@@ -61,18 +114,21 @@ export async function openMcpServer(input: {
       : new StreamableHTTPClientTransport(url, { fetch: fetchImpl });
   const client = createClient();
   await client.connect(transport);
-  return { client, close: () => client.close() };
+  return { client: sdkClient(client), close: () => client.close() };
 }
 
 export async function listMcpTools(
-  client: Client,
-  input: { capabilityId: string; serverName: string; taken: Set<string> },
+  client: McpClient,
+  input: { capabilityId: string; serverName: string; taken: Set<string>; signal?: AbortSignal },
 ): Promise<{ tools: McpToolRecord[]; omitted: string[] }> {
   const tools: McpToolRecord[] = [];
   const omitted: string[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 100; page += 1) {
-    const listed = await client.listTools(cursor ? { cursor } : undefined);
+    const listed = await client.listTools(
+      cursor ? { cursor } : undefined,
+      input.signal ? { signal: input.signal } : undefined,
+    );
     for (const tool of listed.tools) {
       if (typeof tool.name !== "string" || tool.name.length === 0) continue;
       const name = modelToolName(input.serverName, tool.name);
@@ -104,17 +160,21 @@ export async function listMcpTools(
 }
 
 export async function callMcpTool(
-  client: Client,
+  client: McpClient,
   serverToolName: string,
   args: unknown,
+  options: McpCallOptions = {},
 ): Promise<{ kind: "completed"; output: unknown } | { kind: "failed"; code: string; message: string }> {
-  const result = await client.callTool({
-    name: serverToolName,
-    arguments:
-      args && typeof args === "object" && !Array.isArray(args)
-        ? (args as Record<string, unknown>)
-        : {},
-  });
+  const result = await client.callTool(
+    {
+      name: serverToolName,
+      arguments:
+        args && typeof args === "object" && !Array.isArray(args)
+          ? (args as Record<string, unknown>)
+          : {},
+    },
+    options,
+  );
   if ("isError" in result && result.isError) {
     return {
       kind: "failed",

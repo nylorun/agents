@@ -18,6 +18,7 @@ import {
 } from "../../src/tenant/sweep.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
 import { createTestSessionStore, dropTestTenant } from "../support/store.js";
+import { inProcessToolGate } from "../../src/gates/tool-gate.js";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -46,6 +47,7 @@ function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
     ownerLeaseMs,
     work: createWorkState(),
     config: { logger: silent },
+    toolGate: inProcessToolGate(),
     wake: async (id: string, wake: Wake) => {
       wakes.push({ id, wake });
     },

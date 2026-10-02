@@ -6,7 +6,8 @@
  *
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables, Action
  *   endpoints, principals, vaults and credentials, signing keys, publishable keys, subject
- *   epochs and usage, settings, the model usage ledger and the model budgets.
+ *   epochs and usage, settings, the model usage ledger, the model budgets and the Tool Gate's
+ *   crossings.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -410,6 +411,28 @@ export const modelBudgets = nylorun.table(
   (t) => [primaryKey({ name: "model_budgets_pkey", columns: [t.scope, t.scopeId] })],
 );
 
+/**
+ * The Tool Gate's keyed MCP calls (F4.1 G3): one row per call, written by the gates service
+ * before it calls the server and given the answer after. A re-send whose row has an answer
+ * gets it; one whose row has none, and that the gateway no longer runs, was lost with an
+ * earlier gateway and answers `uncertain`, so a call is never run twice. Rows are deleted a
+ * day after they settle.
+ */
+export const toolCrossings = nylorun.table(
+  "tool_crossings",
+  {
+    /** The call's effect id (`Idempotency-Key`). */
+    key: textC().primaryKey(),
+    /** SHA-256 of the canonical request: a re-send with another request is refused. */
+    hash: text().notNull(),
+    startedAt: textC().notNull(),
+    settledAt: textC(),
+    /** The gate's answer (`McpAnswer`), once the call ended; null while it runs or once lost. */
+    answer: jsonText(),
+  },
+  (t) => [index("tool_crossings_settled").on(t.settledAt)],
+);
+
 // ---------------------------------------------------------------------------
 // nylorun_streams: the record
 
@@ -457,3 +480,4 @@ export type SubjectUsageRow = typeof subjectUsage.$inferSelect;
 export type PublishableKeyRow = typeof publishableKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
+export type ToolCrossingRow = typeof toolCrossings.$inferSelect;

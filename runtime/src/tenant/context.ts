@@ -29,6 +29,7 @@ import type { SessionStore, StoredSession, Tx } from "../store/types.js";
 import type { FlowLimits } from "../core/limits.js";
 import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
+import type { ToolGate } from "../gates/tool-gate.js";
 import type { VaultService } from "../vault/service.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
@@ -151,6 +152,11 @@ export interface TenantContext {
   readonly useVaultModel: boolean;
   /** Serves vault-backed model calls (blueprint §15): in this process, or the gates service. */
   readonly modelGate: ModelGate;
+  /**
+   * Serves remote MCP servers and Action deliveries (blueprint §12, F4.1): in this process, or
+   * the gates service.
+   */
+  readonly toolGate: ToolGate;
   /** Set by drain/close; reset clears it again. Stops new advances. */
   closing: boolean;
   /** Set once close has finished releasing resources. */

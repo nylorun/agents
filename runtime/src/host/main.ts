@@ -50,6 +50,7 @@ import {
 import { createExecution, createInfra } from "../infra/index.js";
 import { createDatabase } from "../infra/database.js";
 import { startGates } from "./gates.js";
+import { httpToolGate } from "../gates/tool-client.js";
 import { httpModelGate } from "../gates/http-client.js";
 import type { StackConfig } from "./stack-config.js";
 
@@ -101,7 +102,13 @@ async function runGates(stack: StackConfig): Promise<void> {
   const database = createDatabase(stack);
   let server;
   try {
-    server = await startGates({ gates, database, hostRoot: resolveHostRoot(), logger });
+    server = await startGates({
+      gates,
+      database,
+      hostRoot: resolveHostRoot(),
+      logger,
+      ...(stack.delivery ? { delivery: stack.delivery } : {}),
+    });
   } catch (error) {
     await database.end({ timeout: 5 });
     if (error instanceof HostListenError) {
@@ -225,10 +232,13 @@ export async function main(): Promise<void> {
     relayLag = async () => ({ ...status(), ...(await lagOf(source)) });
     relay.start();
   };
-  // With the gates service the Tenant's vault-backed model calls cross it, and this process
-  // never reads a model credential.
+  // With the gates service the Tenant's vault-backed model calls, remote MCP calls and Action
+  // deliveries cross it, and this process never reads a model or MCP credential.
   const modelGate = stack.modelGate
     ? httpModelGate({ url: stack.modelGate.url, token: stack.modelGate.token })
+    : undefined;
+  const toolGate = stack.modelGate
+    ? httpToolGate({ url: stack.modelGate.url, token: stack.modelGate.token })
     : undefined;
   const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
   const module = createTenantModule({
@@ -249,6 +259,7 @@ export async function main(): Promise<void> {
         openTenantRuntime(tenantConfig, {
           execution: hostExecution.tenantExecution,
           ...(modelGate ? { modelGate } : {}),
+          ...(toolGate ? { toolGate } : {}),
           ...(streams ? { streams, hostRelay: true } : {}),
           ...opened,
         }),

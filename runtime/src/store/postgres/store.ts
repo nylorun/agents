@@ -55,6 +55,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   lte,
   ne,
   or,
@@ -106,6 +107,7 @@ import type {
   ModelUsageRow,
   ModelUsageTotals,
   StoredSession,
+  ToolCrossingRow,
   TakeOwnership,
   Tx,
   VaultAuditRow,
@@ -133,6 +135,7 @@ import {
   sessionEvents,
   sessionLogHeads,
   sessions,
+  toolCrossings,
   signingKeys,
   subjectEpochs,
   subjectUsage,
@@ -1241,6 +1244,41 @@ class PostgresTx implements Tx {
     if (rows.length > 0) await this.db.insert(modelBudgets).values([...rows]);
   }
 
+  // --- tool crossings --------------------------------------------------------
+
+  async toolCrossing(key: string): Promise<ToolCrossingRow | undefined> {
+    this.check();
+    const [row] = await this.db.select().from(toolCrossings).where(eq(toolCrossings.key, key));
+    return row;
+  }
+
+  async startToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean> {
+    this.check();
+    const inserted = await this.db
+      .insert(toolCrossings)
+      .values({ ...row, settledAt: null, answer: null })
+      .onConflictDoNothing()
+      .returning({ key: toolCrossings.key });
+    return inserted.length === 1;
+  }
+
+  async settleToolCrossing(key: string, answer: unknown, settledAt: string): Promise<void> {
+    this.check();
+    await this.db
+      .update(toolCrossings)
+      .set({ answer, settledAt })
+      .where(eq(toolCrossings.key, key));
+  }
+
+  async pruneToolCrossings(before: string): Promise<number> {
+    this.check();
+    const deleted = await this.db
+      .delete(toolCrossings)
+      .where(lt(toolCrossings.settledAt, before))
+      .returning({ key: toolCrossings.key });
+    return deleted.length;
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1268,6 +1306,7 @@ class PostgresTx implements Tx {
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await db.delete(table);
       await db.delete(subjectUsage);
+      await db.delete(toolCrossings);
       // The record goes with the sessions, and the Tenant moves to a new basin: the ids it
       // frees start again in an empty one (Durable Streams §8.1).
       await db.delete(sessionEvents);
