@@ -98,7 +98,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       ],
       { cwd: directory, capture: true }
     );
-    const plan = await prepareVersions(directory, "beta");
+    const plan = await prepareVersions(directory);
     assert.deepEqual(plan.packages, {
       runtime: "0.1.1-beta",
       nylorun: "0.1.1-beta",
@@ -140,8 +140,11 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       ),
       /must include create-agent/
     );
-    // Pre-1.0 *-beta versions are valid on the latest channel (dist-tag promotion).
-    await validatePlan({ ...plan, channel: "latest" }, directory);
+    // Every release publishes on beta; Promote to latest only moves the tag.
+    await assert.rejects(
+      validatePlan({ ...plan, channel: "latest" }, directory),
+      /Invalid release plan/
+    );
     await assert.rejects(
       validatePlan(
         {
@@ -198,14 +201,6 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
         /Invalid release package/
       );
     }
-    const promoted = await prepareVersions(directory, "latest");
-    assert.equal(promoted.packages.runtime, "0.1.1-beta");
-    assert.equal(promoted.packages["create-agent"], "0.1.1-beta");
-    assert.equal(
-      (await readJson(join(directory, "runtime/package.json"))).version,
-      "0.1.1-beta"
-    );
-    assert.equal(promoted.channel, "latest");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -271,90 +266,33 @@ test("publication retries retain completed packages and never publish creator be
   );
 });
 
-function promotion() {
+test("Promote to latest tries every tag and names one command for the ones it cannot move", async () => {
   const versions = {
     core: "0.2.0-beta",
     runtime: "0.2.0-beta",
-    studio: "0.2.0-beta",
     nylorun: "0.1.0-beta",
     "create-agent": "0.2.0-beta",
   };
-  const plan = {
-    packages: versions,
-    channel: "latest",
-    compatibility: {
-      core: "0.2.0-beta",
-      harness: "0.11.0-beta",
-      agents: "0.1.0-beta",
-      admin: "0.1.0-beta",
-      runtime: "0.2.0-beta",
-      cli: "0.1.0-beta",
-    },
-  };
-  const artifacts = Object.fromEntries(
-    Object.keys(versions).map((name) => [
-      name,
-      name === "studio"
-        ? { image: true }
-        : { integrity: `${name}-hash`, path: `${name}.tgz` },
-    ]),
-  );
-  // Everything is already on the registry, from its beta release.
-  const published = new Map(
-    [...Object.keys(versions), "harness", "agents", "admin", "cli"]
-      .filter((name) => name !== "studio")
-      .map((name) => [name, { integrity: `${name}-hash` }]),
-  );
-  return { plan, artifacts, published };
-}
-
-test("publication of a promotion verifies npm and moves no tag", async () => {
-  const { plan, artifacts, published } = promotion();
-  const registry = {
-    lookup: async (name) => published.get(name),
-    checkTag: async () => assert.fail("checked a tag"),
-    publish: async (name) => assert.fail(`published ${name}`),
-    ensureTag: async (name) => assert.fail(`tagged ${name}`),
-  };
-  const messages = [];
-  await publishCandidates(plan, artifacts, registry, (message) =>
-    messages.push(message),
-  );
-  assert.ok(messages.includes("core@0.2.0-beta: on npm with matching integrity"));
-
-  published.set("runtime", { integrity: "different-hash" });
-  await assert.rejects(
-    publishCandidates(plan, artifacts, registry),
-    /integrity conflict for runtime/,
-  );
-  published.delete("runtime");
-  await assert.rejects(
-    publishCandidates(plan, artifacts, registry),
-    /runtime@0\.2\.0-beta is not on npm/,
-  );
-});
-
-test("a promotion tries every latest tag and names one command for the ones it cannot move", async () => {
-  const { plan, published } = promotion();
+  // Every version is already on npm, from its beta release.
+  const published = new Set(Object.keys(versions));
   const tried = [];
   const registry = {
-    lookup: async (name) => published.get(name),
+    lookup: async (name) => (published.has(name) ? { integrity: "hash" } : undefined),
     checkTag: async () => {},
+    publish: async (name) => assert.fail(`published ${name}`),
     async ensureTag(name, version, channel) {
+      assert.equal(channel, "latest");
       tried.push(name);
-      if (name === "runtime") return; // Already on the channel.
+      if (name === "runtime") return; // Moved, or already on latest.
       const scoped = name === "nylorun" ? name : `@nylorun/${name}`;
       throw Object.assign(new Error(`${name} tag differs`), {
         distTagCommand: `npm dist-tag add ${scoped}@${version} ${channel}`,
       });
     },
   };
-  const imageOnly = (name) => name === "studio";
   const messages = [];
   await assert.rejects(
-    promoteCandidates(plan, registry, imageOnly, (message) =>
-      messages.push(message),
-    ),
+    promoteCandidates(versions, registry, (message) => messages.push(message)),
     (error) => {
       assert.match(error.message, /latest tag of 3 package\(s\) could not be moved/);
       assert.match(error.message, /NPM_LATEST_TOKEN/);
@@ -369,7 +307,6 @@ test("a promotion tries every latest tag and names one command for the ones it c
       return true;
     },
   );
-  // Studio is image only: it has no npm tag.
   assert.deepEqual(tried.sort(), ["core", "create-agent", "nylorun", "runtime"]);
   assert.deepEqual(messages, ["runtime@0.2.0-beta: on latest"]);
 
@@ -377,22 +314,21 @@ test("a promotion tries every latest tag and names one command for the ones it c
   registry.ensureTag = async () => {
     throw new Error("registry unreachable");
   };
-  await assert.rejects(
-    promoteCandidates(plan, registry, imageOnly),
-    /registry unreachable/,
-  );
+  await assert.rejects(promoteCandidates(versions, registry), /registry unreachable/);
 
-  // Only versions already on npm are promoted, and only from a latest plan.
+  // A version a beta release never published moves no tag at all.
   registry.ensureTag = async (name) => assert.fail(`tagged ${name}`);
   published.delete("core");
   await assert.rejects(
-    promoteCandidates(plan, registry, imageOnly),
+    promoteCandidates(versions, registry),
     /core@0\.2\.0-beta is not on npm/,
   );
-  await assert.rejects(
-    promoteCandidates({ ...plan, channel: "beta" }, registry, imageOnly),
-    /Only a latest release/,
-  );
+
+  // A tag never moves backward.
+  registry.checkTag = async (name) => {
+    if (name === "runtime") throw new Error("Refusing to move runtime's latest tag backward");
+  };
+  await assert.rejects(promoteCandidates(versions, registry), /backward/);
 });
 
 test("publication waits for the engines together, then publishes the creator", async () => {

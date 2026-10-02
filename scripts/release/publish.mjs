@@ -35,8 +35,8 @@ try {
     ),
   );
   // Reject conflicting tags before any registry write; publication cannot be undone.
-  // Version tags are immutable once cut. A different SHA is expected when promoting
-  // an already-published version onto another npm channel (e.g. beta → latest).
+  // Version tags are immutable once cut. A different SHA is expected when a rerun
+  // publishes from a later main tip that keeps the plan unchanged.
   const priorVersionTags = new Set();
   for (const [name, version] of Object.entries(plan.packages)) {
     const tag = `${packageName(name)}@${version}`;
@@ -123,8 +123,8 @@ try {
           }),
         );
         releaseExists = releases !== null;
-        // Skip when the version tag/release already exists from a prior channel
-        // publication; promotion commits must not retarget immutable version tags.
+        // Skip when the version tag/release already exists from a prior
+        // publication; a rerun must not retarget immutable version tags.
         if (!releaseExists && !priorVersionTags.has(name)) {
           // The releases API refuses GITHUB_TOKEN a new tag at a given commit
           // (403, "Resource not accessible by integration"); a git push of the
@@ -148,7 +148,7 @@ try {
             ...(String(version).includes("-") ? ["--prerelease"] : []),
           ]);
         }
-        // Whether this run created the release or an earlier channel did, it gets what
+        // Whether this run created the release or an earlier run did, it gets what
         // it lacks: the Runtime's OpenAPI documents, from the tarball npm published.
         if (!artifacts[name].image) {
           const attached = await uploadReleaseAssets({

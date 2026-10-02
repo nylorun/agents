@@ -1,18 +1,15 @@
 ---
 name: release
-description: Release the Nylorun npm packages and images. Use when a release is requested — a beta release by default, or a promotion to latest when the user asks for latest.
+description: Release the Nylorun npm packages and images on beta. Use when a release is requested, including a request for latest.
 ---
 
 # Release
 
-You run the whole release. Merging the release PR publishes it through the
-**Publish reviewed release** workflow (`.github/workflows/publish.yml`). A beta
-release needs no human. A promotion to `latest` waits for one human step: an
-administrator approves the `release` environment. [RELEASING.md](../../../RELEASING.md)
-is the reference: the versioning rules, what each workflow job does, and the
-Recovery table.
-
-Release on **beta** unless the user asked for `latest`.
+You run the whole release. Merging the release PR publishes it on npm's
+`beta` channel through the **Publish reviewed release** workflow
+(`.github/workflows/publish.yml`), with no human step.
+[RELEASING.md](../../../RELEASING.md) is the reference: the versioning rules,
+what each workflow job does, and the Recovery table.
 
 ## Beta release
 
@@ -29,7 +26,7 @@ Release on **beta** unless the user asked for `latest`.
 
    Done when `git status --porcelain` is empty on the new branch.
 
-2. **Prepare.** `npm run release:prepare -- --channel beta`. If it reports no
+2. **Prepare.** `npm run release:prepare`. If it reports no
    pending changesets, there is nothing to release: stop and tell the user.
    Done when it prints `Release prepared`.
 
@@ -72,18 +69,12 @@ Release on **beta** unless the user asked for `latest`.
    succeeds for each image the plan publishes. Done when every check matches.
    Report the versions, the PR and the run URL.
 
-## Promotion to latest
+## Latest
 
-Promote only when the user asks for `latest`. A promotion moves the `latest`
-tag onto versions already published on beta; it publishes nothing new.
-
-Follow the beta steps with these changes:
-
-- Step 2 runs `npm run release:prepare -- --channel latest`. It refuses pending
-  changesets: run a beta release first, then promote. Its only change is
-  `.release/plan.json`.
-- Title the PR `chore(release): promote <themes> beta to latest`.
-- In step 5 the run pauses at the `promote` job, waiting for review. Send the
-  user the run URL and ask them to approve the `release` environment; that
-  approval is theirs alone. Then keep watching until the run concludes.
-- Step 6 checks `npm view <package> dist-tags.latest` instead.
+Moving `latest` belongs to the user: they click **Actions → Promote to latest
+→ Run workflow** on `main`
+(`https://github.com/nylorun/agents/actions/workflows/promote.yml`). It moves
+`latest` onto the versions on `main`, which must already be on beta. When the
+user asks for `latest`, finish any pending beta release first, then send them
+that link. Once they report it ran, verify with
+`npm view <package> dist-tags.latest`.
