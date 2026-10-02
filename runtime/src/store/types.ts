@@ -72,7 +72,6 @@ export type DocTable =
   | "definitions"
   | "sessions"
   | "commands"
-  | "checkpoints"
   | "effects"
   | "actions"
   | "sandboxes"
@@ -82,7 +81,6 @@ export const DOC_TABLES: readonly DocTable[] = [
   "definitions",
   "sessions",
   "commands",
-  "checkpoints",
   "effects",
   "actions",
   "sandboxes",
@@ -715,7 +713,7 @@ export interface Tx {
 
   /**
    * Deletes Tenant state by scope, in this transaction:
-   * - `sessions`: sessions, commands, checkpoints, effects, actions, links, subject turn
+   * - `sessions`: sessions, commands, effects, actions, links, subject turn
    *   buckets and the Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;

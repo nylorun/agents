@@ -999,7 +999,6 @@ class MemoryTx implements Tx {
       for (const table of [
         "sessions",
         "commands",
-        "checkpoints",
         "effects",
         "actions",
         "links",

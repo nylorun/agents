@@ -19,8 +19,8 @@
  * ends. To stay deadlock-free:
  *
  * 1. A session-scoped transaction locks its session row before writing any
- *    other row of that session (effects, actions, checkpoints, its record rows
- *    and log head).
+ *    other row of that session (effects, actions, its record rows and log
+ *    head).
  * 2. A transaction that touches several sessions locks them in ascending id
  *    order, with `lockSessions` (`./locking.ts`), before writing any of them.
  *
@@ -372,7 +372,6 @@ const CREDENTIAL_COLUMNS = {
 const SESSION_TABLES = [
   "sessions",
   "commands",
-  "checkpoints",
   "effects",
   "actions",
   "links",

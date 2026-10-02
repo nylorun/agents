@@ -440,11 +440,6 @@ async function settle(
         };
         current.status = "runnable";
         current.waits = undefined;
-        await t.put(
-          "checkpoints",
-          JSON.stringify([id, s.activeTurnId, finished.segment]),
-          { checkpoint: finished, status: "yielded" }
-        );
         await slimModelEffects(t, id, s.activeTurnId);
         await t.put("sessions", id, current);
         const segment = finished.segment + 1;
@@ -464,11 +459,6 @@ async function settle(
             : (result.result as any).state;
       }
       current.checkpoint = result.checkpoint;
-      await t.put(
-        "checkpoints",
-        JSON.stringify([id, s.activeTurnId, result.checkpoint.segment]),
-        { checkpoint: result.checkpoint, status: result.status }
-      );
       current.status = result.status;
       current.waits =
         result.status === "paused" ? (result.result as any).pending : undefined;
@@ -570,12 +560,6 @@ async function settleFailure(
       return;
     current.status = "failed";
     current.state = current.turnStartState;
-    if (current.checkpoint)
-      await t.put(
-        "checkpoints",
-        JSON.stringify([id, s.activeTurnId, current.checkpoint.segment]),
-        { checkpoint: current.checkpoint, status: "failed" }
-      );
     current.error = error instanceof Error ? error.message : String(error);
     const payload = { message: current.error };
     await t.event(id, current.activeTurnId, "turn.failed", payload);

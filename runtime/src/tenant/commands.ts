@@ -319,11 +319,6 @@ export async function command(
           segment: (s.checkpoint?.segment ?? 0) + 1,
         });
       }
-      await t.put(
-        "checkpoints",
-        JSON.stringify([id, s.activeTurnId, s.checkpoint!.segment]),
-        { checkpoint: s.checkpoint, status: "runnable" }
-      );
       s.status = "runnable";
       s.waits = undefined;
       const commandWake = {
