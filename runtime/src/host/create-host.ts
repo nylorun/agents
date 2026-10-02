@@ -14,8 +14,8 @@ import { createHostApp, type HostBindings } from "./app.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
 import type { ContainerListen } from "./stack-config.js";
 import {
+  bindListener as bind,
   EXIT_NON_LOOPBACK,
-  EXIT_PORT_IN_USE,
   headerValue,
   HostListenError,
   isAllowedRequestHost,
@@ -240,26 +240,9 @@ export function createHost(options: CreateHostOptions): HostServer {
 
   /** Binds `listening`; once bound, a listener error is logged rather than lost. */
   const bindListener = (listening: Server, port: number, host: string) =>
-    new Promise<void>((resolve, reject) => {
-      const failed = (error: NodeJS.ErrnoException) =>
-        reject(
-          error.code === "EADDRINUSE"
-            ? new HostListenError(
-                `Port ${port} on ${host} is already in use`,
-                EXIT_PORT_IN_USE,
-                error,
-              )
-            : error,
-        );
-      listening.once("error", failed);
-      listening.listen(port, host, () => {
-        listening.off("error", failed);
-        listening.on("error", (error) =>
-          logger.error("listener_error", { error: error.message }),
-        );
-        resolve();
-      });
-    });
+    bind(listening, port, host, (error) =>
+      logger.error("listener_error", { error: error.message }),
+    );
 
   async function listen(): Promise<void> {
     if (server) throw new Error("Already listening");

@@ -36,6 +36,14 @@ describe("parseServices", () => {
     });
   });
 
+  it("runs gates alone: never in a process with core or loop", () => {
+    expect(parseServices(["--service", "gates"])).toEqual({ services: services("gates") });
+    expect(() => parseServices(["--service", "core,gates"])).toThrow(
+      /core and loop may not share a process with gates/,
+    );
+    expect(() => parseServices(["--service", "loop,gates"])).toThrow(/separate processes/);
+  });
+
   it("rejects unknown, later, empty and repeated services", () => {
     expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
     expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
@@ -214,6 +222,62 @@ describe("parseStackConfig", () => {
         [],
       ),
     ).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
+  });
+});
+
+describe("parseStackConfig for --service gates", () => {
+  const token = "ab".repeat(32);
+  const gateway = {
+    // The image sets these for the API; a gates process ignores them.
+    NYLORUN_LISTEN_HOST: "0.0.0.0",
+    NYLORUN_LISTEN_PORT: "4000",
+    NYLORUN_DATABASE_URL: "postgres://nylorun:pw@postgres:5432/nylorun",
+    NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100",
+    NYLORUN_GATES_TOKEN: token,
+  };
+
+  it("parses the gate's listener and token, and no API listener", () => {
+    expect(parseStackConfig(gateway, ["--service", "gates"])).toEqual({
+      services: new Set(["gates"]),
+      gates: {
+        listen: {
+          host: "0.0.0.0",
+          port: 4100,
+          allowedHosts: ["gateway:4100", "localhost:4100", "127.0.0.1:4100", "[::1]:4100"],
+        },
+        token,
+      },
+      endpoints: { databaseUrl: "postgres://nylorun:pw@postgres:5432/nylorun" },
+    });
+  });
+
+  it("requires a token of at least 32 bytes as hex, and Host values off loopback", () => {
+    const without = (name: string) => ({ ...gateway, [name]: undefined });
+    expect(() => parseStackConfig(without("NYLORUN_GATES_TOKEN"), ["--service", "gates"])).toThrow(
+      /NYLORUN_GATES_TOKEN is required/,
+    );
+    expect(() =>
+      parseStackConfig({ ...gateway, NYLORUN_GATES_TOKEN: "short" }, ["--service", "gates"]),
+    ).toThrow(/at least 32 bytes/);
+    expect(() =>
+      parseStackConfig(without("NYLORUN_GATES_ALLOWED_HOSTS"), ["--service", "gates"]),
+    ).toThrow(/NYLORUN_GATES_ALLOWED_HOSTS is required/);
+    expect(
+      parseStackConfig(
+        { ...without("NYLORUN_GATES_ALLOWED_HOSTS"), NYLORUN_GATES_LISTEN_HOST: "127.0.0.1", NYLORUN_GATES_LISTEN_PORT: "4555" },
+        ["--service", "gates"],
+      ).gates?.listen,
+    ).toEqual({
+      host: "127.0.0.1",
+      port: 4555,
+      allowedHosts: ["localhost:4555", "127.0.0.1:4555", "[::1]:4555"],
+    });
+  });
+
+  it("leaves NYLORUN_GATES_* to gates processes", () => {
+    expect(
+      parseStackConfig({ NYLORUN_GATES_TOKEN: "short" }, ["--service", "core,loop"]).gates,
+    ).toBeUndefined();
   });
 });
 

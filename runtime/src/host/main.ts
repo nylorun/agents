@@ -12,7 +12,9 @@
  * (`nylorun_streams`, migrated here); with S2, a process running core runs
  * the stream relay, which feeds every Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
- * the infrastructure checks. See the startup order in `main()`. Tests compose a Host without this
+ * the infrastructure checks. A process running the gates service (the local
+ * stack's `gateway` container) starts only the gate (`runGates`): it needs
+ * neither host.json nor host-credentials.json. See the startup order in `main()`. Tests compose a Host without this
  * entry, with `createHost` and an injected Tenant module.
  */
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
@@ -48,6 +50,9 @@ import {
   parseStackConfig,
 } from "./stack-config.js";
 import { createExecution, createInfra } from "../infra/index.js";
+import { createDatabase } from "../infra/database.js";
+import { startGates } from "./gates.js";
+import type { StackConfig } from "./stack-config.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -78,8 +83,50 @@ async function lagOf(source: {
   return lagBytes === undefined ? {} : { lagBytes };
 }
 
+/**
+ * The gates service: the Model Gate's listener over the Postgres pool and the Host's tenants
+ * directory. Writes nothing to the Host root (the local stack mounts it read-only).
+ */
+async function runGates(stack: StackConfig): Promise<void> {
+  const gates = stack.gates!;
+  if (!stack.endpoints.databaseUrl)
+    throw new Error(
+      "NYLORUN_DATABASE_URL is required for --service gates: the gate reads Tenant vaults from Postgres (`nylorun start` sets it)",
+    );
+  const logger = createHostLogger();
+  logger.info("host_stack_config", {
+    services: [...stack.services],
+    endpoints: describeEndpoints(stack.endpoints),
+  });
+  const database = createDatabase(stack);
+  let server;
+  try {
+    server = await startGates({ gates, database, hostRoot: resolveHostRoot(), logger });
+  } catch (error) {
+    await database.end({ timeout: 5 });
+    if (error instanceof HostListenError) {
+      logger.error("listen_failed", { message: error.message, exitCode: error.exitCode });
+      process.exitCode = error.exitCode;
+      return;
+    }
+    throw error;
+  }
+  logger.info("gates_ready", { url: server.url });
+  let stopping = false;
+  for (const signal of ["SIGINT", "SIGTERM"] as const)
+    process.on(signal, () => {
+      if (stopping) return;
+      stopping = true;
+      void server
+        .close()
+        .then(() => database.end({ timeout: 5 }))
+        .finally(() => process.exit(0));
+    });
+}
+
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
+  if (stack.services.has("gates")) return runGates(stack);
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
