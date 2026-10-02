@@ -215,7 +215,7 @@ On a managed Postgres, turn on its logical replication option (for example
 `rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
 WAL; the relay catches up in order when S2 returns.
 
-## The gateway: model calls
+## The gateway: model and tool calls
 
 The stack runs the Runtime image twice (the combined packing). The `runtime`
 container runs the `core` and `loop` services: the APIs, Studio's backend and
@@ -248,6 +248,24 @@ a model credential.
   a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and
   `NYLORUN_GATES_TOKEN`. A proxy between the two must allow an idle request of
   at least 630 s, because the gate answers only when the call has finished.
+
+The gateway is also the Tool Gate. Tool calls that leave the loop cross it, so
+the runtime container never holds an MCP credential or calls a tool's server:
+
+- **Remote MCP servers** (`streamable-http` and `sse`): the gateway opens the
+  connection, authorizes it from the session's attached vaults (OAuth refresh
+  included) and runs `tools/list` and `tools/call`. `nylorun logs gateway`
+  shows one `mcp_request` line per request, never arguments, results or
+  credentials. Stdio MCP servers still run in the runtime container.
+- **Action deliveries**: the gateway POSTs every delivery and endpoint ping, so
+  it carries `NYLORUN_ENDPOINT_LOOPBACK` (and any other `NYLORUN_ENDPOINT_*`
+  setting) and reaches Action endpoints on this machine at
+  `host.docker.internal`. While it is down, deliveries are retried with backoff.
+- A remote MCP call outlives the runtime that sent it, like a model call: a
+  restarted runtime picks up its answer. The gateway records each call in the
+  `tool_crossings` table before it reaches the server, so after a gateway
+  restart a call that was in flight is `uncertain`: it may have run, and it is
+  never run again.
 
 The combined packing suits one developer on one machine. The vault key files
 are still mounted into the runtime container too, for MCP and signing keys,

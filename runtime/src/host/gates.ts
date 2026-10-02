@@ -1,6 +1,7 @@
 /**
- * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's
- * routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's listeners.
+ * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's and
+ * the Tool Gate's routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's
+ * listeners.
  * It opens no Tenant runtime, no Restate endpoint and no stream relay, and runs no migration;
  * it needs only the Postgres pool and the Host's tenant directory (read-only).
  *
@@ -14,6 +15,10 @@ import { getRequestListener } from "@hono/node-server";
 import { createGatesApp } from "../api/gate/routes.js";
 import { createModelCallHandler } from "../gates/handler.js";
 import { createInflightCalls, type InflightCallsOptions } from "../gates/inflight.js";
+import { createMcpHandler, GATE_MCP_IDLE_MS } from "../gates/mcp-handler.js";
+import { createToolCalls } from "../gates/tool-calls.js";
+import type { openMcpServer } from "../mcp/connect.js";
+import type { OutboundPolicy } from "../tenant/outbound.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { probeDatabase } from "../infra/database.js";
@@ -42,6 +47,12 @@ export interface StartGatesOptions {
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
   readonly inflight?: InflightCallsOptions;
+  /** How the gate may call Action endpoints (`NYLORUN_ENDPOINT_*`). Default: no limits. */
+  readonly delivery?: OutboundPolicy;
+  /** How long an MCP connection may sit unused. Default `GATE_MCP_IDLE_MS`. */
+  readonly mcpIdleMs?: number;
+  /** Tests replace how a remote MCP server is opened. */
+  readonly openMcp?: typeof openMcpServer;
 }
 
 export interface GatesServer {
@@ -60,6 +71,23 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
   }
   const inflight = createInflightCalls(options.inflight);
+  const mcpIdleMs = options.mcpIdleMs ?? GATE_MCP_IDLE_MS;
+  const mcp = createMcpHandler({
+    vaults,
+    logger,
+    idleMs: mcpIdleMs,
+    ...(options.openMcp ? { open: options.openMcp } : {}),
+  });
+  const toolCalls = createToolCalls({
+    vaults,
+    mcp,
+    logger,
+    ...(options.inflight ? { inflight: options.inflight } : {}),
+  });
+  const sweep = setInterval(() => void mcp.sweep(), Math.max(1_000, Math.min(mcpIdleMs, 60_000)));
+  sweep.unref();
+  const prune = setInterval(() => void toolCalls.prune(), 60 * 60_000);
+  prune.unref();
   const app = createGatesApp({
     token: gates.token,
     inflight,
@@ -78,6 +106,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       }
     },
     ...(options.maxBodyBytes !== undefined ? { maxBodyBytes: options.maxBodyBytes } : {}),
+    mcp,
+    toolCalls,
+    delivery: options.delivery ?? {},
   });
   const listener = getRequestListener(app.fetch);
   const inFlight = new Set<ServerResponse>();
@@ -121,6 +152,10 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
         // Closing a running call's connection aborts an unkeyed one; keyed calls stop here.
         server.closeAllConnections();
         inflight.close();
+        toolCalls.close();
+        clearInterval(sweep);
+        clearInterval(prune);
+        await mcp.closeAll();
         await closed;
       })();
       return closing;

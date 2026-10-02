@@ -18,8 +18,9 @@ import { createPostgresSessionStore } from "../store/postgres/store.js";
 import { tenantPaths } from "../tenant/paths.js";
 import { readVaultKek } from "../vault/kek.js";
 import { HostModelVault } from "../vault/host-model.js";
-import type { HostModelSecret } from "../vault/service.js";
+import { VaultService, type AuthorizeResult, type HostModelSecret } from "../vault/service.js";
 import type { SessionStore } from "../store/types.js";
+import type { Session } from "../tenant/context.js";
 
 /** The Tenant, as a model call needs it. */
 export interface TenantVault {
@@ -31,6 +32,13 @@ export interface TenantVault {
   readHostModel(): Promise<HostModelSecret | undefined>;
   /** Writes back a credential pi-ai refreshed (OAuth). */
   writeHostCredential(credential: Credential): Promise<void>;
+  /** A session, for the remote MCP servers its pinned manifest declares (F4.1). */
+  session(sessionId: string): Promise<Session | undefined>;
+  /**
+   * The vault authorization of one request to a session's remote MCP server: its credential
+   * from the session's attached vaults, refreshed when due (F4.1).
+   */
+  authorizeMcp(sessionId: string, request: { url: string; serverName: string }): Promise<AuthorizeResult>;
 }
 
 export interface TenantVaults {
@@ -63,27 +71,31 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
     const paths = tenantPaths(hostRoot);
     const store = createPostgresSessionStore({ sql, tenantId });
     let kek: Buffer | undefined;
-    const vault = new HostModelVault({
-      store,
-      kek: () => {
-        kek ??= readVaultKek({ vaultKekPath: paths.kek });
-        if (!kek)
-          throw new GateRefusal(
-            failure(
-              "auth",
-              "The Tenant's vault key is missing on the gateway container; check that it mounts the Host's tenant directory",
-              false,
-            ),
-          );
-        return kek;
-      },
-    });
+    const readKek = () => {
+      kek ??= readVaultKek({ vaultKekPath: paths.kek });
+      if (!kek)
+        throw new GateRefusal(
+          failure(
+            "auth",
+            "The Tenant's vault key is missing on the gateway container; check that it mounts the Host's tenant directory",
+            false,
+          ),
+        );
+      return kek;
+    };
+    const vault = new HostModelVault({ store, kek: readKek });
+    const credentials = new VaultService({ store, kek: readKek, fetch: globalThis.fetch });
+    const session = (sessionId: string) =>
+      store.tx((t) => t.get<Session>("sessions", sessionId));
     return {
       tenantId,
       store,
       root: paths.home,
       readHostModel: () => vault.readHostModel(),
       writeHostCredential: (credential) => vault.updateHostCredential(credential),
+      session,
+      authorizeMcp: (sessionId, request) =>
+        authorizeSessionMcp(credentials, session, sessionId, request),
     };
   }
 
@@ -123,4 +135,25 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       return opened;
     },
   };
+}
+
+/**
+ * A request to a session's remote MCP server, authorized from the session's attached vaults:
+ * what the loop did in its own process before F4.1 (`tenant/effects.ts` `authorize`).
+ */
+export async function authorizeSessionMcp(
+  credentials: VaultService,
+  session: (sessionId: string) => Promise<Session | undefined>,
+  sessionId: string,
+  request: { url: string; serverName: string },
+): Promise<AuthorizeResult> {
+  const found = await session(sessionId);
+  if (!found) throw new Error(`Session ${sessionId} not found`);
+  return credentials.authorize({
+    sessionId,
+    vaultIds: found.vaultIds ?? [],
+    credentialSelections: found.credentialSelections ?? [],
+    url: request.url,
+    serverName: request.serverName,
+  });
 }

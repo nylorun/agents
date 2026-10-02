@@ -131,9 +131,10 @@ export interface StackConfig {
   /** Present when the process runs gates. */
   gates?: GatesConfig;
   /**
-   * Present when the process runs loop and `NYLORUN_GATES_URL` is set: its model calls cross
-   * the gates service. Required in container mode; outside a container (a development Host,
-   * tests) the loop may call the model in its own process.
+   * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
+   * remote MCP calls and Action deliveries cross the gates service. Required for loop in
+   * container mode; outside a container (a development Host, tests) the loop may make them in
+   * its own process.
    */
   modelGate?: ModelGateEndpoint;
   /**
@@ -427,7 +428,8 @@ export function parseStackConfig(
   const listen = servesApi ? parseListen(env) : undefined;
   const operator = servesApi ? parseAdminListen(env) : undefined;
   const gates = services.has("gates") ? parseGates(env) : undefined;
-  const modelGate = services.has("loop") ? parseModelGate(env) : undefined;
+  // The gates service's clients: the loop's model and tool calls, and core's endpoint pings.
+  const modelGate = servesApi ? parseModelGate(env) : undefined;
   if (operator && listen && operator.port === listen.port)
     throw new StackConfigError(
       "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",

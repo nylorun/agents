@@ -67,6 +67,7 @@ import type {
   ModelBudgetRow,
   ModelUsageRow,
   PrincipalRow,
+  ToolCrossingRow,
   PublishableKeyRow,
   SigningKeyRow,
   SubjectUsageRow,
@@ -271,6 +272,7 @@ export type EndpointHealthUpdate =
 export type {
   ModelBudgetRow,
   ModelUsageRow,
+  ToolCrossingRow,
   PrincipalRow,
   PublishableKeyRow,
   SigningKeyRow,
@@ -672,6 +674,16 @@ export interface Tx {
   listModelBudgets(): Promise<ModelBudgetRow[]>;
   /** Replaces every budget with `rows`. */
   putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void>;
+
+  // --- tool crossings (F4.1) ------------------------------------------------
+
+  toolCrossing(key: string): Promise<ToolCrossingRow | undefined>;
+  /** Inserts the running call's row; false when a row with `key` already exists. */
+  startToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean>;
+  /** Records the call's answer. */
+  settleToolCrossing(key: string, answer: unknown, settledAt: string): Promise<void>;
+  /** Deletes rows that settled before `before`; returns how many. */
+  pruneToolCrossings(before: string): Promise<number>;
 
   // --- tenant settings (non-secret) -----------------------------------------
 

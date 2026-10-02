@@ -43,7 +43,7 @@ import { isOwnershipLost } from "../store/ownership.js";
 import type { RuntimeModelCall } from "../contracts.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
-import { serversOf } from "../mcp/pool.js";
+import { findServer, serversOf } from "../mcp/pool.js";
 import { sandboxCapabilityOf } from "../sandbox/manager.js";
 import {
   owningSandboxSessionId,
@@ -160,7 +160,27 @@ type Journaled =
       invoke: "model" | "mcp" | "sandbox";
       /** The journaled request, when re-sending a call that outlived its owner (P1.2). */
       journaled?: HostEffect;
+      /** An MCP call to a remote server, which crosses the Tool Gate (F4.1). */
+      remote?: boolean;
     };
+
+/**
+ * True when this Tenant's remote MCP calls outlive the process that sent them (the gates
+ * service, F4.1 G3): after a takeover or a shutdown, the journaled call is re-sent and joins
+ * the running call or gets its answer, instead of becoming `uncertain`.
+ */
+export function recoversMcpCalls(ctx: TenantContext): boolean {
+  return ctx.toolGate.recovers === true;
+}
+
+/** True when `request` calls a tool of a remote (`streamable-http` or `sse`) MCP server. */
+export function isRemoteMcpEffect(s: Session, request: HostEffect): boolean {
+  if (request.kind !== "tool") return false;
+  const tool = mcpToolOf(s, request);
+  if (!tool) return false;
+  const declared = findServer(s.manifest, tool.agentId, tool.capabilityId, tool.serverName);
+  return declared !== undefined && declared.server.type !== "stdio";
+}
 
 /**
  * True when this Tenant's vault-backed model calls outlive the process that sent them (the
@@ -218,6 +238,18 @@ export async function resolveEffect(
         recoversModelCalls(ctx)
       )
         return { kind: "invoke", invoke: "model", journaled: existing.request as HostEffect };
+      // A remote MCP call its previous owner left running at the gate: the same, by effect id.
+      if (
+        existing.status === "invoking" &&
+        recoversMcpCalls(ctx) &&
+        isRemoteMcpEffect(s, existing.request as HostEffect)
+      )
+        return {
+          kind: "invoke",
+          invoke: "mcp",
+          journaled: existing.request as HostEffect,
+          remote: true,
+        };
       if (request.kind === "agent" && existing.status === "pending") {
         const agentSessionId = existing.agentSessionId as string | undefined;
         if (agentSessionId) {
@@ -293,6 +325,7 @@ export async function resolveEffect(
       return {
         kind: "invoke",
         invoke: mcpTool ? "mcp" : sandboxTool ? "sandbox" : "model",
+        ...(mcpTool && isRemoteMcpEffect(s, request) ? { remote: true } : {}),
       };
     const tool =
       request.kind === "tool"
@@ -352,7 +385,11 @@ export async function resolveEffect(
     // The intent is committed; the call itself runs outside any transaction.
     const value =
       invoke === "mcp"
-        ? await callMcpTool(ctx, request)
+        ? await callMcpTool(
+            ctx,
+            journaled.journaled ?? request,
+            abortOn(signal, journaled.remote && recoversMcpCalls(ctx) ? ["cancel", "shutdown"] : ["cancel"])
+          )
         : invoke === "sandbox"
         ? await callSandboxTool(ctx, request, signal)
         : await invokeModel(ctx, journaled.journaled ?? request, signal, segment.model);
@@ -408,6 +445,13 @@ export async function resolveEffect(
     // re-sends it (P1.2). The segment stops for the shutdown as usual.
     if (invoke === "model" && recoversModelCalls(ctx) && abortKind(signal) === "shutdown")
       throw error;
+    // The same for a remote MCP call at the Tool Gate (G3). A user cancel stops it there: a
+    // keyed call outlives the request that sent it.
+    if (invoke === "mcp" && journaled.remote && recoversMcpCalls(ctx)) {
+      if (abortKind(signal) === "shutdown") throw error;
+      if (abortKind(signal) === "cancel" && ctx.toolGate.cancel)
+        await ctx.toolGate.cancel({ tenantId: ctx.config.tenantId, effectId: request.effectId });
+    }
     await store.tx(async (t) => {
       const s =
         request.sessionId === lease.sessionId
@@ -739,9 +783,29 @@ export async function prepareMcp(
   });
 }
 
+/**
+ * A signal that follows `signal` only for the abort kinds in `kinds`. An MCP call stops on a
+ * cancel; at the Tool Gate it also stops waiting on a shutdown, since the gate keeps the call
+ * for the next owner. Otherwise a shutdown or a deadline lets the call finish and records it,
+ * so the next advance replays it.
+ */
+function abortOn(
+  signal: AbortSignal,
+  kinds: readonly ReturnType<typeof abortKind>[]
+): AbortSignal {
+  const controller = new AbortController();
+  const follow = () => {
+    if (kinds.includes(abortKind(signal))) controller.abort(signal.reason);
+  };
+  if (signal.aborted) follow();
+  else signal.addEventListener("abort", follow, { once: true });
+  return controller.signal;
+}
+
 async function callMcpTool(
   ctx: TenantContext,
-  request: HostEffect
+  request: HostEffect,
+  signal: AbortSignal
 ): Promise<unknown> {
   const s = await loadSession(ctx, request.sessionId);
   const tool = mcpToolOf(s, request);
@@ -758,6 +822,8 @@ async function callMcpTool(
     args: request.input,
     manifest: s.manifest,
     pluginRoots: s.pluginRoots ?? {},
+    effectId: request.effectId,
+    signal,
   });
 }
 

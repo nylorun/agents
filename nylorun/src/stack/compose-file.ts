@@ -20,12 +20,15 @@ import { PINNED_IMAGES } from "./images.js";
  * key as NYLORUN_RESTATE_IDENTITY_KEY.
  *
  * The combined packing (blueprint D12): the `runtime` container runs the core
- * and loop services, and the `gateway` container runs gates, the Model Gate,
- * which alone reads model credentials. Every model call of the loop crosses it
- * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`). The gateway mounts
- * only the Host's Tenant directory (`tenant/`), read-only: never host-credentials.json.
- * The runtime does not wait for the gateway: while it is down, model calls fail
- * and the session takes the next message.
+ * and loop services, and the `gateway` container runs gates: the Model Gate,
+ * which alone reads model credentials, and the Tool Gate (F4.1), which alone
+ * holds remote MCP connections and their credentials and POSTs every Action
+ * delivery. Every model call, remote MCP call and delivery of the loop crosses it
+ * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`); stdio MCP servers
+ * still run in the runtime container. The gateway mounts only the Host's Tenant
+ * directory (`tenant/`), read-only: never host-credentials.json. The runtime does
+ * not wait for the gateway: while it is down, model and MCP calls fail, deliveries
+ * are retried, and the session takes the next message.
  */
 export function renderComposeFile(project: string): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -79,7 +82,7 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
-  gateway: # the Model Gate: model credentials and provider calls; not published
+  gateway: # the Model and Tool Gates: model and MCP credentials, provider, MCP and Action endpoint calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     command: ["--service", "gates"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
@@ -92,8 +95,10 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
-      host.docker.internal: host-gateway # a model server on this machine, e.g. Ollama
+      host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
       # The Tenant's vault key and homes only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro

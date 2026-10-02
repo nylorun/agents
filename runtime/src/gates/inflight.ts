@@ -1,6 +1,6 @@
 /**
- * The model calls the gates service is running or has just finished, by caller key (blueprint
- * §15, P1.2). A call with an `Idempotency-Key` (the loop's effect id) runs under its own
+ * The model calls (and, from F4.1, the remote MCP tool calls) the gates service is running or
+ * has just finished, by caller key (blueprint §15, P1.2). A call with an `Idempotency-Key` (the loop's effect id) runs under its own
  * controller, so it outlives its client: when the runtime that sent it dies or shuts down, the
  * runtime that takes the session over re-sends the call and joins it, or gets the outcome kept
  * here, instead of calling the provider again.
@@ -16,7 +16,7 @@ export class InflightConflict extends Error {
   override readonly name = "InflightConflict";
 }
 
-export interface InflightCalls {
+export interface InflightCalls<T = ModelGateOutcome> {
   /**
    * Joins the call under `key`, or starts it with `start` under the entry's own signal.
    * Rejects with `InflightConflict` when `hash` differs from the running call's.
@@ -24,8 +24,10 @@ export interface InflightCalls {
   run(
     key: string,
     hash: string,
-    start: (signal: AbortSignal) => Promise<ModelGateOutcome>,
-  ): Promise<ModelGateOutcome>;
+    start: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T>;
+  /** True while a call runs under `key`, or its outcome is still kept. */
+  has(key: string): boolean;
   /** Aborts the call under `key` and forgets it; nothing when there is none. */
   cancel(key: string): void;
   /** Aborts every running call (gateway shutdown). */
@@ -34,10 +36,10 @@ export interface InflightCalls {
   readonly size: number;
 }
 
-interface Entry {
+interface Entry<T> {
   readonly hash: string;
   readonly controller: AbortController;
-  readonly promise: Promise<ModelGateOutcome>;
+  readonly promise: Promise<T>;
   settledAt?: number;
 }
 
@@ -49,11 +51,13 @@ export interface InflightCallsOptions {
   readonly now?: () => number;
 }
 
-export function createInflightCalls(options: InflightCallsOptions = {}): InflightCalls {
+export function createInflightCalls<T = ModelGateOutcome>(
+  options: InflightCallsOptions = {},
+): InflightCalls<T> {
   const ttlMs = options.ttlMs ?? 30 * 60_000;
   const max = options.max ?? 10_000;
   const now = options.now ?? Date.now;
-  const entries = new Map<string, Entry>();
+  const entries = new Map<string, Entry<T>>();
 
   /** Drops expired outcomes, then the oldest settled ones while over `max`. */
   function prune(): void {
@@ -91,15 +95,19 @@ export function createInflightCalls(options: InflightCallsOptions = {}): Infligh
       );
       // Nobody may be waiting (the client went away); a rejection is not an unhandled one.
       promise.catch(() => {});
-      const entry: Entry = { hash, controller, promise };
+      const entry: Entry<T> = { hash, controller, promise };
       entries.set(key, entry);
       return promise;
+    },
+    has(key) {
+      prune();
+      return entries.has(key);
     },
     cancel(key) {
       const entry = entries.get(key);
       if (!entry) return;
       entries.delete(key);
-      entry.controller.abort(new Error("The caller cancelled the model call"));
+      entry.controller.abort(new Error("The caller cancelled the call"));
     },
     close() {
       for (const entry of entries.values())

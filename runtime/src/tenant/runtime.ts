@@ -71,6 +71,7 @@ import {
   type TenantWorker,
 } from "./worker.js";
 import { authorize } from "./effects.js";
+import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
 import { tenantApi } from "../api/http/app.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -81,6 +82,11 @@ export type TenantOpenHooks = {
    * the Tenant calls the model in this process.
    */
   modelGate?: ModelGate;
+  /**
+   * Serves the Tenant's remote MCP servers and Action deliveries (the gates service's client).
+   * Without one, the Tenant opens them and POSTs deliveries in this process.
+   */
+  toolGate?: ToolGate;
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
@@ -192,10 +198,12 @@ export class TenantRuntime implements TenantHandle {
       });
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
+      const toolGate = hooks.toolGate ?? inProcessToolGate(config.delivery ?? {});
       const mcp = new McpPool({
         pluginData: paths.pluginData,
         childEnv: config.childEnv,
         authorize: (sessionId, request) => authorize(ctx, sessionId, request),
+        ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),
       });
       const ephemeral = config.mode === "ephemeral";
       const sandbox = new SandboxManager({
@@ -263,6 +271,7 @@ export class TenantRuntime implements TenantHandle {
         modelProvider,
         useVaultModel,
         modelGate,
+        toolGate,
         closing: false,
         closed: false,
         work: createWorkState(),

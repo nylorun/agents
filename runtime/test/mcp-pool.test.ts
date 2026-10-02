@@ -3,9 +3,8 @@
  * again on the next call, and concurrent calls for a missing connection share one.
  */
 import { describe, expect, it } from "vitest";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Agent } from "@nylorun/core/define";
-import type { LiveConnection } from "../src/mcp/connect.js";
+import type { LiveConnection, McpClient } from "../src/mcp/connect.js";
 import { McpPool } from "../src/mcp/pool.js";
 
 const agent = Agent({ id: "bot", name: "Bot" })
@@ -34,7 +33,7 @@ function harness() {
           if (gate.holdCalls) await new Promise<void>((resolve) => (finish = resolve));
           return { content: [{ type: "text", text: "ok" }] };
         },
-      } as unknown as Client;
+      } as unknown as McpClient;
       const connection: LiveConnection = {
         client,
         close: async () => {
