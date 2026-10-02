@@ -17,7 +17,6 @@ import {
   view,
 } from "../host/execution-support.js";
 import {
-  FULL_STACK,
   FailureTenant,
   completeHistory,
   countOf,
@@ -28,6 +27,7 @@ import {
   workerOf,
   type Node,
 } from "./support.js";
+import { STACK_ENABLED } from "../stack/endpoints.js";
 
 const tenants: FailureTenant[] = [];
 afterEach(async () => {
@@ -51,7 +51,7 @@ function countingModel() {
   return model;
 }
 
-describe.skipIf(!FULL_STACK)("§17 wake failures on Postgres, Restate and S2", () => {
+describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2", () => {
   it("§17.1 duplicate wakes, deduped or not, during and after a turn run it once", async () => {
     const t = failureTenant();
     const model = controlledModel();

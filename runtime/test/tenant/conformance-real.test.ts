@@ -1,6 +1,6 @@
 /**
- * Integration I1: module conformance against the real Tenant Runtime, on the store
- * `NYLORUN_TEST_STORE` selects (in memory, or Postgres schemas).
+ * Integration I1: module conformance against the real Tenant Runtime, on the Postgres Tenant
+ * store in the test file's database.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -10,13 +10,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
 import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import type { OpenTenantRuntime, TenantConfig } from "../../src/tenant/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
-import { TEST_STORE, testPool } from "../support/store.js";
+import { testPool } from "../support/store.js";
 import { configForRoot, silentLogger } from "./support.js";
 
 const roots: string[] = [];
@@ -31,7 +30,7 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-describe(`real Tenant Runtime module conformance (I1, ${TEST_STORE})`, () => {
+describe("real Tenant Runtime module conformance (I1)", () => {
   it("creates, opens, and resolves a Tenant with openTenantRuntime", async () => {
     const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-i1-"));
     roots.push(hostRoot);
@@ -51,15 +50,12 @@ describe(`real Tenant Runtime module conformance (I1, ${TEST_STORE})`, () => {
         streams,
         ...opened,
       });
-    const store =
-      TEST_STORE === "postgres"
-        ? createPostgresTenantStore({
-            hostRoot,
-            sql: testPool(),
-            configFor,
-            openRuntime,
-          })
-        : createMemoryTenantStore({ hostRoot, openRuntime, configFor });
+    const store = createPostgresTenantStore({
+      hostRoot,
+      sql: testPool(),
+      configFor,
+      openRuntime,
+    });
     const module = createTenantModule({
       store,
       logger: silentLogger(),

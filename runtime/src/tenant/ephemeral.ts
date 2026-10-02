@@ -1,9 +1,9 @@
 /**
  * `startEphemeralRuntime`: a private, in-process Host on port 0 with one Tenant, for tests and
- * embeds that need the Runtime's HTTP API without the Docker stack. Nothing in it is durable:
- * its Tenants live in memory (the memory Session Store and memory Durable Streams) and are gone
- * after `close()`, or in the Postgres database a test passes. Scheduling is the in-process
- * execution each Tenant starts for itself.
+ * embeds that need the Runtime's HTTP API without Restate and S2. Its Tenants are schemas
+ * in the Postgres database the caller passes (`store-pg.ts`); there is no in-memory Session
+ * Store. The rest is not durable: Durable Streams are in memory and gone after `close()`, and
+ * scheduling is the in-process execution each Tenant starts for itself.
  *
  * It is not the temporary Tenant the smoke checks use (scripts/lib/temporary-tenant.mjs):
  * that one is created on the running stack, with the Tenant-level fixture model
@@ -17,23 +17,17 @@ import { hashToken, mintBearerToken } from "../core/bearer.js";
 import { createHost } from "../host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";
-import { MemorySessionStore } from "../store/memory.js";
-import type { SessionStore } from "../store/types.js";
 import { createTenantModule } from "./module.js";
-import { createMemoryTenantStore } from "./store-memory.js";
 import { createPostgresTenantStore } from "./store-pg.js";
-import type { PostgresClient } from "../store/postgres/connect.js";
+import {
+  createPostgresClient,
+  type PostgresClient,
+} from "../store/postgres/connect.js";
 import { MemoryStreams } from "../streams/memory.js";
 import { createTenantLogger } from "./logger.js";
 import { hostPaths, tenantPaths } from "./paths.js";
-import { bootstrapPrincipal } from "./principals.js";
 import { openTenantRuntime } from "./runtime.js";
-import type {
-  Logger,
-  TenantConfig,
-  TenantModelConfig,
-  TenantStore,
-} from "./types.js";
+import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -74,10 +68,11 @@ export interface StartEphemeralRuntimeOptions {
   operatorListener?: boolean;
   logger?: Logger;
   /**
-   * A Postgres pool: Tenants become schemas in it (`store-pg.ts`) instead of living in memory.
-   * The caller ends the pool; the schemas stay.
+   * The Postgres database the Tenants live in, as schemas (`store-pg.ts`): a pool, which the
+   * caller ends, or a URL, for which the Runtime opens a pool and ends it on `close()`. The
+   * schemas stay after `close()`; a test drops its database.
    */
-  database?: PostgresClient;
+  database: PostgresClient | string;
 }
 
 export interface EphemeralRuntime {
@@ -93,74 +88,8 @@ export interface EphemeralRuntime {
 }
 
 /**
- * A Tenant store whose Tenants live in memory: one memory Session Store per Tenant, created
- * with its bootstrap principals, kept across closes and re-opens, dropped on delete.
- */
-function memoryTenants(options: {
-  configFor: (tenantId: string) => TenantConfig;
-  streams: MemoryStreams;
-  logger: Logger;
-}): { store: TenantStore; close(): Promise<void> } {
-  const stores = new Map<string, MemorySessionStore>();
-  const inner = createMemoryTenantStore({
-    configFor: options.configFor,
-    logger: options.logger,
-    openRuntime: async (config) => {
-      const store = stores.get(config.tenantId);
-      if (!store) throw new Error(`Tenant ${config.tenantId} has no Session Store`);
-      return openTenantRuntime(config, {
-        createKekIfMissing: true,
-        streams: options.streams,
-        store: kept(store),
-        envelope: await inner.readEnvelope(config.tenantId),
-      });
-    },
-  });
-  const store: TenantStore = {
-    ...inner,
-    async create(envelope, bootstrap) {
-      const created = await inner.create(envelope, bootstrap);
-      if (created === "created") {
-        const sessions = new MemorySessionStore({ tenantId: envelope.id });
-        await sessions.tx((t) => bootstrapPrincipal(t, bootstrap));
-        stores.set(envelope.id, sessions);
-      }
-      return created;
-    },
-    async trash(id, now) {
-      await inner.trash(id, now);
-      await stores.get(id)?.close();
-      stores.delete(id);
-    },
-    async removePartial(id) {
-      await inner.removePartial(id);
-      await stores.get(id)?.close();
-      stores.delete(id);
-    },
-  };
-  return {
-    store,
-    async close() {
-      for (const sessions of stores.values()) await sessions.close();
-      stores.clear();
-    },
-  };
-}
-
-/** The Tenant closes its store on close; a memory store must outlive that for a re-open. */
-function kept(store: SessionStore): SessionStore {
-  return {
-    tenantId: store.tenantId,
-    tx: (fn) => store.tx(fn),
-    onCommit: (listener) => store.onCommit(listener),
-    record: () => store.record(),
-    health: () => store.health(),
-    close: async () => {},
-  };
-}
-
-/**
- * Private Host on port 0 with one Tenant (D9 / A19). Not durable (see the module comment).
+ * Private Host on port 0 with one Tenant (D9 / A19). Durable only in its database (see the
+ * module comment).
  * Exported from `@nylorun/runtime` and `@nylorun/runtime/core`.
  */
 export async function startEphemeralRuntime(
@@ -225,23 +154,22 @@ export async function startEphemeralRuntime(
   };
 
   const streams = new MemoryStreams();
-  const memory = options.database
-    ? undefined
-    : memoryTenants({ configFor, streams, logger });
-  const store = options.database
-    ? createPostgresTenantStore({
-        hostRoot,
-        sql: options.database,
-        configFor,
-        logger,
-        openRuntime: (config, opened) =>
-          openTenantRuntime(config, {
-            createKekIfMissing: true,
-            streams,
-            ...opened,
-          }),
-      })
-    : memory!.store;
+  const ownPool =
+    typeof options.database === "string"
+      ? createPostgresClient(options.database)
+      : undefined;
+  const store = createPostgresTenantStore({
+    hostRoot,
+    sql: ownPool ?? (options.database as PostgresClient),
+    configFor,
+    logger,
+    openRuntime: (config, opened) =>
+      openTenantRuntime(config, {
+        createKekIfMissing: true,
+        streams,
+        ...opened,
+      }),
+  });
 
   const module = createTenantModule({
     store,
@@ -254,8 +182,8 @@ export async function startEphemeralRuntime(
   const release = async () => {
     await host?.close();
     await module.close();
-    await memory?.close();
     await streams.close();
+    await ownPool?.end({ timeout: 5 });
     if (!options.retainRoot) rmSync(hostRoot, { recursive: true, force: true });
   };
 

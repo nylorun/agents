@@ -15,7 +15,6 @@ import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { SessionStore } from "../../src/store/types.js";
-import { storeContract } from "../contracts/store.contract.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,18 +65,8 @@ const session = (id: string) => ({
   activeTurnId: null,
 });
 
+// The store contract runs on Postgres in the unit suite (`contracts/store.test.ts`).
 describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
-  storeContract("postgres", async (options) => {
-    const schema = tenantSchemaName(options.tenantId);
-    await migrateStreamsSchema(pool());
-    await migrateSchema(pool(), schema);
-    await insertTenantRow(schema, options.tenantId);
-    return {
-      store: createPostgresSessionStore({ ...options, sql: pool(), schema }),
-      dispose: () => drop(schema),
-    };
-  });
-
   describe("beyond the contract", () => {
     const cleanup: (() => Promise<void>)[] = [];
     afterEach(async () => {

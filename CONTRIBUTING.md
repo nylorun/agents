@@ -78,7 +78,7 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `eval "$(npx nylo env)"` (in `examples/`)   | Export URL, key and Tenant for the linked Project                          |
 | `npx nylorun down` / `npx nylorun reset`    | Stop the stack (volumes kept) / delete its volumes and Tenants             |
 | `npm run build`                             | Build all eight packages                                                   |
-| `npm test`                                  | Run package, tooling, and examples tests after setup                       |
+| `npm test`                                  | Run package, tooling, and examples tests after setup (needs Docker)        |
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
 | `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary stack                             |
@@ -99,6 +99,15 @@ preview agents and credentials are never overwritten.
 For focused checks: `npm run check --workspace @nylorun/runtime` (substitute another
 package). CI uses `-- --built` on root checks after setup to avoid rebuilding.
 
+The Runtime's tests keep every Tenant in Postgres: each test file gets its own database,
+cloned from a template the run migrates, on the Docker test stack
+(`runtime/test/stack/compose.yaml`: Postgres, Restate, s2-lite). `npm test` in `runtime/`
+starts that stack when its Postgres does not answer, and leaves it running for the next
+run; the examples' tests use it too. Manage it yourself with
+`npm run test:stack:up --workspace @nylorun/runtime` and `npm run test:stack:down
+--workspace @nylorun/runtime`; set `NYLORUN_TEST_STACK_EXTERNAL=1` to make the tests fail
+instead of starting it, and the `NYLORUN_TEST_*_PORT` variables to move its ports.
+
 The Runtime and Studio ship as the images `ghcr.io/nylorun/runtime` and
 `ghcr.io/nylorun/studio`, built from the repository root. To run your changes
 under `nylorun up` without `npm run dev`, build them and point `nylorun` at the
@@ -111,8 +120,9 @@ NYLORUN_RUNTIME_IMAGE=nylorun-runtime:dev NYLORUN_STUDIO_IMAGE=nylorun-studio:de
 ```
 
 CI builds both images from the PR for the `stack`, `smoke-starter`, `smoke-dev`
-and `acceptance` jobs, and `integration` runs the Runtime's integration tests
-against the Docker test stack (`npm run test:stack:up --workspace @nylorun/runtime`, then
+and `acceptance` jobs. `check` and `consumers` start the Docker test stack before
+their tests, and `integration` runs the Runtime's integration tests against it
+(`npm run test:stack:up --workspace @nylorun/runtime`, then
 `NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
 Releases publish both images; see [RELEASING.md](./RELEASING.md).
 

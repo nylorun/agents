@@ -1,14 +1,11 @@
 /**
- * The advance's ownership steps and the Tenant sweep's steps, on the in-memory Session Store
- * and, with `NYLORUN_TEST_STORE=postgres`, on a Postgres Tenant schema (architecture
- * §10.5–10.6, §12.3).
+ * The advance's ownership steps and the Tenant sweep's steps, on a Postgres Tenant schema
+ * (architecture §10.5–10.6, §12.3).
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { newTenantId } from "@nylorun/core/compatibility";
 import type { Action } from "@nylorun/core/contracts";
 import type { Wake } from "../../src/execution/types.js";
 import { commandKey, linkedMessageKey } from "../../src/core/flow-host.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
 import { isOwnershipLost, ownedTx } from "../../src/store/ownership.js";
 import type { SessionStore, Tx } from "../../src/store/types.js";
 import { advance } from "../../src/tenant/advance.js";
@@ -20,44 +17,21 @@ import {
   wakeOrphanedSessions,
 } from "../../src/tenant/sweep.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
-import {
-  TEST_STORE,
-  openTestSessionStore,
-  dropTestTenant,
-  testCatalog,
-  testEnvelope,
-} from "../support/store.js";
+import { createTestSessionStore, dropTestTenant } from "../support/store.js";
 
-const TENANT = "tn_sweeptest";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-const stores: [string, () => Promise<SessionStore>][] = [
-  ["memory", async () => new MemorySessionStore({ tenantId: TENANT })],
-];
-if (TEST_STORE === "postgres")
-  stores.push([
-    "postgres",
-    async () => {
-      const tenantId = newTenantId();
-      await testCatalog().createTenant({
-        envelope: testEnvelope(tenantId),
-        principals: {
-          principalId: "principal_sweep",
-          credentialHash: "ab".repeat(32),
-          idempotencyKey: `boot-${tenantId}`,
-        },
-      });
-      const store = await openTestSessionStore({ root: "", tenantId });
-      cleanups.push(async () => {
-        await store.close().catch(() => undefined);
-        await dropTestTenant(tenantId);
-      });
-      return store;
-    },
-  ]);
+async function makeStore(): Promise<SessionStore> {
+  const store = await createTestSessionStore();
+  cleanups.push(async () => {
+    await store.close().catch(() => undefined);
+    await dropTestTenant(store.tenantId);
+  });
+  return store;
+}
 
 const silent = { info() {}, warn() {}, error() {} };
 
@@ -145,7 +119,7 @@ const eventsOf = async (store: SessionStore, sessionId: string) => {
   );
 };
 
-describe.each(stores)("on the %s store", (_name, makeStore) => {
+describe("on the Postgres store", () => {
   it("an advance is busy while another owner holds a live lease", async () => {
     const store = await makeStore();
     const { ctx } = contextOf(store, 5000);

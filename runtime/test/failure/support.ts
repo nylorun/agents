@@ -4,9 +4,9 @@
  * advances through the test stack's Restate, and relays its events to the test stack's s2-lite:
  *
  *   npm run test:stack:up -w @nylorun/runtime
- *   NYLORUN_TEST_STACK=1 NYLORUN_TEST_STORE=postgres npm run test:integration -w @nylorun/runtime
+ *   NYLORUN_TEST_STACK=1 npm run test:integration -w @nylorun/runtime
  *
- * The files skip unless both variables are set.
+ * The files skip unless NYLORUN_TEST_STACK=1.
  *
  * - A **Worker** is one process's Restate execution (`createHostExecution`) serving the Worker
  *   endpoint on the host, advertised to Restate (in Docker) as `http://host.docker.internal:<port>`.
@@ -46,12 +46,9 @@ import { basinOf } from "../../src/streams/basin.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import type { TenantWorker } from "../../src/tenant/worker.js";
-import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
-import { TEST_STORE, dropTestTenant, openTestSessionStore } from "../support/store.js";
+import { stackEndpoints } from "../stack/endpoints.js";
+import { dropTestTenant, openTestSessionStore } from "../support/store.js";
 import { boot, server, until, type Started } from "../host/execution-support.js";
-
-/** Postgres, Restate and S2 are all up, and test Tenants live in Postgres. */
-export const FULL_STACK = STACK_ENABLED && TEST_STORE === "postgres";
 
 /** Worker ports for the failure files (9230–9249 by default); each file takes a range. */
 const PORT_BASE = Number(process.env.NYLORUN_TEST_FAILURE_WORKER_PORT_BASE ?? 9230);

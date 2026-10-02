@@ -57,6 +57,7 @@ import {
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
 import { startEndpoint, type TestEndpoint } from "../support/endpoint.js";
+import { testPool } from "../support/store.js";
 const ORIGIN = "https://app.example.com";
 let root: string;
 let rt: EphemeralRuntime;
@@ -99,6 +100,7 @@ async function answer(
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-responses-"));
   rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     operatorListener: true,
     browserAccess: true,

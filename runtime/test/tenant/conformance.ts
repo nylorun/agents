@@ -1,7 +1,7 @@
 /**
  * Module conformance suite (§23 bullets that do not need a real Tenant Runtime), on the
- * in-memory Tenant store with an injected fake OpenTenantRuntime. The Postgres store runs the
- * module against a real Tenant Runtime in `conformance-real.test.ts` and
+ * Postgres Tenant store in the test file's database with an injected fake OpenTenantRuntime.
+ * The module runs against a real Tenant Runtime in `conformance-real.test.ts` and
  * `store-pg.integration.test.ts`.
  */
 import { createHash, randomBytes } from "node:crypto";
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
+import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
 import {
   TenantBusyError,
   TenantConflictError,
@@ -26,6 +26,7 @@ import {
   createFakeOpenRuntime,
   silentLogger,
 } from "./support.js";
+import { testPool } from "../support/store.js";
 
 const roots: string[] = [];
 
@@ -53,7 +54,7 @@ async function setup() {
     beforeOpen: (config) => void opened.push(config.tenantId),
   });
   const configFor = configForRoot(hostRoot);
-  const store = createMemoryTenantStore({ hostRoot, openRuntime, configFor });
+  const store = createPostgresTenantStore({ hostRoot, sql: testPool(), openRuntime, configFor });
   const module = createTenantModule({ store, logger: silentLogger() });
   return { hostRoot, store, module, opened };
 }
@@ -240,12 +241,19 @@ describe("tenant module conformance", () => {
     const hostRoot = await tempRoot();
     const failId = newTenantId();
     const okId = newTenantId();
+    // A failure of the Tenant itself carries its quarantine, as the Tenant Runtime reports
+    // `kek-missing`; any other open failure is outside the Tenant (`unavailable.test.ts`).
     const openRuntime = createFakeOpenRuntime({
       hostRoot,
-      failFor: (id) => (id === failId ? new Error("boom") : undefined),
+      failFor: (id) =>
+        id === failId
+          ? Object.assign(new Error("boom"), {
+              quarantine: { code: "open-failed", message: "boom", repair: "" },
+            })
+          : undefined,
     });
     const configFor = configForRoot(hostRoot);
-    const store = createMemoryTenantStore({ hostRoot, openRuntime, configFor });
+    const store = createPostgresTenantStore({ hostRoot, sql: testPool(), openRuntime, configFor });
 
     const iso = new Date().toISOString();
     const boot = bootstrapMaterial();

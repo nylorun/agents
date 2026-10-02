@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MemorySessionStore } from "../src/store/memory.js";
 import type { SessionStore, Tx } from "../src/store/types.js";
 import { VaultError } from "../src/vault/error.js";
 import { HostModelVault } from "../src/vault/host-model.js";
 import { VaultService } from "../src/vault/service.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
+import { createTestSessionStore, openTestSessionStore } from "./support/store.js";
 
 const KEK = Buffer.alloc(32, 9);
 const ADA_TOKEN = "ada-vault-plaintext-token-7f3c9a2e";
@@ -33,9 +33,8 @@ function tracked(inner: SessionStore) {
   return { store, inTx: () => open > 0 };
 }
 
-function setup(options: { fetch?: typeof fetch } = {}) {
-  const memory = new MemorySessionStore({ tenantId: "tn_test" });
-  const { store, inTx } = tracked(memory);
+async function setup(options: { fetch?: typeof fetch } = {}) {
+  const { store, inTx } = tracked(await createTestSessionStore());
   const kekCalls: boolean[] = [];
   const fetchCalls: { url: string; body: string; inTx: boolean }[] = [];
   const fetchImpl =
@@ -104,7 +103,7 @@ async function status(promise: Promise<unknown>): Promise<number | undefined> {
 
 describe("VaultService administration", () => {
   it("creates vaults idempotently and audits the create", async () => {
-    const { vault, read } = setup();
+    const { vault, read } = await setup();
     const body = {
       requestId: "vault-1",
       idempotencyKey: "vault-ada",
@@ -139,7 +138,7 @@ describe("VaultService administration", () => {
   });
 
   it("stores credentials sealed and never returns the plaintext", async () => {
-    const { vault, read } = setup();
+    const { vault, read } = await setup();
     const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);
     const info = await vault.getCredential(vaultId, credentialId);
     expect(info).toMatchObject({
@@ -159,7 +158,7 @@ describe("VaultService administration", () => {
   });
 
   it("rotates and deletes credentials with audit rows", async () => {
-    const { vault, read } = setup();
+    const { vault, read } = await setup();
     const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);
     const rotated = await vault.rotateCredential(vaultId, credentialId, {
       requestId: "r",
@@ -198,7 +197,7 @@ describe("VaultService administration", () => {
   });
 
   it("deletes a vault with its credentials and audits each", async () => {
-    const { vault, read } = setup();
+    const { vault, read } = await setup();
     const { vaultId, credentialId } = await bearer(vault, "ada", "a", ADA_TOKEN);
     expect(await vault.deleteVault(vaultId)).toEqual({ id: vaultId });
     expect(await status(vault.getVault(vaultId))).toBe(404);
@@ -212,7 +211,7 @@ describe("VaultService administration", () => {
 
 describe("VaultService attachment", () => {
   it("checks ownership, scope and selections inside the caller's transaction", async () => {
-    const { vault, store } = setup();
+    const { vault, store } = await setup();
     const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
     const bao = await bearer(vault, "bao", "b", BAO_TOKEN);
     const check = (
@@ -241,7 +240,7 @@ describe("VaultService attachment", () => {
   });
 
   it("records the attachment in the caller's transaction and rolls back with it", async () => {
-    const { vault, store, read } = setup();
+    const { vault, store, read } = await setup();
     const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
     await expect(
       store.tx(async (t) => {
@@ -265,7 +264,7 @@ describe("VaultService attachment", () => {
 
 describe("VaultService authorize", () => {
   it("leaves unmatched urls unauthenticated and refuses ambiguous matches", async () => {
-    const { vault, read, kekCalls } = setup();
+    const { vault, read, kekCalls } = await setup();
     const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
     const second = await vault.createCredential(ada.vaultId, {
       requestId: "a2",
@@ -330,7 +329,7 @@ describe("VaultService authorize", () => {
   });
 
   it("refuses a missing vault and audits the refusal", async () => {
-    const { vault, read } = setup();
+    const { vault, read } = await setup();
     const result = await vault.authorize({
       sessionId: "s1",
       vaultIds: ["gone"],
@@ -349,7 +348,7 @@ describe("VaultService authorize", () => {
   });
 
   it("refuses a credential whose binding no longer matches its ciphertext", async () => {
-    const { vault, read } = setup();
+    const { vault, read } = await setup();
     const ada = await bearer(vault, "ada", "a", ADA_TOKEN);
     const other = "https://mcp.example.com/other";
     await read((t) =>
@@ -378,7 +377,7 @@ describe("VaultService authorize", () => {
   });
 
   it("refreshes an oauth grant at its token endpoint outside any transaction", async () => {
-    const { vault, read, fetchCalls, kekCalls } = setup({
+    const { vault, read, fetchCalls, kekCalls } = await setup({
       fetch: (async () =>
         new Response(
           JSON.stringify({
@@ -449,7 +448,7 @@ describe("VaultService authorize", () => {
   });
 
   it("refuses and audits a failed refresh, keeping the credential", async () => {
-    const { vault, read } = setup({
+    const { vault, read } = await setup({
       fetch: (async () =>
         new Response("nope", { status: 500 })) as unknown as typeof fetch,
     });
@@ -537,7 +536,7 @@ describe("VaultService OAuth refresh races", () => {
   it("refreshes once for concurrent uses of an expired grant", async () => {
     let release!: () => void;
     const answered = new Promise<void>((resolve) => (release = resolve));
-    const { vault, fetchCalls } = setup({
+    const { vault, fetchCalls } = await setup({
       fetch: (async () => {
         await answered;
         return ok("fresh");
@@ -553,16 +552,16 @@ describe("VaultService OAuth refresh races", () => {
   });
 
   it("uses the token another process refreshed when its own refresh token was spent", async () => {
-    const memory = new MemorySessionStore({ tenantId: "tn_test" });
-    // Another Runtime process on the same store wins the race.
+    const store = await createTestSessionStore();
+    // Another Runtime process, with its own store on the same Tenant, wins the race.
     const winner = new VaultService({
-      store: memory,
+      store: await openTestSessionStore({ root: "", tenantId: store.tenantId }),
       kek: () => KEK,
       fetch: (async () => ok("winner")) as unknown as typeof fetch,
     });
     let input!: Awaited<ReturnType<typeof expired>>;
     const loser = new VaultService({
-      store: memory,
+      store,
       kek: () => KEK,
       fetch: (async () => {
         await winner.authorize(input);
@@ -577,9 +576,9 @@ describe("VaultService OAuth refresh races", () => {
   });
 
   it("refuses a refresh whose token endpoint does not answer in time", async () => {
-    const memory = new MemorySessionStore({ tenantId: "tn_test" });
+    const store = await createTestSessionStore();
     const vault = new VaultService({
-      store: memory,
+      store,
       kek: () => KEK,
       refreshTimeoutMs: 50,
       fetch: ((_url: string, init?: RequestInit) =>
@@ -597,7 +596,7 @@ describe("VaultService OAuth refresh races", () => {
 
 describe("VaultService host model", () => {
   it("keeps the host model credential out of user vaults and responses", async () => {
-    const { vault, hostModel, store, read } = setup();
+    const { vault, hostModel, store, read } = await setup();
     const secret = "host-model-plaintext-key-77ab";
     expect(await vault.getHostModel()).toEqual({ configured: false });
     expect(await hostModel.readHostModel()).toBeUndefined();
@@ -681,7 +680,7 @@ describe("VaultService host model", () => {
   });
 
   it("keeps a custom endpoint's model settings, also across a model selection", async () => {
-    const { vault, hostModel } = setup();
+    const { vault, hostModel } = await setup();
     const settings = {
       contextWindow: 16_384,
       maxTokens: 2_048,
@@ -712,7 +711,7 @@ describe("VaultService host model", () => {
   });
 
   it("refuses model settings for a catalog provider", async () => {
-    const { vault, hostModel } = setup();
+    const { vault, hostModel } = await setup();
     const openaiModel =
       hostModelCatalog().providers.find((provider) => provider.id === "openai")
         ?.models[0]?.id ?? "gpt-4o-mini";
@@ -731,7 +730,7 @@ describe("VaultService host model", () => {
   });
 
   it("validates providers before writing", async () => {
-    const { vault, hostModel, read } = setup();
+    const { vault, hostModel, read } = await setup();
     expect(
       await status(
         vault.putHostModel({

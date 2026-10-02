@@ -67,7 +67,7 @@ The run ends with an approval interrupt for `lookup_order`; resume it with a
 second run that carries `resume: [{ interruptId, status: "resolved", payload: { approved: true } }]`.
 For a UI, point CopilotKit or `@ag-ui/client`'s `HttpAgent` at
 `/api/agui/support`. [`test/ag-ui.test.ts`](./test/ag-ui.test.ts) drives the same
-flow for two people against an in-memory Runtime.
+flow for two people against an in-process Runtime (see [Tests](#tests)).
 
 The handler is a web-standard `fetch` function, so it mounts anywhere:
 
@@ -100,7 +100,7 @@ npm run browser-direct
 
 The stack allows browser requests from `http://localhost:*` with that key.
 [`test/browser-direct.test.ts`](./test/browser-direct.test.ts) runs a chat with
-an approval from the page against an in-memory Runtime, reloads it, and checks
+an approval from the page against an in-process Runtime, reloads it, and checks
 that the page never receives the application key.
 
 Rules for a web backend:
@@ -120,6 +120,18 @@ Rules for a web backend:
   handler's `session` option, adding `"vaults:own"` to its `scopes`.
 - The Runtime stays off the network: see
   [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
+
+## Tests
+
+`npm test` runs the examples' tests. The AG-UI and browser-direct tests start an
+in-process Runtime (`startEphemeralRuntime`) whose Tenant lives in a database of its own
+on the runtime test stack's Postgres ([`test/database.ts`](./test/database.ts)). Start that
+stack first, from the repository root (it needs Docker; the runtime's `npm test` starts it
+too):
+
+```sh
+npm run test:stack:up --workspace @nylorun/runtime
+```
 
 ## Generated shell and authored examples
 

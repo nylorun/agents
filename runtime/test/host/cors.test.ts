@@ -12,6 +12,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
+import { testPool } from "../support/store.js";
 
 const ORIGIN = "https://app.example.com";
 let root: string;
@@ -87,11 +88,12 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-cors-"));
   offRoot = await mkdtemp(join(tmpdir(), "nylorun-cors-off-"));
   rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     browserAccess: true,
     model: { kind: "fixture" },
   });
-  off = await startEphemeralRuntime({ hostRoot: offRoot, model: { kind: "fixture" } });
+  off = await startEphemeralRuntime({ database: testPool(), hostRoot: offRoot, model: { kind: "fixture" } });
   expect(
     (
       await app("PUT", "/v1/agents/bot", {

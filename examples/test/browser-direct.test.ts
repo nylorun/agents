@@ -15,9 +15,11 @@ import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
 import { createDirectApp } from "../src/browser-direct/app.js";
 import { startChat } from "../src/browser-direct/chat.js";
 import { setUpAccess } from "../src/browser-direct/setup.js";
+import { testDatabase } from "./database.js";
 
 const PAGE = "http://localhost:5173";
 let root: string;
+let database: Awaited<ReturnType<typeof testDatabase>>;
 let runtime: EphemeralRuntime;
 let server: Server;
 let appOrigin: string;
@@ -36,10 +38,12 @@ function pageFetch(user: string): typeof fetch {
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-browser-direct-"));
+  database = await testDatabase();
   runtime = await startEphemeralRuntime({
     hostRoot: root,
     browserAccess: true,
     model: { kind: "fixture" },
+    database: database.url,
   });
   const client = createClient({
     url: runtime.url,
@@ -59,6 +63,7 @@ afterAll(async () => {
   server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
   await runtime?.close();
+  await database?.drop();
   await rm(root, { recursive: true, force: true });
 });
 

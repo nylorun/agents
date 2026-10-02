@@ -13,12 +13,13 @@ import { tenantApi } from "../../src/api/http/app.js";
 import { adminDocument, tenantDocument } from "../../src/api/openapi.js";
 import { RUNTIME_VERSION } from "../../src/version.js";
 import { startEphemeralRuntime, type EphemeralRuntime } from "../../src/tenant/ephemeral.js";
+import { testPool } from "../support/store.js";
 
 let root: string;
 let rt: EphemeralRuntime;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-openapi-"));
-  rt = await startEphemeralRuntime({ hostRoot: root, operatorListener: true, model: { kind: "fixture" } });
+  rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, operatorListener: true, model: { kind: "fixture" } });
 });
 afterAll(async () => {
   await rt?.close();

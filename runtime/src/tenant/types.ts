@@ -188,8 +188,7 @@ export interface TenantModule {
 }
 
 /**
- * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`), and
- * in-memory for tests (`store-memory.ts`).
+ * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`).
  */
 export interface TenantStore {
   /** Ids of every Tenant the store holds. */

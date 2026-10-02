@@ -23,7 +23,6 @@ import {
   view,
 } from "../host/execution-support.js";
 import {
-  FULL_STACK,
   FailureTenant,
   completeHistory,
   countOf,
@@ -35,6 +34,7 @@ import {
   workerOf,
   type Node,
 } from "./support.js";
+import { STACK_ENABLED } from "../stack/endpoints.js";
 
 const tenants: FailureTenant[] = [];
 afterEach(async () => {
@@ -71,7 +71,7 @@ function slowModel(ms: number) {
   return model;
 }
 
-describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2", () => {
+describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S2", () => {
   it("§17.3 a Worker killed during a model effect: the effect is uncertain after takeover, never called again, and the session is usable", async () => {
     const t = failureTenant();
     const model = controlledModel(); // ignores its signal, like a call cut off by a crash

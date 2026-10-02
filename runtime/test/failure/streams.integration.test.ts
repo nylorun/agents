@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { stackEndpoints } from "../stack/endpoints.js";
+import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 import { FaultyStreams } from "../support/faulty-streams.js";
 import { openTestSessionStore } from "../support/store.js";
 import {
@@ -22,7 +22,6 @@ import {
   view,
 } from "../host/execution-support.js";
 import {
-  FULL_STACK,
   FailureTenant,
   completeHistory,
   contextOf,
@@ -60,7 +59,7 @@ function ticks(node: Node, sessionId: string, count: number, from: string) {
   );
 }
 
-describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2", () => {
+describe.skipIf(!STACK_ENABLED)("§17 stream failures on Postgres, Restate and S2", () => {
   it("§17.5 no sequence gap under concurrent writers on two nodes while turns run", async () => {
     const t = failureTenant();
     const worker = t.worker({ offset: 8, prefix: "gaps" });

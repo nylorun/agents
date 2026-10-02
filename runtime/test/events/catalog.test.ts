@@ -7,7 +7,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EVENT_TYPES, SessionCommandSchema } from "@nylorun/core/contracts";
-import { MemorySessionStore } from "../../src/store/memory.js";
+import { createTestSessionStore } from "../support/store.js";
 import { InvalidEventError } from "../../src/record/index.js";
 
 const SRC = join(import.meta.dirname, "../../src");
@@ -68,7 +68,7 @@ describe("event catalog coverage", () => {
   });
 
   it("refuses a write the catalog does not describe, and rolls the transaction back", async () => {
-    const store = new MemorySessionStore({ tenantId: "tn_catalog" });
+    const store = await createTestSessionStore();
     await store.tx((t) => t.put("sessions", "s1", { id: "s1", status: "idle" }));
     await expect(
       store.tx((t) => t.event("s1", null, "made.up" as never, {} as never)),

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
+import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
 import { TimeoutError, withTimeout } from "../../src/tenant/pool.js";
 import {
   bootstrapMaterial,
@@ -12,6 +12,7 @@ import {
   createFakeOpenRuntime,
   silentLogger,
 } from "./support.js";
+import { testPool } from "../support/store.js";
 
 const roots: string[] = [];
 
@@ -56,8 +57,9 @@ it("start opens with concurrency 4 and quarantines open timeouts", async () => {
     },
   });
   const configFor = configForRoot(hostRoot);
-  const store = createMemoryTenantStore({
+  const store = createPostgresTenantStore({
     hostRoot,
+    sql: testPool(),
     openRuntime: delayed,
     configFor,
   });

@@ -1,4 +1,6 @@
-// Startup only: no sessions, commands, customer functions, or model requests.
+// Startup only: no sessions, commands, customer functions, or model requests. The Tenant lives
+// in Postgres: NYLORUN_DATABASE_URL, or the runtime test stack's database
+// (npm run test:stack:up -w @nylorun/runtime).
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -7,6 +9,8 @@ import { startEphemeralRuntime } from "@nylorun/runtime/core";
 import { Agent, createActionHandler, createClient } from "@nylorun/agents";
 
 const agent = Agent({ id: "startup-only", name: "Startup import check" });
+const database =
+  process.env.NYLORUN_DATABASE_URL ?? "postgres://nylorun:nylorun@127.0.0.1:55432/nylorun";
 const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-core-startup-"));
 let runtime;
 let server;
@@ -18,6 +22,7 @@ try {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
     },
     retainRoot: true,
+    database,
   });
   const client = createClient({
     url: runtime.url,

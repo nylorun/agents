@@ -138,10 +138,24 @@ and `api/` import Hono.
 
 Tests and ephemeral embeds use `startEphemeralRuntime()` from
 `@nylorun/runtime/core`: private Host on port 0, temporary Host root, one Tenant,
-returns `{ url, tenantId, applicationKey, adminKey, close() }`. It is not durable:
-its Tenants live in memory and are gone after `close()`. The smoke checks'
+returns `{ url, tenantId, applicationKey, adminKey, close() }`. Its Tenants are
+schemas in the Postgres database you pass as `database` (required): a pool, which
+you end, or a URL, for which it opens a pool and ends it on `close()`. The schemas
+stay after `close()`; give each test its own database and drop it afterwards. Its
+streams and scheduling are in process and gone after `close()`. The smoke checks'
 temporary Tenants (`scripts/lib/temporary-tenant.mjs`) do not use it; they are
 created on the Docker stack.
+
+```ts
+const runtime = await startEphemeralRuntime({
+  hostRoot, // a temporary directory
+  database: "postgres://nylorun:nylorun@127.0.0.1:55432/my_test_db",
+});
+```
+
+The package's own tests run every Session Store on Postgres: `npm test` gives each
+test file a database on the Docker test stack (`test/stack/compose.yaml`) and starts
+the stack when it is down; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 Register Action endpoints with `PUT /v1/endpoints` using the application principal
 (`createActionHandler(...).register({ url })` in `@nylorun/agents` does this). The

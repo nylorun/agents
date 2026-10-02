@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
+import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import { TenantBusyError } from "../../src/tenant/quarantine.js";
 import {
@@ -14,6 +14,7 @@ import {
   createFakeOpenRuntime,
   silentLogger,
 } from "./support.js";
+import { testPool } from "../support/store.js";
 
 const roots: string[] = [];
 
@@ -28,7 +29,7 @@ async function setup() {
   roots.push(hostRoot);
   const openRuntime = createFakeOpenRuntime({ hostRoot });
   const configFor = configForRoot(hostRoot);
-  const store = createMemoryTenantStore({ hostRoot, openRuntime, configFor });
+  const store = createPostgresTenantStore({ hostRoot, sql: testPool(), openRuntime, configFor });
   const module = createTenantModule({ store, logger: silentLogger() });
   return { hostRoot, module };
 }

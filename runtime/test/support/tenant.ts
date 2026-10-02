@@ -14,7 +14,6 @@ import {
 } from "@nylorun/core/compatibility";
 import { hashToken, mintBearerToken } from "../../src/core/bearer.js";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { bootstrapPrincipal } from "../../src/tenant/principals.js";
 import { createTenantLogger } from "../../src/tenant/logger.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import {
@@ -27,15 +26,11 @@ import type { ModelGate } from "../../src/gates/model-gate.js";
 import { httpModelGate } from "../../src/gates/http-client.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
 import {
-  TEST_STORE,
   dropTestTenant,
-  memoryTenantData,
-  memoryTenantExists,
   testCatalog,
   testEnvelope,
   withTestSessionStore,
@@ -89,7 +84,7 @@ const retainedStreams = new Map<string, MemoryStreams>();
 
 /**
  * Rewrites fields of a stored session of a closed Tenant (restart tests). `root` is the
- * Host root; the store is the one `NYLORUN_TEST_STORE` selects.
+ * Host root.
  */
 export async function patchStoredSession(
   root: string,
@@ -108,9 +103,9 @@ export async function patchStoredSession(
 
 /**
  * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5). The
- * Tenant's Session Store is the one `NYLORUN_TEST_STORE` selects (`./store.ts`): in memory
- * (the default), or a fresh Postgres schema. `close()` drops the Tenant's data unless the
- * root is retained.
+ * Tenant's Session Store is a Postgres schema in the test file's database (`./store.ts`),
+ * created on first start and found again by a restart. `close()` drops the Tenant's data
+ * unless the root is retained.
  */
 export async function startTestTenant(
   options: StartTestTenantOptions = {}
@@ -151,33 +146,24 @@ export async function startTestTenant(
     credentialHash,
     idempotencyKey: `boot-${tenantId}`,
   };
-  let opened: Pick<TenantOpenHooks, "store" | "envelope">;
-  if (TEST_STORE === "postgres") {
-    const catalog = testCatalog();
-    if (!(await catalog.tenantExists(tenantId)))
-      await catalog.createTenant({
-        envelope: testEnvelope(tenantId),
-        principals: bootstrap,
-      });
-    const result = await catalog.openTenant(tenantId);
-    if (result.status !== "ok")
-      throw new Error(`Test Tenant ${tenantId} is ${result.status}`);
-    opened = { store: result.store, envelope: result.envelope };
-  } else {
-    const fresh = !memoryTenantExists(tenantId);
-    const store = new MemorySessionStore(
-      {
-        tenantId,
-        onError: (error) =>
-          logger.error("post-commit step failed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
-      },
-      memoryTenantData(tenantId)
-    );
-    if (fresh) await store.tx((t) => bootstrapPrincipal(t, bootstrap));
-    opened = { store, envelope: testEnvelope(tenantId) };
-  }
+  const catalog = testCatalog();
+  if (!(await catalog.tenantExists(tenantId)))
+    await catalog.createTenant({
+      envelope: testEnvelope(tenantId),
+      principals: bootstrap,
+    });
+  const result = await catalog.openTenant(tenantId, {
+    onError: (error) =>
+      logger.error("post-commit step failed", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  });
+  if (result.status !== "ok")
+    throw new Error(`Test Tenant ${tenantId} is ${result.status}`);
+  const opened: Pick<TenantOpenHooks, "store" | "envelope"> = {
+    store: result.store,
+    envelope: result.envelope,
+  };
 
   const mode = options.mode ?? "test";
   let model = options.model ?? { kind: "scripted" as const, output: "ok" };
@@ -344,6 +330,9 @@ export async function startTestTenant(
           await defaultStreams.close();
         }
       }
+      // The Tenant is closed: a client's kept-alive or abandoned connection must not hold the
+      // listener open until it times out.
+      server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });

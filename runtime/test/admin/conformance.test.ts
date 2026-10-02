@@ -28,7 +28,7 @@ import {
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { tenantSchemaName } from "../../src/store/postgres/names.js";
 import { startEndpoint } from "../support/endpoint.js";
-import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
+import { isolatedTestDatabase } from "../support/store.js";
 
 const closers: { close(): Promise<void> }[] = [];
 const roots: string[] = [];
@@ -80,19 +80,17 @@ async function getJson(
 async function startHost(options: { model?: { kind: "fixture" } } = {}) {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
-  // On Postgres the Host sees every Tenant in its database: give it its own.
-  const database =
-    TEST_STORE === "postgres" ? await isolatedTestDatabase() : undefined;
+  // The Host sees every Tenant in its database: give it its own.
+  const database = await isolatedTestDatabase();
   const runtime = await startEphemeralRuntime({
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
     ...(options.model ? { model: options.model } : {}),
-    ...(database ? { database: database.sql } : {}),
+    database: database.sql,
   });
-  closers.push(runtime);
-  if (database) closers.push({ close: database.drop });
-  return { ...runtime, database: database?.sql };
+  closers.push(runtime, { close: database.drop });
+  return { ...runtime, database: database.sql };
 }
 
 function createBody(overrides?: {
@@ -181,21 +179,17 @@ it("A7: Admin API conformance — create, lost response, conflict, list, get, qu
     state: "open",
   });
 
-  // A schema without its envelope row. The in-memory store cannot hold a broken Tenant;
-  // the module's quarantine is covered by the Tenant module conformance suite.
-  if (TEST_STORE === "postgres") {
-    const badId = newTenantId();
-    const sql = database!;
-    await sql`CREATE SCHEMA ${sql(tenantSchemaName(badId))}`;
-    const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
-      headers,
-    });
-    expect(quarantined.status).toBe(200);
-    const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
-    expect(qStatus.state).toBe("quarantined");
-    expect(qStatus.quarantine?.code).toBe("envelope-invalid");
-    expect(qStatus.quarantine?.repair).toMatch(/nylo tenant status/);
-  }
+  // A schema without its envelope row.
+  const badId = newTenantId();
+  await database`CREATE SCHEMA ${database(tenantSchemaName(badId))}`;
+  const quarantined = await getJson(`${url}/v1/admin/tenants/${badId}`, {
+    headers,
+  });
+  expect(quarantined.status).toBe(200);
+  const qStatus = AdminTenantStatusSchema.parse(quarantined.body);
+  expect(qStatus.state).toBe("quarantined");
+  expect(qStatus.quarantine?.code).toBe("envelope-invalid");
+  expect(qStatus.quarantine?.repair).toMatch(/nylo tenant status/);
 
   const status = await getJson(`${url}/v1/admin/status`, { headers });
   const host = await getJson(`${url}/v1/admin/host`, { headers });

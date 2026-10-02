@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { capReached, createMeter, periodStart, usageRow } from "../../src/gates/meter.js";
 import type { ModelGateOutcome, ModelGateRequest } from "../../src/gates/model-gate.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
 import type { ModelBudgetRow, SessionStore } from "../../src/store/types.js";
+import { createTestSessionStore } from "../support/store.js";
 
 const request: ModelGateRequest = {
   tenantId: newTenantId(),
@@ -73,7 +73,7 @@ describe("periodStart", () => {
 
 describe("createMeter", () => {
   it("records an answered call once, and a re-run of the same effect as a duplicate", async () => {
-    const store = new MemorySessionStore({ tenantId: request.tenantId });
+    const store = await createTestSessionStore();
     const warnings: string[] = [];
     const meter = createMeter({ logger: { ...quiet, warn: (m) => void warnings.push(m) }, now: () => at });
     expect(await meter.call(store, request, async () => answered)).toBe(answered);
@@ -103,7 +103,7 @@ describe("createMeter", () => {
   });
 
   it("rethrows an aborted call without recording it", async () => {
-    const store = new MemorySessionStore({ tenantId: request.tenantId });
+    const store = await createTestSessionStore();
     const meter = createMeter({ logger: quiet });
     await expect(
       meter.call(store, request, async () => {
@@ -127,7 +127,7 @@ describe("caps", () => {
 
   /** A store with `budgets`, and a meter whose calls count how often the provider ran. */
   async function metered(budgets: ModelBudgetRow[], now = at) {
-    const store = new MemorySessionStore({ tenantId: request.tenantId });
+    const store = await createTestSessionStore();
     await store.tx((t) => t.putModelBudgets(budgets));
     const meter = createMeter({ logger: quiet, now: () => now });
     let calls = 0;

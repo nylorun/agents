@@ -10,7 +10,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # Full suite on the pinned toolchain. Includes test:tooling, i.e. the Linux
-  # leg of the supervisor and release tooling tests (see `macos`).
+  # leg of the supervisor and release tooling tests (see `macos`). The runtime
+  # and examples tests keep every Tenant in the test stack's Postgres
+  # (runtime/test/stack/compose.yaml).
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -25,8 +27,13 @@ jobs:
             examples/package-lock.json
       - run: npm install --global npm@11.15.0
       - run: npm run setup
+      - name: Start the test stack
+        run: npm run test:stack:up --workspace @nylorun/runtime
       - run: npm run check -- --built
       - run: npm run check:stack -- --built
+      - name: Stop the test stack
+        if: always()
+        run: npm run test:stack:down --workspace @nylorun/runtime
   # End-to-end, in parallel with `check`: the packed starter on the Docker
   # stack with images built from this PR (scripts/lib/stack.mjs reuses the
   # images NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name), and the release
@@ -160,18 +167,7 @@ jobs:
   # Restate, s2-lite) in runtime/test/stack/compose.yaml, with test Tenants in
   # Postgres. They include the architecture §17 failure suite
   # (runtime/test/failure/README.md), which recreates the stack's Restate.
-  # Two legs in parallel, one test stack each: the integration suite, and the
-  # unit suite again with every test Tenant on Postgres instead of the
-  # in-memory Session Store.
   integration:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: integration
-            command: npm run test:integration --workspace @nylorun/runtime
-          - suite: postgres
-            command: npm test --workspace @nylorun/runtime
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -189,11 +185,10 @@ jobs:
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/harness --workspace @nylorun/runtime
       - name: Start the test stack
         run: npm run test:stack:up --workspace @nylorun/runtime
-      - name: Runtime ${{ matrix.suite }} tests
+      - name: Runtime integration tests
         env:
           NYLORUN_TEST_STACK: "1"
-          NYLORUN_TEST_STORE: postgres
-        run: ${{ matrix.command }}
+        run: npm run test:integration --workspace @nylorun/runtime
       - name: Test stack logs
         if: failure()
         run: docker compose -f runtime/test/stack/compose.yaml logs --no-color
@@ -257,8 +252,14 @@ jobs:
             package-lock.json
             examples/package-lock.json
       - run: npm ci
+      # The runtime tests keep every Tenant in the test stack's Postgres.
+      - name: Start the test stack
+        run: npm run test:stack:up --workspace @nylorun/runtime
       # Declared workspace order is dependency order; each check builds its package.
       - run: npm run check --workspaces
+      - name: Stop the test stack
+        if: always()
+        run: npm run test:stack:down --workspace @nylorun/runtime
   ci:
     if: always()
     needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack]

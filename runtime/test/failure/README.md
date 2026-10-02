@@ -5,15 +5,15 @@ infrastructure: a Tenant schema in Postgres, advances through Restate, and event
 relayed to s2-lite, all on the Docker test stack (`test/stack/compose.yaml`). The
 tests in this directory run all three together. The table also lists the tests
 that cover each case lower down, against one component or against the in-memory
-fakes.
+execution and streams (the unit tests run every Tenant on Postgres too).
 
 ```sh
 npm run test:stack:up -w @nylorun/runtime
-NYLORUN_TEST_STACK=1 NYLORUN_TEST_STORE=postgres npm run test:integration -w @nylorun/runtime
+NYLORUN_TEST_STACK=1 npm run test:integration -w @nylorun/runtime
 npm run test:stack:down -w @nylorun/runtime
 ```
 
-The files skip unless both variables are set. CI runs them in the `integration`
+The files skip unless `NYLORUN_TEST_STACK=1`. CI runs them in the `integration`
 job. §17.3 also runs against a real `nylorun up` stack, where the `runtime`
 container is killed with `docker compose kill` (`npm run test:failure`,
 `scripts/smoke-failure.mjs`, in the `stack` job).

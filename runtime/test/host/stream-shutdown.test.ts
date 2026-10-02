@@ -16,10 +16,11 @@ import {
   startTestHost,
   tenantHeaders,
 } from "./support.js";
+import { testPool } from "../support/store.js";
 
 it("close() ends open event streams instead of waiting for their clients", async () => {
   const root = await mkdtemp(join(tmpdir(), "nylorun-stream-shutdown-"));
-  const rt = await startEphemeralRuntime({ hostRoot: root, model: { kind: "fixture" } });
+  const rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, model: { kind: "fixture" } });
   try {
     const headers = {
       "nylorun-protocol": "4",

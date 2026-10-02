@@ -1,7 +1,6 @@
 /**
- * Shared fixtures for WS-G security suites (hostile Host, two Tenants). Tenants live on the
- * store `NYLORUN_TEST_STORE` selects: in memory by default, or Postgres schemas in a
- * database of the Host's own on the test stack.
+ * Shared fixtures for WS-G security suites (hostile Host, two Tenants). Tenants are Postgres
+ * schemas in a database of the Host's own on the test stack.
  */
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -29,11 +28,10 @@ import {
 import { createHostLogger } from "../../src/host/logger.js";
 import { mintBearerToken } from "../../src/core/bearer.js";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
 import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
 import { createPostgresTenantCatalog } from "../../src/store/postgres/tenants.js";
 import type { SessionStore } from "../../src/store/types.js";
-import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
+import { isolatedTestDatabase } from "../support/store.js";
 import { createTenantLogger } from "../../src/tenant/logger.js";
 import { hostPaths, tenantPaths } from "../../src/tenant/paths.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
@@ -289,30 +287,18 @@ export async function startSecurityHost(options?: {
   const openRuntime: OpenTenantRuntime = (tenantConfig, opened) =>
     openTenantRuntime(tenantConfig, { ...openHooks, ...opened });
 
-  // On Postgres the Host sees every Tenant in its database: give it its own.
-  const database =
-    TEST_STORE === "postgres" ? await isolatedTestDatabase() : undefined;
-  const memory = database
-    ? undefined
-    : createMemoryTenantStore({
-        hostRoot,
-        openRuntime,
-        configFor,
-        logger: hostLogger,
-      });
-  const store =
-    memory ??
-    createPostgresTenantStore({
-      hostRoot,
-      sql: database!.sql,
-      openRuntime,
-      configFor,
-      logger: hostLogger,
-    });
+  // The Host sees every Tenant in its database: give it its own.
+  const database = await isolatedTestDatabase();
+  const store = createPostgresTenantStore({
+    hostRoot,
+    sql: database.sql,
+    openRuntime,
+    configFor,
+    logger: hostLogger,
+  });
   async function openStore(tenantId: string): Promise<SessionStore> {
-    if (memory) return memory.sessionStore(tenantId);
     const opened = await createPostgresTenantCatalog({
-      sql: database!.sql,
+      sql: database.sql,
     }).openTenant(tenantId);
     if (opened.status !== "ok")
       throw new Error(`Tenant ${tenantId} is ${opened.status}`);
@@ -374,7 +360,7 @@ export async function startSecurityHost(options?: {
     async close() {
       await host.close();
       await module.close();
-      await database?.drop();
+      await database.drop();
       if (!options?.retainRoot) {
         await rm(hostRoot, { recursive: true, force: true });
         await rm(ambientHome, { recursive: true, force: true });

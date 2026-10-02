@@ -1,16 +1,17 @@
 /**
  * The gates service's listener (`host/gates.ts`, `api/gate/routes.ts`) on 127.0.0.1:0, with
- * in-memory Tenant vaults and the provider stubbed as the global `fetch`. Requests to the gate
+ * stub Tenant vaults (the ledger on the file's database) and the provider stubbed as the global `fetch`. Requests to the gate
  * use the real `fetch`, captured before any stub.
  */
 import { request } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { MODEL_CALLS_PATH } from "../../src/gates/contract.js";
 import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { failure } from "../../src/model/classify.js";
 import { GATES_REQUEST_TIMEOUT_MS, startGates, type GatesServer } from "../../src/host/gates.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
+import type { SessionStore } from "../../src/store/types.js";
+import { createTestSessionStore } from "../support/store.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 
 const realFetch = globalThis.fetch;
@@ -36,7 +37,11 @@ const body = {
   },
 };
 
-const ledger = new MemorySessionStore({ tenantId });
+// The usage ledger: a Session Store on the test file's database.
+let ledger: SessionStore;
+beforeAll(async () => {
+  ledger = await createTestSessionStore(tenantId);
+});
 const vaults: TenantVaults = {
   async open(id) {
     if (id !== tenantId)

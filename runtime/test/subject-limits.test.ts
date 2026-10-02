@@ -3,18 +3,19 @@
  * concurrent turns count only sessions with work in flight, never `paused` ones.
  */
 import { describe, expect, it } from "vitest";
-import { MemorySessionStore } from "../src/store/memory.js";
+import type { SessionStore } from "../src/store/types.js";
 import { chargeTurn } from "../src/tenant/subject-limits.js";
 import { HttpError } from "../src/tenant/http.js";
+import { createTestSessionStore } from "./support/store.js";
 
 const HOUR = 3_600_000;
 
 function store() {
-  return new MemorySessionStore({ tenantId: "tn_limits" });
+  return createTestSessionStore();
 }
 
 async function charge(
-  s: MemorySessionStore,
+  s: SessionStore,
   subject: string,
   limits: Parameters<typeof chargeTurn>[2],
   now: number
@@ -30,7 +31,7 @@ async function charge(
 
 describe("turns per hour", () => {
   it("allows the capacity at once, then refills one turn per hour / capacity", async () => {
-    const s = store();
+    const s = await store();
     const t0 = Date.parse("2026-09-29T10:00:00Z");
     const limits = { turnsPerHour: 4 };
     for (let n = 0; n < 4; n += 1) expect(await charge(s, "app:a", limits, t0)).toBe("ok");
@@ -51,7 +52,7 @@ describe("turns per hour", () => {
   });
 
   it("never refills past capacity", async () => {
-    const s = store();
+    const s = await store();
     const t0 = Date.parse("2026-09-29T10:00:00Z");
     const limits = { turnsPerHour: 2 };
     expect(await charge(s, "app:a", limits, t0)).toBe("ok");
@@ -64,7 +65,7 @@ describe("turns per hour", () => {
 
 describe("concurrent turns", () => {
   async function session(
-    s: MemorySessionStore,
+    s: SessionStore,
     id: string,
     ownerUserId: string,
     status: string
@@ -81,7 +82,7 @@ describe("concurrent turns", () => {
   }
 
   it("counts running, runnable and waiting sessions, not paused or idle ones", async () => {
-    const s = store();
+    const s = await store();
     const limits = { concurrentTurns: 2 };
     await session(s, "a1", "app:a", "running");
     await session(s, "a2", "app:a", "paused");

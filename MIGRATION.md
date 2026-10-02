@@ -1,3 +1,18 @@
+# `startEphemeralRuntime` needs a database
+
+The in-memory Session Store is gone: `startEphemeralRuntime()` (`@nylorun/runtime`,
+`@nylorun/runtime/core`) now requires `database`, the Postgres database its Tenants live in.
+Pass a URL, and the Runtime opens a pool and ends it on `close()`, or a pool you end yourself.
+Each Tenant is a schema in that database and stays after `close()`, so give each test its own
+database and drop it afterwards.
+
+```ts
+const runtime = await startEphemeralRuntime({
+  hostRoot,
+  database: "postgres://nylorun:nylorun@127.0.0.1:55432/my_test_db",
+});
+```
+
 # Session events on the `nylorun.event/2` envelope (protocol 4)
 
 Protocol 4 puts every session event on the `nylorun.event/2` envelope and types each event

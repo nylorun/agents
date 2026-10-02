@@ -1,8 +1,9 @@
 /**
  * An in-memory record with a change source that behaves like a logical replication slot:
  * committed transactions are kept until acknowledged and replayed to the next reader, one
- * reader holds the slot at a time, and a dropped slot starts fresh. For unit tests and the
- * in-memory Session Store. Not durable.
+ * reader holds the slot at a time, and a dropped slot starts fresh. The relay core's test fake
+ * (`streams/relay-core.test.ts`); the real pair is `store/postgres/record.ts` and
+ * `adapters/replication/pgoutput.ts`.
  */
 import type {
   ChangeHandlers,
@@ -11,7 +12,7 @@ import type {
   LogHead,
   RecordReader,
   RecordRow,
-} from "./types.js";
+} from "../../src/streams/relay/types.js";
 
 export class MemoryRecord implements RecordReader {
   /** `tenantId\0sessionId` → rows by seq. */

@@ -21,11 +21,11 @@ import {
   type FlowLink,
 } from "../../src/core/flow-host.js";
 import { resolveFlowLimits } from "../../src/core/limits.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
 import type { DocTable } from "../../src/store/types.js";
+import { createTestSessionStore } from "../support/store.js";
 
-function memoryStore() {
-  const store = new MemorySessionStore({ tenantId: "tn_test" });
+async function testStore() {
+  const store = await createTestSessionStore();
   return {
     store,
     put: (table: DocTable, id: string, body: unknown) =>
@@ -112,7 +112,7 @@ it("LOOP-R28/R6: verify-agent sessions differ across Loop iterations", () => {
 });
 
 it("PAR-R6/A2: cancelSiblingWork with cancelEffectIds cancels pending siblings", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
     status: "running",
@@ -184,7 +184,7 @@ it("PAR-R6/A2: cancelSiblingWork with cancelEffectIds cancels pending siblings",
 });
 
 it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and open actions of the turn", async () => {
-  const { store, put } = memoryStore();
+  const { store, put } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
     status: "running",
@@ -216,7 +216,7 @@ it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and open actions o
 });
 
 it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot frees", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
     status: "waiting",
@@ -246,7 +246,7 @@ it("WF-L1: wakeForQueuedEffects schedules the workflow after commit when a slot 
 });
 
 it("PAR-R6: cancelSiblingWork cancels pending, uncertains delivering, lists agents", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
     status: "running",
@@ -311,7 +311,7 @@ it("PAR-R6: cancelSiblingWork cancels pending, uncertains delivering, lists agen
 });
 
 it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () => {
-  const { store, put } = memoryStore();
+  const { store, put } = await testStore();
   await put("sessions", "wf-1", { id: "wf-1" });
   const shallow = deriveSessionId("wf-1", "a");
   const deep = deriveSessionId("wf-1", "a/b/c");
@@ -347,7 +347,7 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
 });
 
 it("WF-R53: fenceWorkflowActions pending→cancelled, delivering→uncertain", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   await put("actions", "p", flowAction({ actionId: "p", turnId: "t", status: "pending", kind: "fn" }));
   await put("actions", "c", flowAction({ actionId: "c", turnId: "t", status: "delivering", kind: "fn" }));
   await put("effects", "p", { status: "pending", request: { effectId: "p" } });
@@ -366,7 +366,7 @@ it("WF-R53: fenceWorkflowActions pending→cancelled, delivering→uncertain", a
 });
 
 it("WF-R51: aggregateWaits lists linked agent interactions with owning session and path", async () => {
-  const { store, put } = memoryStore();
+  const { store, put } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
     status: "waiting",
@@ -403,7 +403,7 @@ it("WF-R51: aggregateWaits lists linked agent interactions with owning session a
 });
 
 it("WF-R52 / LOOP-A4: foreignInteractionConflict returns 409 naming owner session", async () => {
-  const { store, put } = memoryStore();
+  const { store, put } = await testStore();
   const agentId = deriveSessionId("wf-1", "polish/writer");
   await put("sessions", "wf-1", { id: "wf-1", status: "paused", waits: [] });
   await put("sessions", agentId, {
@@ -432,7 +432,7 @@ it("WF-R52 / LOOP-A4: foreignInteractionConflict returns 409 naming owner sessio
 });
 
 it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   const agentId = deriveSessionId("wf-1", "branch");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -471,7 +471,7 @@ it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
 });
 
 it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   const agentId = deriveSessionId("wf-1", "branch");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -505,7 +505,7 @@ it("wakeLinkedWorkflow schedules nothing when the transaction rolls back", async
 });
 
 it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   const agentId = deriveSessionId("wf-1", "writer");
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -553,7 +553,7 @@ it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () 
 });
 
 it("an agent effect settles only from the linked turn it started, never an earlier one", async () => {
-  const { store, put, get } = memoryStore();
+  const { store, put, get } = await testStore();
   const agentId = deriveSessionId("wf-1", "writer");
   await put("sessions", "wf-1", {
     id: "wf-1",

@@ -16,6 +16,7 @@ import {
 } from "@nylorun/core/contracts";
 import { startTestTenant } from "./support/tenant.js";
 import { startEphemeralRuntime } from "../src/tenant/ephemeral.js";
+import { testPool } from "./support/store.js";
 
 const roots: string[] = [];
 const closers: { close(): Promise<void> }[] = [];
@@ -204,6 +205,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
 it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () => {
   const hostRoot = await tempRoot("ephemeral-host-");
   const runtime = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
   });

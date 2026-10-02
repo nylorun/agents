@@ -1,7 +1,7 @@
 /**
  * `startEphemeralRuntime` (`tenant/ephemeral.ts`): an in-process Host whose Tenants live in
- * memory. It runs turns, creates and deletes Tenants through the Admin API, and leaves no
- * session data under its Host root.
+ * the Postgres database it is given (here the test file's). It runs turns, creates and deletes
+ * Tenants through the Admin API, and leaves no session data under its Host root.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -18,6 +18,8 @@ import {
 import { Agent } from "@nylorun/core/define";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { until } from "../host/execution-support.js";
+import { fileDatabaseName, testDatabaseUrl } from "../support/database.js";
+import { testPool, withTestSessionStore } from "../support/store.js";
 
 const roots: string[] = [];
 const closers: { close(): Promise<void> }[] = [];
@@ -28,13 +30,24 @@ afterEach(async () => {
 
 const bot = Agent({ id: "bot", name: "Bot" }).build();
 
-it("runs a turn on a Tenant kept in memory and removes its Host root on close", async () => {
+/** Connections the Runtime's own pools hold on the test file's database. */
+async function runtimeConnections(): Promise<number> {
+  const sql = testPool();
+  const [row] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM pg_stat_activity
+    WHERE datname = ${fileDatabaseName()} AND application_name = 'nylorun-runtime'`;
+  return row!.n;
+}
+
+it("runs a turn on a Tenant in its database, ends its own pool and removes its Host root on close", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-ephemeral-"));
   roots.push(hostRoot);
+  // A URL: the Runtime opens its own pool on it.
   const runtime = await startEphemeralRuntime({
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
-    model: { kind: "scripted", output: "hello from memory" },
+    model: { kind: "scripted", output: "hello from postgres" },
+    database: testDatabaseUrl(fileDatabaseName()),
   });
   const headers = {
     authorization: `Bearer ${runtime.applicationKey}`,
@@ -78,7 +91,7 @@ it("runs a turn on a Tenant kept in memory and removes its Host root on close", 
     (list) => list.some((item) => item.type === "turn.completed"),
     "turn.completed"
   );
-  expect(JSON.stringify(items)).toContain("hello from memory");
+  expect(JSON.stringify(items)).toContain("hello from postgres");
 
   // No Session Store file anywhere under the Host root.
   const files = readdirSync(hostRoot, { recursive: true }).map(String);
@@ -86,6 +99,12 @@ it("runs a turn on a Tenant kept in memory and removes its Host root on close", 
 
   await runtime.close();
   expect(existsSync(hostRoot)).toBe(false);
+  await until(runtimeConnections, (n) => n === 0, "the Runtime's pool to end");
+  // The session is in the Tenant's schema, which outlives the Runtime.
+  const session = await withTestSessionStore({ root: hostRoot, tenantId: runtime.tenantId }, (store) =>
+    store.tx((t) => t.get<{ agentId: string }>("sessions", "s1"))
+  );
+  expect(session).toMatchObject({ agentId: "bot" });
 });
 
 it("closes what it opened and removes its Host root when it fails to start", async () => {
@@ -97,15 +116,18 @@ it("closes what it opened and removes its Host root when it fails to start", asy
       // Rejected by `module.create`, after the module and its store have started.
       tenantId: "not-a-tenant-id",
       model: { kind: "scripted", output: "unused" },
+      database: testDatabaseUrl(fileDatabaseName()),
     })
   ).rejects.toThrow();
   expect(existsSync(hostRoot)).toBe(false);
+  await until(runtimeConnections, (n) => n === 0, "the Runtime's pool to end");
 });
 
 it("creates and deletes more Tenants through the Admin API", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-ephemeral-"));
   roots.push(hostRoot);
-  const runtime = await startEphemeralRuntime({ hostRoot });
+  // A pool: the caller ends it.
+  const runtime = await startEphemeralRuntime({ hostRoot, database: testPool() });
   closers.push(runtime);
   const admin = {
     authorization: `Bearer ${runtime.adminKey}`,

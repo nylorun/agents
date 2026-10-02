@@ -3,8 +3,8 @@
  * session SSE, Action deliveries and cancel, read from streams. Runs on the in-memory streams
  * (`streams.test.ts`) and on s2-lite (`streams.integration.test.ts`).
  *
- * "Another node" is a second Tenant runtime in this process over the same Tenant data (the
- * store `NYLORUN_TEST_STORE` selects) and the same streams.
+ * "Another node" is a second Tenant runtime in this process over the same Tenant schema and
+ * the same streams.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";

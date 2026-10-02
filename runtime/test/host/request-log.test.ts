@@ -14,6 +14,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
+import { testPool } from "../support/store.js";
 
 const TENANT = `tn_${"0".repeat(22)}rqst`;
 const APPLICATION_KEY = "request-log-application-key-00000";
@@ -44,6 +45,7 @@ function raw(url: string, host: string): Promise<number> {
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-request-log-"));
   rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     tenantId: TENANT,
     applicationKey: APPLICATION_KEY,
