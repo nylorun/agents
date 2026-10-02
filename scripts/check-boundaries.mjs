@@ -32,6 +32,13 @@ const moduleImports = {
       forbidden: ["tenant", "core", "api", "store", "host", "execution"],
       except: [],
     },
+    // The record module (blueprint D27) is the write path into the shared record. It may use
+    // the store's schema names but never tenant, engine, API, gate or stream code.
+    {
+      dir: "record",
+      forbidden: ["tenant", "core", "api", "host", "execution", "gates", "streams"],
+      except: [],
+    },
   ],
 };
 // The provider adapter runs behind the Model Gate (blueprint §15): the loop calls the gate and
@@ -46,6 +53,14 @@ const restrictedModules = {
     // Reading the host model credential in plaintext: the Model Gate only.
     { modules: ["vault/host-model.js"], importers: ["gates", "vault"] },
   ],
+};
+// Only the record module (and the migrations that create the tables) inserts into the shared
+// record. Other code may read it, and the stores delete a Tenant's rows on reset.
+const recordInserts = {
+  runtime: {
+    dirs: ["record", "store/postgres/migrations"],
+    pattern: /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads)/,
+  },
 };
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.
 const httpFramework = {
@@ -120,6 +135,12 @@ export function checkBoundaries(name) {
               throw new Error(`${path} imports ${match[1]}; only ${rule.importers.join(", ")} may (the Model Gate)`);
           }
         }
+      const inserts = recordInserts[name];
+      if (inserts && (relative[0] === "src" || relative[0] === "dist")) {
+        const inside = relative.slice(1).join("/");
+        if (!inserts.dirs.some((dir) => inside.startsWith(`${dir}/`)) && inserts.pattern.test(source))
+          throw new Error(`${path} inserts into the record; only record/ may (blueprint D27)`);
+      }
       const http = httpFramework[name];
       if (http) {
         const pattern = new RegExp(`(?:from\\s*|import\\s*\\()["'](?:${http.packages.join("|")})(?:/[^"']*)?["']`);

@@ -23,7 +23,7 @@
  *    committed transactions. The sequence is also the S2 sequence number of the
  *    event in the session's stream (`sessions/<id>` in the Tenant's basin
  *    generation, `streams/basin.ts`), and the cursor is
- *    `base64url("<sessionId>:<seq>")` (see `store/cursor.ts`).
+ *    `base64url("<sessionId>:<seq>")` (see `record/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
  *    S2 call, and no `fetch`, runs inside a transaction. Wakes and deliveries go
  *    through `afterCommit`, and events are delivered to commit listeners after

@@ -2,7 +2,7 @@ import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { LiveEvent } from "@nylorun/core/contracts";
-import { decodeCursor } from "../../src/store/cursor.js";
+import { decodeCursor } from "../../src/record/index.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";

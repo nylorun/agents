@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
-import { decodeCursor, encodeCursor } from "../src/store/cursor.js";
+import { decodeCursor, encodeCursor } from "../src/record/index.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";

@@ -46,8 +46,7 @@ import type {
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
-import { buildEvent } from "../event.js";
-import { encodeCursor } from "../cursor.js";
+import { appendEvent } from "../../record/index.js";
 import { OwnershipLostError } from "../ownership.js";
 import type {
   ActionDoc,
@@ -92,7 +91,8 @@ import { assertIdentifier, tenantSchemaName } from "./names.js";
 import { STREAMS_SCHEMA } from "./migrations/shared/index.js";
 import { createPostgresRecordReader } from "./record.js";
 
-/** The shared record (Durable Streams §6): every Tenant's events and log heads. */
+/** The shared record (Durable Streams §6): every Tenant's events and log heads. Only
+ * `record/` inserts into them; the store deletes a Tenant's rows on reset. */
 const SESSION_EVENTS = `${STREAMS_SCHEMA}.session_events`;
 const LOG_HEADS = `${STREAMS_SCHEMA}.session_log_heads`;
 
@@ -471,30 +471,16 @@ class PostgresTx implements Tx {
     const [session] = await sql`
       SELECT epoch FROM ${this.t("sessions")} WHERE id = ${sessionId} FOR UPDATE`;
     if (!session) throw new Error(`Session ${sessionId} not found`);
-    const [row] = await sql`
-      INSERT INTO ${sql(LOG_HEADS)} (tenant_id, session_id, generation, head)
-      VALUES (
-        ${this.tenantId}, ${sessionId},
-        coalesce((SELECT basin_generation FROM ${this.t("tenant")}), 0), 1)
-      ON CONFLICT (tenant_id, session_id)
-        DO UPDATE SET head = ${sql(LOG_HEADS)}.head + 1
-      RETURNING head - 1 AS seq, generation`;
-    const seq = Number(row!.seq);
-    const generation = Number(row!.generation);
-    const event = buildEvent({
+    const { event, generation } = await appendEvent(sql, {
       tenantId: this.tenantId,
+      tenantSchema: this.schema,
       sessionId,
       turnId,
-      seq,
       epoch: Number(session.epoch),
       time: this.now(),
       type,
       payload,
     });
-    await sql`
-      INSERT INTO ${sql(SESSION_EVENTS)} (tenant_id, session_id, seq, generation, type, body)
-      VALUES (${this.tenantId}, ${sessionId}, ${seq}, ${generation}, ${type},
-              ${JSON.stringify(event)}::text::json)`;
     this.events.push(event);
     this.generations.push(generation);
     return structuredClone(event);

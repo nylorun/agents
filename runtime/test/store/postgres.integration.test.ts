@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { decodeCursor } from "../../src/store/cursor.js";
+import { decodeCursor } from "../../src/record/index.js";
 import {
   createPostgresClient,
   type PostgresClient,

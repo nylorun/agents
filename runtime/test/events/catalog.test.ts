@@ -1,6 +1,6 @@
 /**
  * The event catalog covers every event the Runtime writes (Durable Streams §9.5, test 7).
- * Writes are also validated at runtime (`store/event.ts`), so every test that runs a turn
+ * Writes are also validated at runtime (`record/envelope.ts`), so every test that runs a turn
  * checks its events against the catalog too.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EVENT_TYPES, SessionCommandSchema } from "@nylorun/core/contracts";
 import { MemorySessionStore } from "../../src/store/memory.js";
-import { InvalidEventError } from "../../src/store/event.js";
+import { InvalidEventError } from "../../src/record/index.js";
 
 const SRC = join(import.meta.dirname, "../../src");
 

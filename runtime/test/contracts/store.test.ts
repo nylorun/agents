@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { MemorySessionStore } from "../../src/store/memory.js";
-import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
+import { decodeCursor, encodeCursor } from "../../src/record/index.js";
 import { storeContract } from "./store.contract.js";
 
 storeContract("memory", async (options) => ({

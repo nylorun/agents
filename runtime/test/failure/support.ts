@@ -40,7 +40,7 @@ import type {
 } from "../../src/execution/types.js";
 import { createHostExecution, type HostExecution } from "../../src/host/execution.js";
 import type { RuntimeServices } from "../../src/host/stack-config.js";
-import { decodeCursor } from "../../src/store/cursor.js";
+import { decodeCursor } from "../../src/record/index.js";
 import { sessionStream, type DurableStreams } from "../../src/streams/types.js";
 import { basinOf } from "../../src/streams/basin.js";
 import type { TenantContext } from "../../src/tenant/context.js";

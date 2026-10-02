@@ -20,7 +20,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
-import { decodeCursor, encodeCursor } from "../store/cursor.js";
+import { decodeCursor, encodeCursor } from "../record/index.js";
 import { basinOf } from "../streams/basin.js";
 import {
   sessionStream,
