@@ -72,14 +72,20 @@ async function gate(options: { maxBodyBytes?: number } = {}) {
 
 function post(
   server: GatesServer,
-  init: { body?: unknown; headers?: Record<string, string>; signal?: AbortSignal } = {},
+  init: {
+    body?: unknown;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+    /** Sends `Idempotency-Key` (the effect id); default true. */
+    keyed?: boolean;
+  } = {},
 ) {
   return realFetch(`${server.url}${MODEL_CALLS_PATH}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
       "nylorun-tenant": tenantId,
-      "idempotency-key": body.effectId,
+      ...(init.keyed === false ? {} : { "idempotency-key": body.effectId }),
       "content-type": "application/json",
       ...init.headers,
     },
@@ -171,7 +177,7 @@ describe("the gates service", () => {
     expect(provider).not.toHaveBeenCalled();
   });
 
-  it("aborts the provider request when the caller goes away mid-call", async () => {
+  it("aborts the provider request when the caller of an unkeyed call goes away", async () => {
     let upstream: AbortSignal | undefined;
     vi.stubGlobal(
       "fetch",
@@ -189,11 +195,97 @@ describe("the gates service", () => {
     );
     const server = await gate();
     const caller = new AbortController();
-    const pending = post(server, { signal: caller.signal }).catch(() => undefined);
+    const pending = post(server, { signal: caller.signal, keyed: false }).catch(() => undefined);
     await vi.waitFor(() => expect(upstream).toBeDefined());
     caller.abort();
     await pending;
     await vi.waitFor(() => expect(upstream?.aborted).toBe(true));
+  });
+
+  describe("keyed calls (P1.2)", () => {
+    /** A provider whose answer the test releases, counting calls. */
+    function heldProvider() {
+      let calls = 0;
+      let upstream: AbortSignal | undefined;
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: unknown, init: RequestInit) => {
+          calls += 1;
+          upstream = init.signal as AbortSignal;
+          await Promise.race([
+            released,
+            new Promise((_, reject) =>
+              upstream!.addEventListener("abort", () => reject(upstream!.reason)),
+            ),
+          ]);
+          return completion("survived");
+        }),
+      );
+      return { calls: () => calls, upstream: () => upstream, release };
+    }
+
+    it("keeps a call running after its caller goes away; a re-send gets its outcome", async () => {
+      const provider = heldProvider();
+      const server = await gate();
+      const caller = new AbortController();
+      const first = post(server, { signal: caller.signal }).catch(() => undefined);
+      await vi.waitFor(() => expect(provider.calls()).toBe(1));
+      caller.abort();
+      await first;
+      expect(provider.upstream()?.aborted).toBe(false);
+      provider.release();
+      const resent = await post(server);
+      expect(resent.status).toBe(200);
+      expect(await resent.json()).toMatchObject({
+        outcome: { output: [{ type: "text", text: "survived" }] },
+      });
+      expect(provider.calls()).toBe(1);
+    });
+
+    it("joins a call still running when the same request is re-sent", async () => {
+      const provider = heldProvider();
+      const server = await gate();
+      const first = post(server);
+      await vi.waitFor(() => expect(provider.calls()).toBe(1));
+      const second = post(server);
+      provider.release();
+      expect((await (await first).json()).outcome.output[0].text).toBe("survived");
+      expect((await (await second).json()).outcome.output[0].text).toBe("survived");
+      expect(provider.calls()).toBe(1);
+    });
+
+    it("answers 409 gate_conflict to a different request under the same key", async () => {
+      const provider = heldProvider();
+      const server = await gate();
+      const first = post(server);
+      await vi.waitFor(() => expect(provider.calls()).toBe(1));
+      const changed = await post(server, { body: { ...body, invocationId: "2" } });
+      expect(changed.status).toBe(409);
+      expect(await changed.json()).toMatchObject({ error: { code: "gate_conflict" } });
+      provider.release();
+      await first;
+    });
+
+    it("cancels a keyed call by effect id, aborting the provider request", async () => {
+      const provider = heldProvider();
+      const server = await gate();
+      const first = post(server).catch(() => undefined);
+      await vi.waitFor(() => expect(provider.calls()).toBe(1));
+      const cancelled = await realFetch(
+        `${server.url}${MODEL_CALLS_PATH}/${encodeURIComponent(body.effectId)}/cancel`,
+        { method: "POST", headers: { authorization: `Bearer ${token}`, "nylorun-tenant": tenantId } },
+      );
+      expect(cancelled.status).toBe(204);
+      await vi.waitFor(() => expect(provider.upstream()?.aborted).toBe(true));
+      await first;
+      const unauthorized = await realFetch(
+        `${server.url}${MODEL_CALLS_PATH}/x/cancel`,
+        { method: "POST", headers: { "nylorun-tenant": tenantId } },
+      );
+      expect(unauthorized.status).toBe(401);
+    });
   });
 
   it("never times out a request before the longest model call", async () => {

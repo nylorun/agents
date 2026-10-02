@@ -23,6 +23,9 @@ import {
 } from "./contract.js";
 import type { ModelGate, ModelGateOutcome } from "./model-gate.js";
 
+/** How long a cancel may take; the call it stops ends with the provider timeout anyway. */
+const CANCEL_TIMEOUT_MS = 2_000;
+
 /** Above the gate's 600 s provider request timeout. */
 export const GATE_CLIENT_TIMEOUT_MS = 630_000;
 
@@ -42,6 +45,35 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
   const where = new URL(options.url).origin;
 
   return {
+    recovers: true,
+    async cancel(request) {
+      const url = new URL(
+        `${MODEL_CALLS_PATH}/${encodeURIComponent(request.effectId)}/cancel`,
+        options.url,
+      );
+      await new Promise<void>((resolve) => {
+        const outgoing = send(
+          url,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${options.token}`,
+              [TENANT_HEADER]: request.tenantId,
+              "content-length": 0,
+            },
+            timeout: CANCEL_TIMEOUT_MS,
+          },
+          (response) => {
+            response.resume();
+            response.on("end", resolve);
+            response.on("error", () => resolve());
+          },
+        );
+        outgoing.on("timeout", () => outgoing.destroy());
+        outgoing.on("error", () => resolve());
+        outgoing.end();
+      });
+    },
     async call(request, signal) {
       signal.throwIfAborted();
       const body: ModelCallBody = {
@@ -162,6 +194,12 @@ function answer(status: number, text: string): ModelGateOutcome | ModelFailureOu
     return failure(
       "auth",
       "The model gate refused this Runtime's token: the runtime and gateway containers must share NYLORUN_GATES_TOKEN",
+      false,
+    );
+  if (status === 409)
+    return failure(
+      "invalid_request",
+      `The call's request changed under the same effect id${message ? `: ${message}` : ""}`,
       false,
     );
   if (status === 400)

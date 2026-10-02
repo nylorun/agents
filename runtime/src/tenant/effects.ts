@@ -114,7 +114,13 @@ export async function invokeModel(
       signal
     );
   } catch (error) {
-    if (signal.aborted) throw error;
+    if (signal.aborted) {
+      // A call that outlives this process stops only when told to: on a user cancel. After a
+      // shutdown or a lost lease the next owner re-sends it and picks up its outcome (P1.2).
+      if (!model && ctx.useVaultModel && abortKind(signal) === "cancel" && ctx.modelGate.cancel)
+        await ctx.modelGate.cancel({ tenantId: ctx.config.tenantId, effectId: request.effectId });
+      throw error;
+    }
     return classifyThrown(error);
   }
 }

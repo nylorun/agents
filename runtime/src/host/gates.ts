@@ -13,6 +13,7 @@ import type { AddressInfo } from "node:net";
 import { getRequestListener } from "@hono/node-server";
 import { createGatesApp } from "../api/gate/routes.js";
 import { createModelCallHandler } from "../gates/handler.js";
+import { createInflightCalls, type InflightCallsOptions } from "../gates/inflight.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { probeDatabase } from "../infra/database.js";
@@ -39,6 +40,8 @@ export interface StartGatesOptions {
   readonly maxBodyBytes?: number;
   /** How long `close` lets running calls finish. Default 10 s. */
   readonly drainMs?: number;
+  /** How long keyed outcomes are kept, and how many (tests). */
+  readonly inflight?: InflightCallsOptions;
 }
 
 export interface GatesServer {
@@ -56,8 +59,10 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       throw new Error("startGates needs the Postgres pool and the Host root");
     vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
   }
+  const inflight = createInflightCalls(options.inflight);
   const app = createGatesApp({
     token: gates.token,
+    inflight,
     modelGate: createModelCallHandler({
       vaults,
       logger,
@@ -113,8 +118,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
         const deadline = Date.now() + (options.drainMs ?? 10_000);
         while (inFlight.size > 0 && Date.now() < deadline)
           await new Promise((resolve) => setTimeout(resolve, 50));
-        // Closing a running call's connection aborts it, and its provider request.
+        // Closing a running call's connection aborts an unkeyed one; keyed calls stop here.
         server.closeAllConnections();
+        inflight.close();
         await closed;
       })();
       return closing;
