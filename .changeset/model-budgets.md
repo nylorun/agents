@@ -9,4 +9,3 @@
 - `@nylorun/core` adds `budget_exhausted` to `ModelFailureCode` and `MODEL_FAILURE_CODES`, plus `ModelBudgetSchema`, `PutModelBudgetsRequestSchema` and `ModelBudgetsSchema`. Code that switches over failure codes exhaustively needs the new case.
 - Custom endpoints are priced at $0, so only a token limit stops them.
 - Budgets survive a `sessions` reset. A reset of scope `all` clears them.
-- Tenant schema migration 11 adds the `model_budgets` table.
