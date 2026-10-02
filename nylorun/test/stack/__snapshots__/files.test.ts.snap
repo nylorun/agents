@@ -25,7 +25,7 @@ NYLORUN_RESTATE_IDENTITY_KEY=publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdc
 # into the Host root belong to you.
 NYLORUN_UID=501
 NYLORUN_GID=20
-NYLORUN_HOST_ROOT=/Users/dev/.nylorun
+NYLORUN_HOST_ROOT=/Users/dev/.nylorun/stacks/shop
 
 NYLORUN_RUNTIME_IMAGE=ghcr.io/nylorun/runtime:0.10.0-beta
 NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
@@ -33,12 +33,18 @@ NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
 # Exact origins that may show Studio in a frame (Babai Desktop). Kept across
 # starts; change with nylorun start --studio-embed-origin <origin>.
 NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'
+
+# The stack's name, which its Runtime gives the Tenant it creates on the first
+# start, and the derived principals it registers on that Tenant (keys derived
+# from the admin key; \`project\` is the Project link's).
+NYLORUN_STACK_NAME=shop
+NYLORUN_DERIVED_PRINCIPALS='project,babai'
 "
 `;
 
 exports[`compose.yaml > matches the committed file 1`] = `
 "# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
-name: nylorun
+name: nylorun-shop
 
 services:
   postgres: # Session Store
@@ -49,6 +55,7 @@ services:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}
       POSTGRES_DB: nylorun
+      POSTGRES_INITDB_ARGS: "--locale=C" # C collation for the whole database
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
@@ -87,9 +94,9 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
-  gateway: # the Model Gate: model credentials and provider calls; not published
+  gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
-    command: ["--service", "gates"]
+    command: ["--service", "gates,keys"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
       postgres: { condition: service_healthy }
@@ -100,11 +107,14 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
-      host.docker.internal: host-gateway # a model server on this machine, e.g. Ollama
+      host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
-      # The Tenants' vault keys and homes only, read-only.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenants:/nylorun/tenants:ro
+      # The Tenant's homes and its vault key only, read-only.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/keys:/nylorun/keys:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
@@ -123,8 +133,14 @@ services:
     environment:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
-      # Model calls go through the gateway; this container never reads a model credential.
+      # The Tenant the Runtime creates on its first start (later starts open it).
+      NYLORUN_TENANT_NAME: \${NYLORUN_STACK_NAME:?run nylorun start}
+      NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
+      # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
+      # and token signing through its keys service: this container never reads a credential
+      # or the vault key.
       NYLORUN_GATES_URL: http://gateway:4100
+      NYLORUN_KEYS_URL: http://gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_LISTEN_HOST: 0.0.0.0
       NYLORUN_LISTEN_PORT: "4000"
@@ -150,12 +166,22 @@ services:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
+      # Empty and read-only over the vault key (keys/) and the stack's secrets (docker/):
+      # only the gateway reads the key, and only Restate its private key.
+      - type: tmpfs
+        target: /nylorun/keys
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
+      - type: tmpfs
+        target: /nylorun/docker
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
       - "127.0.0.1:\${NYLORUN_ADMIN_PORT:?run nylorun start}:4001" # Admin API (operators only)
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+    healthcheck: # liveness: a Tenant that cannot open is reported by nylorun start from the Admin status, not by a 300 s wait
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
       timeout: 5s
       retries: 60

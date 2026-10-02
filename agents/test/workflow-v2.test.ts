@@ -15,7 +15,6 @@ import { executeAction } from "../src/execute-action.js";
  * document, and its Action endpoint serves flow actions only for the manifest it runs.
  */
 
-const TENANT = "tn_00000000000000000000000001";
 const KEY = "a".repeat(64);
 const URL = "http://127.0.0.1:8787";
 const ENDPOINT = "http://localhost:3000/nylorun/actions";
@@ -27,7 +26,6 @@ async function register(agents: Parameters<typeof createActionHandler>[0]["agent
   const application = new AgentsClient({
     url: URL,
     key: KEY,
-    tenant: TENANT,
     fetch: async (url, init) => {
       const path = String(url);
       if (path.endsWith("/health")) return healthOk();
@@ -114,7 +112,6 @@ describe("saveAgent with a v2 flow agent", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
         if (init?.method === "PUT") {
@@ -195,7 +192,6 @@ describe("a flow agent used as a tool (Phase 3)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
         puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init!.body)) });

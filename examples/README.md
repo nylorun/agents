@@ -13,7 +13,7 @@ npm run setup
 npm run dev
 ```
 
-Root development rebuilds local packages and the Runtime and Studio images, runs them in the local Docker stack (Runtime on port 8787, Studio on port 4161 by default), and runs these examples on their own Tenant, created once with `nylo tenant create`, which seeds the model provider from `.env` into that Tenant's vault. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the stack is running.
+Root development rebuilds local packages and the Runtime and Studio images, runs them in the examples' own local Docker stack (Runtime on port 8787, Studio on port 4161 by default) with `nylorun start` in this directory, which creates the stack and its Tenant, links this directory to it, and on that first link seeds the model provider from `.env` into the Tenant's vault; then it runs these examples with their own `npm run dev`. Outside root development, run `npx nylorun start` here, then `npm run dev`. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the stack is running.
 
 `MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. An existing `.env/` directory must be migrated by hand (back it up, create a `.env` file with those variables, and move OAuth credentials to `.nylorun/auth.json`); local state is never moved automatically.
 
@@ -25,7 +25,7 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 
 ```bash
 eval "$(npx @nylorun/cli env)"
-curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_SERVER_KEY" -H "nylorun-tenant: $NYLORUN_TENANT" -H "nylorun-protocol: 2" -H "content-type: application/json" -d '{"default":"virtual"}'
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/sandbox" -H "authorization: Bearer $NYLORUN_SERVER_KEY" -H "nylorun-protocol: 5" -H "content-type: application/json" -d '{"default":"virtual"}'
 ```
 
 The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`. The Runtime runs those tools itself in an emulated shell; it is not a VM boundary. `npx nylo doctor sandbox` reports its backend and the Tenant's sandbox configuration. Try in Studio:
@@ -67,7 +67,7 @@ The run ends with an approval interrupt for `lookup_order`; resume it with a
 second run that carries `resume: [{ interruptId, status: "resolved", payload: { approved: true } }]`.
 For a UI, point CopilotKit or `@ag-ui/client`'s `HttpAgent` at
 `/api/agui/support`. [`test/ag-ui.test.ts`](./test/ag-ui.test.ts) drives the same
-flow for two people against an in-memory Runtime.
+flow for two people against an in-process Runtime (see [Tests](#tests)).
 
 The handler is a web-standard `fetch` function, so it mounts anywhere:
 
@@ -100,13 +100,13 @@ npm run browser-direct
 
 The stack allows browser requests from `http://localhost:*` with that key.
 [`test/browser-direct.test.ts`](./test/browser-direct.test.ts) runs a chat with
-an approval from the page against an in-memory Runtime, reloads it, and checks
+an approval from the page against an in-process Runtime, reloads it, and checks
 that the page never receives the application key.
 
 Rules for a web backend:
 
-- One Tenant per environment (`prod`, `staging`). Your users are subjects, not
-  Tenants.
+- One installation, and so one Tenant, per environment (`prod`, `staging`).
+  Your users are subjects, not Tenants.
 - The subject is your user id, namespaced and stable (`app:<id>`), never an
   email address. [`demo-auth.ts`](./src/ag-ui/demo-auth.ts) is a stand-in:
   replace it with your session lookup.
@@ -120,6 +120,18 @@ Rules for a web backend:
   handler's `session` option, adding `"vaults:own"` to its `scopes`.
 - The Runtime stays off the network: see
   [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
+
+## Tests
+
+`npm test` runs the examples' tests. The AG-UI and browser-direct tests start an
+in-process Runtime (`startEphemeralRuntime`) whose Tenant lives in a database of its own
+on the runtime test stack's Postgres ([`test/database.ts`](./test/database.ts)). Start that
+stack first, from the repository root (it needs Docker; the runtime's `npm test` starts it
+too):
+
+```sh
+npm run test:stack:up --workspace @nylorun/runtime
+```
 
 ## Generated shell and authored examples
 
@@ -257,4 +269,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-Sessions of the supported registry live in the local Docker stack: the examples Tenant's Postgres schema, with their history in S2. The Project link and generated application credentials are in `.nylorun/`; `npx nylorun reset` deletes every Tenant. Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the examples' local Docker stack: its Tenant's Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx @nylorun/cli reset --all` empties the Tenant, and `npx nylorun reset` deletes the stack's data. Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.

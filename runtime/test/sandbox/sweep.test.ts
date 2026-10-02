@@ -13,7 +13,7 @@ import {
 } from "@nylorun/core/define";
 import { virtualBackend } from "../../src/adapters/sandbox/virtual.js";
 import { SandboxManager, sandboxCapabilityOf } from "../../src/sandbox/manager.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
+import { createTestSessionStore } from "../support/store.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -31,7 +31,7 @@ const manifest: AgentManifest = {
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), "nylorun-sandbox-sweep-"));
   roots.push(root);
-  const store = new MemorySessionStore({ tenantId: "tn_sandbox" });
+  const store = await createTestSessionStore();
   const events: { sessionId: string; type: string; state?: string }[] = [];
   const manager = new SandboxManager({
     scope: "tn_sandbox",

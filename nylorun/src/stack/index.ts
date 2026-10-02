@@ -14,7 +14,7 @@ export {
   tenantStudioPath,
   STACK_SERVICES,
 } from "./commands.js";
-export type { StackDeps, StackEndpoints, StackStatus } from "./commands.js";
+export type { StackDeps, StackEndpoints, StackStatus, StackTenant } from "./commands.js";
 export { checkDocker } from "./docker.js";
 export type { Check, DockerChecks } from "./docker.js";
 
@@ -24,6 +24,12 @@ function browserCommand(env: Readonly<Record<string, string | undefined>>): stri
   return "xdg-open";
 }
 
+/**
+ * Variables `docker/.env` sets for Compose: `nylorun start` writes them there, so the
+ * environment must not override them when Compose interpolates the file.
+ */
+const STACK_ENV_OWNED = ["NYLORUN_STACK_NAME", "NYLORUN_DERIVED_PRINCIPALS"];
+
 /** Real dependencies: docker on PATH, global fetch, the terminal. */
 export function defaultStackDeps(
   env: Readonly<Record<string, string | undefined>>,
@@ -31,7 +37,9 @@ export function defaultStackDeps(
   const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
   return {
     env,
-    docker: spawnDocker(env),
+    docker: spawnDocker(
+      Object.fromEntries(Object.entries(env).filter(([key]) => !STACK_ENV_OWNED.includes(key))),
+    ),
     fetch: (input, init) => fetch(input, init),
     ports: loopbackPorts,
     uid: typeof process.getuid === "function" ? process.getuid() : 1000,
@@ -78,7 +86,7 @@ export function defaultStackDeps(
   };
 }
 
-/** Entry for `nylorun start|stop|status|logs|reset|studio`. */
+/** Entry for `nylorun start|stop|status|logs|reset|studio|ls|delete|legacy`. */
 export async function stackCommand(
   name: string,
   args: readonly string[],
@@ -87,7 +95,7 @@ export async function stackCommand(
   return await runStackCommand(name, args, defaultStackDeps(env));
 }
 
-/** `nylorun studio`, landing on `next` (a Tenant page) when given. */
+/** `nylorun studio`, landing on `next` when given, else on the stack's Tenant. */
 export async function studioCommand(
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>>,

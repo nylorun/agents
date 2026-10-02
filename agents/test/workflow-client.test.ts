@@ -39,7 +39,6 @@ describe("SessionClient.input (WF-R4 / WF-C6)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
         body = JSON.parse(String(init?.body));
@@ -65,7 +64,6 @@ describe("SessionClient.input (WF-R4 / WF-C6)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
         body = JSON.parse(String(init?.body));
@@ -99,7 +97,6 @@ describe("SessionClient.pending (WF-C6)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url) => {
         if (String(url).endsWith("/health")) return healthOk();
         return Response.json({
@@ -122,7 +119,6 @@ describe("SessionClient.sandbox (WF-C6)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         const path = String(url);
         if (path.endsWith("/health")) return healthOk();
@@ -173,7 +169,6 @@ describe("SessionClient.observe follow (WF-EV8 / WF-C6)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         const path = String(url);
         if (path.endsWith("/health")) return healthOk();
@@ -268,7 +263,6 @@ describe("AgentsClient.saveAgent workflow (WF-R3 / WF-C6)", () => {
     const client = new AgentsClient({
       url: URL,
       key: KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
         if (init?.method === "PUT") {

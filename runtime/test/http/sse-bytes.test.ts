@@ -14,6 +14,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
+import { testPool } from "../support/store.js";
 
 const TENANT = `tn_${"0".repeat(22)}sse0`;
 const APPLICATION_KEY = "sse-bytes-application-key-0000000";
@@ -114,6 +115,7 @@ function open(
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-sse-bytes-"));
   rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     tenantId: TENANT,
     applicationKey: APPLICATION_KEY,

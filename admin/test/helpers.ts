@@ -138,7 +138,7 @@ export function sampleStatus() {
     service: "nylorun-runtime",
     version: "0.9.0-beta",
     protocol: { ...HOST_PROTOCOL, features: [...PROTOCOL_FEATURES] },
-    tenants: [sampleTenant()],
+    tenant: sampleTenant(),
     aggregate: {
       runningSessions: 0,
       inFlightDeliveries: 0,

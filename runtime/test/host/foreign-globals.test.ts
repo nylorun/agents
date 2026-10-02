@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { getRequestListener } from "@hono/node-server";
 import { expect, it, vi } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import { testPool } from "../support/store.js";
 
 const native = globalThis.Response;
 getRequestListener(() => new Response("the app"));
@@ -22,6 +23,7 @@ it("answers normally in a process whose Request and Response @hono/node-server r
   const errors = vi.spyOn(console, "error");
   const root = await mkdtemp(join(tmpdir(), "nylorun-foreign-globals-"));
   const rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     operatorListener: true,
     model: { kind: "fixture" },

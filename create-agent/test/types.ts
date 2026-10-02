@@ -11,7 +11,6 @@ agent.run();
 const client = createClient({
   url: "http://127.0.0.1:8787",
   key: "server",
-  tenant: "tn_00000000000000000000000000",
 });
 const session = await client.createSession({
   agentId: agent.manifest.id,
@@ -24,7 +23,6 @@ const actions = createActionHandler({
   agents: [agent],
   runtime: {
     url: "http://127.0.0.1:8787",
-    tenant: "tn_00000000000000000000000000",
   },
 });
 const answered: Response = await actions.fetch(

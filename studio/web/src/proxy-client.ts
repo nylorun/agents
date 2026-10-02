@@ -11,15 +11,20 @@ export type StudioFetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+/** The installation's one Tenant, as the Studio server reports it. */
 export type StudioTenant = Readonly<{
-  id: string;
+  /** Null until the server has read it from the Runtime. */
+  id: string | null;
   name: string | null;
-  state: string;
+  state: "open" | "unavailable";
+  /** Why it is unavailable and how to repair it. */
+  message?: string;
 }>;
 
 export type StudioHello = Readonly<{
   version: string;
   runtime: Readonly<{ compatible: boolean; message?: string }>;
+  tenant: StudioTenant;
 }>;
 
 /** The Studio server has no session for this browser. */
@@ -90,7 +95,6 @@ export function createTenantClient(
   return createClient({
     url: (options?.origin ?? location.origin) + tenantRuntimePath(tenantId),
     key: "studio-session",
-    tenant: tenantId,
     fetch: (input, init) => {
       const headers = new Headers(init?.headers);
       headers.delete("authorization");
@@ -114,48 +118,10 @@ async function readJson<T>(response: Response, what: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Studio's version, the Runtime's compatibility and the installation's Tenant. */
 export async function fetchHello(fetcher?: StudioFetch): Promise<StudioHello> {
   return readJson<StudioHello>(
     await studioFetch("/_studio/hello", undefined, fetcher),
     "Studio hello",
   );
-}
-
-/**
- * Create a Tenant through the Studio server. It registers the derived
- * principal `project`, so a Project on this machine can link it with
- * `nylo tenant use <id>`; no key reaches the browser.
- */
-export async function createTenant(
-  name: string,
-  fetcher?: StudioFetch,
-): Promise<StudioTenant> {
-  const body = await readJson<{ tenant: StudioTenant }>(
-    await studioFetch(
-      "/_studio/tenants",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
-      },
-      fetcher,
-    ),
-    "Creating the Tenant",
-  );
-  return body.tenant;
-}
-
-/** The command that links a Project on this machine to a Tenant. */
-export function tenantUseCommand(tenantId: string): string {
-  return `npx @nylorun/cli tenant use ${tenantId}`;
-}
-
-export async function listTenants(
-  fetcher?: StudioFetch,
-): Promise<readonly StudioTenant[]> {
-  const body = await readJson<{ tenants: StudioTenant[] }>(
-    await studioFetch("/_studio/tenants", undefined, fetcher),
-    "Listing Tenants",
-  );
-  return body.tenants;
 }

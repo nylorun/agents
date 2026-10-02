@@ -10,7 +10,7 @@
  * (`signing-keys.ts`), so a rotation never revokes a live token.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { errors, jwtVerify, SignJWT } from "jose";
+import { errors, jwtVerify } from "jose";
 import {
   DELIVERY_TOKEN_MAX_TTL_SECONDS,
   DELIVERY_TOKEN_TYPE,
@@ -54,27 +54,26 @@ export async function mintDeliveryToken(
     ttlSeconds: number;
   },
 ): Promise<MintedDeliveryToken> {
-  const kek = ctx.signingKeys.kek();
-  const row = await ctx.store.tx((t) => ctx.signingKeys.ensure(t, kek));
-  const signer = await ctx.signingKeys.privateKey(row, kek);
   const ttl = Math.max(1, Math.min(Math.floor(options.ttlSeconds), DELIVERY_TOKEN_MAX_TTL_SECONDS));
   const iat = Math.floor(Date.now() / 1000);
   const tokenId = randomUUID();
   const delivery = options.for;
-  const token = await new SignJWT({
-    agt: delivery.agentId,
-    gen: delivery.kind === "action" ? delivery.generation : 0,
-    bdy: bodyHash(options.body),
-  })
-    .setProtectedHeader({ alg: "ES256", typ: DELIVERY_TOKEN_TYPE, kid: signer.id })
-    .setIssuer(subjectTokenIssuer(ctx.config.tenantId))
-    .setAudience(options.audience)
-    .setSubject(delivery.kind === "action" ? delivery.actionId : "ping")
-    .setIssuedAt(iat)
-    .setExpirationTime(iat + ttl)
-    .setJti(tokenId)
-    .sign(signer.key);
-  return { token, expiresAt: (iat + ttl) * 1000, tokenId, keyId: signer.id };
+  // Signed by the keys service (F4.2): this process never holds the private key.
+  const { token, keyId } = await ctx.keys.sign({
+    typ: DELIVERY_TOKEN_TYPE,
+    claims: {
+      agt: delivery.agentId,
+      gen: delivery.kind === "action" ? delivery.generation : 0,
+      bdy: bodyHash(options.body),
+      iss: subjectTokenIssuer(ctx.config.tenantId),
+      aud: options.audience,
+      sub: delivery.kind === "action" ? delivery.actionId : "ping",
+      iat,
+      exp: iat + ttl,
+      jti: tokenId,
+    },
+  });
+  return { token, expiresAt: (iat + ttl) * 1000, tokenId, keyId };
 }
 
 /**

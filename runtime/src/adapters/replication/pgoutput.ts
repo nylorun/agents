@@ -29,6 +29,11 @@ import type {
 export interface PgoutputSourceOptions {
   /** A Postgres URL whose role may replicate (`REPLICATION`) and read `nylorun_streams`. */
   connectionString: string;
+  /**
+   * The Tenant the database holds. The record has no Tenant column (one Tenant per
+   * database), so every row read is this Tenant's.
+   */
+  tenantId: string;
   /** Default `nylorun_stream_relay`. */
   slot?: string;
   /** Default `nylorun_stream_relay`. */
@@ -51,6 +56,7 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
   const publication = options.publication ?? "nylorun_stream_relay";
   const schema = options.schema ?? "nylorun_streams";
   const retryMs = options.retryMs ?? 5000;
+  const { tenantId } = options;
   const log = options.log ?? (() => {});
   const pool = new pg.Pool({
     connectionString: options.connectionString,
@@ -122,7 +128,7 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
             message.relation?.schema === schema &&
             message.relation?.name === "session_events"
           )
-            decoding.rows.push(rowOf(message.new));
+            decoding.rows.push(rowOf(message.new, tenantId));
           break;
         case "commit": {
           const tx: CommittedTx = { endLsn: message.commitEndLsn, rows: decoding?.rows ?? [] };
@@ -197,9 +203,9 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
 }
 
 /** A decoded `session_events` row (`pg` parses `json`; `bigint` arrives as text). */
-function rowOf(values: Record<string, any>): RecordRow {
+function rowOf(values: Record<string, any>, tenantId: string): RecordRow {
   return {
-    tenantId: values.tenant_id,
+    tenantId,
     sessionId: values.session_id,
     seq: Number(values.seq),
     generation: Number(values.generation),

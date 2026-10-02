@@ -1,16 +1,16 @@
-import type {
-  AdminStatus,
-  AdminTenant,
-  AdminTenantStatus,
-  TenantEnvelope,
-} from "@nylorun/core/contracts";
+import type { AdminStatus, HostTenant, TenantEnvelope } from "@nylorun/core/contracts";
 import {
   ERROR_CODES,
   PROTOCOL_FEATURES,
   compareVersions,
   type ErrorCode,
 } from "@nylorun/core/compatibility";
-import { AdminClient, resolveAdminConnection } from "./client.js";
+import {
+  AdminClient,
+  resolveAdminConnection,
+  stackHostRoot,
+  type AdminConnectionOptions,
+} from "./client.js";
 import {
   PROJECT_PRINCIPAL_ID,
   deriveStudioToken,
@@ -21,7 +21,7 @@ import { AdminError } from "./errors.js";
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
-export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey };
+export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey, stackHostRoot };
 export { mintStudioLoginToken } from "./studio-login.js";
 
 export interface Admin {
@@ -30,32 +30,23 @@ export interface Admin {
   /** Where Admin API requests go: the operator listener, or `url` on a single-port Host. */
   readonly adminUrl: string;
   readonly source: "options" | "environment" | "local-host";
+  /** The Host's status, with the one Tenant it serves (`status.tenant`). */
   status(): Promise<AdminStatus>;
-  listTenants(): Promise<AdminTenant[]>;
-  getTenant(id: string): Promise<AdminTenantStatus>;
-  deleteTenant(
-    id: string,
-    options?: { activeWork?: "refuse" | "drain" | "cancel" },
-  ): Promise<void>;
   /**
-   * Creates a Tenant. `principals` names derived principals (e.g. `["babai"]`): their keys
-   * come from `deriveTenantKey`, so their clients store none. Needs Host feature
-   * `derived-principals`.
+   * The key of a derived principal on the Host's Tenant, from this client's admin key. The
+   * Host registers the principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default
+   * `project`) when it creates its Tenant.
    */
-  createTenant(options: {
-    name: string;
-    principals?: readonly string[];
-  }): Promise<{ tenant: TenantEnvelope; applicationKey: string }>;
-  /** The key of a derived principal on a Tenant, from this client's admin key. */
   deriveTenantKey(tenantId: string, principalId: string): string;
 }
 
-export function createAdmin(options?: {
-  url?: string;
-  key?: string;
-  home?: string;
-}): Admin {
+/**
+ * Resolution: explicit `url` + `key` → `NYLORUN_ADMIN_URL` + `NYLORUN_ADMIN_KEY` → the local
+ * Host's settings in its Host root (`home`, `NYLORUN_HOME`, or the stack named by `stack`,
+ * `NYLORUN_STACK` or the Project link under `cwd`: `~/.nylorun/stacks/<stack>/`).
+ */
+export function createAdmin(options?: AdminConnectionOptions): Admin {
   return new AdminClient(resolveAdminConnection(options));
 }
 
-export type { AdminStatus, AdminTenant, AdminTenantStatus, TenantEnvelope };
+export type { AdminConnectionOptions, AdminStatus, HostTenant, TenantEnvelope };

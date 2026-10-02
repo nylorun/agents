@@ -9,9 +9,8 @@
  * `DurableExecution`, whose handlers (`worker.ts`) call `advance` and `sweep`; `abortLocal`
  * aborts an advance running on this process.
  *
- * Execution: the Host passes one `TenantExecution` for every Tenant it opens
- * (`TenantOpenHooks.execution`); without one, the Tenant runs its own in-process
- * `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
+ * Execution: the Host passes its `TenantExecution` (`TenantOpenHooks.execution`); without
+ * one, the Tenant runs its own in-process `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
  * session (§10.6) keeps its advances apart.
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
@@ -33,7 +32,7 @@ import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
-import { QuarantineError } from "./quarantine-error.js";
+import { openError } from "./cause.js";
 import { MemoryStreams } from "../streams/memory.js";
 import type { DurableStreams } from "../streams/types.js";
 import type {
@@ -72,6 +71,8 @@ import {
   type TenantWorker,
 } from "./worker.js";
 import { authorize } from "./effects.js";
+import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
+import { inProcessKeys, type Keys } from "../keys/keys.js";
 import { tenantApi } from "../api/http/app.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -82,6 +83,16 @@ export type TenantOpenHooks = {
    * the Tenant calls the model in this process.
    */
   modelGate?: ModelGate;
+  /**
+   * Serves the Tenant's remote MCP servers and Action deliveries (the gates service's client).
+   * Without one, the Tenant opens them and POSTs deliveries in this process.
+   */
+  toolGate?: ToolGate;
+  /**
+   * Runs vault writes and token signing (the `keys` service's client, F4.2). With one, this
+   * process never reads, creates or holds the vault key. Without one, it does them here.
+   */
+  keys?: Keys;
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
@@ -100,7 +111,7 @@ export type TenantOpenHooks = {
    */
   streams?: DurableStreams;
   /**
-   * The Host's stream relay feeds `streams` from the record for every Tenant. Without it the
+   * The Host's stream relay feeds `streams` from the record. Without it the
    * Tenant relays its own commits.
    */
   hostRelay?: boolean;
@@ -159,29 +170,34 @@ export class TenantRuntime implements TenantHandle {
     let wired: StreamsWiring | undefined;
     let detach: (() => Promise<void>) | undefined;
     try {
-      let kek = readVaultKek({
-        vaultKek: hooks.vaultKek,
-        vaultKekPath: paths.kek,
-      });
-      const sealed = await store.tx(
-        async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
-      );
-      if (sealed > 0 && !kek) {
-        throw new QuarantineError(
-          "kek-missing",
-          "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant",
-          "restore the vault-kek file in the Tenant directory"
+      // With the keys service (F4.2) the key lives in the gateway: this process never reads,
+      // creates or holds it, and the gateway reports a missing key on its readiness.
+      let kek = hooks.keys
+        ? undefined
+        : readVaultKek({
+            vaultKek: hooks.vaultKek,
+            vaultKekPath: paths.kek,
+          });
+      if (!hooks.keys) {
+        const sealed = await store.tx(
+          async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
         );
+        if (sealed > 0 && !kek) {
+          throw openError(
+            "kek-missing",
+            "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant",
+          );
+        }
       }
       const createKekIfMissing = hooks.createKekIfMissing !== false;
       const ensureKek = (): Buffer => {
+        if (hooks.keys)
+          throw new Error(
+            "The vault key lives in the gateway's keys service: this process never reads it"
+          );
         if (kek) return kek;
         if (!createKekIfMissing)
-          throw new QuarantineError(
-            "kek-missing",
-            "Vault key-encryption key is required",
-            "restore the vault-kek file in the Tenant directory"
-          );
+          throw openError("kek-missing", "Vault key-encryption key is required");
         kek = createKekFile(paths.kek);
         return kek;
       };
@@ -198,10 +214,15 @@ export class TenantRuntime implements TenantHandle {
       });
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
+      const toolGate = hooks.toolGate ?? inProcessToolGate(config.delivery ?? {});
+      const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });
+      const keys =
+        hooks.keys ?? inProcessKeys({ store: opened, vault, signingKeys, kek: ensureKek });
       const mcp = new McpPool({
         pluginData: paths.pluginData,
         childEnv: config.childEnv,
         authorize: (sessionId, request) => authorize(ctx, sessionId, request),
+        ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),
       });
       const ephemeral = config.mode === "ephemeral";
       const sandbox = new SandboxManager({
@@ -269,11 +290,13 @@ export class TenantRuntime implements TenantHandle {
         modelProvider,
         useVaultModel,
         modelGate,
+        toolGate,
         closing: false,
         closed: false,
         work: createWorkState(),
         sessionStreams,
-        signingKeys: new SigningKeys({ tenantId: config.tenantId, kek: ensureKek }),
+        signingKeys,
+        keys,
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
         wake: async (sessionId, wake) => {

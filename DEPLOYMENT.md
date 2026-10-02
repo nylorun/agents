@@ -1,40 +1,46 @@
 # Runtime deployment
 
 This release supports one machine: the **local Docker stack** that
-`nylorun up` runs (the Runtime, its gateway, Studio, Postgres, Restate and
-s2-lite, as Docker Compose project `nylorun`), with **Tenants** served by that Runtime and
-the application's **Action endpoints** (the tools it serves) on the same machine
-or reachable from it. Vocabulary:
+`nylorun start` runs for a project (the Runtime, its gateway, Studio, Postgres,
+Restate and s2-lite, as Docker Compose project `nylorun-<stack>`), an
+installation that serves one **Tenant**, and the application's **Action
+endpoints** (the tools it serves) on the same machine or reachable from it. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
 ```sh
-npx nylorun up
+npx nylorun start
 npm run build
 eval "$(npx @nylorun/cli env)"
 npm start
 ```
 
-`nylorun up` starts the stack, or leaves it running when it already is, and
+`nylorun start` in the project starts its stack (creating it, its Tenant and the
+Project link the first time), or leaves it running when it already is, and
 prints the Runtime and Studio URLs. `npm start` runs
 `node dist/src/main.js`, which serves the application's Action endpoint and
-registers it with the Runtime using three variables: `NYLORUN_RUNTIME_URL`,
-`NYLORUN_TENANT` and `NYLORUN_SERVER_KEY`, or through the Project link. The
+registers it with the Runtime using two variables: `NYLORUN_RUNTIME_URL` and
+`NYLORUN_SERVER_KEY`, or through the Project link. The
 Runtime calls that endpoint for every tool call, so its URL
 (`NYLORUN_ACTIONS_URL` in the starter) must be reachable from the Runtime: the
 local stack maps `localhost` to this machine. `nylo env`
-(`npx @nylorun/cli env`) prints them for the Project that `nylo tenant create`
+(`npx @nylorun/cli env`) prints them for the Project that `nylorun start`
 linked; a supervisor can set them directly instead. The application does not
 start the stack, Studio or a file watcher; start the stack first
-(`nylorun up`), under the same supervisor if you use one.
+(`nylorun start`), under the same supervisor if you use one.
 
-Keep the **Host root** (`NYLORUN_HOME` or `~/.nylorun`) private and persistent
-across ordinary restarts: `host.json`, the admin key in
-`host-credentials.json`, the Docker setup in `docker/` (`compose.yaml` and `.env`), and every
-Tenant directory. Tenant data lives in the stack's Docker volumes: Postgres (each
-Tenant's schema), s2-lite (session history), Restate and the workspaces. Keep each
-Project's `.nylorun/link.json` and `credentials.json` private as well; model
-credentials live in the Tenant's vault. `nylorun down` (or `stop`) stops the
-containers and keeps the volumes; `nylorun reset` deletes the volumes and every Tenant.
+Keep the stack's **Host root** (`~/.nylorun/stacks/<stack>/`, or `NYLORUN_HOME`)
+private and persistent across ordinary restarts: `host.json`, the admin key in
+`host-credentials.json`, the Docker setup in `docker/` (`compose.yaml` and `.env`), the
+Tenant directory `tenant/`, and the vault key in `keys/vault-kek`. Back up the
+vault key with the Postgres volume: the Tenant's stored credentials cannot be
+read without it. The Tenant's data lives in the
+stack's Docker volumes: Postgres (its database, schemas `nylorun` and
+`nylorun_streams`), s2-lite (session history), Restate and the workspaces. Keep
+each Project's `.nylorun/link.json` and `credentials.json` private as well;
+model credentials live in the Tenant's vault. `nylorun stop` stops the
+containers and keeps the volumes; `nylorun reset` deletes the volumes, the
+Tenant directory and the vault key, so the next start creates a new Tenant; `nylorun delete
+<stack>` removes the stack altogether.
 
 Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
@@ -107,12 +113,12 @@ way in. Nothing in the Runtime changes.
 
 | Proxy rule | Why |
 | --- | --- |
-| Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun up` prints) | The Tenant key travels on every request and controls the whole Tenant |
+| Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun start` prints) | The Tenant key travels on every request and controls the whole Tenant |
 | Rewrite `Host` to `localhost:<port>` | The stack answers `421` to any other `Host` |
 | Forward to the Runtime port only (`NYLORUN_PORT`); never the operator port (`NYLORUN_ADMIN_PORT`), Studio or Restate | The Admin API is on its own port and stays on the machine |
 | Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
 | Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
-| Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Tenant`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
+| Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 
@@ -155,17 +161,18 @@ TLS by placement:
 
 On the app server's machine:
 
-- Use an **application key**, never the admin key. Create a Tenant for the app
-  on the Runtime's machine with `npx @nylorun/cli tenant create <name>`,
-  run outside a Project: it prints the three variables once. Keep the key in
-  the app server's secret store.
+- Use an **application key**, never the admin key. On the Runtime's machine,
+  `npx nylorun start` in the app's project starts the app's installation and
+  links it; `npx @nylorun/cli env` there prints the key
+  (`NYLORUN_SERVER_KEY`, the derived `project` key). Keep the key in the app
+  server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
   for the client and the Action endpoint's `register`; keep
-  `NYLORUN_TENANT` and `NYLORUN_SERVER_KEY` as printed. Register the app's
+  `NYLORUN_SERVER_KEY` as printed. Register the app's
   Action endpoint at a URL the Runtime's machine can reach (the app server's
   address on the network, or a tunnel), and allow that traffic.
 - To check a placement end to end, run the remote check from a checkout of this
-  repository on the app server's machine, against a Tenant made for it:
+  repository on the app server's machine, against an installation made for it:
 
   ```sh
   npm ci && npm run build --workspace @nylorun/core --workspace @nylorun/agents
@@ -178,7 +185,7 @@ On the app server's machine:
   address when the Runtime can reach it). The check verifies the proxy rules, runs a
   chat with an approval, drops the connection and reattaches, then keeps an event
   stream open through ten idle minutes (`--idle-minutes`) and checks that tools are
-  still delivered afterwards. `--fixture-model` switches that Tenant's
+  still delivered afterwards. `--fixture-model` switches the Tenant's
   model calls to the Runtime's deterministic fixture model.
 
 This is one Runtime on one server, operated by hand: no replicas, managed
@@ -204,13 +211,13 @@ too:
 | `wal_level` | `logical` | The relay reads committed events from a replication slot. Changing it restarts Postgres |
 | `max_replication_slots`, `max_wal_senders` | at least 2 (the default 10 is enough) | One slot, `nylorun_stream_relay` |
 | `max_slot_wal_keep_size` | a few GB (the stack uses 4GB) | A stuck relay cannot fill the disk; a lost slot only costs a reconciliation |
-| The Runtime's role | `REPLICATION`, plus read access to `nylorun_streams` | The relay reads every Tenant's events (the stack's `nylorun` role is a superuser) |
+| The Runtime's role | `REPLICATION`, plus read access to `nylorun_streams` | The relay reads the Tenant's events (the stack's `nylorun` role is a superuser) |
 
 On a managed Postgres, turn on its logical replication option (for example
 `rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
 WAL; the relay catches up in order when S2 returns.
 
-## The gateway: model calls
+## The gateway: model and tool calls
 
 The stack runs the Runtime image twice (the combined packing). The `runtime`
 container runs the `core` and `loop` services: the APIs, Studio's backend and
@@ -222,8 +229,11 @@ a model credential.
 - The gateway has no published port; only the runtime reaches it, on the stack
   network, with `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up` generates
   the token once and keeps it.
-- It mounts only the Host root's `tenants/` directory, read-only (the Tenants'
-  vault keys), never `host-credentials.json`, and writes nothing there.
+- It mounts only the Host root's `tenant/` and `keys/` directories, read-only
+  (the Tenant's homes and its vault key), never `host-credentials.json`, and
+  writes nothing there. It is not ready until `keys/vault-kek` is there;
+  `nylorun start` writes it once, and moves the key a stack before this release
+  kept in `tenant/vault-kek`.
 - It reaches model servers on this machine (Ollama, for example) at
   `host.docker.internal`.
 - While it is down, model calls fail with a retryable `transient` outcome and
@@ -244,9 +254,36 @@ a model credential.
   `NYLORUN_GATES_TOKEN`. A proxy between the two must allow an idle request of
   at least 630 s, because the gate answers only when the call has finished.
 
-The combined packing suits one developer on one machine. The vault key files
-are still mounted into the runtime container too, for MCP and signing keys,
-until a later release moves them into a keys service.
+The gateway is also the Tool Gate. Tool calls that leave the loop cross it, so
+the runtime container never holds an MCP credential or calls a tool's server:
+
+- **Remote MCP servers** (`streamable-http` and `sse`): the gateway opens the
+  connection, authorizes it from the session's attached vaults (OAuth refresh
+  included) and runs `tools/list` and `tools/call`. `nylorun logs gateway`
+  shows one `mcp_request` line per request, never arguments, results or
+  credentials. Stdio MCP servers still run in the runtime container.
+- **Action deliveries**: the gateway POSTs every delivery and endpoint ping, so
+  it carries `NYLORUN_ENDPOINT_LOOPBACK` (and any other `NYLORUN_ENDPOINT_*`
+  setting) and reaches Action endpoints on this machine at
+  `host.docker.internal`. While it is down, deliveries are retried with backoff.
+- A remote MCP call outlives the runtime that sent it, like a model call: a
+  restarted runtime picks up its answer. The gateway records each call in the
+  `tool_crossings` table before it reaches the server, so after a gateway
+  restart a call that was in flight is `uncertain`: it may have run, and it is
+  never run again.
+
+The gateway also runs `keys`, the only process that reads the vault key: it
+runs every vault write that touches a secret (creating and rotating a
+credential, setting and selecting the host model) and signs every token
+(subject tokens, Action deliveries, signing-key rotation). The runtime reaches
+it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
+never reads the key: Compose covers `keys/` and `docker/` in the runtime
+container with empty read-only mounts. While the gateway is down, those
+requests answer `503 keys_unavailable`.
+
+The combined packing suits one developer on one machine: the gateway holds
+every secret of the stack in one process. Kubernetes splits it into separate
+services in a later release.
 
 ## Container images
 

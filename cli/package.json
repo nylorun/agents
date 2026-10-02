@@ -3,7 +3,7 @@
   "version": "0.6.0-beta",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "Nylorun Runtime client: Tenants, Project links and model providers",
+  "description": "Nylorun Runtime client: the linked installation's Tenant, its access and its model provider",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nylorun/agents.git",

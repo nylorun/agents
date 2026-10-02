@@ -1,7 +1,7 @@
 /**
- * Shared fixtures for WS-G security suites (hostile Host, two Tenants). Tenants live on the
- * store `NYLORUN_TEST_STORE` selects: in memory by default, or Postgres schemas in a
- * database of the Host's own on the test stack.
+ * Shared fixtures for WS-G security suites (hostile Host). A Host serves one Tenant, the one
+ * Tenant of a database of the Host's own on the test stack; a suite that needs a second
+ * Tenant starts a second Host (installation).
  */
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -29,11 +29,11 @@ import {
 import { createHostLogger } from "../../src/host/logger.js";
 import { mintBearerToken } from "../../src/core/bearer.js";
 import { createTenantModule } from "../../src/tenant/module.js";
-import { createMemoryTenantStore } from "../../src/tenant/store-memory.js";
-import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
-import { createPostgresTenantCatalog } from "../../src/store/postgres/tenants.js";
+import { hostPrincipals } from "../../src/tenant/principals.js";
+import { createPostgresTenantOpener } from "../../src/tenant/store-pg.js";
+import { openTenantDatabase } from "../../src/store/postgres/tenant.js";
 import type { SessionStore } from "../../src/store/types.js";
-import { TEST_STORE, isolatedTestDatabase } from "../support/store.js";
+import { isolatedTestDatabase } from "../support/store.js";
 import { createTenantLogger } from "../../src/tenant/logger.js";
 import { hostPaths, tenantPaths } from "../../src/tenant/paths.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
@@ -76,12 +76,10 @@ export function protocolHeaders(
   };
 }
 
-export function tenantHeaders(
-  tenantId: string,
-  key: string,
-): Record<string, string> {
+/** A Tenant request's headers; `tenant` adds `Nylorun-Tenant`, as a protocol 4 client sends it. */
+export function tenantHeaders(key: string, tenant?: string): Record<string, string> {
   return protocolHeaders({
-    [TENANT_HEADER]: tenantId,
+    ...(tenant === undefined ? {} : { [TENANT_HEADER]: tenant }),
     authorization: `Bearer ${key}`,
   });
 }
@@ -136,12 +134,13 @@ export interface SecurityHost {
   hostId: string;
   module: TenantModule;
   host: HostServer;
-  tenants: SecurityTenant[];
+  /** The Host's Tenant. */
+  tenant: SecurityTenant;
   hostLogLines: string[];
   /** Ambient HOME used for "real user" cloud credential bait. */
   ambientHome: string;
-  /** A Session Store on a Tenant's data, as another process would open it. Close it. */
-  openStore(tenantId: string): Promise<SessionStore>;
+  /** A Session Store on the Tenant's data, as another process would open it. Close it. */
+  openStore(): Promise<SessionStore>;
   close(): Promise<void>;
 }
 
@@ -208,11 +207,11 @@ export async function writeFakeCloudHome(home: string): Promise<void> {
 }
 
 /**
- * In-process Host with real Tenant Runtimes (two by default).
+ * In-process Host with its real Tenant Runtime, created on start in a database of its own.
  * Simulates Host wiring from `host/main.ts` without reading ambient for config.
  */
 export async function startSecurityHost(options?: {
-  tenantNames?: readonly string[];
+  tenantName?: string;
   model?: TenantModelConfig;
   sandboxBackend?: "auto" | "virtual";
   /** When true, childEnv is built from baselineEnvironment(process.env). */
@@ -232,8 +231,6 @@ export async function startSecurityHost(options?: {
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
   mkdirSync(paths.tmp, { recursive: true });
-  mkdirSync(paths.tenants, { recursive: true });
-  mkdirSync(paths.trash, { recursive: true });
 
   const hostId = `host_${newTenantId().slice(3)}`;
   const adminKey = randomBytes(32).toString("hex");
@@ -264,7 +261,7 @@ export async function startSecurityHost(options?: {
   const sandboxBackend = options?.sandboxBackend ?? "virtual";
 
   const configFor = (tenantId: string): TenantConfig => {
-    const tenant = tenantPaths(hostRoot, tenantId);
+    const tenant = tenantPaths(hostRoot);
     const childEnv = tenantChildEnvironment(baseline, config, tenant);
     return {
       tenantId,
@@ -289,66 +286,46 @@ export async function startSecurityHost(options?: {
   const openRuntime: OpenTenantRuntime = (tenantConfig, opened) =>
     openTenantRuntime(tenantConfig, { ...openHooks, ...opened });
 
-  // On Postgres the Host sees every Tenant in its database: give it its own.
-  const database =
-    TEST_STORE === "postgres" ? await isolatedTestDatabase() : undefined;
-  const memory = database
-    ? undefined
-    : createMemoryTenantStore({
-        hostRoot,
-        openRuntime,
-        configFor,
-        logger: hostLogger,
-      });
-  const store =
-    memory ??
-    createPostgresTenantStore({
+  // A database of the Host's own, holding its one Tenant.
+  const database = await isolatedTestDatabase();
+  const id = newTenantId();
+  const name = options?.tenantName ?? "alpha";
+  const applicationKey = mintBearerToken();
+  const principalId = `principal_${randomBytes(8).toString("hex")}`;
+  const tenantPath = tenantPaths(hostRoot);
+  mkdirSync(tenantPath.root, { recursive: true });
+  if (!existsSync(tenantPath.kek)) createKekFile(tenantPath.kek);
+  const module = createTenantModule({
+    open: createPostgresTenantOpener({
       hostRoot,
-      sql: database!.sql,
+      sql: database.sql,
+      create: {
+        tenantId: id,
+        name,
+        principals: hostPrincipals({
+          adminKey,
+          application: { principalId, key: applicationKey },
+        }),
+      },
       openRuntime,
       configFor,
       logger: hostLogger,
-    });
-  async function openStore(tenantId: string): Promise<SessionStore> {
-    if (memory) return memory.sessionStore(tenantId);
-    const opened = await createPostgresTenantCatalog({
-      sql: database!.sql,
-    }).openTenant(tenantId);
-    if (opened.status !== "ok")
-      throw new Error(`Tenant ${tenantId} is ${opened.status}`);
-    return opened.store;
+    }),
+    logger: hostLogger,
+  });
+  async function openStore(): Promise<SessionStore> {
+    return (await openTenantDatabase({ sql: database.sql, create: { name } })).store;
   }
-
-  const module = createTenantModule({ store, logger: hostLogger });
-
-  await module.start();
-
-  const names = options?.tenantNames ?? ["alpha", "beta"];
-  const tenants: SecurityTenant[] = [];
-  for (const name of names) {
-    const id = newTenantId();
-    const applicationKey = mintBearerToken();
-    const principalId = `principal_${randomBytes(8).toString("hex")}`;
-    await module.create({
-      tenantId: id,
-      name,
-      principalId,
-      credentialHash: hashToken(applicationKey),
-      idempotencyKey: `sec-${id}`,
-    });
-    const tenantPath = tenantPaths(hostRoot, id);
-    if (!existsSync(tenantPath.kek)) createKekFile(tenantPath.kek);
-    tenants.push({
-      id,
-      name,
-      applicationKey,
-      principalId,
-      paths: tenantPath,
-      headers(key?: string) {
-        return tenantHeaders(id, key ?? applicationKey);
-      },
-    });
-  }
+  const tenant: SecurityTenant = {
+    id,
+    name,
+    applicationKey,
+    principalId,
+    paths: tenantPath,
+    headers(key?: string) {
+      return tenantHeaders(key ?? applicationKey);
+    },
+  };
 
   const host = createHost({
     hostRoot,
@@ -358,6 +335,7 @@ export async function startSecurityHost(options?: {
     logger: hostLogger,
     coreVersion: "0.4.0-test",
   });
+  // Opens the Tenant: creates it in its database on this first start.
   await host.listen();
 
   const handle: SecurityHost = {
@@ -367,14 +345,14 @@ export async function startSecurityHost(options?: {
     hostId,
     module,
     host,
-    tenants,
+    tenant,
     hostLogLines,
     ambientHome,
     openStore,
     async close() {
       await host.close();
       await module.close();
-      await database?.drop();
+      await database.drop();
       if (!options?.retainRoot) {
         await rm(hostRoot, { recursive: true, force: true });
         await rm(ambientHome, { recursive: true, force: true });
@@ -390,13 +368,25 @@ export function readTenantLog(tenant: SecurityTenant): string {
   return readFileSync(tenant.paths.log, "utf8");
 }
 
-/** Row counts of a Tenant's store, read through a second Session Store on its data. */
+/**
+ * Waits until the Tenant's own stream relay has reconciled the record, which it logs just
+ * after the Tenant opens: a test comparing the Tenant log before and after a request starts
+ * from there.
+ */
+export async function untilTenantSettled(tenant: SecurityTenant): Promise<void> {
+  for (let waited = 0; waited < 5000; waited += 20) {
+    if (readTenantLog(tenant).includes("stream relay reconciled")) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("The Tenant's stream relay did not reconcile");
+}
+
+/** Row counts of the Host's Tenant, read through a second Session Store on its data. */
 export async function countTenantRows(
   host: SecurityHost,
-  tenantId: string,
   table: "definitions" | "sessions",
 ): Promise<number> {
-  const store = await host.openStore(tenantId);
+  const store = await host.openStore();
   try {
     return (await store.tx((t) => t.counts()))[table];
   } finally {

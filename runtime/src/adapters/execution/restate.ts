@@ -12,8 +12,8 @@
  * - `<prefix>NylorunTenant`, key `<tenantId>`. `arm`, `sweep` and `disarm`
  *   keep one self-re-arming sweep chain per Tenant. The chain's generation is
  *   kept in the object's state, so arming is idempotent and a disarmed or
- *   replaced chain dies at its next link. The state is rebuildable: Workers
- *   re-arm every Tenant at startup (§14.8).
+ *   replaced chain dies at its next link. The state is rebuildable: a Host
+ *   re-arms its Tenant's sweep when it opens it, at every start (§14.8).
  * - `<prefix>NylorunTimer`, key `<tenantId>:<timer key>`. `set` records the
  *   latest time and sends a delayed `fire`; a `fire` for an older time is a
  *   no-op, which is how setting a key again replaces it.

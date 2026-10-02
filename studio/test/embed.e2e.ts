@@ -62,8 +62,16 @@ async function fakeRuntime({ listsMissing = false } = {}) {
           protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES, "derived-principals"] },
         }),
       );
-    if (path === "/v1/admin/tenants")
-      return res.end(JSON.stringify([{ id: TENANT, name: "orders", state: "open", envelope: null }]));
+    if (path === "/v1/admin/status")
+      return res.end(
+        JSON.stringify({
+          service: "nylorun-runtime",
+          version: "0.0.0-test",
+          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
+          tenant: { id: TENANT, name: "orders", state: "open", envelope: null },
+          aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
+        }),
+      );
     if (path === "/v1/agents")
       return res.end(
         JSON.stringify({
@@ -217,9 +225,8 @@ for (const [name, browserType] of [
         assert.ok(api.length > 0);
         for (const request of api) assert.match(request.authorization ?? "", /^Bearer v2\./, request.url);
 
-        // Embed mode: no Studio branding or Tenant switcher.
+        // Embed mode.
         const frame = studioFrame(page, studioUrl);
-        assert.equal(await frame.locator("text=Switch Tenant").count(), 0);
         assert.equal(await frame.evaluate(() => document.documentElement.dataset.embed), "1");
 
         // Theme follows the app.
@@ -230,7 +237,7 @@ for (const [name, browserType] of [
         // The app navigates; Studio reports the route back.
         await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/vault`);
         await waitForMessage(page, (m) => m.kind === "route.changed" && m.route === `/tenants/${TENANT}/vault`, "vault route");
-        // Another Tenant's route is refused.
+        // A route outside the installation's one Tenant is refused.
         await page.evaluate(() => (window as any).__post("navigate", { route: "/tenants/tn_other/vault" }));
         await waitForMessage(page, (m) => m.kind === "error" && m.code === "route_other_tenant", "route_other_tenant");
 
@@ -287,7 +294,7 @@ for (const [name, browserType] of [
   });
 }
 
-test("a normal browser tab still signs in with the cookie and lists Tenants", async () => {
+test("a normal browser tab still signs in with the cookie and opens the one Tenant", async () => {
   const browser = await chromium.launch();
   try {
     await withStack(async ({ studioUrl }) => {
@@ -300,9 +307,11 @@ test("a normal browser tab still signs in with the cookie and lists Tenants", as
       const signedOut = await browser.newPage();
       await signedOut.goto(studioUrl);
       await signedOut.getByRole("heading", { name: "Sign in to Studio" }).waitFor();
+      // `/login` sends the browser to `/`, which redirects to the Tenant.
       await page.goto(url);
-      await page.getByRole("heading", { name: "Tenants" }).waitFor();
-      await page.getByText("orders").waitFor();
+      await page.waitForURL(`${studioUrl}/tenants/${TENANT}`);
+      await page.getByText("Agent One").first().waitFor();
+      await page.getByText("orders").first().waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.dataset.embed), undefined);
     });
   } finally {
@@ -324,7 +333,7 @@ test("a Runtime answering {} for provider and vault lists leaves the dashboard r
         const pageErrors: string[] = [];
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.goto(url);
-        await page.getByRole("heading", { name: "Tenants" }).waitFor();
+        await page.waitForURL(`${studioUrl}/tenants/${TENANT}`);
 
         // The session's model picker reports the missing lists instead of crashing.
         await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${SESSION}`);

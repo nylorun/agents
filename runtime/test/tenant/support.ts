@@ -1,4 +1,3 @@
-import { newTenantId } from "@nylorun/core/compatibility";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import type {
@@ -59,53 +58,19 @@ export function createFakeHandle(
   };
 }
 
-export interface FakeRuntimeOptions {
-  hostRoot: string;
-  beforeOpen?: (config: TenantConfig) => void | Promise<void>;
-  openDelayMs?: number;
-  failFor?: ReadonlySet<string> | ((id: string) => Error | undefined);
-}
-
 /**
  * A fake `OpenTenantRuntime`: a handle with the store's envelope that does nothing. It closes
  * the store it was handed, as the real Tenant Runtime does.
  */
 export function createFakeOpenRuntime(
-  options: FakeRuntimeOptions,
+  options: { beforeOpen?: (config: TenantConfig) => void | Promise<void> } = {},
 ): OpenTenantRuntime {
   return async (config, opened) => {
     await options.beforeOpen?.(config);
-    if (options.openDelayMs && options.openDelayMs > 0) {
-      await new Promise((r) => setTimeout(r, options.openDelayMs));
-    }
-    const fail =
-      typeof options.failFor === "function"
-        ? options.failFor(config.tenantId)
-        : options.failFor?.has(config.tenantId)
-          ? new Error(`forced open failure for ${config.tenantId}`)
-          : undefined;
-    if (fail) throw fail;
-
     return createFakeHandle({
       envelope: opened.envelope,
       onClose: () => opened.store.close(),
     });
-  };
-}
-
-export function bootstrapMaterial(
-  overrides: Partial<{
-    principalId: string;
-    credentialHash: string;
-    idempotencyKey: string;
-  }> = {},
-) {
-  return {
-    principalId:
-      overrides.principalId ?? `principal_${newTenantId().slice(3)}`,
-    credentialHash: overrides.credentialHash ?? "ab".repeat(32),
-    idempotencyKey:
-      overrides.idempotencyKey ?? `idem_${newTenantId().slice(3)}`,
   };
 }
 
@@ -115,12 +80,12 @@ export function configForRoot(
   return (tenantId) => ({
     tenantId,
     mode: "test",
-    paths: tenantPaths(hostRoot, tenantId),
+    paths: tenantPaths(hostRoot),
     sandbox: { backend: "virtual" },
     model: { kind: "fixture" },
     childEnv: Object.freeze({
-      HOME: tenantPaths(hostRoot, tenantId).home,
-      TMPDIR: tenantPaths(hostRoot, tenantId).tmp,
+      HOME: tenantPaths(hostRoot).home,
+      TMPDIR: tenantPaths(hostRoot).tmp,
     }),
     logger: silentLogger(),
   });

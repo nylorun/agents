@@ -8,7 +8,7 @@ import { basinOf } from "../../src/streams/basin.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import { createStreamRelay, type StreamRelay } from "../../src/streams/relay/core.js";
 import { sessionStream } from "../../src/streams/types.js";
-import { MemoryRecord } from "../../src/streams/relay/memory.js";
+import { MemoryRecord } from "../support/relay-record.js";
 import type { RecordRow } from "../../src/streams/relay/types.js";
 import type { AppendOptions, AppendResult } from "../../src/streams/types.js";
 

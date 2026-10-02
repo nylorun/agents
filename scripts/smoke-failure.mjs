@@ -11,7 +11,7 @@
 //
 // 1. A stub OpenAI-compatible model runs in a container on the stack network,
 //    from the Runtime image. It counts calls, and holds every call open until
-//    it is released. A Tenant's model is pointed at it (`PUT /v1/tenant/model`,
+//    it is released. The stack's Tenant's model is pointed at it (`PUT /v1/tenant/model`,
 //    provider `custom`), so no test hook is needed in the Runtime.
 // 2. A turn starts; its model effect is committed as `invoking` and the call
 //    reaches the stub, which holds it.
@@ -31,7 +31,14 @@
 // 10. The gateway refuses a caller without the stack's token.
 // 11. A budget's cap is reached (P1.3): the turn fails with
 //     model.budget_exhausted and the stub sees no call.
-// 10. A wrong gates token is refused (401).
+// 12. A remote MCP call through the Tool Gate (F4.1): a stub MCP server holds
+//     `slow`; `docker compose kill runtime` mid-call, then start it. The gateway
+//     keeps the call, the restarted Runtime re-sends and joins it: the turn
+//     completes, nothing is uncertain, and the server ran the tool once. The
+//     gateway logged the call (mcp_request); the runtime never did.
+// 13. Runtime and gateway both killed mid MCP call: the restarted gateway finds
+//     the call's crossing without an answer and answers uncertain, so the
+//     session is uncertain and the server never runs the tool a second time.
 //
 // The stack is always reset at the end.
 import assert from "node:assert/strict";
@@ -39,8 +46,9 @@ import { randomUUID } from "node:crypto";
 import {
   ensureImages,
   eventually,
-  tenantGet,
-  tenantHeaders,
+  hostTenant,
+  runtimeGet,
+  runtimeHeaders,
   withStack,
 } from "./lib/stack.mjs";
 import { run } from "./lib/repo.mjs";
@@ -61,6 +69,16 @@ function answer(res) {
   chunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
   res.end("data: [DONE]\n\n");
 }
+/** A tool call to the MCP tool when the request offers it and no tool result came back yet. */
+function toolCall(res) {
+  const base = { id: "stub", object: "chat.completion.chunk", created: 0, model: "stub" };
+  const chunk = (body) => res.write("data: " + JSON.stringify({ ...base, ...body }) + "\n\n");
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  chunk({ choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_mcp", type: "function", function: { name: "remote__slow", arguments: "{\"value\":1}" } }] }, finish_reason: null }] });
+  chunk({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+  chunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+  res.end("data: [DONE]\n\n");
+}
 http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/calls") {
     res.setHeader("content-type", "application/json");
@@ -77,9 +95,13 @@ http.createServer((req, res) => {
     return res.end("{}");
   }
   if (req.method === "POST" && req.url.endsWith("/chat/completions")) {
-    req.resume();
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
       calls += 1;
+      const body = JSON.parse(raw || "{}");
+      const offered = (body.tools ?? []).some((tool) => tool.function?.name === "remote__slow");
+      if (offered && body.messages?.at(-1)?.role !== "tool") return toolCall(res);
       if (!hold) return answer(res);
       held.add(res);
       // Closed before it was answered: the caller (the gateway) aborted it.
@@ -95,12 +117,82 @@ http.createServer((req, res) => {
 `;
 
 const STUB_ALIAS = "failure-model";
+
+/**
+ * The stub MCP server (F4.1), run with `node -e` in the Runtime image: Streamable HTTP with JSON
+ * answers, one tool `slow` that holds every call until released. It counts calls.
+ */
+const STUB_MCP = String.raw`
+const http = require("node:http");
+let calls = 0;
+let hold = true;
+const held = new Set();
+const reply = (res, id, result) => {
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ jsonrpc: "2.0", id, result }));
+};
+http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/calls") {
+    res.setHeader("content-type", "application/json");
+    return res.end(JSON.stringify({ calls, held: held.size }));
+  }
+  if (req.method === "POST" && req.url === "/hold") {
+    hold = true;
+    return res.end("{}");
+  }
+  if (req.method === "POST" && req.url === "/release") {
+    hold = false;
+    for (const done of held) done();
+    held.clear();
+    return res.end("{}");
+  }
+  if (req.url !== "/mcp") {
+    res.statusCode = 404;
+    return res.end();
+  }
+  if (req.method !== "POST") {
+    res.statusCode = 405;
+    return res.end();
+  }
+  let raw = "";
+  req.on("data", (chunk) => (raw += chunk));
+  req.on("end", () => {
+    const message = JSON.parse(raw);
+    if (message.id === undefined) {
+      res.statusCode = 202;
+      return res.end();
+    }
+    if (message.method === "initialize")
+      return reply(res, message.id, {
+        protocolVersion: message.params.protocolVersion,
+        capabilities: { tools: {} },
+        serverInfo: { name: "failure-mcp", version: "0.0.0" },
+      });
+    if (message.method === "tools/list")
+      return reply(res, message.id, {
+        tools: [{ name: "slow", description: "Holds until released.", inputSchema: { type: "object", properties: { value: { type: "number" } } } }],
+      });
+    if (message.method === "tools/call") {
+      calls += 1;
+      const done = () => reply(res, message.id, { content: [{ type: "text", text: "slow done" }] });
+      if (!hold) return done();
+      held.add(done);
+      res.on("close", () => held.delete(done));
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "unknown method" } }));
+  });
+}).listen(8080, "0.0.0.0");
+`;
+
+const MCP_ALIAS = "failure-mcp";
 const docker = (args, options = {}) => run("docker", args, { capture: true, timeout: 120_000, ...options });
 
 async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) {
   const response = await fetch(`${runtimeUrl}${path}`, {
     method,
-    headers: tenantHeaders(tenant.id, tenant.key, body ? { "content-type": "application/json" } : {}),
+    headers: runtimeHeaders(tenant.key, body ? { "content-type": "application/json" } : {}),
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(15_000),
   });
@@ -121,6 +213,7 @@ try {
 
     // The stub model on the stack network, reachable from the host for its counters.
     const stubName = `${stack.project}-${STUB_ALIAS}`;
+    const mcpName = `${stack.project}-${MCP_ALIAS}`;
     await docker([
       "run", "--detach", "--rm",
       "--name", stubName,
@@ -137,10 +230,9 @@ try {
       const stub = async () => (await fetch(`${stubUrl}/calls`)).json();
       await eventually(() => stub().then(() => true), { timeout: 30_000, message: "the stub model" });
 
-      const admin = await stack.admin();
-      const { tenant: created, applicationKey } = await admin.createTenant({ name: "failure-smoke" });
-      const tenant = { id: created.id, key: applicationKey };
-      const schema = `"tenant_${tenant.id}"`;
+      // The stack's one Tenant; its state is in schema `nylorun`.
+      const tenant = await hostTenant(await stack.admin());
+      const schema = "nylorun";
 
       await request(runtimeUrl, tenant, "/v1/tenant/model", {
         method: "PUT",
@@ -171,8 +263,8 @@ try {
           method: "POST",
           body: { type: "message", requestId: `m${n}`, idempotencyKey: `m${n}`, content: "hello" },
         });
-      const session = () => tenantGet(runtimeUrl, tenant.id, tenant.key, "/v1/sessions/s1");
-      const history = () => tenantGet(runtimeUrl, tenant.id, tenant.key, "/v1/sessions/s1/items");
+      const session = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s1");
+      const history = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s1/items");
 
       // The turn's model call is in flight: its intent is committed and the stub holds it.
       await message(1);
@@ -367,8 +459,110 @@ try {
       });
       console.log(`[failure] a reached cap fails the turn with model.budget_exhausted (${elapsed()})`);
       console.log(`[failure] Model Gate cases passed (${elapsed()})`);
+
+      // 12. A remote MCP call through the Tool Gate (F4.1), held by the stub MCP server.
+      await docker([
+        "run", "--detach", "--rm",
+        "--name", mcpName,
+        "--network", `${stack.project}_default`,
+        "--network-alias", MCP_ALIAS,
+        "--publish", "127.0.0.1::8080",
+        "--entrypoint", "node",
+        images.runtime,
+        "-e", STUB_MCP,
+      ]);
+      const mcpPublished = (await docker(["port", mcpName, "8080/tcp"])).split("\n")[0].trim();
+      const mcpStub = async () => (await fetch(`http://${mcpPublished}/calls`)).json();
+      await eventually(() => mcpStub().then(() => true), { timeout: 30_000, message: "the stub MCP server" });
+      await request(runtimeUrl, tenant, "/v1/agents/tooler", {
+        method: "PUT",
+        body: {
+          requestId: randomUUID(),
+          implementationVersion: "dev",
+          manifest: {
+            id: "tooler",
+            name: "Tooler",
+            manifestSchemaVersion: 4,
+            capabilities: [
+              {
+                id: "remote-tools",
+                type: "agent",
+                mcpServers: { remote: { name: "remote", type: "streamable-http", url: `http://${MCP_ALIAS}:8080/mcp` } },
+              },
+            ],
+          },
+        },
+      });
+      await request(runtimeUrl, tenant, "/v1/sessions/s2", {
+        method: "PUT",
+        body: { requestId: randomUUID(), agentId: "tooler", ownerUserId: "failure-smoke" },
+      });
+      const toolSession = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s2");
+      const toolHistory = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s2/items");
+      const toolMessage = (n) =>
+        request(runtimeUrl, tenant, "/v1/sessions/s2/commands", {
+          method: "POST",
+          body: { type: "message", requestId: `t${n}`, idempotencyKey: `t${n}`, content: "use the tool" },
+        });
+      const toolSettled = () =>
+        eventually(
+          async () => {
+            const view = await toolSession();
+            return ["completed", "failed", "cancelled", "uncertain"].includes(view.status) ? view : undefined;
+          },
+          { timeout: 180_000, interval: 1000, message: "the MCP turn to settle" },
+        );
+
+      await toolMessage(1);
+      await eventually(async () => (await mcpStub()).held === 1, {
+        timeout: 60_000,
+        message: "the MCP call to reach the stub MCP server",
+      });
+      await stack.compose(["kill", "runtime"]);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      assert.equal((await mcpStub()).held, 1, "the gateway kept the MCP call after the Runtime died");
+      await stack.compose(["start", "runtime"]);
+      await ready();
+      await fetch(`http://${mcpPublished}/release`, { method: "POST" });
+      assert.equal((await toolSettled()).status, "completed");
+      const toolRecovered = await toolHistory();
+      assert.equal(count(toolRecovered, "effect.uncertain"), 0, types(toolRecovered).join(", "));
+      assert.equal(count(toolRecovered, "tool.completed"), 1);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.deepEqual(await mcpStub(), { calls: 1, held: 0 }, "the server ran the tool once");
+      const mcpLines = (await stack.compose(["logs", "--no-log-prefix", "gateway"]))
+        .split("\n")
+        .filter((line) => line.includes('"message":"mcp_request"') && line.includes('"what":"call"'));
+      assert.ok(mcpLines.length >= 1, "the gateway made the MCP call");
+      assert.ok(
+        !(await stack.compose(["logs", "--no-log-prefix", "runtime"])).includes("mcp_request"),
+        "the runtime never calls the MCP server itself",
+      );
+      console.log(`[failure] kill -9 mid MCP call: recovered with one tool run (${elapsed()})`);
+
+      // 13. Runtime and gateway both killed mid MCP call: never run twice.
+      await fetch(`http://${mcpPublished}/hold`, { method: "POST" });
+      await toolMessage(2);
+      await eventually(async () => (await mcpStub()).held === 1, {
+        timeout: 60_000,
+        message: "the second MCP call to reach the stub MCP server",
+      });
+      await stack.compose(["kill", "runtime"]);
+      await stack.compose(["kill", "gateway"]);
+      await stack.compose(["start", "gateway"]);
+      await gatewayHealthy();
+      await stack.compose(["start", "runtime"]);
+      await ready();
+      assert.equal((await toolSettled()).status, "uncertain");
+      assert.ok(count(await toolHistory(), "effect.uncertain") >= 1, "the lost call is uncertain");
+      await fetch(`http://${mcpPublished}/release`, { method: "POST" });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.equal((await mcpStub()).calls, 2, "the lost call was never run again");
+      console.log(`[failure] runtime and gateway killed mid MCP call: uncertain, run once (${elapsed()})`);
+      console.log(`[failure] Tool Gate cases passed (${elapsed()})`);
     } finally {
       await docker(["rm", "--force", stubName]).catch(() => {});
+      await docker(["rm", "--force", mcpName]).catch(() => {});
     }
   });
   console.log("Failure smoke passed.");

@@ -1,62 +1,55 @@
 /**
- * G5 — Header rules (missing → 400 before selection/FS; query/body cannot override).
+ * G5 — Header rules: nothing in a request selects the Tenant (protocol 5). A request without
+ * `Nylorun-Tenant` reaches the Host's Tenant; one naming another Tenant, or a malformed one,
+ * is the opaque 404 before the Tenant sees it; query and body name nothing.
  */
-import { expect, it, vi } from "vitest";
-import { TENANT_HEADER } from "@nylorun/core/compatibility";
-import * as paths from "../../src/tenant/paths.js";
+import { expect, it } from "vitest";
+import { TENANT_HEADER, newTenantId } from "@nylorun/core/compatibility";
+import { OPAQUE_NOT_FOUND } from "../../src/host/http.js";
 import {
+  countTenantRows,
   getJson,
   protocolHeaders,
   startSecurityHost,
 } from "./support.js";
 
-it("G5: missing Nylorun-Tenant returns 400 before resolve or tenantPaths", async () => {
+it("G5: a request without Nylorun-Tenant reaches the Host's Tenant", async () => {
   const host = await startSecurityHost();
-  const resolve = vi.spyOn(host.module, "resolve");
-  // ESM `node:fs` exports are not configurable; spy the path helper Host/module use.
-  const tenantPathsSpy = vi.spyOn(paths, "tenantPaths");
-  const before = tenantPathsSpy.mock.calls.length;
-
-  const { status, body } = await getJson(`${host.url}/v1/agents`, {
-    headers: protocolHeaders({
-      authorization: `Bearer ${host.tenants[0].applicationKey}`,
-    }),
+  const { status, body } = await getJson(`${host.url}/v1/tenant`, {
+    headers: protocolHeaders({ authorization: `Bearer ${host.tenant.applicationKey}` }),
   });
-  expect(status).toBe(400);
-  expect(body).toMatchObject({
-    status: "rejected",
-    code: "invalid_request",
-  });
-  expect(resolve).not.toHaveBeenCalled();
-  expect(tenantPathsSpy.mock.calls.length).toBe(before);
-  resolve.mockRestore();
-  tenantPathsSpy.mockRestore();
+  expect(status).toBe(200);
+  expect(body).toMatchObject({ tenant: expect.objectContaining({ id: host.tenant.id }) });
 });
 
-it("G5: malformed Nylorun-Tenant returns 400 before resolve or tenantPaths", async () => {
+it("G5: Nylorun-Tenant naming another Tenant, or malformed, is the opaque 404 and changes nothing", async () => {
   const host = await startSecurityHost();
-  const resolve = vi.spyOn(host.module, "resolve");
-  const tenantPathsSpy = vi.spyOn(paths, "tenantPaths");
-  const before = tenantPathsSpy.mock.calls.length;
-
-  const { status } = await getJson(`${host.url}/v1/agents`, {
-    headers: protocolHeaders({
-      [TENANT_HEADER]: "not-a-tenant-id",
-      authorization: `Bearer ${host.tenants[0].applicationKey}`,
-    }),
-  });
-  expect(status).toBe(400);
-  expect(resolve).not.toHaveBeenCalled();
-  expect(tenantPathsSpy.mock.calls.length).toBe(before);
-  resolve.mockRestore();
-  tenantPathsSpy.mockRestore();
+  const before = await countTenantRows(host, "definitions");
+  for (const named of [newTenantId(), "not-a-tenant-id"]) {
+    const { status, body } = await getJson(`${host.url}/v1/agents/nope`, {
+      method: "PUT",
+      headers: protocolHeaders({
+        [TENANT_HEADER]: named,
+        authorization: `Bearer ${host.tenant.applicationKey}`,
+      }),
+      body: JSON.stringify({
+        requestId: `named-${named}`,
+        implementationVersion: "dev",
+        manifest: { id: "nope", name: "Nope", tools: [] },
+      }),
+    });
+    expect(status, named).toBe(404);
+    expect(body, named).toEqual(OPAQUE_NOT_FOUND);
+  }
+  expect(await countTenantRows(host, "definitions")).toBe(before);
 });
 
-it("G5: Tenant header cannot be overridden by query or body", async () => {
+it("G5: the Tenant cannot be named by query or body", async () => {
   const host = await startSecurityHost();
-  const [a, b] = host.tenants;
+  const a = host.tenant;
+  const other = newTenantId();
   const { status, body } = await getJson(
-    `${host.url}/v1/tenant?${TENANT_HEADER}=${b.id}&tenant=${b.id}`,
+    `${host.url}/v1/tenant?${TENANT_HEADER}=${other}&tenant=${other}`,
     {
       method: "GET",
       headers: a.headers(),
@@ -66,15 +59,15 @@ it("G5: Tenant header cannot be overridden by query or body", async () => {
   expect(body).toMatchObject({
     tenant: expect.objectContaining({ id: a.id }),
   });
-  expect(JSON.stringify(body)).not.toContain(b.id);
+  expect(JSON.stringify(body)).not.toContain(other);
 
   const post = await getJson(`${host.url}/v1/tenant/config/seed`, {
     method: "PUT",
     headers: a.headers(),
     body: JSON.stringify({
       requestId: "seed-header-override",
-      tenant: b.id,
-      [TENANT_HEADER]: b.id,
+      tenant: other,
+      [TENANT_HEADER]: other,
       sandbox: { backend: "virtual" },
     }),
   });

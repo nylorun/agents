@@ -74,7 +74,7 @@ try {
       const hostRoot = join(process.cwd(), 'host-root');
       await mkdir(join(hostRoot, 'home'), { recursive: true });
       await mkdir(join(hostRoot, 'tmp'), { recursive: true });
-      await mkdir(join(hostRoot, 'tenants'), { recursive: true });
+      await mkdir(join(hostRoot, 'tenant'), { recursive: true });
       // host_ + 26 Crockford chars (matches HOST_ID_PATTERN).
       const hostId = 'host_00000000000000000000000000';
       await writeFile(join(hostRoot, 'host.json'), JSON.stringify({

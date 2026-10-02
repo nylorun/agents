@@ -3,19 +3,20 @@
  * Runtime on another machine through its reverse proxy, as DEPLOYMENT.md
  * "Reaching the Runtime from another machine" sets it up.
  *
- *   NYLORUN_RUNTIME_URL=https://runtime.example.com \
- *   NYLORUN_TENANT=tn_… NYLORUN_SERVER_KEY=… \
+ *   NYLORUN_RUNTIME_URL=https://runtime.example.com NYLORUN_SERVER_KEY=… \
  *   node scripts/acceptance/remote.mjs --placement lan --fixture-model \
  *     --actions-url https://tunnel.example.com/nylorun/actions --actions-port 3000
  *
- * Use a Tenant made for this check (`npx @nylorun/cli tenant create
- * remote-check` on the Runtime's machine, outside a Project): `--fixture-model`
- * switches its model calls to the Runtime's deterministic fixture model.
+ * Use an installation made for this check (on the Runtime's machine, `npx
+ * nylorun start` in a project made for it; `npx @nylorun/cli env` there
+ * prints its key): `--fixture-model` switches its Tenant's model calls to the
+ * Runtime's deterministic fixture model.
  * `--actions-url` is where the remote Runtime reaches this machine's Action
  * endpoint (a tunnel such as ngrok or Cloudflare Tunnel to `--actions-port`).
  *
  * R1  the proxy serves /health over TLS, answers the Admin API with 403 and
- *     passes Origin through, so the Runtime still refuses browsers
+ *     passes Origin through, so the Runtime still refuses browsers; requests
+ *     name no Tenant (protocol 5: the Host serves one)
  * R2  a chat with an approval through the AG-UI handler: the connection is
  *     dropped mid-run, reattach sends the rest, and the approved tool is
  *     delivered to this machine's Action endpoint
@@ -54,10 +55,9 @@ const idleMinutes = Number(flags["idle-minutes"]);
 assert.ok(Number.isFinite(idleMinutes) && idleMinutes >= 0, "--idle-minutes must be a number");
 
 const url = process.env.NYLORUN_RUNTIME_URL?.replace(/\/$/, "");
-const tenant = process.env.NYLORUN_TENANT;
 const key = process.env.NYLORUN_SERVER_KEY;
-if (!url || !tenant || !key)
-  throw new Error("Set NYLORUN_RUNTIME_URL (the reverse proxy), NYLORUN_TENANT and NYLORUN_SERVER_KEY.");
+if (!url || !key)
+  throw new Error("Set NYLORUN_RUNTIME_URL (the reverse proxy) and NYLORUN_SERVER_KEY.");
 const target = new URL(url);
 const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
 assert.ok(
@@ -66,7 +66,7 @@ assert.ok(
 );
 if (!flags["fixture-model"])
   throw new Error(
-    "Pass --fixture-model with a Tenant made for this check: the checks rely on the fixture model calling lookup_order.",
+    "Pass --fixture-model with an installation made for this check: the checks rely on the fixture model calling lookup_order.",
   );
 
 const SUBJECT = "remote:check";
@@ -90,7 +90,6 @@ function interruptOf(events) {
 
 const runtimeHeaders = (extra = {}) => ({
   authorization: `Bearer ${key}`,
-  "Nylorun-Tenant": tenant,
   "Nylorun-Protocol": String(PROTOCOL_VERSION),
   ...extra,
 });
@@ -139,6 +138,7 @@ async function r1() {
   const body = await health.json();
   for (const feature of ["transcript-events", "subject-headers"])
     assert.ok(body.protocol?.features?.includes(feature), `the Runtime advertises ${feature}`);
+  // `/v1/admin/tenants` is gone from the Runtime (404 there); the proxy still blocks the prefix.
   for (const path of ["/v1/admin/status", "/v1/admin/tenants"]) {
     const admin = await fetch(`${url}${path}`, { signal: AbortSignal.timeout(15_000) });
     assert.equal(admin.status, 403, `the proxy blocks ${path} (got ${admin.status})`);
@@ -184,7 +184,7 @@ async function main() {
   });
   assert.ok(seed.ok, `seeding the fixture model: ${seed.status} ${await seed.text()}`);
 
-  const client = createClient({ url, key, tenant });
+  const client = createClient({ url, key });
   // The Action endpoint, counting the deliveries that reach this machine through the tunnel.
   let deliveries = 0;
   const actions = createActionHandler({ agents: [agent], client });

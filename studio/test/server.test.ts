@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
@@ -15,15 +14,13 @@ import {
   PROTOCOL_FEATURES,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
-  TENANT_HEADER,
 } from "@nylorun/agents";
-import { deriveStudioToken, deriveTenantKey } from "@nylorun/admin";
+import { deriveStudioToken } from "@nylorun/admin";
 import {
   EMBED_SESSION_TTL_MS,
   LOGIN_TOKEN_TTL_MS,
   SESSION_COOKIE,
   SESSION_TTL_MS,
-  TENANT_NAME_MAX,
   parseRuntimeUrl,
   readAdminKeyFile,
   safeNextPath,
@@ -37,9 +34,17 @@ const TENANT_B = "tn_00000000000000000000000002";
 type Seen = { method: string; path: string; headers: IncomingHttpHeaders; body: string };
 type Reply = { status: number; headers: IncomingHttpHeaders; body: string };
 
-/** Fake Runtime: /health, the Admin API tenant list, and an echoing Tenant API. */
+type FakeTenant = {
+  id: string | null;
+  name: string | null;
+  state: "open" | "unavailable";
+  cause?: { code: string; message: string; repair: string };
+};
+
+/** Fake Runtime: /health, the Admin API status with its one Tenant, and an echoing Tenant API. */
 async function startFakeRuntime() {
   const seen: Seen[] = [];
+  const tenant: FakeTenant = { id: TENANT_A, name: "orders", state: "open" };
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -58,31 +63,20 @@ async function startFakeRuntime() {
       );
       return;
     }
-    if (req.url === "/v1/admin/tenants" && req.method === "POST") {
-      const created = JSON.parse(body) as { tenantId: string; name: string };
-      res.statusCode = 201;
-      res.end(
-        JSON.stringify({
-          id: created.tenantId,
-          name: created.name,
-          createdAt: "2026-09-29T00:00:00.000Z",
-          updatedAt: "2026-09-29T00:00:00.000Z",
-          schemaVersion: 1,
-        }),
-      );
-      return;
-    }
-    if (req.url === "/v1/admin/tenants") {
+    if (req.url === "/v1/admin/status") {
       if (req.headers.authorization !== `Bearer ${ADMIN_KEY}`) {
         res.statusCode = 401;
         res.end(JSON.stringify({ code: "unauthorized", message: "no" }));
         return;
       }
       res.end(
-        JSON.stringify([
-          { id: TENANT_A, name: "orders", state: "open", envelope: null },
-          { id: TENANT_B, name: null, state: "quarantined", envelope: null },
-        ]),
+        JSON.stringify({
+          service: "nylorun-runtime",
+          version: "0.0.0-test",
+          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
+          tenant: { ...tenant, envelope: null },
+          aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
+        }),
       );
       return;
     }
@@ -95,6 +89,7 @@ async function startFakeRuntime() {
   return {
     url: `http://127.0.0.1:${address.port}`,
     seen,
+    tenant,
     close: async () => {
       server.closeAllConnections();
       server.close();
@@ -204,8 +199,7 @@ function assertNoCors(reply: Reply) {
 function assertNoKeys(reply: Reply) {
   const text = JSON.stringify(reply.headers) + reply.body;
   assert.ok(!text.includes(ADMIN_KEY), "admin key leaked");
-  for (const tenant of [TENANT_A, TENANT_B])
-    assert.ok(!text.includes(deriveStudioToken(ADMIN_KEY, tenant)), "Studio key leaked");
+  assert.ok(!text.includes(deriveStudioToken(ADMIN_KEY, TENANT_A)), "Studio key leaked");
 }
 
 test("login tokens need the admin key and are 256-bit, single-use", async () => {
@@ -318,17 +312,21 @@ test("login redirects only to same-origin paths", async () => {
 
 test("dashboard files need no session; every /_studio route does", async () => {
   await withStudio(async ({ port }) => {
-    for (const path of ["/_studio/tenants", "/_studio/hello", `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, "/_studio/unknown"]) {
+    for (const path of ["/_studio/hello", `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, "/_studio/unknown"]) {
       const anonymous = await send(port, { path });
       assert.equal(anonymous.status, 401, path);
       const forged = await send(port, { path, headers: { cookie: `${SESSION_COOKIE}=${"x".repeat(43)}` } });
       assert.equal(forged.status, 401, path);
     }
     // The shell carries no data; the dashboard shows its own sign-in page.
-    for (const path of ["/", `/tenants/${TENANT_A}/vault`, "/assets/app.js"]) {
+    for (const path of [`/tenants/${TENANT_A}`, `/tenants/${TENANT_A}/vault`, "/assets/app.js"]) {
       const anonymous = await send(port, { path });
       assert.equal(anonymous.status, 200, path);
     }
+    // `/` leads to the installation's one Tenant.
+    const root = await send(port, { path: "/" });
+    assert.equal(root.status, 302);
+    assert.equal(root.headers.location, `/tenants/${TENANT_A}`);
     assert.equal((await send(port, { path: "/assets/missing.js" })).status, 404);
     assert.equal((await send(port, { method: "POST", path: "/", headers: { origin: `http://localhost:${port}` } })).status, 405);
     const health = await send(port, { path: "/healthz" });
@@ -336,7 +334,7 @@ test("dashboard files need no session; every /_studio route does", async () => {
     assert.deepEqual(JSON.parse(health.body), { status: "ok" });
 
     const cookie = await session(port);
-    const index = await send(port, { path: "/", headers: { cookie } });
+    const index = await send(port, { path: `/tenants/${TENANT_A}`, headers: { cookie } });
     assert.equal(index.status, 200);
     assert.match(index.body, /studio-spa/);
     const spa = await send(port, { path: `/tenants/${TENANT_A}/vault`, headers: { cookie: `other=1; ${cookie}` } });
@@ -349,10 +347,12 @@ test("dashboard files need no session; every /_studio route does", async () => {
 test("Host must be the published loopback address (DNS rebinding)", async () => {
   await withStudio(async ({ port }) => {
     const cookie = await session(port);
-    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`])
-      assert.equal((await send(port, { path: "/", host, headers: { cookie } })).status, 200, host);
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`]) {
+      assert.equal((await send(port, { path: "/", host, headers: { cookie } })).status, 302, host);
+      assert.equal((await send(port, { path: `/tenants/${TENANT_A}`, host, headers: { cookie } })).status, 200, host);
+    }
     for (const host of [`rebind.attacker.example:${port}`, `localhost:${port + 1}`, `[::1]:${port}`, "localhost", `LOCALHOST.evil:${port}`]) {
-      for (const path of ["/", "/_studio/tenants", "/login?token=x"])
+      for (const path of ["/", `/tenants/${TENANT_A}`, "/_studio/hello", "/login?token=x"])
         assert.equal((await send(port, { path, host, headers: { cookie } })).status, 421, `${host} ${path}`);
       const minted = await send(port, {
         method: "POST",
@@ -426,9 +426,9 @@ test("Studio never sends CORS headers", async () => {
   await withStudio(async ({ port }) => {
     const cookie = await session(port);
     const replies = [
-      await send(port, { method: "OPTIONS", path: "/_studio/tenants", headers: { origin: "http://evil.example", "access-control-request-method": "GET" } }),
-      await send(port, { method: "OPTIONS", path: "/_studio/tenants", headers: { cookie, origin: `http://localhost:${port}` } }),
-      await send(port, { path: "/_studio/tenants", headers: { cookie, origin: "http://evil.example" } }),
+      await send(port, { method: "OPTIONS", path: "/_studio/hello", headers: { origin: "http://evil.example", "access-control-request-method": "GET" } }),
+      await send(port, { method: "OPTIONS", path: "/_studio/hello", headers: { cookie, origin: `http://localhost:${port}` } }),
+      await send(port, { path: "/_studio/hello", headers: { cookie, origin: "http://evil.example" } }),
       await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { cookie, origin: "http://evil.example" } }),
       await send(port, { path: "/", headers: { origin: "http://evil.example" } }),
       await send(port, { path: "/healthz", headers: { origin: "http://evil.example" } }),
@@ -437,7 +437,7 @@ test("Studio never sends CORS headers", async () => {
   });
 });
 
-test("the proxy uses each Tenant's derived Studio key and never leaks keys", async () => {
+test("the proxy uses the Tenant's derived Studio key, names no Tenant, and never leaks keys", async () => {
   await withStudio(async ({ port, runtime }) => {
     const cookie = await session(port);
     // A bearer that is not a Studio session is refused, never forwarded, even
@@ -447,22 +447,26 @@ test("the proxy uses each Tenant's derived Studio key and never leaks keys", asy
       headers: { cookie, authorization: "Bearer browser-supplied" },
     });
     assert.equal(supplied.status, 401);
-    for (const tenant of [TENANT_A, TENANT_B]) {
-      const reply = await send(port, {
-        path: `/_studio/tenants/${tenant}/runtime/v1/agents`,
-        headers: { cookie },
-      });
-      assert.equal(reply.status, 200, reply.body);
-      assertNoKeys(reply);
-      const upstream = runtime.seen.at(-1)!;
-      assert.equal(upstream.path, "/v1/agents");
-      assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, tenant)}`);
-      assert.equal(upstream.headers[TENANT_HEADER.toLowerCase()], tenant);
-      assert.equal(upstream.headers[PROTOCOL_HEADER.toLowerCase()], String(PROTOCOL_VERSION));
-      assert.equal(upstream.headers.cookie, undefined);
-      assert.equal(upstream.headers.origin, undefined);
-    }
-    assert.notEqual(deriveStudioToken(ADMIN_KEY, TENANT_A), deriveStudioToken(ADMIN_KEY, TENANT_B));
+    const reply = await send(port, {
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`,
+      headers: { cookie },
+    });
+    assert.equal(reply.status, 200, reply.body);
+    assertNoKeys(reply);
+    const upstream = runtime.seen.at(-1)!;
+    assert.equal(upstream.path, "/v1/agents");
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.equal(upstream.headers["nylorun-tenant"], undefined);
+    assert.equal(upstream.headers[PROTOCOL_HEADER.toLowerCase()], String(PROTOCOL_VERSION));
+    assert.equal(upstream.headers.cookie, undefined);
+    assert.equal(upstream.headers.origin, undefined);
+
+    // Another Tenant id is a Tenant that does not exist.
+    const before404 = runtime.seen.length;
+    const other = await send(port, { path: `/_studio/tenants/${TENANT_B}/runtime/v1/agents`, headers: { cookie } });
+    assert.equal(other.status, 404);
+    assert.equal(JSON.parse(other.body).message, "Unknown Tenant");
+    assert.equal(runtime.seen.length, before404);
 
     const put = await send(port, {
       method: "PUT",
@@ -494,95 +498,93 @@ test("the proxy uses each Tenant's derived Studio key and never leaks keys", asy
   });
 });
 
-test("the Tenant list comes from the Admin API with the admin key", async () => {
+test("the Tenant comes from the Admin API status with the admin key", async () => {
   await withStudio(async ({ port, runtime }) => {
-    const cookie = await session(port);
-    const reply = await send(port, { path: "/_studio/tenants", headers: { cookie } });
-    assert.equal(reply.status, 200, reply.body);
-    assert.deepEqual(JSON.parse(reply.body), {
-      tenants: [
-        { id: TENANT_A, name: "orders", state: "open" },
-        { id: TENANT_B, name: null, state: "quarantined" },
-      ],
-    });
-    assertNoKeys(reply);
-    const upstream = runtime.seen.find((s) => s.path === "/v1/admin/tenants")!;
+    const root = await send(port, { path: "/?embed=1" });
+    assert.equal(root.status, 302);
+    assert.equal(root.headers.location, `/tenants/${TENANT_A}?embed=1`);
+    assert.equal(root.headers["cache-control"], "no-store");
+    assertNoKeys(root);
+    const upstream = runtime.seen.find((s) => s.path === "/v1/admin/status")!;
     assert.equal(upstream.headers.authorization, `Bearer ${ADMIN_KEY}`);
     assert.equal(upstream.headers[PROTOCOL_HEADER.toLowerCase()], String(PROTOCOL_VERSION));
+    assert.equal(upstream.headers["nylorun-tenant"], undefined);
+    assert.equal((await send(port, { method: "HEAD", path: "/" })).status, 302);
 
+    const cookie = await session(port);
     const hello = await send(port, { path: "/_studio/hello", headers: { cookie } });
     assert.equal(hello.status, 200);
-    assert.deepEqual(JSON.parse(hello.body).runtime, { compatible: true });
+    const body = JSON.parse(hello.body);
+    assert.deepEqual(body.runtime, { compatible: true });
+    assert.deepEqual(body.tenant, { id: TENANT_A, name: "orders", state: "open" });
     assertNoKeys(hello);
-  });
-});
-
-test("Studio creates a Tenant with the project principal and returns no key", async () => {
-  await withStudio(async ({ port, runtime }) => {
-    const cookie = await session(port);
-    const origin = `http://localhost:${port}`;
-    const create = (body: string, headers: Record<string, string> = {}) =>
-      send(port, {
-        method: "POST",
-        path: "/_studio/tenants",
-        body,
-        headers: { cookie, origin, "content-type": "application/json", ...headers },
-      });
-
-    const anonymous = await send(port, {
+    // The Tenant list and create routes are gone.
+    assert.equal((await send(port, { path: "/_studio/tenants", headers: { cookie } })).status, 404);
+    const create = await send(port, {
       method: "POST",
       path: "/_studio/tenants",
       body: '{"name":"x"}',
-      headers: { origin, "content-type": "application/json" },
+      headers: { cookie, origin: `http://localhost:${port}`, "content-type": "application/json" },
     });
-    assert.equal(anonymous.status, 401);
-    const noOrigin = await send(port, {
-      method: "POST",
-      path: "/_studio/tenants",
-      body: '{"name":"x"}',
-      headers: { cookie, "content-type": "application/json" },
-    });
-    assert.equal(noOrigin.status, 403);
-    for (const [body, headers] of [
-      ['{"name":"  "}', {}],
-      [JSON.stringify({ name: "n".repeat(TENANT_NAME_MAX + 1) }), {}],
-      ['{"name":3}', {}],
-      ["not json", {}],
-      ['{"name":"x"}', { "content-type": "text/plain" }],
-      [JSON.stringify({ name: "x", pad: "p".repeat(5000) }), {}],
-    ] as const) {
-      const rejected = await create(body, headers);
-      assert.equal(rejected.status, 400, body.slice(0, 40));
-    }
+    assert.equal(create.status, 404);
     assert.equal(runtime.seen.filter((s) => s.method === "POST").length, 0);
-
-    const reply = await create(JSON.stringify({ name: "  my-agents  " }));
-    assert.equal(reply.status, 201, reply.body);
-    const { tenant } = JSON.parse(reply.body) as { tenant: { id: string; name: string; state: string } };
-    assert.equal(tenant.name, "my-agents");
-    assert.equal(tenant.state, "open");
-    assert.match(tenant.id, /^tn_/);
-
-    const sent = runtime.seen.find((s) => s.method === "POST" && s.path === "/v1/admin/tenants");
-    assert.ok(sent);
-    assert.equal(sent.headers.authorization, `Bearer ${ADMIN_KEY}`);
-    const request = JSON.parse(sent.body) as {
-      tenantId: string;
-      name: string;
-      derivedPrincipals: { id: string; credentialHash: string }[];
-    };
-    assert.equal(request.tenantId, tenant.id);
-    const projectKey = deriveTenantKey(ADMIN_KEY, tenant.id, "project");
-    assert.deepEqual(request.derivedPrincipals, [
-      { id: "project", credentialHash: createHash("sha256").update(projectKey).digest("hex") },
-    ]);
-    assert.ok(!reply.body.includes(projectKey), "the project key never reaches the browser");
-    assert.ok(!reply.body.includes("applicationKey"));
-    assertNoKeys(reply);
   });
 });
 
-test("the Tenant list reports an unavailable Runtime as 502", async () => {
+test("an unavailable Tenant is answered with its cause, and Studio asks again", async () => {
+  await withStudio(async ({ port, runtime }) => {
+    runtime.tenant.id = null;
+    runtime.tenant.name = null;
+    runtime.tenant.state = "unavailable";
+    runtime.tenant.cause = {
+      code: "schema-too-new",
+      message: "The database was written by a newer Runtime.",
+      repair: "Upgrade the stack's Runtime.",
+    };
+    const cookie = await session(port);
+    const root = await send(port, { path: "/" });
+    assert.equal(root.status, 503);
+    assert.match(root.headers["content-type"] ?? "", /^text\/html/);
+    assert.match(root.body, /Tenant unavailable/);
+    assert.match(root.body, /newer Runtime\. Upgrade the stack's Runtime\./);
+    assert.match(root.body, /schema-too-new/);
+
+    const hello = JSON.parse((await send(port, { path: "/_studio/hello", headers: { cookie } })).body);
+    assert.equal(hello.tenant.state, "unavailable");
+    assert.equal(hello.tenant.id, null);
+    assert.match(hello.tenant.message, /schema-too-new/);
+
+    const proxied = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { cookie } });
+    assert.equal(proxied.status, 503);
+    assert.match(JSON.parse(proxied.body).message, /newer Runtime/);
+    assert.equal(runtime.seen.filter((s) => s.path === "/v1/agents").length, 0);
+    const minted = await send(port, {
+      method: "POST",
+      path: "/_studio/login-tokens",
+      headers: { authorization: `Bearer ${ADMIN_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ tenant: TENANT_A }),
+    });
+    assert.equal(minted.status, 503);
+
+    // Opening: known id, no cause yet.
+    runtime.tenant.id = TENANT_A;
+    runtime.tenant.name = "orders";
+    delete runtime.tenant.cause;
+    const opening = await send(port, { path: "/" });
+    assert.equal(opening.status, 503);
+    assert.match(opening.body, /not opened its Tenant yet/);
+
+    // A failure is not remembered: once the Tenant opens, the next request reaches it.
+    runtime.tenant.state = "open";
+    const open = await send(port, { path: "/" });
+    assert.equal(open.status, 302);
+    assert.equal(open.headers.location, `/tenants/${TENANT_A}`);
+    const after = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { cookie } });
+    assert.equal(after.status, 200, after.body);
+  });
+});
+
+test("an unreachable Runtime is answered clearly, and no key leaks", async () => {
   const root = await webRoot();
   const studio = await startStudioServer({
     runtimeUrl: "http://127.0.0.1:1",
@@ -591,10 +593,23 @@ test("the Tenant list reports an unavailable Runtime as 502", async () => {
     webRoot: root,
   });
   try {
+    const page = await send(studio.port, { path: "/" });
+    assert.equal(page.status, 503);
+    assert.match(page.body, /Admin API is unavailable/);
+    assertNoKeys(page);
     const cookie = await session(studio.port);
-    const reply = await send(studio.port, { path: "/_studio/tenants", headers: { cookie } });
-    assert.equal(reply.status, 502);
-    assertNoKeys(reply);
+    const hello = await send(studio.port, { path: "/_studio/hello", headers: { cookie } });
+    assert.equal(hello.status, 200);
+    const body = JSON.parse(hello.body);
+    assert.equal(body.runtime.compatible, false);
+    assert.deepEqual(
+      { id: body.tenant.id, state: body.tenant.state },
+      { id: null, state: "unavailable" },
+    );
+    assertNoKeys(hello);
+    const proxied = await send(studio.port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { cookie } });
+    assert.equal(proxied.status, 503);
+    assertNoKeys(proxied);
   } finally {
     await studio.close();
     await rm(root, { recursive: true, force: true });
@@ -681,6 +696,15 @@ test("login tokens can be limited to a Tenant and a subject; {} stays Host-wide"
       });
       assert.equal(reply.status, 400, body.slice(0, 40));
     }
+    // The `tenant` claim must name the installation's Tenant.
+    const other = await send(port, {
+      method: "POST",
+      path: "/_studio/login-tokens",
+      headers: { authorization: `Bearer ${ADMIN_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ tenant: TENANT_B }),
+    });
+    assert.equal(other.status, 404);
+    assert.match(JSON.parse(other.body).message, /Unknown Tenant/);
     const denied = await send(port, {
       method: "POST",
       path: "/_studio/login-tokens",
@@ -805,24 +829,16 @@ test("a Tenant-limited session reaches only its Tenant", async () => {
     const other = await send(port, { path: `/_studio/tenants/${TENANT_B}/runtime/v1/agents`, headers: auth });
     assert.equal(other.status, 404);
     assert.equal(JSON.parse(other.body).message, "Unknown Tenant");
-    assert.equal((await send(port, { path: "/_studio/tenants", headers: auth })).status, 403);
-    const create = await send(port, {
-      method: "POST",
-      path: "/_studio/tenants",
-      headers: { ...auth, origin: `http://localhost:${port}`, "content-type": "application/json" },
-      body: JSON.stringify({ name: "x" }),
-    });
-    assert.equal(create.status, 403);
     assert.equal(runtime.seen.length, before);
     assert.equal((await send(port, { path: "/_studio/hello", headers: auth })).status, 200);
 
-    // A Host-wide bearer session behaves like the cookie.
+    // A Host-wide bearer session behaves like the cookie: it reaches the one Tenant.
     const { token } = await mintFor(port, {});
     const wide = JSON.parse((await redeem(port, token)).body).sessionToken as string;
-    const list = await send(port, { path: "/_studio/tenants", headers: { authorization: `Bearer ${wide}` } });
-    assert.equal(list.status, 200);
+    const a = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { authorization: `Bearer ${wide}` } });
+    assert.equal(a.status, 200);
     const b = await send(port, { path: `/_studio/tenants/${TENANT_B}/runtime/v1/agents`, headers: { authorization: `Bearer ${wide}` } });
-    assert.equal(b.status, 200);
+    assert.equal(b.status, 404);
   });
 });
 
@@ -850,18 +866,18 @@ test("state changes from an embedded session are logged with the subject", async
 
 test("only the allowlist may frame dashboard files; nothing else can be framed", async () => {
   await withStudio(async ({ port }) => {
-    for (const path of ["/", `/tenants/${TENANT_A}/sessions/s1`, "/assets/app.js"]) {
+    for (const path of ["/", `/tenants/${TENANT_A}`, `/tenants/${TENANT_A}/sessions/s1`, "/assets/app.js"]) {
       const reply = await send(port, { path });
-      assert.equal(reply.status, 200, path);
+      assert.equal(reply.status, path === "/" ? 302 : 200, path);
       assert.equal(reply.headers["content-security-policy"], `frame-ancestors ${EMBEDDERS.join(" ")}`, path);
       assert.equal(reply.headers["x-frame-options"], undefined, path);
     }
-    const index = await send(port, { path: "/" });
+    const index = await send(port, { path: `/tenants/${TENANT_A}` });
     assert.match(index.body, new RegExp(`<meta name="nylorun-frame-ancestors" content="${EMBEDDERS.join(" ")}">`));
     const { token } = await mint(port);
     for (const [path, init] of [
       ["/_studio/hello", {}],
-      ["/_studio/tenants", {}],
+      ["/_studio/unknown", {}],
       ["/assets/missing.js", {}],
       [`/login?token=${token}`, {}],
       ["/login?token=used", {}],
@@ -873,7 +889,7 @@ test("only the allowlist may frame dashboard files; nothing else can be framed",
     }
   }, { frameAncestors: EMBEDDERS });
   await withStudio(async ({ port }) => {
-    const reply = await send(port, { path: "/" });
+    const reply = await send(port, { path: `/tenants/${TENANT_A}` });
     assert.equal(reply.headers["content-security-policy"], "frame-ancestors 'none'");
     assert.match(reply.body, /<meta name="nylorun-frame-ancestors" content="">/);
   });

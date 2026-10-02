@@ -2,7 +2,7 @@ import { readCredentials } from "./credentials.js";
 import { readLink } from "./link.js";
 import { findProjectRoot } from "./root.js";
 
-/** Three `export` lines for `nylo env` (was `nylorun status --env`, F2-7). */
+/** Two `export` lines for `nylo env` (was `nylorun status --env`, F2-7). */
 export async function printLinkedEnvExports(
   projectRoot = process.cwd(),
 ): Promise<void> {
@@ -11,7 +11,7 @@ export async function printLinkedEnvExports(
   const credentials = await readCredentials(root);
   if (!link || !credentials) {
     console.log(
-      "# No Project link in this directory. Run nylo tenant create to create one.",
+      '# No Project link in this directory. Run "npx nylorun start" in this project to start its stack and link it.',
     );
     return;
   }
@@ -19,7 +19,6 @@ export async function printLinkedEnvExports(
   console.log(
     `export NYLORUN_SERVER_KEY=${shellQuote(credentials.applicationKey)}`,
   );
-  console.log(`export NYLORUN_TENANT=${shellQuote(link.tenantId)}`);
 }
 
 export function shellQuote(value: string): string {

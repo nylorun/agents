@@ -57,9 +57,9 @@ it("documents session commands for every caller that sends them, with their head
       .filter((parameter: { in: string }) => parameter.in === "header")
       .map((parameter: { name: string; required?: boolean }) => [parameter.name, parameter.required ?? false]),
   );
+  // Protocol 5: no request names the Tenant.
   expect(headers).toEqual({
     "Nylorun-Protocol": true,
-    "Nylorun-Tenant": false,
     "Nylorun-Subject": false,
     "Nylorun-Scopes": false,
   });
@@ -131,7 +131,7 @@ it("documents vaults for a person's own credentials, and Tenant settings for app
 it("documents the public keys for every caller or none, and access management for application keys", () => {
   const jwks = operation("get", "/v1/access/jwks");
   expect(jwks["x-nylorun-scopes"]).toBe("any");
-  // `{}`: no credential needed; `Nylorun-Tenant` alone names the Tenant.
+  // `{}`: no credential needed.
   expect(jwks.security).toEqual([
     { applicationKey: [] },
     { subjectToken: [] },
@@ -177,4 +177,9 @@ it("documents the A2A endpoint's JSON-RPC envelope and links the specification",
     "agents:read",
     "sessions:own",
   ]);
+});
+
+it("documents no Nylorun-Tenant header anywhere (protocol 5)", () => {
+  const text = JSON.stringify(document);
+  expect(text).not.toContain('"name":"Nylorun-Tenant"');
 });

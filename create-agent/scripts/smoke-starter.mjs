@@ -10,23 +10,23 @@
  * - Installs nylorun (the stack) and @nylorun/cli (nylo, the Runtime client)
  *   from their tarballs into a separate tools directory, as `npx` would.
  * - Builds (or reuses, see scripts/lib/stack.mjs) the Runtime and Studio
- *   images and, under a temporary NYLORUN_HOME, runs `nylorun up`, then
- *   `nylo tenant create` in the project (the Tenant and the Project link),
- *   then the project's `npm run dev`: the starter registers `assistant` and its
- *   Action endpoint, the Runtime in Docker reaches it (a ping), and `nylorun
- *   studio` lands on that Tenant (303 +
- *   cookie, /_studio/tenants, the Tenant proxy).
+ *   images and, under a temporary NYLORUN_HOME, runs `nylorun start` in the
+ *   project with NYLORUN_STACK naming the test stack (the stack, its one
+ *   Tenant and the Project link), then the project's `npm run dev`: the
+ *   starter registers `assistant` and its Action endpoint, the Runtime in
+ *   Docker reaches it (a ping), and `nylorun studio` lands on that Tenant
+ *   (303 + cookie, /_studio/hello, the Tenant proxy).
  * - A source edit re-registers the agent; stopping dev keeps the stack; a
  *   second dev reuses the link; the compiled `npm start` registers with the
- *   three Project variables.
- * - A temporary Tenant with the fixture model (scripts/lib/temporary-tenant.mjs)
- *   runs one turn through Studio's proxy that calls the starter's own
- *   `lookup_order` tool through its Action endpoint; the Tenant is deleted afterwards and
- *   the Project's Tenant and link are untouched.
- * - Without Docker on PATH, `nylorun up` says so.
+ *   two Project variables.
+ * - The Tenant, reset and seeded with the fixture model
+ *   (scripts/lib/stack-tenant.mjs), runs one turn through Studio's proxy that
+ *   calls the starter's own `lookup_order` tool through its Action endpoint;
+ *   the Project link is untouched.
+ * - Without Docker on PATH, `nylorun start` says so.
  *
- * The Project's own Tenant has no model (the starter's .env names none), so
- * it is checked as not configured; the turn runs on the temporary Tenant only.
+ * The Tenant has no model at first (the starter's .env names none), so it is
+ * checked as not configured before the fixture model is seeded.
  */
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
@@ -39,12 +39,12 @@ import { ProcessGroup } from "../../scripts/lib/processes.mjs";
 import {
   ensureImages,
   eventually,
+  runtimeGet,
+  runtimeHeaders,
   studioSession,
-  tenantGet,
-  tenantHeaders,
   withStack,
 } from "../../scripts/lib/stack.mjs";
-import { withTemporaryTenant } from "../../scripts/lib/temporary-tenant.mjs";
+import { withResetTenant } from "../../scripts/lib/stack-tenant.mjs";
 
 // A wedged runner must not hold the job; a healthy run is a few minutes.
 const SMOKE_DEADLINE_MS = Number(process.env.NYLORUN_SMOKE_DEADLINE_MS ?? 20 * 60_000);
@@ -185,35 +185,30 @@ try {
     async (stack) => {
       const { env } = stack;
 
-      // 1. `nylorun up` sets up and starts the stack; it creates no Tenant.
-      const up = (await stack.nylorun(["up"], { cwd: project })).stdout;
-      const runtimeUrl = field(up, "Runtime");
-      assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/, up);
-      assert.match(field(up, "Studio") ?? "", /^http:\/\/localhost:\d+$/, up);
+      // 1-2. `nylorun start` in the project sets up and starts the stack (named by
+      // NYLORUN_STACK), whose Runtime creates its one Tenant, and links the project.
+      const { runtimeUrl } = await stack.start([], { cwd: project });
+      assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/);
       const admin = await stack.admin(
         pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
       );
-      assert.deepEqual(await admin.listTenants(), [], "nylorun up creates no Tenant");
-
-      // 2. `nylo tenant create` creates the Project's Tenant and links it.
-      const created = (await stack.nylo(["tenant", "create"], { cwd: project })).stdout;
-      assert.match(created, /^Tenant\s+\S+\s+tn_\w+\s+\(created\)$/m, created);
-      assert.match(created, /^Model\s+not configured/m, created);
       const { link, credentials } = await readProject(project);
+      assert.equal(link.format, 2);
+      assert.equal(link.stack, env.NYLORUN_STACK, "the link names the stack");
       assert.equal(link.hostUrl, runtimeUrl);
       assert.equal((await stat(join(project, ".nylorun/credentials.json"))).mode & 0o777, 0o600);
-      const tenants = await admin.listTenants();
-      assert.ok(
-        tenants.some((t) => t.id === link.tenantId && t.state === "open"),
-        "the Admin API lists the Project's Tenant",
-      );
+      const { tenant } = await admin.status();
+      assert.equal(tenant.state, "open");
+      assert.equal(tenant.id, link.tenantId, "the link names the Host's one Tenant");
+      assert.equal(credentials.principalId, "project");
+      assert.equal(credentials.applicationKey, admin.deriveTenantKey(tenant.id, "project"));
 
       const key = credentials.applicationKey;
       const tenantId = link.tenantId;
       const registered = (name) =>
         eventually(
           async () =>
-            (await tenantGet(runtimeUrl, tenantId, key, "/v1/agents")).agents?.some(
+            (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.some(
               (agent) => agent.manifest?.id === "assistant" && agent.manifest?.name === name,
             ),
           { timeout: 120_000, message: `agent "assistant" named ${name}` },
@@ -224,7 +219,7 @@ try {
         (
           await fetch(`${runtimeUrl}/v1/endpoints/assistant/ping`, {
             method: "POST",
-            headers: tenantHeaders(tenantId, key),
+            headers: runtimeHeaders(key),
             signal: AbortSignal.timeout(15_000),
           })
         ).status;
@@ -245,8 +240,8 @@ try {
       await registered("Order assistant");
       await connected();
 
-      // No model: the starter's .env names none (the temporary Tenant below uses the fixture model).
-      const model = await tenantGet(runtimeUrl, tenantId, key, "/v1/tenant/model");
+      // No model: the starter's .env names none (step 9 seeds the fixture model).
+      const model = await runtimeGet(runtimeUrl, key, "/v1/tenant/model");
       assert.equal(model.configured, false, JSON.stringify(model));
 
       // 4. `nylorun studio` in the project reads the link and lands on its Tenant.
@@ -258,17 +253,19 @@ try {
       assert.equal(new URL(studioUrl).searchParams.get("next"), `/tenants/${tenantId}`);
       const studio = await studioSession(studioUrl);
       assert.equal(studio.location, `/tenants/${tenantId}`);
-      const listed = await (await studio.get("/_studio/tenants")).json();
-      assert.ok(listed.tenants.some((t) => t.id === tenantId), "Studio lists the Tenant");
+      const hello = await (await studio.get("/_studio/hello")).json();
+      assert.equal(hello.tenant?.id, tenantId, "Studio serves the Host's Tenant");
       const proxied = await studio.get(`/_studio/tenants/${tenantId}/runtime/v1/agents`);
       assert.equal(proxied.status, 200, await proxied.clone().text());
       assert.ok(
         (await proxied.json()).agents.some((agent) => agent.manifest?.id === "assistant"),
         "Studio's Tenant proxy serves the agent",
       );
-      assert.equal((await studio.get("/", { redirect: "manual" })).status, 200);
+      const home = await studio.get("/", { redirect: "manual" });
+      assert.equal(home.status, 302);
+      assert.equal(home.headers.get("location"), `/tenants/${tenantId}`);
       assert.equal(
-        (await fetch(`${studio.origin}/_studio/tenants`)).status,
+        (await fetch(`${studio.origin}/_studio/hello`)).status,
         401,
         "Studio refuses requests without a session",
       );
@@ -299,18 +296,17 @@ try {
       });
       await connected();
       assert.equal((await readProject(project)).link.tenantId, tenantId);
-      assert.equal((await admin.listTenants()).length, 1, "the Tenant is reused");
+      assert.equal((await admin.status()).tenant.id, tenantId, "the Tenant is reused");
       await again.stop();
       await disconnected();
 
       // 8. The compiled application (built before the edit) connects with the
-      // three Project variables and registers its own manifest.
+      // two Project variables and registers its own manifest.
       const started = group.start("start", process.execPath, [npmCli(), "start"], {
         cwd: project,
         env: {
           ...env,
           NYLORUN_RUNTIME_URL: runtimeUrl,
-          NYLORUN_TENANT: tenantId,
           NYLORUN_SERVER_KEY: key,
         },
       });
@@ -318,24 +314,22 @@ try {
       await connected();
       await started.stop();
 
-      // 9. A temporary fixture-model Tenant runs a turn that calls the
-      // starter's tool, and is deleted afterwards.
-      let temporaryId;
-      await withTemporaryTenant({ admin, name: "starter-smoke" }, async (temporaryTenant) => {
-        temporaryId = temporaryTenant.id;
-        assert.notEqual(temporaryId, tenantId, "a new, temporary Tenant");
-        // The three variables take precedence over the Project link.
-        const runner = group.start("dev-temporary", process.execPath, [npmCli(), "run", "dev"], {
+      // 9. The Tenant, reset and seeded with the fixture model, runs a turn that
+      // calls the starter's tool.
+      await withResetTenant({ admin, name: "starter-smoke" }, async (fixture) => {
+        assert.equal(fixture.id, tenantId, "the Host's one Tenant");
+        // The two variables take precedence over the Project link.
+        const runner = group.start("dev-fixture", process.execPath, [npmCli(), "run", "dev"], {
           cwd: project,
-          env: { ...env, ...temporaryTenant.env },
+          env: { ...env, ...fixture.env },
         });
         const login = await stack.studioLogin();
-        const temporaryStudio = await studioSession(login);
+        const fixtureStudio = await studioSession(login);
         const tenantApi = (path, init = {}) =>
-          temporaryStudio.get(`/_studio/tenants/${temporaryId}/runtime${path}`, {
+          fixtureStudio.get(`/_studio/tenants/${tenantId}/runtime${path}`, {
             ...init,
             headers: {
-              ...(init.body ? { "content-type": "application/json", origin: temporaryStudio.origin } : {}),
+              ...(init.body ? { "content-type": "application/json", origin: fixtureStudio.origin } : {}),
               ...init.headers,
             },
           });
@@ -344,7 +338,7 @@ try {
             (await (await tenantApi("/v1/agents")).json()).agents?.some(
               (agent) => agent.manifest?.id === "assistant",
             ),
-          { timeout: 120_000, message: "the assistant on the temporary Tenant" },
+          { timeout: 120_000, message: "the assistant on the reset Tenant" },
         );
         assert.equal((await readProject(project)).link.tenantId, tenantId, "the link is untouched");
         const sessionId = `smoke-${Date.now()}`;
@@ -376,12 +370,10 @@ try {
         assert.ok(answer.includes("demo-123"), "the tool ran for demo-123");
         await runner.stop();
       });
-      const remaining = await admin.listTenants();
-      assert.ok(!remaining.some((t) => t.id === temporaryId), "the temporary Tenant is gone");
-      assert.ok(remaining.some((t) => t.id === tenantId), "the Project's Tenant remains");
+      assert.equal((await admin.status()).tenant.id, tenantId, "the reset kept the Tenant");
 
-      // 10. Without Docker, `nylorun up` says what to install and starts nothing.
-      const noDocker = await run(process.execPath, [nylorunBin, "up"], {
+      // 10. Without Docker, `nylorun start` says what to install and starts nothing.
+      const noDocker = await run(process.execPath, [nylorunBin, "start"], {
         cwd: project,
         capture: true,
         timeout: 60_000,
@@ -390,12 +382,12 @@ try {
         () => undefined,
         (error) => error,
       );
-      assert.ok(noDocker, "nylorun up fails without Docker");
+      assert.ok(noDocker, "nylorun start fails without Docker");
       assert.match(`${noDocker.stderr}${noDocker.stdout}`, /Docker is required/);
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on the stack: nylorun up starts the stack without a Tenant, nylo tenant create creates and links it, npm run dev serves and registers the Action endpoint, nylorun studio lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, a temporary fixture-model Tenant's turn and its deletion, Docker missing.",
+    "PASS: packed starter (agents + core only) on the stack: nylorun start in the project creates the stack, its Tenant and the link, npm run dev serves and registers the Action endpoint, nylorun studio lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, a fixture-model turn on the reset Tenant, Docker missing.",
   );
 } catch (error) {
   console.error(error);

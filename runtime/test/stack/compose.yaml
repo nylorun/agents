@@ -1,4 +1,5 @@
-# Test stack for `npm run test:integration -w @nylorun/runtime`.
+# Test stack for the runtime tests: `npm test` uses its Postgres (and starts it when it is
+# down), `npm run test:integration -w @nylorun/runtime` all of it.
 #
 #   npm run test:stack:up -w @nylorun/runtime
 #   NYLORUN_TEST_STACK=1 npm run test:integration -w @nylorun/runtime
@@ -12,8 +13,10 @@ name: nylorun-test
 services:
   postgres: # Session Store
     image: postgres:17.11
-    # Logical replication for the stream relay (Durable Streams §14).
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=1GB"]
+    # Logical replication for the stream relay (Durable Streams §14). Every test file has its
+    # own database and pool, and files run in parallel: room for many connections.
+    command:
+      ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=1GB", "-c", "max_connections=500"]
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: nylorun

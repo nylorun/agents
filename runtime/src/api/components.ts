@@ -65,13 +65,9 @@ import {
   SandboxToolOutcomeSchema,
   SessionCommandSchema,
   AdminStatusSchema,
-  AdminTenantListSchema,
-  AdminTenantStatusSchema,
-  CreateTenantRequestSchema,
   HostShutdownResponseSchema,
   ProtocolRejectedResponseSchema,
   RejectedResponseSchema,
-  TenantEnvelopeSchema,
   EVENT_SCHEMAS,
   EVENT_TYPES,
   type EventType,
@@ -83,10 +79,6 @@ function named<T extends z.ZodType>(id: string, schema: T): T {
 
 export const Rejected = named("Rejected", RejectedResponseSchema);
 export const ProtocolRejected = named("ProtocolRejected", ProtocolRejectedResponseSchema);
-export const TenantEnvelope = named("TenantEnvelope", TenantEnvelopeSchema);
-export const CreateTenantRequest = named("CreateTenantRequest", CreateTenantRequestSchema);
-export const AdminTenantList = named("AdminTenantList", AdminTenantListSchema);
-export const AdminTenantStatus = named("AdminTenantStatus", AdminTenantStatusSchema);
 export const AdminStatus = named("AdminStatus", AdminStatusSchema);
 export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
 

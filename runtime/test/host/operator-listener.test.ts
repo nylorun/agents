@@ -12,6 +12,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
+import { testPool } from "../support/store.js";
 
 let root: string;
 let split: EphemeralRuntime;
@@ -28,12 +29,13 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-operator-"));
   combinedRoot = await mkdtemp(join(tmpdir(), "nylorun-combined-"));
   split = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     operatorListener: true,
     browserAccess: true,
     model: { kind: "fixture" },
   });
-  combined = await startEphemeralRuntime({ hostRoot: combinedRoot, model: { kind: "fixture" } });
+  combined = await startEphemeralRuntime({ database: testPool(), hostRoot: combinedRoot, model: { kind: "fixture" } });
 });
 afterAll(async () => {
   await split?.close();

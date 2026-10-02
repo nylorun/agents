@@ -7,12 +7,13 @@
  *
  * Composition: `createInfra` builds the Postgres pool, Durable Session
  * Execution and Durable Streams from the endpoints; `createHostExecution`
- * shares one execution across the Tenants; the Tenant store is Postgres
- * (`NYLORUN_DATABASE_URL`, required), with the shared record of session events
- * (`nylorun_streams`, migrated here); with S2, a process running core runs
- * the stream relay, which feeds every Tenant's streams from the record over
+ * builds the process's execution; the Host serves the one Tenant its Postgres
+ * database holds (`NYLORUN_DATABASE_URL`, required), and creates it there on
+ * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`,
+ * `NYLORUN_DERIVED_PRINCIPALS`; tenancy.md §4); with S2, a process running core
+ * runs the stream relay, which feeds the Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
- * the infrastructure checks. A process running the gates service (the local
+ * the Tenant and the infrastructure checks. A process running the gates service (the local
  * stack's `gateway` container) starts only the gate (`runGates`): it needs
  * neither host.json nor host-credentials.json. See the startup order in `main()`. Tests compose a Host without this
  * entry, with `createHost` and an injected Tenant module.
@@ -21,16 +22,13 @@ import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { hostPaths, trashSqliteTenants } from "../tenant/paths.js";
+import { hostPaths } from "../tenant/paths.js";
 import { createTenantModule } from "../tenant/module.js";
-import { createPostgresTenantStore } from "../tenant/store-pg.js";
+import { hostPrincipals } from "../tenant/principals.js";
+import { createPostgresTenantOpener } from "../tenant/store-pg.js";
 import { openTenantRuntime } from "../tenant/runtime.js";
-import { createTenantStreams, deleteTenantStreams } from "../tenant/streams.js";
 import { createPgoutputSource } from "../adapters/replication/pgoutput.js";
-import {
-  assertLogicalReplication,
-  migrateStreamsSchema,
-} from "../store/postgres/migrations/shared/index.js";
+import { assertLogicalReplication } from "../store/postgres/connect.js";
 import { createPostgresRecordReader } from "../store/postgres/record.js";
 import { createStreamRelay, type StreamRelay } from "../streams/relay/core.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";
@@ -52,6 +50,8 @@ import {
 import { createExecution, createInfra } from "../infra/index.js";
 import { createDatabase } from "../infra/database.js";
 import { startGates } from "./gates.js";
+import { httpToolGate } from "../gates/tool-client.js";
+import { httpKeys } from "../keys/client.js";
 import { httpModelGate } from "../gates/http-client.js";
 import type { StackConfig } from "./stack-config.js";
 
@@ -85,7 +85,7 @@ async function lagOf(source: {
 }
 
 /**
- * The gates service: the Model Gate's listener over the Postgres pool and the Host's tenants
+ * The gates service: the Model Gate's listener over the Postgres pool and the Host's tenant
  * directory. Writes nothing to the Host root (the local stack mounts it read-only).
  */
 async function runGates(stack: StackConfig): Promise<void> {
@@ -103,7 +103,14 @@ async function runGates(stack: StackConfig): Promise<void> {
   const database = createDatabase(stack);
   let server;
   try {
-    server = await startGates({ gates, database, hostRoot: resolveHostRoot(), logger });
+    server = await startGates({
+      gates,
+      database,
+      hostRoot: resolveHostRoot(),
+      logger,
+      ...(stack.delivery ? { delivery: stack.delivery } : {}),
+      ...(stack.services.has("keys") ? { keys: true } : {}),
+    });
   } catch (error) {
     await database.end({ timeout: 5 });
     if (error instanceof HostListenError) {
@@ -128,12 +135,11 @@ async function runGates(stack: StackConfig): Promise<void> {
 
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
-  if (stack.services.has("gates")) return runGates(stack);
+  if (stack.services.has("gates") || stack.services.has("keys")) return runGates(stack);
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
   mkdirSync(paths.tmp, { recursive: true });
-  mkdirSync(paths.tenants, { recursive: true });
 
   if (!existsSync(paths.config)) {
     throw new Error(
@@ -146,7 +152,7 @@ export async function main(): Promise<void> {
     );
   }
 
-  // Tenants are Postgres schemas. Only a Host outside a container (a local
+  // The Tenant is a Postgres database. Only a Host outside a container (a local
   // development Host) may run without S2, on in-process streams.
   if (!stack.endpoints.databaseUrl) {
     throw new Error(
@@ -176,8 +182,6 @@ export async function main(): Promise<void> {
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
-  // Tenants from the SQLite Runtime are not migrated: move them out of the way.
-  trashSqliteTenants(hostRoot, logger);
   const infra = createInfra(stack, { logger });
   const database = infra.database;
   if (!database) throw new Error("NYLORUN_DATABASE_URL did not yield a Postgres pool");
@@ -193,9 +197,8 @@ export async function main(): Promise<void> {
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
   });
 
-  // One Durable Session Execution for every Tenant this process opens: Restate
-  // when its endpoints are set, else the in-process memory execution. An
-  // invocation for a Tenant that is not open here opens it on demand.
+  // The process's Durable Session Execution: Restate when its endpoints are set, else the
+  // in-process memory execution. An invocation that arrives while the Tenant opens waits for it.
   const hostExecution = createHostExecution({
     execution: infra.execution ?? createExecution(stack),
     services: stack.services,
@@ -203,70 +206,75 @@ export async function main(): Promise<void> {
     logger,
   });
   // Durable Streams: S2 when configured (always in container mode). Without
-  // them (a local Host only) each Tenant keeps in-process streams, whose history
+  // them (a local Host only) the Tenant keeps in-process streams, whose history
   // does not survive a restart.
   const streams = infra.streams;
+  // With S2, the stream relay feeds the Tenant's streams from the record. Every process
+  // running core runs one, once the Tenant is open (the relay reads its id); the replication
+  // slot lets exactly one be active. Without S2, the Tenant relays its own commits.
+  let relay: StreamRelay | undefined;
   let relayLag:
     | (() => Promise<ReturnType<StreamRelay["status"]> & { lagBytes?: number }>)
     | undefined;
-  // The record of session events is shared by every Tenant; it exists before any opens.
-  await migrateStreamsSchema(database);
-  // With S2, the stream relay feeds every Tenant's streams from the record. Every process
-  // running core runs one; the replication slot lets exactly one be active. Without S2, each
-  // Tenant relays its own commits to its in-process streams.
-  let relay: StreamRelay | undefined;
-  if (streams && stack.services.has("core")) {
-    await assertLogicalReplication(database);
+  if (streams && stack.services.has("core")) await assertLogicalReplication(database);
+  const startRelay = (tenantId: string) => {
+    if (!streams || !stack.services.has("core") || relay) return;
     const source = createPgoutputSource({
-      connectionString: stack.endpoints.databaseUrl,
+      connectionString: stack.endpoints.databaseUrl!,
+      tenantId,
       log: (message, fields) => logger.info(message, fields),
     });
     relay = createStreamRelay({
       source,
-      record: createPostgresRecordReader(database),
+      record: createPostgresRecordReader(database, { tenantId }),
       streams,
       log: (message, fields) => logger.info(message, fields),
     });
     const status = relay.status;
     relayLag = async () => ({ ...status(), ...(await lagOf(source)) });
-  }
-  // With the gates service every Tenant's vault-backed model calls cross it, and this process
-  // never reads a model credential.
+    relay.start();
+  };
+  // With the gates service the Tenant's vault-backed model calls, remote MCP calls and Action
+  // deliveries cross it, and this process never reads a model or MCP credential.
   const modelGate = stack.modelGate
     ? httpModelGate({ url: stack.modelGate.url, token: stack.modelGate.token })
     : undefined;
-  const store = createPostgresTenantStore({
-    hostRoot,
-    sql: database,
-    configFor,
-    logger,
-    openRuntime: (tenantConfig, opened) =>
-      openTenantRuntime(tenantConfig, {
-        execution: hostExecution.tenantExecution,
-        ...(modelGate ? { modelGate } : {}),
-        ...(streams ? { streams, hostRelay: true } : {}),
-        ...opened,
-      }),
-  });
-
+  const toolGate = stack.modelGate
+    ? httpToolGate({ url: stack.modelGate.url, token: stack.modelGate.token })
+    : undefined;
+  // With the keys service, vault writes and token signing cross it, and this process never
+  // reads the vault key (F4.2).
+  const keys = stack.keys ? httpKeys({ url: stack.keys.url, token: stack.keys.token }) : undefined;
+  const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
   const module = createTenantModule({
-    store,
+    open: createPostgresTenantOpener({
+      hostRoot,
+      sql: database,
+      create: {
+        ...(tenantSettings.id ? { tenantId: tenantSettings.id } : {}),
+        name: tenantSettings.name,
+        principals: hostPrincipals({
+          adminKey: credentials.adminKey,
+          derived: tenantSettings.derivedPrincipals,
+        }),
+      },
+      configFor,
+      logger,
+      openRuntime: (tenantConfig, opened) =>
+        openTenantRuntime(tenantConfig, {
+          execution: hostExecution.tenantExecution,
+          ...(modelGate ? { modelGate } : {}),
+          ...(toolGate ? { toolGate } : {}),
+          ...(keys ? { keys } : {}),
+          ...(streams ? { streams, hostRelay: true } : {}),
+          ...opened,
+        }),
+    }),
     logger,
-    ...(relayLag ? { relayStatus: relayLag } : {}),
-    // A new Tenant's basin is created with it (opening it repairs a failure);
-    // a deleted Tenant's sweep stops re-arming and its basin goes.
-    ...(streams
-      ? { onCreated: (tenantId: string) => createTenantStreams(streams, tenantId) }
-      : {}),
-    onDeleted: async (tenantId) => {
-      const failed = (
-        await Promise.allSettled([
-          hostExecution.disarm(tenantId),
-          ...(streams ? [deleteTenantStreams(streams, tenantId)] : []),
-        ])
-      ).flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
-      if (failed.length > 0)
-        throw new AggregateError(failed, "Deleted Tenant cleanup failed");
+    onOpen: (handle) => startRelay(handle.envelope.id),
+    relayStatus: async () => {
+      if (!relayLag) throw new Error("no relay");
+      return relayLag();
     },
   });
 
@@ -292,7 +300,7 @@ export async function main(): Promise<void> {
         : {}),
     ...(infra.readiness ? { readiness: infra.readiness } : {}),
     // SIGTERM and POST /v1/admin/host/shutdown both close the Host this way:
-    // stop the Worker, close the Tenants, then end the infrastructure clients.
+    // stop the Worker and the relay, close the Tenant, then end the infrastructure clients.
     shutdown: {
       beforeTenants: async () => {
         await hostExecution.stop();
@@ -303,20 +311,23 @@ export async function main(): Promise<void> {
   };
   const host = createHost(options);
 
-  // Startup order. The Worker starts first: opening a Tenant arms its sweep
+  // Startup order. The Worker starts first: opening the Tenant arms its sweep
   // through Restate's ingress, which answers 404 until a Worker has registered
-  // the services, so no Tenant may open before `start` (the listener opens
-  // Tenants on demand). A core-only process serves no Worker endpoint, so it
-  // can open Tenants only once some Worker process has registered. Container
+  // the services, so the Tenant may not open before `start`. A core-only
+  // process serves no Worker endpoint, so it can open the Tenant only once some
+  // Worker process has registered (until then the open is retried). Container
   // mode runs one `--service core,loop` process, which registers here. Then the
-  // listener starts (and marks discovery done), and every listed Tenant's
-  // sweep is re-armed, which recovers wakes lost with Restate's state (§14.8).
+  // listener starts and opens the Tenant (migrating its database, creating it on
+  // first start); opening arms its sweep, which recovers wakes lost with
+  // Restate's state (§14.8), and starts the stream relay. A Tenant that cannot
+  // be opened leaves the Host listening but not ready, with the cause in
+  // `/v1/admin/status`.
   try {
     await hostExecution.start();
-    relay?.start();
     await host.listen();
   } catch (error) {
     await hostExecution.stop().catch(() => undefined);
+    await module.close().catch(() => undefined);
     await relay?.stop().catch(() => undefined);
     await infra.close();
     if (error instanceof HostListenError) {
@@ -329,19 +340,14 @@ export async function main(): Promise<void> {
     }
     throw error;
   }
-  const tenants = await module.list();
-  await hostExecution
-    .armAll(tenants.filter((t) => t.state === "open").map((t) => t.id))
-    .catch((error: unknown) =>
-      logger.warn("tenant_sweeps_not_armed", {
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
 
+  const tenant = module.tenant();
   logger.info("host_ready", {
     url: host.url,
     hostId: config.hostId,
-    tenants: tenants.length,
+    tenantId: tenant.id,
+    tenant: tenant.state,
+    ...(tenant.cause ? { cause: tenant.cause.code } : {}),
   });
 
   void host.closed.then(() => process.exit(0));

@@ -1,3 +1,70 @@
+# One Tenant per installation (protocol 5)
+
+A Runtime now serves exactly one Tenant, the one its own Postgres database holds, and
+nothing in a request selects it. Locally that means one stack per project: `nylorun start`
+in a project creates the project's stack, its Tenant and the Project link together. Two
+Tenants are two installations.
+
+**This release starts fresh.** Existing stacks are left as they are: the old stack under
+`~/.nylorun` (Compose project `nylorun`, `tenant_<id>` schemas) is never migrated, changed
+or deleted. Your agents, sessions, keys and vault credentials stay in it until you remove it.
+
+What to do:
+
+1. Upgrade the packages together (`@nylorun/agents`, `@nylorun/cli`, `@nylorun/admin`,
+   `nylorun`): clients speak protocol 5.
+2. In each project, run `npx nylorun start`. It creates the project's stack
+   (`~/.nylorun/stacks/<project>/`, Compose project `nylorun-<project>`, its own ports and
+   volumes), whose Runtime creates its Tenant, writes a new `.nylorun/link.json` (format 2)
+   and `.nylorun/credentials.json`, and seeds the model provider from the project's `.env`.
+   A project still linked to the old stack gets a note and a new stack. To share one stack
+   between checkouts, run `npx nylorun start --name <stack>` in the others.
+3. Re-enter model credentials that were not in `.env` (`npm run configure`, or Studio),
+   and register your agents again: `npm run dev` does this.
+4. Stop or remove the old stack when you no longer need it: `npx nylorun legacy stop`, or
+   `npx nylorun legacy delete --yes` (its volumes, its Tenants and their vault keys go).
+
+| Before | After |
+| --- | --- |
+| One stack per machine (`~/.nylorun`, Compose project `nylorun`) serving many Tenants | One stack per project: `~/.nylorun/stacks/<name>/`, Compose project `nylorun-<name>`; `nylorun ls`, `nylorun delete <name>` |
+| `nylo tenant create\|use\|list\|current\|delete` | `nylorun start` in the project (creates the stack, its Tenant and the link); `--name <stack>` attaches to an existing stack |
+| `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation; `nylorun status` shows the stack's Tenant |
+| `NYLORUN_TENANT`, `Nylorun-Tenant`, `createClient({ tenant })`, `runtime: { url, tenant }` | Gone: `NYLORUN_RUNTIME_URL` + `NYLORUN_SERVER_KEY` (or the link), `createClient({ url, key })`, `runtime: { url }` |
+| `.nylorun/link.json` format 1 `{ hostUrl, hostId, tenantId }` with a minted application key | Format 2 `{ stack, hostUrl, hostId, tenantId }`; `credentials.json` holds the key of the derived principal `project`. Clients refuse a format 0 or 1 link and name `nylorun start` |
+| `admin.createTenant`, `listTenants`, `getTenant`, `deleteTenant`; `/v1/admin/tenants*` | Gone (404). The Host creates its Tenant on first start; `admin.status().tenant` names it and why it is not open |
+| `AdminStatus.tenants[]`, per-Tenant quarantine | `AdminStatus.tenant`; a Tenant that cannot be opened fails `/ready` with its cause (`schema-too-new`, `kek-missing`, `database-layout-old`, …) |
+| `verifyDeliveryToken({ tenantId })` required | `tenantId` optional: the endpoint accepts its installation's Tenant |
+| Studio's Tenant picker, list and create | Studio serves its installation's Tenant; `/` opens `/tenants/<id>` |
+| `<Host root>/tenants/<id>/` | `<Host root>/tenant/` |
+| `ERROR_CODES` `tenant_conflict`, `active_work` | Removed |
+
+- **Self-hosted Runtime.** Point the Runtime at a new, empty database. One that holds
+  `tenant_<id>` schemas fails readiness with `database-layout-old`. Set
+  `NYLORUN_TENANT_NAME` (and optionally `NYLORUN_TENANT_ID`) for the Tenant it creates, and
+  `NYLORUN_DERIVED_PRINCIPALS` (default `project`) for the clients whose keys the admin key
+  derives, e.g. `project,babai`.
+- **Protocol 4 clients** keep working against this Runtime for one release: a request
+  without `Nylorun-Tenant`, or naming the Host's Tenant, reaches it; one naming another
+  Tenant is the opaque `404`.
+- **Keys and ids.** The Tenant id stays as identity (token issuers, key formats, basin
+  names); application and publishable keys of the new Tenant keep their formats.
+
+# `startEphemeralRuntime` needs a database
+
+The in-memory Session Store is gone: `startEphemeralRuntime()` (`@nylorun/runtime`,
+`@nylorun/runtime/core`) now requires `database`, the Postgres database of the Tenant it
+serves. Pass a URL, and the Runtime opens a pool and ends it on `close()`, or a pool you end
+yourself. It creates its Tenant in that database on first start (or serves the one the
+database holds), and the data stays after `close()`, so give each test its own database and
+drop it afterwards.
+
+```ts
+const runtime = await startEphemeralRuntime({
+  hostRoot,
+  database: "postgres://nylorun:nylorun@127.0.0.1:55432/my_test_db",
+});
+```
+
 # Session events on the `nylorun.event/2` envelope (protocol 4)
 
 Protocol 4 puts every session event on the `nylorun.event/2` envelope and types each event

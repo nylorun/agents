@@ -9,13 +9,14 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { startEphemeralRuntime, type EphemeralRuntime } from "../../src/tenant/ephemeral.js";
+import { testPool } from "../support/store.js";
 
 let root: string;
 let rt: EphemeralRuntime;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-public-jwks-"));
-  rt = await startEphemeralRuntime({ hostRoot: root, browserAccess: true, model: { kind: "fixture" } });
+  rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, browserAccess: true, model: { kind: "fixture" } });
 });
 
 afterAll(async () => {

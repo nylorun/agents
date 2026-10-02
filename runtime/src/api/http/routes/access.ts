@@ -79,16 +79,19 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Get the public keys subject and delivery tokens are signed with",
       description:
         "A JSON Web Key Set, to verify a subject token or a delivery token without calling the " +
-        "Runtime. No credential is needed: `Nylorun-Tenant` alone names the Tenant.",
+        "Runtime. No credential is needed.",
       responses: { 200: json(Jwks, "The public keys") },
     },
     async (c) => {
-      const keys = c.env.tenant.signingKeys;
-      const kek = keys.kek();
-      const rows = await c.env.tenant.store.tx(async (t) => {
-        await keys.ensure(t, kek);
-        return t.signingKeys(["standby", "current", "previous"]);
-      });
+      // Anonymous: reads the public keys. Only when the current or standby key is missing does
+      // it ask the keys service to create it, so a verifier never caches a set without them.
+      const ctx = c.env.tenant;
+      const read = () => ctx.store.tx((t) => t.signingKeys(["standby", "current", "previous"]));
+      let rows = await read();
+      if (!complete(rows)) {
+        await ctx.keys.ensureSigningKeys();
+        rows = await read();
+      }
       return jsonResponse(200, { keys: rows.map(publicJwk) });
     },
   );
@@ -162,12 +165,13 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       requireApplication(c.get("scope"));
-      const keys = c.env.tenant.signingKeys;
-      const kek = keys.kek();
-      const rows = await c.env.tenant.store.tx(async (t) => {
-        await keys.ensure(t, kek);
-        return t.signingKeys();
-      });
+      const ctx = c.env.tenant;
+      const read = () => ctx.store.tx((t) => t.signingKeys());
+      let rows = await read();
+      if (!complete(rows)) {
+        await ctx.keys.ensureSigningKeys();
+        rows = await read();
+      }
       return jsonResponse(200, { keys: rows.map(signingKeyView) });
     },
   );
@@ -192,13 +196,10 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
       requireApplication(c.get("scope"));
       const ctx = c.env.tenant;
       const request = RotateSigningKeysRequestSchema.parse(await readJson(c.req.raw));
-      const keys = ctx.signingKeys;
-      const kek = keys.kek();
-      const rows = await ctx.store.tx(async (t) =>
-        keys.rotate(t, kek, (await readPolicy(t)).tokens.maxTtlSeconds, request.force === true),
-      );
+      const maxTtlSeconds = await ctx.store.tx(async (t) => (await readPolicy(t)).tokens.maxTtlSeconds);
+      const keys = await ctx.keys.rotateSigningKeys({ maxTtlSeconds, force: request.force === true });
       ctx.config.logger.info("signing keys rotated", { force: request.force === true });
-      return jsonResponse(200, { keys: rows.map(signingKeyView) });
+      return jsonResponse(200, { keys });
     },
   );
 
@@ -253,7 +254,7 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Access"],
       summary: "Create a publishable key",
       description:
-        "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it names the Tenant and grants the policy's anonymous scopes.",
+        "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it grants the policy's anonymous scopes.",
       request: { body: body(CreatePublishableKeyRequest) },
       responses: {
         200: json(PublishableKey, "The key"),
@@ -386,3 +387,8 @@ export async function revokeSubject(
   return { subject, epoch };
 }
 
+
+/** True when the Tenant has a current and a standby signing key. */
+function complete(rows: readonly { state: string }[]): boolean {
+  return rows.some((row) => row.state === "current") && rows.some((row) => row.state === "standby");
+}

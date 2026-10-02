@@ -59,7 +59,7 @@ export interface ActionHandlerOptions {
    * Where to read the Tenant's public keys without a key. Set it for a process that only
    * serves Actions and holds no application key.
    */
-  runtime?: { url: string; tenant: string; fetch?: typeof fetch };
+  runtime?: { url: string; fetch?: typeof fetch };
   /** The Tenant's public keys, instead of reading them from the Runtime. */
   jwks?: { keys: readonly JsonWebKey[] };
   /**
@@ -127,13 +127,12 @@ export function createActionHandler(options: ActionHandlerOptions): ActionHandle
     if (request.method !== "POST")
       return answer(405, "method_not_allowed", "An Action endpoint accepts POST only");
     const body = new Uint8Array(await request.arrayBuffer());
-    const { tenant, url, fetch, keys } = await verificationOf();
+    const { url, fetch, keys } = await verificationOf();
     const token = request.headers.get(SIGNATURE_HEADER);
     let claims;
     try {
       claims = await verifyDeliveryToken(token, {
         keys: keys.lookup,
-        tenantId: tenant,
         body,
         ...(audience === undefined ? {} : { audience }),
       });
@@ -185,7 +184,7 @@ export function createActionHandler(options: ActionHandlerOptions): ActionHandle
         agent,
         token: token!,
         sandbox: delivery.sandbox,
-        runtime: { url, tenant, ...(fetch ? { fetch } : {}) },
+        runtime: { url, ...(fetch ? { fetch } : {}) },
         report,
       });
       options.waitUntil?.(work);
@@ -195,7 +194,7 @@ export function createActionHandler(options: ActionHandlerOptions): ActionHandle
       ? createActionSandbox({
           transport: (callbacks = callbacks
             ? callbacks.withKey(token!)
-            : new Transport({ url, tenant, key: token!, ...(fetch ? { fetch } : {}) })),
+            : new Transport({ url, key: token!, ...(fetch ? { fetch } : {}) })),
           actionId: action.actionId,
           signal: request.signal,
         })
@@ -291,7 +290,7 @@ async function runInBackground(input: {
   agent: ExecutableDefinition;
   token: string;
   sandbox: boolean;
-  runtime: { url: string; tenant: string; fetch?: typeof fetch };
+  runtime: { url: string; fetch?: typeof fetch };
   report: (error: unknown) => void;
 }): Promise<void> {
   const { action, report } = input;
@@ -370,7 +369,6 @@ async function runInBackground(input: {
 }
 
 interface Verification {
-  tenant: string;
   /** The Runtime's URL, for sandbox calls made with the delivery token. */
   url: string;
   fetch?: typeof fetch;
@@ -382,23 +380,20 @@ async function resolveVerification(
   clientOf: () => Promise<AgentsClient>,
 ): Promise<Verification> {
   if (options.runtime) {
-    const { url, tenant, fetch } = options.runtime;
+    const { url, fetch } = options.runtime;
     return {
-      tenant,
       url,
       ...(fetch ? { fetch } : {}),
-      keys: new JwksCache(options.jwks ?? { url, tenant, ...(fetch ? { fetch } : {}) }),
+      keys: new JwksCache(options.jwks ?? { url, ...(fetch ? { fetch } : {}) }),
     };
   }
   const { transport } = await clientOf();
   return {
-    tenant: transport.tenant,
     url: transport.url,
     fetch: transport.fetcher,
     keys: new JwksCache(
       options.jwks ?? {
         url: transport.url,
-        tenant: transport.tenant,
         key: transport.key,
         fetch: transport.fetcher,
       },

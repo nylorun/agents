@@ -1,83 +1,75 @@
 # @nylorun/cli
 
-The Runtime client, command `nylo`: it acts on a Runtime's Tenants, the local
-stack's or any Runtime reachable by URL and key. Setting up and running the
-local stack is [`nylorun`](../nylorun/README.md)'s job; the two packages are
-independent and never call each other. Depends on `@nylorun/agents` and
-`@nylorun/admin` only among Nylorun packages. Vocabulary:
+The Runtime client, command `nylo`: it acts on the one Tenant of an
+installation, a local stack or any Runtime reachable by URL and key. Setting up
+and running the local stack is [`nylorun`](../nylorun/README.md)'s job; the two
+packages are independent and never call each other. Depends on
+`@nylorun/agents` and `@nylorun/admin` only among Nylorun packages. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 ```sh
-npx nylorun up                        # the local stack (nylorun)
-npx @nylorun/cli tenant create        # this project's Tenant, linked in .nylorun/
-npx @nylorun/cli tenant use <id>      # or: link a Tenant created in Studio
+npx nylorun start                     # in the project: its stack, its Tenant and the Project link
+npx @nylorun/cli status               # the linked Tenant
 ```
 
 ## Commands
 
 ```sh
-nylo tenant create [name]             # create a Tenant; in a Project, link it and seed it from .env
-nylo tenant current|list [--json]|use <name-or-id>|status [--json]|reset|delete
-nylo configure                        # set or replace the model provider on the linked Tenant
+nylo status [--json]                  # the Tenant, its checks and counts, and the link's stack
+nylo reset [--sessions|--sandboxes|--all] [--yes]
+nylo endpoints [--json]|ping <agent>  # the registered Action endpoints and their health
+nylo access …                         # access policy, publishable and signing keys, subject tokens
+nylo configure                        # set or replace the Tenant's model provider
 nylo env                              # export lines for the linked Project
 nylo doctor sandbox [--json]          # sandbox backend via the Tenant API
 ```
 
-Local stack commands (`up`, `down`, `start`, `stop`, `status`, `logs`,
-`studio`, `reset`) exit 2 naming `npx nylorun <command>`. `nylorun dev` was
-removed: link once with `nylo tenant create`, then run the project's own
-`npm run dev` (`tsx watch src/main.ts`).
+Every command acts on the linked installation: the Project link and
+credentials (below), or `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` when the
+Project has no link. An installation serves one Tenant, so nothing selects it.
 
-## `nylo tenant create`
+Local stack commands (`up`, `down`, `start`, `stop`, `logs`, `studio`) exit 2
+naming `npx nylorun <command>`. `nylo tenant …` exits 2: `npx nylorun start`
+creates the stack, its Tenant and the link, and `nylo status|reset|endpoints`
+replace `nylo tenant status|reset|endpoints`. `nylorun dev` was removed: run
+`npx nylorun start` once, then the project's own `npm run dev`
+(`tsx watch src/main.ts`).
 
-The Admin API connection resolves from `NYLORUN_ADMIN_URL` and
-`NYLORUN_ADMIN_KEY`, else from the local Host root (`NYLORUN_HOME` or
-`~/.nylorun`: `host.json` and the admin key that `nylorun up` wrote). With no
-Runtime answering, it exits 6 and names `npx nylorun up`.
+## `nylo status`
 
-Inside a Project (the nearest `.nylorun/` or `package.json`):
+Reads the Tenant API status (`GET /v1/tenant`) and prints the Tenant, the
+stack the link names, the Runtime URL, the checks, the counts and the sandbox
+backend. When the Tenant is not open it does not answer; `nylo status` then
+asks the Admin API (`/v1/admin/status`, through the local stack's Host root or
+`NYLORUN_ADMIN_URL` and `NYLORUN_ADMIN_KEY`) and prints why, with the repair.
 
-1. Creates the Tenant, named after `package.json` unless a name is given.
-2. Writes the format-1 link and credentials (see below). A Project that is
-   already linked is refused: use `nylo tenant use` or `nylo tenant delete`.
-3. Seeds the Tenant from `.env`: `NYLORUN_SANDBOX`, and the model provider from
-   `MODEL_PROVIDER`, `MODEL`, `MODEL_PROVIDER_API_KEY` (or a credential in
-   `.nylorun/auth.json`) into the Tenant vault. Without them it says to set the
-   provider in Studio or with `nylo configure`.
+## `nylo reset`
 
-Outside a Project it creates the Tenant and prints the three `NYLORUN_*`
-exports once; the Host keeps only a hash of the application key.
-
-## `nylo tenant use <name-or-id>`
-
-Links the Project to another Tenant on the local Host. It uses the first key
-that the Tenant accepts:
-
-1. The Project's `.nylorun/credentials.json`.
-2. A key it kept when the Project last left that Tenant
-   (`.nylorun/credentials.<tenantId>.json`).
-3. The key of the derived principal `project`, computed from this machine's
-   admin key. Every Tenant created in Studio registers that principal, so
-   Studio's **Connect your code** step needs only this command.
-
-When it replaces an application key (shown only once, when the Tenant was
-created), it keeps that key as `.nylorun/credentials.<tenantId>.json`, so
-`nylo tenant use <that id>` switches back.
+Clears the Tenant's sessions (the default), its sandboxes, or all its data
+(`--all`), after draining work in flight. `--all` asks first; pass `--yes` when
+not in a terminal. The Project link and credentials are kept.
 
 ## Project link
 
-A **Project** stores only:
+`npx nylorun start` writes it; `nylo` only reads it. A **Project** stores only:
 
-- `.nylorun/link.json`: `{ format, hostUrl, hostId, tenantId }`
-- `.nylorun/credentials.json`: application key and principal id (0600)
+- `.nylorun/link.json`: `{ format: 2, stack, hostUrl, hostId, tenantId }`
+  (`tenantId` is information)
+- `.nylorun/credentials.json`: the key of the derived principal `project` and
+  its id (0600)
 - `.nylorun/.gitignore` containing `*`
 
-`createActionHandler` and `createClient` in `@nylorun/agents` read the link (or the three variables),
-so the project's `npm run dev` and `npm start` need no Nylorun tool.
+A format 0 or 1 link named a Tenant on an older multi-Tenant Host: `nylo`
+refuses it and says to run `npx nylorun start`, which starts the project's own
+stack and links it again.
+
+`createActionHandler` and `createClient` in `@nylorun/agents` read the link (or
+the two variables), so the project's `npm run dev` and `npm start` need no
+Nylorun tool.
 
 ```sh
 eval "$(npx @nylorun/cli env)"
-# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY, NYLORUN_TENANT
+# → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
 ## Exit codes
@@ -94,8 +86,9 @@ eval "$(npx @nylorun/cli env)"
 
 | Symptom | What to do |
 | --- | --- |
-| No Runtime answers | `npx nylorun up`, then `npx nylorun status` |
-| Quarantined Tenant | `nylo tenant status` shows the reason and `repair` |
+| No Runtime answers | `npx nylorun start`, then `npx nylorun status` |
+| Tenant not open | `nylo status` shows the cause and its `repair` |
+| Old Project link refused | `npx nylorun start` in the project |
 | `426` from the Runtime | Upgrade the CLI, or pin a matching older set |
 
 See [MIGRATION.md](../MIGRATION.md).

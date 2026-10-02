@@ -1,35 +1,31 @@
 /**
  * The Host composed the way `host/main.ts` composes it, against the test stack: the
- * infrastructure clients from `createInfra`, the Host execution, and the Postgres Tenant
- * store. `/ready` follows discovery and the infrastructure checks, the Admin API creates and
- * serves a Postgres Tenant, and shutdown ends the infrastructure clients.
+ * infrastructure clients from `createInfra`, the Host execution, and the Host's Tenant in a
+ * Postgres database of its own. `/ready` follows the Tenant and the infrastructure checks,
+ * the Host creates and serves its Tenant, and shutdown ends the infrastructure clients.
  */
-import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-  TENANT_HEADER,
-  newTenantId,
-} from "@nylorun/core/compatibility";
+import { deriveTenantKey } from "@nylorun/admin";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { AdminStatusSchema } from "@nylorun/core/contracts";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import { createHost } from "../../src/host/create-host.js";
 import { createHostExecution } from "../../src/host/execution.js";
 import { createHostLogger } from "../../src/host/logger.js";
 import { parseStackConfig } from "../../src/host/stack-config.js";
 import { createInfra } from "../../src/infra/index.js";
-import { createPostgresClient } from "../../src/store/postgres/connect.js";
-import { tenantSchemaName } from "../../src/store/postgres/names.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import { createTenantModule } from "../../src/tenant/module.js";
+import { hostPrincipals } from "../../src/tenant/principals.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
-import { createPostgresTenantStore } from "../../src/tenant/store-pg.js";
+import { createPostgresTenantOpener } from "../../src/tenant/store-pg.js";
 import type { TenantConfig } from "../../src/tenant/types.js";
 import { configForRoot } from "../tenant/support.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+import { tenantTestDatabase } from "../support/database.js";
 import { ADMIN_KEY, adminHeaders, freePort, getJson } from "./support.js";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -37,11 +33,11 @@ afterEach(async () => {
   for (const step of cleanup.splice(0).reverse()) await step().catch(() => undefined);
 });
 
-function stack(overrides: Record<string, string> = {}) {
+function stack(databaseUrl: string, overrides: Record<string, string> = {}) {
   const endpoints = stackEndpoints();
   return parseStackConfig(
     {
-      NYLORUN_DATABASE_URL: endpoints.postgres.url,
+      NYLORUN_DATABASE_URL: databaseUrl,
       NYLORUN_RESTATE_INGRESS_URL: endpoints.restate.ingressUrl,
       NYLORUN_RESTATE_ADMIN_URL: endpoints.restate.adminUrl,
       NYLORUN_S2_ENDPOINT: endpoints.s2.endpoint,
@@ -56,7 +52,8 @@ function stack(overrides: Record<string, string> = {}) {
 async function startHost(options: { overrides?: Record<string, string>; gate?: Promise<void> } = {}) {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-host-pg-"));
   cleanup.push(() => rm(hostRoot, { recursive: true, force: true }));
-  const infra = createInfra(stack(options.overrides));
+  const database = await tenantTestDatabase();
+  const infra = createInfra(stack(database.url, options.overrides));
   cleanup.push(() => infra.close());
   const logger = createHostLogger(() => {});
   const configFor = (id: string): TenantConfig => ({
@@ -70,25 +67,21 @@ async function startHost(options: { overrides?: Record<string, string>; gate?: P
     resolve: (tenantId) => module.worker(tenantId),
   });
   const streams = new MemoryStreams();
-  const store = createPostgresTenantStore({
-    hostRoot,
-    sql: infra.database!,
-    configFor,
-    openRuntime: (config, opened) =>
-      openTenantRuntime(config, {
-        execution: hostExecution.tenantExecution,
-        streams,
-        createKekIfMissing: true,
-        ...opened,
-      }),
-  });
   const base = createTenantModule({
-    store,
+    open: createPostgresTenantOpener({
+      hostRoot,
+      sql: infra.database!,
+      create: { name: "pg", principals: hostPrincipals({ adminKey: ADMIN_KEY }) },
+      configFor,
+      openRuntime: (config, opened) =>
+        openTenantRuntime(config, {
+          execution: hostExecution.tenantExecution,
+          streams,
+          createKekIfMissing: true,
+          ...opened,
+        }),
+    }),
     logger,
-    onDeleted: async (id) => {
-      await hostExecution.disarm(id);
-      await streams.deleteTenant(id);
-    },
   });
   const gate = options.gate;
   const module = gate
@@ -131,7 +124,7 @@ async function waitForUrl(host: { url: string }) {
 }
 
 describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
-  it("/ready is 503 until discovery finishes, then 200 with every infrastructure check", async () => {
+  it("/ready is 503 until the Tenant is open, then 200 with every infrastructure check", async () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => (open = resolve));
     const { host, listening } = await startHost({ gate });
@@ -140,7 +133,7 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     expect(before.status).toBe(503);
     expect(before.body).toMatchObject({
       status: "not_ready",
-      checks: { listener: true, discovery: false, postgres: true, restate: true, s2: true },
+      checks: { listener: true, tenant: false, postgres: true, restate: true, s2: true },
     });
     open();
     await listening;
@@ -148,7 +141,7 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     expect(after.status).toBe(200);
     expect(after.body).toMatchObject({
       status: "ready",
-      checks: { listener: true, discovery: true, postgres: true, restate: true, s2: true },
+      checks: { listener: true, tenant: true, postgres: true, restate: true, s2: true },
     });
   });
 
@@ -162,44 +155,23 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     expect(ready.body).toMatchObject({ checks: { postgres: true, s2: false } });
   });
 
-  it("creates and serves a Postgres Tenant, and admin shutdown ends the infrastructure", async () => {
+  it("creates its Tenant in its database and serves it, and admin shutdown ends the infrastructure", async () => {
     const { host, listening, infra, steps } = await startHost();
     await listening;
-    const applicationKey = randomBytes(32).toString("hex");
-    const tenantId = newTenantId();
-    cleanup.push(async () => {
-      const sql = createPostgresClient(stackEndpoints().postgres.url, { max: 1 });
-      await sql`DROP SCHEMA IF EXISTS ${sql(tenantSchemaName(tenantId))} CASCADE`;
-      await sql.end({ timeout: 5 });
-    });
-    const created = await getJson(`${host.url}/v1/admin/tenants`, {
-      method: "POST",
-      headers: { ...adminHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({
-        tenantId,
-        name: "pg",
-        principalId: "principal_pg",
-        credentialHash: createHash("sha256").update(applicationKey).digest("hex"),
-        idempotencyKey: randomBytes(16).toString("hex"),
-      }),
-    });
-    expect(created.status).toBe(201);
-    const status = await getJson(`${host.url}/v1/admin/tenants/${tenantId}`, {
-      headers: adminHeaders(),
-    });
+    const status = AdminStatusSchema.parse(
+      (await getJson(`${host.url}/v1/admin/status`, { headers: adminHeaders() })).body,
+    );
+    expect(status.tenant).toMatchObject({ name: "pg", state: "open" });
+    const tenantId = status.tenant.id!;
     const tenant = await getJson(`${host.url}/v1/tenant`, {
       headers: {
-        authorization: `Bearer ${applicationKey}`,
-        [TENANT_HEADER]: tenantId,
+        authorization: `Bearer ${deriveTenantKey(ADMIN_KEY, tenantId, "project")}`,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       },
     });
     expect(tenant.status).toBe(200);
     // The envelope, and its Postgres schema version, is the same everywhere.
-    expect((tenant.body as { tenant: unknown }).tenant).toEqual(
-      (status.body as { envelope: unknown }).envelope,
-    );
-    expect(created.body).toEqual((status.body as { envelope: unknown }).envelope);
+    expect((tenant.body as { tenant: unknown }).tenant).toEqual(status.tenant.envelope);
 
     const shutdown = await getJson(`${host.url}/v1/admin/host/shutdown`, {
       method: "POST",

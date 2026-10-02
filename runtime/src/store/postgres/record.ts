@@ -1,77 +1,83 @@
 /**
- * Reads the shared record back for the stream relay (Durable Streams §7.2–7.3): a session's
- * rows to refill a gap in S2, every log head to reconcile after a fresh slot, and a Tenant's
- * current basin generation to tell obsolete rows apart. Reads every Tenant's rows by design.
+ * Reads the record back for the stream relay (Durable Streams §7.2–7.3): a session's rows to
+ * refill a gap in S2, every log head to reconcile after a fresh slot, and the Tenant's current
+ * basin generation to tell obsolete rows apart.
+ *
+ * The database holds one Tenant, so the record has no Tenant column: the reader is made for
+ * that Tenant (`tenantId`), fills `RecordRow.tenantId` and `LogHead.tenantId` with it, and
+ * reads nothing for any other id.
  */
+import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
 import type { Sql } from "postgres";
 import type { LogHead, RecordReader, RecordRow } from "../../streams/relay/types.js";
-import { STREAMS_SCHEMA } from "./migrations/shared/index.js";
-import { quoteIdentifier, tenantSchemaName } from "./names.js";
+import { database, driverError } from "./db.js";
+import { sessionEvents, sessionLogHeads, tenant } from "./schema.js";
 
-/** Every Tenant's record (the stream relay), or one Tenant's (`tenantId`, its Session Store). */
 export function createPostgresRecordReader(
   sql: Sql,
-  options: { tenantId?: string } = {},
+  options: { tenantId: string },
 ): RecordReader {
-  const only = options.tenantId;
-  const events = sql(`${STREAMS_SCHEMA}.session_events`);
-  const heads = sql(`${STREAMS_SCHEMA}.session_log_heads`);
+  const own = options.tenantId;
+  const db = database(sql);
+  const read = <T>(query: PromiseLike<T>): Promise<T> =>
+    Promise.resolve(query).catch((error: unknown) => {
+      throw driverError(error);
+    });
   return {
     async readRange(tenantId, sessionId, from, to) {
-      const rows = await sql<{ seq: string; generation: number; body: unknown }[]>`
-        SELECT seq, generation, body FROM ${events}
-        WHERE tenant_id = ${tenantId} AND session_id = ${sessionId}
-          AND seq >= ${from} AND seq < ${to}
-        ORDER BY seq`;
-      return rows.map(
-        (row): RecordRow => ({
-          tenantId,
-          sessionId,
-          seq: Number(row.seq),
-          generation: row.generation,
-          body: row.body,
-        }),
+      if (tenantId !== own) return [];
+      const rows = await read(
+        db
+          .select({
+            seq: sessionEvents.seq,
+            generation: sessionEvents.generation,
+            body: sessionEvents.body,
+          })
+          .from(sessionEvents)
+          .where(
+            and(
+              eq(sessionEvents.sessionId, sessionId),
+              gte(sessionEvents.seq, from),
+              lt(sessionEvents.seq, to),
+            ),
+          )
+          .orderBy(asc(sessionEvents.seq)),
       );
+      return rows.map((row): RecordRow => ({ tenantId, sessionId, ...row }));
     },
 
     async heads(after, limit) {
-      const rows = await sql<{ tenant_id: string; session_id: string; generation: number; head: string }[]>`
-        SELECT tenant_id, session_id, generation, head FROM ${heads}
-        WHERE head > 0
-          ${only === undefined ? sql`` : sql`AND tenant_id = ${only}`}
-          ${after ? sql`AND (tenant_id, session_id) > (${after.tenantId}, ${after.sessionId})` : sql``}
-        ORDER BY tenant_id, session_id
-        LIMIT ${limit}`;
-      return rows.map(
-        (row): LogHead => ({
-          tenantId: row.tenant_id,
-          sessionId: row.session_id,
-          generation: row.generation,
-          head: Number(row.head),
-        }),
+      // Heads are ordered by (Tenant, session): every one of this Tenant's comes after a
+      // Tenant id that sorts before it, and none after one that sorts after it.
+      if (after && after.tenantId > own) return [];
+      const from = after?.tenantId === own ? after.sessionId : undefined;
+      const rows = await read(
+        db
+          .select({
+            sessionId: sessionLogHeads.sessionId,
+            generation: sessionLogHeads.generation,
+            head: sessionLogHeads.head,
+          })
+          .from(sessionLogHeads)
+          .where(
+            and(
+              gt(sessionLogHeads.head, 0),
+              from === undefined ? undefined : gt(sessionLogHeads.sessionId, from),
+            ),
+          )
+          .orderBy(asc(sessionLogHeads.sessionId))
+          .limit(limit),
       );
+      return rows.map((row): LogHead => ({ tenantId: own, ...row }));
     },
 
     async generation(tenantId) {
-      let schema: string;
-      try {
-        schema = tenantSchemaName(tenantId);
-      } catch {
-        return undefined;
-      }
-      const [exists] = await sql<{ exists: boolean }[]>`
-        SELECT to_regclass(${`${quoteIdentifier(schema)}.tenant`}) IS NOT NULL AS exists`;
-      if (!exists?.exists) return undefined;
-      try {
-        const [row] = await sql<{ basin_generation: number }[]>`
-          SELECT basin_generation FROM ${sql(`${schema}.tenant`)}`;
-        // A schema without its Tenant row (store tests) is at generation 0.
-        return row ? Number(row.basin_generation) : 0;
-      } catch (error) {
-        // Deleted between the two reads.
-        if ((error as { code?: string }).code === "42P01") return undefined;
-        throw error;
-      }
+      if (tenantId !== own) return undefined;
+      const [row] = await read(
+        db.select({ generation: tenant.basinGeneration }).from(tenant),
+      );
+      // A database whose Tenant row is not written yet is at generation 0.
+      return row?.generation ?? 0;
     },
   };
 }

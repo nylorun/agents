@@ -2,16 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   StudioSignedOutError,
-  createTenant,
   createTenantClient,
   fetchHello,
-  listTenants,
   studioFetch,
   tenantHref,
   tenantRuntime,
   tenantRuntimePath,
   tenantScope,
-  tenantUseCommand,
 } from "../web/src/proxy-client.ts";
 
 function recorder(respond = () => Response.json({})) {
@@ -40,8 +37,8 @@ test("tenantScope maps /tenants/<id>/… to a router basename", () => {
 
 test("studioFetch is same-origin only and sends the session cookie", async () => {
   const { calls, fetcher } = recorder();
-  await studioFetch("/_studio/tenants", { method: "GET" }, fetcher);
-  assert.equal(calls[0].url, "/_studio/tenants");
+  await studioFetch("/_studio/hello", { method: "GET" }, fetcher);
+  assert.equal(calls[0].url, "/_studio/hello");
   assert.equal(calls[0].init.credentials, "same-origin");
   for (const path of ["https://evil.example/", "//evil.example/x", "_studio/x"])
     assert.throws(() => studioFetch(path, undefined, fetcher), /same-origin/);
@@ -59,7 +56,7 @@ test("createTenantClient strips the SDK bearer and targets the Tenant proxy", as
   const { calls, fetcher } = recorder((url) =>
     url.endsWith("/health")
       ? Response.json({
-          protocol: { min: 1, max: 99, features: ["runtime-tenants", "admin-status", "studio-principal", "action-endpoints"] },
+          protocol: { min: 1, max: 99, features: ["admin-status", "studio-principal", "action-endpoints"] },
         })
       : Response.json({ agents: [] }),
   );
@@ -70,43 +67,23 @@ test("createTenantClient strips the SDK bearer and targets the Tenant proxy", as
   assert.equal(agents.url, "http://localhost:4170/_studio/tenants/tn_1/runtime/v1/agents");
   assert.equal(new Headers(agents.init.headers).has("authorization"), false);
   assert.equal(agents.init.credentials, "same-origin");
+  // Protocol 5: nothing names the Tenant.
+  for (const call of calls) assert.equal(new Headers(call.init?.headers).has("nylorun-tenant"), false);
 });
 
-test("createTenant posts the name as JSON and returns the Tenant", async () => {
-  const { calls, fetcher } = recorder(() =>
-    Response.json({ tenant: { id: "tn_1", name: "my-agents", state: "open" } }, { status: 201 }),
-  );
-  assert.deepEqual(await createTenant("my-agents", fetcher), {
-    id: "tn_1",
-    name: "my-agents",
-    state: "open",
-  });
-  assert.equal(calls[0].url, "/_studio/tenants");
-  assert.equal(calls[0].init.method, "POST");
-  assert.equal(calls[0].init.credentials, "same-origin");
-  assert.equal(calls[0].init.headers["content-type"], "application/json");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { name: "my-agents" });
-
-  const rejected = recorder(() => Response.json({ message: "name too long" }, { status: 400 }));
-  await assert.rejects(createTenant("x", rejected.fetcher), /name too long/);
-  const signedOut = recorder(() => new Response("{}", { status: 401 }));
-  await assert.rejects(createTenant("x", signedOut.fetcher), StudioSignedOutError);
-  assert.equal(tenantUseCommand("tn_1"), "npx @nylorun/cli tenant use tn_1");
-});
-
-test("fetchHello and listTenants report a missing session", async () => {
+test("fetchHello reports the installation's Tenant, or a missing session", async () => {
   const signedOut = recorder(() => new Response("{}", { status: 401 }));
   await assert.rejects(fetchHello(signedOut.fetcher), StudioSignedOutError);
-  await assert.rejects(listTenants(signedOut.fetcher), StudioSignedOutError);
 
-  const failing = recorder(() => Response.json({ message: "Runtime down" }, { status: 502 }));
-  await assert.rejects(listTenants(failing.fetcher), /Runtime down/);
+  const failing = recorder(() => Response.json({ message: "Studio down" }, { status: 502 }));
+  await assert.rejects(fetchHello(failing.fetcher), /Studio down/);
 
-  const ok = recorder((url) =>
-    url === "/_studio/tenants"
-      ? Response.json({ tenants: [{ id: "tn_1", name: "orders", state: "open" }] })
-      : Response.json({ version: "1.0.0", runtime: { compatible: true } }),
+  const tenant = { id: "tn_1", name: "orders", state: "open" };
+  const ok = recorder(() =>
+    Response.json({ version: "1.0.0", runtime: { compatible: true }, tenant }),
   );
-  assert.deepEqual(await listTenants(ok.fetcher), [{ id: "tn_1", name: "orders", state: "open" }]);
-  assert.deepEqual((await fetchHello(ok.fetcher)).runtime, { compatible: true });
+  const hello = await fetchHello(ok.fetcher);
+  assert.deepEqual(hello.runtime, { compatible: true });
+  assert.deepEqual(hello.tenant, tenant);
+  assert.equal(ok.calls[0].url, "/_studio/hello");
 });

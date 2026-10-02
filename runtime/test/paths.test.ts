@@ -1,15 +1,7 @@
-import {
-  mkdtemp,
-  mkdir,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { newTenantId } from "@nylorun/core/compatibility";
 import { hostPaths, tenantPaths } from "../src/tenant/paths.js";
 
 const roots: string[] = [];
@@ -31,28 +23,27 @@ it("derives host paths under the host root", async () => {
   const paths = hostPaths(root);
   expect(paths.config).toBe(join(root, "host.json"));
   expect(paths.credentials).toBe(join(root, "host-credentials.json"));
-  expect(paths.tenants).toBe(join(root, "tenants"));
-  expect(paths.trash).toBe(join(root, "trash"));
+  expect(paths.tenant).toBe(join(root, "tenant"));
+  expect(paths).not.toHaveProperty("tenants");
+  expect(paths).not.toHaveProperty("trash");
 });
 
-it("derives tenant paths and rejects invalid ids", async () => {
+it("derives the Tenant directory without an id segment", async () => {
   const root = await tempRoot();
-  const id = newTenantId();
-  const paths = tenantPaths(root, id);
-  expect(paths.root).toBe(join(root, "tenants", id));
-  expect(paths.kek).toBe(join(paths.root, "vault-kek"));
+  const paths = tenantPaths(root);
+  expect(paths.root).toBe(join(root, "tenant"));
+  // The vault key lives beside the Tenant directory, in keys/ (F4.2).
+  expect(paths.kek).toBe(join(root, "keys", "vault-kek"));
+  expect(paths.home).toBe(join(paths.root, "home"));
   expect(paths.log).toBe(join(paths.root, "logs", "tenant.log"));
-  expect(() => tenantPaths(root, "not-a-tenant")).toThrow(/Invalid tenant id/);
 });
 
-it("rejects a tenant directory that escapes tenants via symlink", async () => {
+it("rejects a Tenant directory that escapes the Host root via symlink", async () => {
   const root = await tempRoot();
-  const outside = join(root, "outside");
-  await mkdir(outside);
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "nylorun-paths-outside-")));
+  roots.push(outside);
+  await mkdir(join(outside, "x"));
   await writeFile(join(outside, "marker"), "x");
-  const tenants = join(root, "tenants");
-  await mkdir(tenants);
-  const id = newTenantId();
-  await symlink(outside, join(tenants, id));
-  expect(() => tenantPaths(root, id)).toThrow(/escapes/);
+  await symlink(outside, join(root, "tenant"));
+  expect(() => tenantPaths(root)).toThrow(/escapes/);
 });

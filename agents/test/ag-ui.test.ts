@@ -12,7 +12,6 @@ import {
 import { AgentsClient } from "../src/client.js";
 import { createAgUiHandler } from "../src/ag-ui/index.js";
 
-const TENANT = "tn_00000000000000000000000001";
 const KEY = "a".repeat(64);
 const RUNTIME = "http://127.0.0.1:8787";
 
@@ -46,7 +45,6 @@ function fakeClient(
   const client = new AgentsClient({
     url: RUNTIME,
     key: KEY,
-    tenant: TENANT,
     fetch: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/health") return health(options.features);

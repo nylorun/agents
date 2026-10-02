@@ -2,7 +2,8 @@
  * Contracts of the stream relay (Durable Streams §7): what it reads committed events from,
  * and how it reads the record back to refill and reconcile. Postgres implements both with
  * logical replication (`adapters/replication/pgoutput.ts`) and the record tables
- * (`store/postgres/record.ts`); `streams/relay/memory.ts` is the in-memory pair.
+ * (`store/postgres/record.ts`); the relay core's unit tests use an in-memory pair
+ * (`test/support/relay-record.ts`).
  */
 
 /** One committed row of the record: a session event and the basin generation it goes to. */

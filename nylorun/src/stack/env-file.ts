@@ -1,3 +1,4 @@
+import { DERIVED_PRINCIPAL_ID_PATTERN } from "@nylorun/core/compatibility";
 import { parseFrameAncestors } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
 
@@ -36,6 +37,13 @@ export interface StackEnv {
   studioImage: string;
   /** Exact origins that may frame Studio, separated by spaces (persists). */
   studioFrameAncestors: string;
+  /** The stack's name: the name of the Tenant its Runtime creates. */
+  stackName: string;
+  /**
+   * Derived principals the Runtime registers on its Tenant, comma-separated (persists);
+   * always includes `project`, the Project link's principal.
+   */
+  derivedPrincipals: string;
 }
 
 const KEYS = {
@@ -52,6 +60,8 @@ const KEYS = {
   runtimeImage: "NYLORUN_RUNTIME_IMAGE",
   studioImage: "NYLORUN_STUDIO_IMAGE",
   studioFrameAncestors: "NYLORUN_STUDIO_FRAME_ANCESTORS",
+  stackName: "NYLORUN_STACK_NAME",
+  derivedPrincipals: "NYLORUN_DERIVED_PRINCIPALS",
 } as const satisfies Record<keyof StackEnv, string>;
 
 /** Compose .env values: single quotes keep a value literal (no interpolation). */
@@ -109,7 +119,31 @@ export function renderEnvFile(env: StackEnv): string {
     "# starts; change with nylorun start --studio-embed-origin <origin>.",
     line("studioFrameAncestors"),
     "",
+    "# The stack's name, which its Runtime gives the Tenant it creates on the first",
+    "# start, and the derived principals it registers on that Tenant (keys derived",
+    "# from the admin key; `project` is the Project link's).",
+    line("stackName"),
+    line("derivedPrincipals"),
+    "",
   ].join("\n");
+}
+
+/**
+ * `NYLORUN_DERIVED_PRINCIPALS`: comma-separated principal ids, as the Runtime accepts them
+ * (not `studio`), with `project` first so the Project link's key always works.
+ */
+export function parseDerivedPrincipals(raw: string, source: string): string[] {
+  const ids = raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  for (const id of ids)
+    if (!DERIVED_PRINCIPAL_ID_PATTERN.test(id) || id === "studio")
+      throw new CliError(
+        `${source} has '${id}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio.`,
+        2,
+      );
+  return [...new Set(["project", ...ids])];
 }
 
 /** Parse KEY=value lines; comments and blank lines are skipped. */
@@ -141,6 +175,7 @@ export interface PersistedStackEnv {
   gatesToken?: string;
   /** Validated origins; absent when the line is missing (an older .env). */
   studioFrameAncestors?: string[];
+  derivedPrincipals?: string[];
 }
 
 export function parsePersisted(text: string): PersistedStackEnv {
@@ -159,6 +194,14 @@ export function parsePersisted(text: string): PersistedStackEnv {
     out.postgresPassword = password;
   const gatesToken = values.get(KEYS.gatesToken);
   if (gatesToken && /^[0-9a-f]{64,}$/i.test(gatesToken)) out.gatesToken = gatesToken;
+  const principals = values.get(KEYS.derivedPrincipals);
+  if (principals !== undefined) {
+    try {
+      out.derivedPrincipals = parseDerivedPrincipals(principals, `${KEYS.derivedPrincipals} in docker/.env`);
+    } catch {
+      /* rewritten from the default on the next start */
+    }
+  }
   const ancestors = values.get(KEYS.studioFrameAncestors);
   if (ancestors !== undefined) {
     try {

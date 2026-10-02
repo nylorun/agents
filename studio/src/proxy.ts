@@ -1,9 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-  TENANT_HEADER,
-} from "@nylorun/agents";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
 
@@ -32,9 +28,8 @@ function isVaultWrite(method: string, path: string): boolean {
 export type StudioProxyOptions = {
   origin: string;
   runtimeUrl: string;
-  /** Bearer sent to the Runtime for this request's Tenant. Never reaches the browser. */
+  /** Bearer sent to the Runtime: the Tenant's Studio key. Never reaches the browser. */
   serverKey: string;
-  tenantId: string;
   /** Request path prefix stripped before forwarding. Default `/_studio/runtime`. */
   prefix?: string;
   /** Origins allowed to change state. Default: only `origin`. */
@@ -43,7 +38,8 @@ export type StudioProxyOptions = {
 
 /**
  * Trusted Runtime proxy: forwards one allowlisted Tenant API request with the
- * given Tenant and bearer. Credentials stay in this process, not the browser.
+ * given bearer. The Host serves one Tenant, so nothing names it. Credentials
+ * stay in this process, not the browser.
  */
 export async function proxyRuntime(
   request: IncomingMessage,
@@ -130,7 +126,6 @@ export async function proxyRuntime(
       signal: controller.signal,
       headers: {
         authorization: `Bearer ${options.serverKey}`,
-        [TENANT_HEADER]: options.tenantId,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
         ...(body ? { "content-type": "application/json" } : {}),
         ...(request.headers["last-event-id"]

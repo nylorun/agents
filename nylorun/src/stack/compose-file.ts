@@ -1,32 +1,43 @@
 import { PINNED_IMAGES } from "./images.js";
 
 /**
- * The local stack's Compose file (Runtime Architecture §14.3), written to
- * `<Host root>/docker/compose.yaml` by `nylorun start`. It is the same for every
- * machine: everything that varies (ports, the Postgres password, UID/GID, the
- * Host root, the Runtime and Studio images) comes from `docker/.env`.
+ * A local stack's Compose file (Runtime Architecture §14.3), written to
+ * `<Host root>/docker/compose.yaml` by `nylorun start`. Each stack is one installation with
+ * one Tenant (tenancy.md §6): its own Compose project (`nylorun-<name>`, the file's `name`),
+ * volumes, network and ports. Everything else that varies (ports, the Postgres password,
+ * UID/GID, the Host root, the images, the stack's name) comes from `docker/.env`.
  *
- * Tenants are Postgres schemas, executed through Restate, with their history in
- * s2-lite; the Runtime's /ready checks all three. Postgres runs with
- * `wal_level=logical`: the stream relay feeds s2-lite from the record over logical
- * replication (Durable Streams), and `max_slot_wal_keep_size` caps the WAL a stuck
- * relay can hold.
+ * The Tenant's state is the stack's Postgres database, executed through Restate, with its
+ * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
+ * database with C collation (`--locale=C`) and runs with `wal_level=logical`: the stream
+ * relay feeds s2-lite from the record over logical replication (Durable Streams), and
+ * `max_slot_wal_keep_size` caps the WAL a stuck relay can hold. The Runtime creates the
+ * Tenant on its first start, named after the stack (`NYLORUN_TENANT_NAME`), with the derived
+ * principals of `NYLORUN_DERIVED_PRINCIPALS` (`project` for the Project link).
  *
  * Restate signs requests to the Worker endpoint with the private key in
  * `docker/restate-identity.pem`, mounted read-only; the Runtime gets the public
  * key as NYLORUN_RESTATE_IDENTITY_KEY.
  *
  * The combined packing (blueprint D12): the `runtime` container runs the core
- * and loop services, and the `gateway` container runs gates, the Model Gate,
- * which alone reads model credentials. Every model call of the loop crosses it
- * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`). The gateway mounts
- * only the Host's tenants directory, read-only: never host-credentials.json.
- * The runtime does not wait for the gateway: while it is down, model calls fail
- * and the session takes the next message.
+ * and loop services, and the `gateway` container runs gates: the Model Gate,
+ * which alone reads model credentials, and the Tool Gate (F4.1), which alone
+ * holds remote MCP connections and their credentials and POSTs every Action
+ * delivery. Every model call, remote MCP call and delivery of the loop crosses it
+ * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`); stdio MCP servers
+ * still run in the runtime container. The gateway also runs keys (F4.2): the only
+ * holder of the vault key, it runs every vault write that touches a secret and signs
+ * every token (NYLORUN_KEYS_URL). The gateway mounts only the Host's Tenant directory
+ * (`tenant/`) and its keys directory (`keys/`, the vault key), read-only: never
+ * host-credentials.json. The runtime mounts the Host root with `keys/` and `docker/`
+ * covered by empty read-only mounts, so it can read neither the vault key nor
+ * Restate's private key and `.env`. The runtime does not wait for the gateway: while
+ * it is down, model and MCP calls fail, deliveries are retried, vault writes and
+ * token minting answer 503, and the session takes the next message.
  */
-export function renderComposeFile(): string {
+export function renderComposeFile(project: string): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
-name: nylorun
+name: ${project}
 
 services:
   postgres: # Session Store
@@ -37,6 +48,7 @@ services:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}
       POSTGRES_DB: nylorun
+      POSTGRES_INITDB_ARGS: "--locale=C" # C collation for the whole database
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
@@ -75,9 +87,9 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
-  gateway: # the Model Gate: model credentials and provider calls; not published
+  gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
-    command: ["--service", "gates"]
+    command: ["--service", "gates,keys"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
       postgres: { condition: service_healthy }
@@ -88,11 +100,14 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
-      host.docker.internal: host-gateway # a model server on this machine, e.g. Ollama
+      host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
-      # The Tenants' vault keys and homes only, read-only.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenants:/nylorun/tenants:ro
+      # The Tenant's homes and its vault key only, read-only.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/keys:/nylorun/keys:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
@@ -111,8 +126,14 @@ services:
     environment:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
-      # Model calls go through the gateway; this container never reads a model credential.
+      # The Tenant the Runtime creates on its first start (later starts open it).
+      NYLORUN_TENANT_NAME: \${NYLORUN_STACK_NAME:?run nylorun start}
+      NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
+      # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
+      # and token signing through its keys service: this container never reads a credential
+      # or the vault key.
       NYLORUN_GATES_URL: http://gateway:4100
+      NYLORUN_KEYS_URL: http://gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_LISTEN_HOST: 0.0.0.0
       NYLORUN_LISTEN_PORT: "4000"
@@ -138,12 +159,22 @@ services:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
+      # Empty and read-only over the vault key (keys/) and the stack's secrets (docker/):
+      # only the gateway reads the key, and only Restate its private key.
+      - type: tmpfs
+        target: /nylorun/keys
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
+      - type: tmpfs
+        target: /nylorun/docker
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
       - "127.0.0.1:\${NYLORUN_ADMIN_PORT:?run nylorun start}:4001" # Admin API (operators only)
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+    healthcheck: # liveness: a Tenant that cannot open is reported by nylorun start from the Admin status, not by a 300 s wait
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
       timeout: 5s
       retries: 60

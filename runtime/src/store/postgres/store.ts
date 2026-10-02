@@ -1,16 +1,25 @@
 /**
- * The Postgres Session Store (architecture §12.2): one Tenant schema, one
- * `SessionStore`. See `store/types.ts` for the invariants it keeps.
+ * The Postgres Session Store (architecture §12.2, session-store.md §2–§3): the `SessionStore`
+ * of the one Tenant a database holds, its state in the schema `nylorun` and its record in
+ * `nylorun_streams`, queried through Drizzle (`schema.ts`). See `store/types.ts` for the
+ * invariants it keeps.
+ *
+ * ## Queries
+ *
+ * Plain reads and writes use Drizzle's query builder: `.set(patch)` and `and(...)` skip
+ * `undefined`, rows come back in the camelCase of `schema.ts`. Statements whose logic is SQL
+ * stay `sql` fragments inside it: the endpoint upsert's `CASE` arms, the log-head upsert,
+ * `orphanedSessions`' ordering, `counts()`, advisory locks and array updates.
  *
  * ## Transactions
  *
- * Every `tx` is one READ COMMITTED transaction on a pooled connection. Tables
- * are addressed by fully qualified, quoted names (`"tenant_<id>"."sessions"`),
- * never through `search_path`, so a statement cannot reach another schema.
- * Commit listeners and `afterCommit` callbacks run after `COMMIT` returns and
- * never reject the committed `tx`. Nested `tx` calls are detected with
- * `AsyncLocalStorage` and rejected, and a `Tx` rejects every call once its
- * callback settles.
+ * Every `tx` is one READ COMMITTED transaction on a pooled connection (Drizzle's
+ * `transaction` on postgres.js `begin`). Tables are addressed by schema-qualified names,
+ * never through `search_path`. Commit listeners and `afterCommit` callbacks run after `COMMIT`
+ * returns and never reject the committed `tx`. Nested `tx` calls are detected with
+ * `AsyncLocalStorage` and rejected, and a `Tx` rejects every call once its callback settles.
+ * A failed statement rejects `tx` with the driver's error (`driverError`), not Drizzle's
+ * wrapper, so its SQLSTATE is `code`.
  *
  * ## Lock ordering
  *
@@ -31,14 +40,30 @@
  * ## Values
  *
  * Document and event bodies are `json`, stored as the text `JSON.stringify`
- * wrote, so every string round-trips, including U+0000 and unpaired
- * surrogates that `jsonb` rejects (see `migrations/001_initial.ts`), and key
- * order is kept. Ids and ISO timestamps compared as text use `COLLATE "C"`.
- * Lease times in action bodies are compared as `timestamptz`.
+ * wrote (`jsonText` in `schema.ts`), so every string round-trips, including U+0000 and
+ * unpaired surrogates that `jsonb` rejects, and key order is kept. Ids and ISO timestamps
+ * compared as text are `COLLATE "C"`. Delivery deadlines in action bodies are compared as
+ * `timestamptz`.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import type { PendingQuery, Sql, TransactionSql } from "postgres";
+import {
+  and,
+  count,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
+import type { Sql } from "postgres";
 import type {
   EventPayload,
   EventType,
@@ -82,6 +107,7 @@ import type {
   ModelUsageRow,
   ModelUsageTotals,
   StoredSession,
+  ToolCrossingRow,
   TakeOwnership,
   Tx,
   VaultAuditRow,
@@ -90,22 +116,41 @@ import type {
   VaultIdempotencyRow,
   VaultRow,
 } from "../types.js";
-import { POSTGRES_SCHEMA_VERSION, readSchemaVersion } from "./migrations/index.js";
-import { assertIdentifier, tenantSchemaName } from "./names.js";
-import { STREAMS_SCHEMA } from "./migrations/shared/index.js";
+import { database, driverError, type Database, type Transaction } from "./db.js";
+import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { createPostgresRecordReader } from "./record.js";
-
-/** The shared record (Durable Streams §6): every Tenant's events and log heads. Only
- * `record/` inserts into them; the store deletes a Tenant's rows on reset. */
-const SESSION_EVENTS = `${STREAMS_SCHEMA}.session_events`;
-const LOG_HEADS = `${STREAMS_SCHEMA}.session_log_heads`;
+import { postgresRecordWriter } from "./record-writer.js";
+import {
+  actions,
+  commands,
+  definitions,
+  effects,
+  endpoints,
+  links,
+  modelBudgets,
+  modelUsage,
+  principals,
+  publishableKeys,
+  sandboxes,
+  sessionEvents,
+  sessionLogHeads,
+  sessions,
+  toolCrossings,
+  signingKeys,
+  subjectEpochs,
+  subjectUsage,
+  tenant,
+  tenantSettings,
+  vaultAudit,
+  vaultCredentials,
+  vaultIdempotency,
+  vaults,
+} from "./schema.js";
 
 export interface PostgresSessionStoreOptions extends SessionStoreOptions {
-  /** The shared pool. The store never ends it. */
+  /** The pool on the Tenant's database. The store never ends it. */
   sql: Sql;
-  /** The Tenant schema. Defaults to `tenantSchemaName(tenantId)`. */
-  schema?: string;
-  /** The version `health()` expects. Defaults to `POSTGRES_SCHEMA_VERSION`. */
+  /** The schema version `health()` expects. Defaults to the shipped migrations' count. */
   schemaVersion?: number;
 }
 
@@ -115,15 +160,32 @@ export function createPostgresSessionStore(
   return new PostgresSessionStore(options);
 }
 
-type Row = Record<string, any>;
-
-const OWNERSHIP_KEYS = new Set(["owner", "epoch", "ownerExpiresAt"]);
 const OPEN_SESSION = ["running", "runnable"];
+
+/** Every document table has `id` and `body`; `sessions` has more. */
+type DocumentTable = typeof definitions;
+const DOCUMENTS: Record<DocTable, DocumentTable> = {
+  definitions,
+  sessions: sessions as unknown as DocumentTable,
+  commands,
+  effects: effects as unknown as DocumentTable,
+  actions: actions as unknown as DocumentTable,
+  sandboxes,
+  links: links as unknown as DocumentTable,
+};
+
+/** A session row as `StoredSession` reads it: the body and the ownership columns. */
+const SESSION = {
+  body: sessions.body,
+  owner: sessions.owner,
+  epoch: sessions.epoch,
+  ownerExpiresAt: sessions.ownerExpiresAt,
+};
 
 class PostgresSessionStore implements SessionStore {
   readonly tenantId: string;
   private readonly sql: Sql;
-  private readonly schema: string;
+  private readonly db: Database;
   private readonly schemaVersion: number;
   private readonly active = new AsyncLocalStorage<PostgresSessionStore>();
   private readonly listeners = new Set<CommitListener>();
@@ -135,9 +197,8 @@ class PostgresSessionStore implements SessionStore {
   constructor(options: PostgresSessionStoreOptions) {
     this.tenantId = options.tenantId;
     this.sql = options.sql;
-    this.schema = options.schema ?? tenantSchemaName(options.tenantId);
-    assertIdentifier(this.schema);
-    this.schemaVersion = options.schemaVersion ?? POSTGRES_SCHEMA_VERSION;
+    this.db = database(options.sql);
+    this.schemaVersion = options.schemaVersion ?? expectedSchemaVersion();
     this.now = options.now ?? (() => new Date());
     this.onError =
       options.onError ??
@@ -153,18 +214,23 @@ class PostgresSessionStore implements SessionStore {
       throw new Error("Nested SessionStore.tx is not allowed");
     let t!: PostgresTx;
     // Wrapped so `begin` does not treat an array result as queries to await.
-    const run = this.sql.begin("isolation level read committed", async (sql) => {
-      t = new PostgresTx(sql, this.schema, this.tenantId, this.now);
-      try {
-        return { value: await this.active.run(this, () => fn(t)) };
-      } finally {
-        t.closed = true;
-      }
-    });
+    const run = this.db.transaction(
+      async (db) => {
+        t = new PostgresTx(db, this.tenantId, this.now);
+        try {
+          return { value: await this.active.run(this, () => fn(t)) };
+        } finally {
+          t.closed = true;
+        }
+      },
+      { isolationLevel: "read committed" },
+    );
     this.inflight.add(run);
     let result: { value: T };
     try {
-      result = (await run) as { value: T };
+      result = await run;
+    } catch (error) {
+      throw driverError(error);
     } finally {
       this.inflight.delete(run);
     }
@@ -205,7 +271,7 @@ class PostgresSessionStore implements SessionStore {
     if (this.closed)
       return { ok: false, schemaVersion: 0, expectedSchemaVersion };
     try {
-      const schemaVersion = (await readSchemaVersion(this.sql, this.schema)) ?? 0;
+      const schemaVersion = (await readSchemaVersion(this.db)) ?? 0;
       return {
         ok: schemaVersion === expectedSchemaVersion,
         schemaVersion,
@@ -225,161 +291,53 @@ class PostgresSessionStore implements SessionStore {
 
 // ---------------------------------------------------------------------------
 
-function storedSession<T extends SessionDoc>(row: Row): StoredSession<T> {
-  return { ...row.body, ...ownership(row) };
+interface SessionOwnershipRow {
+  owner: string | null;
+  epoch: number;
+  ownerExpiresAt: Date | null;
 }
 
-function ownership(row: Row): SessionOwnership {
+function storedSession<T extends SessionDoc>(
+  row: SessionOwnershipRow & { body: unknown },
+): StoredSession<T> {
+  return { ...(row.body as T), ...ownership(row) };
+}
+
+function ownership(row: SessionOwnershipRow): SessionOwnership {
   return {
-    owner: row.owner ?? null,
-    epoch: Number(row.epoch),
-    ownerExpiresAt: row.owner_expires_at
-      ? new Date(row.owner_expires_at).toISOString()
-      : null,
+    owner: row.owner,
+    epoch: row.epoch,
+    ownerExpiresAt: row.ownerExpiresAt?.toISOString() ?? null,
   };
 }
 
-function toJson(value: unknown): string {
-  const json = JSON.stringify(value);
-  if (json === undefined) throw new Error("Document body must be JSON");
-  return json;
-}
-
-const bytes = (value: Uint8Array): Buffer =>
-  Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-
-const fromBytes = (value: Uint8Array): Uint8Array => new Uint8Array(value);
-
-function endpointRow(row: Row): EndpointRow {
-  const optional = (key: keyof EndpointRow, value: unknown) =>
-    value === null ? {} : { [key]: value };
-  return {
-    agentId: row.agent_id,
-    url: row.url,
-    implementationVersion: row.implementation_version,
-    ...optional("manifestHash", row.manifest_hash),
-    timeoutMs: row.timeout_ms,
-    maxConcurrent: row.max_concurrent,
-    ...optional("principalId", row.principal_id),
-    ...optional("lastDeliveryAt", row.last_delivery_at),
-    ...optional("lastSuccessAt", row.last_success_at),
-    ...optional("lastErrorCode", row.last_error_code),
-    ...optional("lastErrorMessage", row.last_error_message),
-    consecutiveFailures: row.consecutive_failures,
-    ...optional("servedImplementationVersion", row.served_implementation_version),
-    ...optional("servedManifestHash", row.served_manifest_hash),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  } as EndpointRow;
-}
-
-function principalRow(row: Row): PrincipalRow {
-  return {
-    id: row.id,
-    role: row.role,
-    tokenHash: row.token_hash,
-    idempotencyKey: row.idempotency_key,
-    createdAt: row.created_at,
-  };
-}
-
-function signingKeyRow(row: Row): SigningKeyRow {
-  return {
-    id: row.id,
-    state: row.state,
-    alg: row.alg,
-    publicJwk: row.public_jwk,
-    createdAt: row.created_at,
-    activatedAt: row.activated_at,
-    retiredAt: row.retired_at,
-    revokedAt: row.revoked_at,
-    kekId: row.kek_id,
-    nonce: fromBytes(row.nonce),
-    ciphertext: fromBytes(row.ciphertext),
-    wrappedDek: fromBytes(row.wrapped_dek),
-  };
-}
-
-function publishableKeyRow(row: Row): PublishableKeyRow {
-  return {
-    id: row.id,
-    key: row.key,
-    name: row.name,
-    originsJson: row.origins_json,
-    createdAt: row.created_at,
-    revokedAt: row.revoked_at,
-  };
+/** An endpoint row with its unset (null) columns left out, as `EndpointRow` has them. */
+function endpointRow(row: typeof endpoints.$inferSelect): EndpointRow {
+  return Object.fromEntries(
+    Object.entries(row).filter(([, value]) => value !== null),
+  ) as unknown as EndpointRow;
 }
 
 /** The time column a signing key's new state stamps. */
-const SIGNING_KEY_STAMP: Partial<Record<SigningKeyRow["state"], string>> = {
-  current: "activated_at",
-  previous: "retired_at",
-  revoked: "revoked_at",
+const SIGNING_KEY_STAMP: Partial<
+  Record<SigningKeyRow["state"], "activatedAt" | "retiredAt" | "revokedAt">
+> = {
+  current: "activatedAt",
+  previous: "retiredAt",
+  revoked: "revokedAt",
 };
 
-function vaultRow(row: Row): VaultRow {
-  return {
-    id: row.id,
-    name: row.name,
-    ownerUserId: row.owner_user_id,
-    metadataJson: row.metadata_json,
-    createdAt: row.created_at,
-    scope: row.scope,
-  };
-}
+/** The audit columns a row has (`ord` only orders them). */
+const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
-function credentialRow(row: Row): VaultCredentialRow {
-  return {
-    id: row.id,
-    vaultId: row.vault_id,
-    name: row.name,
-    type: row.type,
-    bindingJson: row.binding_json,
-    expiresAt: row.expires_at,
-    createdAt: row.created_at,
-    rotatedAt: row.rotated_at,
-    kekId: row.kek_id,
-    nonce: fromBytes(row.nonce),
-    ciphertext: fromBytes(row.ciphertext),
-    wrappedDek: fromBytes(row.wrapped_dek),
-  };
-}
+const SESSION_TABLES = [sessions, commands, effects, actions, links];
 
-function auditRow(row: Row): VaultAuditRow {
-  return {
-    id: row.id,
-    at: row.at,
-    actor: row.actor,
-    action: row.action,
-    vaultId: row.vault_id,
-    credentialId: row.credential_id,
-    sessionId: row.session_id,
-    target: row.target,
-    outcome: row.outcome,
-  };
-}
+/** The inserted row's `column` (`ON CONFLICT … DO UPDATE`). */
+const excluded = (column: string): SQL => sql.raw(`excluded.${column}`);
 
-/** `VaultCredentialPatch` field → column. */
-const CREDENTIAL_COLUMNS = {
-  name: "name",
-  type: "type",
-  bindingJson: "binding_json",
-  expiresAt: "expires_at",
-  rotatedAt: "rotated_at",
-  kekId: "kek_id",
-  nonce: "nonce",
-  ciphertext: "ciphertext",
-  wrappedDek: "wrapped_dek",
-} as const satisfies Record<keyof VaultCredentialPatch, string>;
-
-const SESSION_TABLES = [
-  "sessions",
-  "commands",
-  "effects",
-  "actions",
-  "links",
-] as const;
+/** Keeps an endpoint's health `column` when its URL stays; a new URL starts with `fresh`. */
+const sameUrl = (column: SQL, fresh: SQL = sql`NULL`): SQL =>
+  sql`CASE WHEN ${endpoints.url} = excluded.url THEN ${column} ELSE ${fresh} END`;
 
 class PostgresTx implements Tx {
   closed = false;
@@ -388,8 +346,7 @@ class PostgresTx implements Tx {
   readonly callbacks: (() => void | Promise<void>)[] = [];
 
   constructor(
-    private readonly sql: TransactionSql,
-    private readonly schema: string,
+    private readonly db: Transaction,
     private readonly tenantId: string,
     private readonly now: () => Date,
   ) {}
@@ -398,56 +355,45 @@ class PostgresTx implements Tx {
     if (this.closed) throw new Error("Tx used after its transaction ended");
   }
 
-  /** The quoted, schema-qualified table. */
-  private t(table: string) {
-    return this.sql(`${this.schema}.${table}`);
-  }
-
   // --- documents -----------------------------------------------------------
 
   async get<T = any>(table: DocTable, id: string): Promise<T | undefined> {
     this.check();
-    const sql = this.sql;
     if (table === "sessions") {
-      const [row] = await sql`
-        SELECT body, owner, epoch, owner_expires_at FROM ${this.t("sessions")}
-        WHERE id = ${id}`;
+      const [row] = await this.sessions().where(eq(sessions.id, id));
       return row && (storedSession(row) as T);
     }
-    const [row] = await sql`SELECT body FROM ${this.t(table)} WHERE id = ${id}`;
+    const t = DOCUMENTS[table];
+    const [row] = await this.db.select({ body: t.body }).from(t).where(eq(t.id, id));
     return row?.body as T | undefined;
   }
 
   async put(table: DocTable, id: string, body: unknown): Promise<void> {
     this.check();
     let value = body;
-    if (table === "sessions" && body && typeof body === "object")
-      value = Object.fromEntries(
-        Object.entries(body).filter(([key]) => !OWNERSHIP_KEYS.has(key)),
-      );
-    const json = toJson(value);
-    await this.sql`
-      INSERT INTO ${this.t(table)} (id, body) VALUES (${id}, ${json}::text::json)
-      ON CONFLICT (id) DO UPDATE SET body = excluded.body`;
+    if (table === "sessions" && body && typeof body === "object") {
+      // Ownership is store-managed: never in the body.
+      const { owner: _owner, epoch: _epoch, ownerExpiresAt: _expires, ...rest } =
+        body as Record<string, unknown>;
+      value = rest;
+    }
+    const t = DOCUMENTS[table];
+    await this.db
+      .insert(t)
+      .values({ id, body: value })
+      .onConflictDoUpdate({ target: t.id, set: { body: excluded("body") } });
   }
 
   async delete(table: DocTable, id: string): Promise<void> {
     this.check();
     // A session's record rows and log head stay: a session created again with this id
     // continues its log (per-session record deletion is deferred, Durable Streams §15).
-    await this.sql`DELETE FROM ${this.t(table)} WHERE id = ${id}`;
+    const t = DOCUMENTS[table];
+    await this.db.delete(t).where(eq(t.id, id));
   }
 
-  private async sessionRows<T extends SessionDoc>(
-    where: PendingQuery<Row[]> | undefined,
-    tail?: PendingQuery<Row[]>,
-  ): Promise<StoredSession<T>[]> {
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT body, owner, epoch, owner_expires_at FROM ${this.t("sessions")}
-      ${where ? sql`WHERE ${where}` : sql``}
-      ${tail ?? sql`ORDER BY id`}`;
-    return rows.map((row) => storedSession<T>(row));
+  private sessions() {
+    return this.db.select(SESSION).from(sessions).$dynamic();
   }
 
   // --- ordering ------------------------------------------------------------
@@ -456,9 +402,7 @@ class PostgresTx implements Tx {
     id: string,
   ): Promise<StoredSession<T> | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT body, owner, epoch, owner_expires_at FROM ${this.t("sessions")}
-      WHERE id = ${id} FOR UPDATE`;
+    const [row] = await this.sessions().where(eq(sessions.id, id)).for("update");
     return row && storedSession<T>(row);
   }
 
@@ -469,17 +413,19 @@ class PostgresTx implements Tx {
     payload: EventPayload<T>,
   ): Promise<SessionEventOf<T>> {
     this.check();
-    const sql = this.sql;
+    const db = this.db;
     // The session row lock orders the session's events; the log head allocates under it.
-    const [session] = await sql`
-      SELECT epoch FROM ${this.t("sessions")} WHERE id = ${sessionId} FOR UPDATE`;
+    const [session] = await db
+      .select({ epoch: sessions.epoch })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .for("update");
     if (!session) throw new Error(`Session ${sessionId} not found`);
-    const { event, generation } = await appendEvent(sql, {
+    const { event, generation } = await appendEvent(postgresRecordWriter(db), {
       tenantId: this.tenantId,
-      tenantSchema: this.schema,
       sessionId,
       turnId,
-      epoch: Number(session.epoch),
+      epoch: session.epoch,
       time: this.now(),
       type,
       payload,
@@ -501,10 +447,7 @@ class PostgresTx implements Tx {
     claim: { owner: string; now: Date; leaseMs: number },
   ): Promise<TakeOwnership> {
     this.check();
-    const sql = this.sql;
-    const [row] = await sql`
-      SELECT owner, epoch, owner_expires_at FROM ${this.t("sessions")}
-      WHERE id = ${sessionId} FOR UPDATE`;
+    const [row] = await this.sessions().where(eq(sessions.id, sessionId)).for("update");
     if (!row) return { status: "missing" };
     const previous = ownership(row);
     if (
@@ -517,14 +460,18 @@ class PostgresTx implements Tx {
         owner: previous.owner,
         ownerExpiresAt: previous.ownerExpiresAt,
       };
-    const expires = new Date(claim.now.getTime() + claim.leaseMs);
-    const [updated] = await sql`
-      UPDATE ${this.t("sessions")}
-      SET owner = ${claim.owner}, epoch = epoch + 1, owner_expires_at = ${expires}
-      WHERE id = ${sessionId} RETURNING epoch`;
+    const [updated] = await this.db
+      .update(sessions)
+      .set({
+        owner: claim.owner,
+        epoch: sql`${sessions.epoch} + 1`,
+        ownerExpiresAt: new Date(claim.now.getTime() + claim.leaseMs),
+      })
+      .where(eq(sessions.id, sessionId))
+      .returning({ epoch: sessions.epoch });
     return {
       status: "owned",
-      epoch: Number(updated!.epoch),
+      epoch: updated!.epoch,
       takeover: previous.owner !== null,
       previous,
     };
@@ -537,9 +484,10 @@ class PostgresTx implements Tx {
     until: Date,
   ): Promise<boolean> {
     this.check();
-    const result = await this.sql`
-      UPDATE ${this.t("sessions")} SET owner_expires_at = ${until}
-      WHERE id = ${sessionId} AND owner = ${owner} AND epoch = ${epoch}`;
+    const result = await this.db
+      .update(sessions)
+      .set({ ownerExpiresAt: until })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.owner, owner), eq(sessions.epoch, epoch)));
     return result.count > 0;
   }
 
@@ -549,9 +497,10 @@ class PostgresTx implements Tx {
     epoch: number,
   ): Promise<boolean> {
     this.check();
-    const result = await this.sql`
-      UPDATE ${this.t("sessions")} SET owner = NULL, owner_expires_at = NULL
-      WHERE id = ${sessionId} AND owner = ${owner} AND epoch = ${epoch}`;
+    const result = await this.db
+      .update(sessions)
+      .set({ owner: null, ownerExpiresAt: null })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.owner, owner), eq(sessions.epoch, epoch)));
     return result.count > 0;
   }
 
@@ -572,7 +521,10 @@ class PostgresTx implements Tx {
     statuses: readonly string[],
   ): Promise<StoredSession<T>[]> {
     this.check();
-    return this.sessionRows<T>(this.sql`status = ANY(${[...statuses]})`);
+    const rows = await this.sessions()
+      .where(inArray(sessions.status, statuses))
+      .orderBy(sessions.id);
+    return rows.map((row) => storedSession<T>(row));
   }
 
   async orphanedSessions<T extends SessionDoc = SessionDoc>(
@@ -580,86 +532,108 @@ class PostgresTx implements Tx {
     limit: number,
   ): Promise<StoredSession<T>[]> {
     this.check();
-    const sql = this.sql;
-    return this.sessionRows<T>(
-      sql`status = ANY(${OPEN_SESSION})
-        AND (owner IS NULL OR owner_expires_at IS NULL OR owner_expires_at <= ${now})`,
-      sql`ORDER BY
-        CASE WHEN owner IS NULL THEN NULL ELSE owner_expires_at END ASC NULLS FIRST,
-        id
-        LIMIT ${limit}`,
-    );
+    const rows = await this.sessions()
+      .where(
+        and(
+          inArray(sessions.status, OPEN_SESSION),
+          or(
+            isNull(sessions.owner),
+            isNull(sessions.ownerExpiresAt),
+            lte(sessions.ownerExpiresAt, now),
+          ),
+        ),
+      )
+      // Never-owned sessions first, then the longest expired.
+      .orderBy(
+        sql`CASE WHEN ${sessions.owner} IS NULL THEN NULL ELSE ${sessions.ownerExpiresAt} END ASC NULLS FIRST`,
+        sessions.id,
+      )
+      .limit(limit);
+    return rows.map((row) => storedSession<T>(row));
   }
 
   async listSessions<T extends SessionDoc = SessionDoc>(
     filter: { agentId?: string; ownerUserId?: string } = {},
   ): Promise<StoredSession<T>[]> {
     this.check();
-    const sql = this.sql;
-    const conditions = [
-      ...(filter.agentId === undefined ? [] : [sql`agent_id = ${filter.agentId}`]),
-      ...(filter.ownerUserId === undefined
-        ? []
-        : [sql`owner_user_id = ${filter.ownerUserId}`]),
-    ];
-    return this.sessionRows<T>(
-      conditions.length === 0
-        ? undefined
-        : conditions.reduce((all, next) => sql`${all} AND ${next}`),
-    );
+    const rows = await this.sessions()
+      .where(
+        and(
+          filter.agentId === undefined ? undefined : eq(sessions.agentId, filter.agentId),
+          filter.ownerUserId === undefined
+            ? undefined
+            : eq(sessions.ownerUserId, filter.ownerUserId),
+        ),
+      )
+      .orderBy(sessions.id);
+    return rows.map((row) => storedSession<T>(row));
   }
 
-  private async bodies<T>(table: DocTable): Promise<T[]> {
-    const rows = await this.sql`SELECT body FROM ${this.t(table)} ORDER BY id`;
+  private async bodies<T>(table: DocumentTable): Promise<T[]> {
+    const rows = await this.db.select({ body: table.body }).from(table).orderBy(table.id);
     return rows.map((row) => row.body as T);
   }
 
   async listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]> {
     this.check();
-    return this.bodies<T>("definitions");
+    return this.bodies<T>(definitions);
   }
 
   async listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]> {
     this.check();
-    return this.bodies<T>("sandboxes");
+    return this.bodies<T>(sandboxes);
+  }
+
+  private async actionBodies(where: SQL | undefined): Promise<ActionDoc[]> {
+    const rows = await this.db
+      .select({ body: actions.body })
+      .from(actions)
+      .where(where)
+      .orderBy(actions.id);
+    return rows.map((row) => row.body as ActionDoc);
   }
 
   async pendingActions(agentId: string): Promise<ActionDoc[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT body FROM ${this.t("actions")}
-      WHERE agent_id = ${agentId} AND status = 'pending'
-      ORDER BY id`;
-    return rows.map((row) => row.body as ActionDoc);
+    return this.actionBodies(and(eq(actions.agentId, agentId), eq(actions.status, "pending")));
   }
 
   async deliveringCount(agentId: string): Promise<number> {
     this.check();
-    const [row] = await this.sql`
-      SELECT count(*)::int AS n FROM ${this.t("actions")}
-      WHERE agent_id = ${agentId} AND status = 'delivering'`;
-    return row!.n as number;
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(actions)
+      .where(and(eq(actions.agentId, agentId), eq(actions.status, "delivering")));
+    return row!.n;
   }
 
   async pendingActionsWithEndpoint(limit: number): Promise<ActionDoc[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT a.body FROM ${this.t("actions")} a
-      JOIN ${this.t("endpoints")} e ON e.agent_id = a.agent_id
-      WHERE a.status = 'pending'
-      ORDER BY a.id
-      LIMIT ${limit}`;
+    const rows = await this.db
+      .select({ body: actions.body })
+      .from(actions)
+      .innerJoin(endpoints, eq(endpoints.agentId, actions.agentId))
+      .where(eq(actions.status, "pending"))
+      .orderBy(actions.id)
+      .limit(limit);
     return rows.map((row) => row.body as ActionDoc);
   }
 
   async expiredDeliveries(now: Date, limit: number): Promise<ActionDoc[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT body FROM ${this.t("actions")}
-      WHERE status = 'delivering' AND deadline_at IS NOT NULL
-        AND deadline_at::timestamptz <= ${now}
-      ORDER BY deadline_at::timestamptz, id
-      LIMIT ${limit}`;
+    const deadline = sql`${actions.deadlineAt}::timestamptz`;
+    const rows = await this.db
+      .select({ body: actions.body })
+      .from(actions)
+      .where(
+        and(
+          eq(actions.status, "delivering"),
+          isNotNull(actions.deadlineAt),
+          sql`${deadline} <= ${now.toISOString()}::timestamptz`,
+        ),
+      )
+      .orderBy(deadline, actions.id)
+      .limit(limit);
     return rows.map((row) => row.body as ActionDoc);
   }
 
@@ -668,14 +642,13 @@ class PostgresTx implements Tx {
     filter: SessionActionFilter = {},
   ): Promise<ActionDoc[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT body FROM ${this.t("actions")}
-      WHERE session_id = ${sessionId}
-      ${filter.turnId === undefined ? sql`` : sql`AND turn_id = ${filter.turnId}`}
-      ${filter.statuses === undefined ? sql`` : sql`AND status = ANY(${[...filter.statuses]})`}
-      ORDER BY id`;
-    return rows.map((row) => row.body as ActionDoc);
+    return this.actionBodies(
+      and(
+        eq(actions.sessionId, sessionId),
+        filter.turnId === undefined ? undefined : eq(actions.turnId, filter.turnId),
+        filter.statuses === undefined ? undefined : inArray(actions.status, filter.statuses),
+      ),
+    );
   }
 
   async actionsWithStatus(
@@ -683,13 +656,21 @@ class PostgresTx implements Tx {
     filter: { kinds?: readonly ActionKind[] } = {},
   ): Promise<ActionDoc[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT body FROM ${this.t("actions")}
-      WHERE status = ANY(${[...statuses]})
-      ${filter.kinds === undefined ? sql`` : sql`AND kind = ANY(${[...filter.kinds]})`}
-      ORDER BY id`;
-    return rows.map((row) => row.body as ActionDoc);
+    return this.actionBodies(
+      and(
+        inArray(actions.status, statuses),
+        filter.kinds === undefined ? undefined : inArray(actions.kind, filter.kinds),
+      ),
+    );
+  }
+
+  private async effectBodies<T>(where: SQL | undefined): Promise<T[]> {
+    const rows = await this.db
+      .select({ body: effects.body })
+      .from(effects)
+      .where(where)
+      .orderBy(effects.id);
+    return rows.map((row) => row.body as T);
   }
 
   async invokingEffects<T extends EffectDoc = EffectDoc>(
@@ -703,14 +684,13 @@ class PostgresTx implements Tx {
     filter: SessionEffectFilter = {},
   ): Promise<T[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT body FROM ${this.t("effects")}
-      WHERE session_id = ${sessionId}
-      ${filter.turnId === undefined ? sql`` : sql`AND turn_id = ${filter.turnId}`}
-      ${filter.statuses === undefined ? sql`` : sql`AND status = ANY(${[...filter.statuses]})`}
-      ORDER BY id`;
-    return rows.map((row) => row.body as T);
+    return this.effectBodies<T>(
+      and(
+        eq(effects.sessionId, sessionId),
+        filter.turnId === undefined ? undefined : eq(effects.turnId, filter.turnId),
+        filter.statuses === undefined ? undefined : inArray(effects.status, filter.statuses),
+      ),
+    );
   }
 
   async effectsForTurn<T extends EffectDoc = EffectDoc>(
@@ -726,24 +706,24 @@ class PostgresTx implements Tx {
     filter: { kinds?: readonly EffectKind[] } = {},
   ): Promise<T[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT body FROM ${this.t("effects")}
-      WHERE status = ANY(${[...statuses]})
-      ${filter.kinds === undefined ? sql`` : sql`AND kind = ANY(${[...filter.kinds]})`}
-      ORDER BY id`;
-    return rows.map((row) => row.body as T);
+    return this.effectBodies<T>(
+      and(
+        inArray(effects.status, statuses),
+        filter.kinds === undefined ? undefined : inArray(effects.kind, filter.kinds),
+      ),
+    );
   }
 
   async linkedSessions<S extends SessionDoc = SessionDoc>(
     workflowSessionId: string,
   ): Promise<LinkedSession<S>[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT l.id, l.body AS link, s.body, s.owner, s.epoch, s.owner_expires_at
-      FROM ${this.t("links")} l JOIN ${this.t("sessions")} s ON s.id = l.id
-      WHERE l.workflow_session_id = ${workflowSessionId}
-      ORDER BY l.id`;
+    const rows = await this.db
+      .select({ id: links.id, link: links.body, ...SESSION })
+      .from(links)
+      .innerJoin(sessions, eq(sessions.id, links.id))
+      .where(eq(links.workflowSessionId, workflowSessionId))
+      .orderBy(links.id);
     return rows.map((row) => ({
       agentSessionId: row.id,
       link: row.link as LinkDoc,
@@ -753,15 +733,23 @@ class PostgresTx implements Tx {
 
   async counts(): Promise<StoreCounts> {
     this.check();
-    const sql = this.sql;
-    const [row] = await sql`
+    const [row] = await this.db.execute<{
+      sessions: number;
+      running: number;
+      actions: number;
+      uncertain: number;
+      sandboxes: number;
+      definitions: number;
+    }>(sql`
       SELECT
-        (SELECT count(*) FROM ${this.t("sessions")})::int AS sessions,
-        (SELECT count(*) FROM ${this.t("sessions")} WHERE status = ANY(${OPEN_SESSION}))::int AS running,
-        (SELECT count(*) FROM ${this.t("actions")} WHERE status IN ('pending', 'delivering'))::int AS actions,
-        (SELECT count(*) FROM ${this.t("effects")} WHERE status = 'uncertain')::int AS uncertain,
-        (SELECT count(*) FROM ${this.t("sandboxes")})::int AS sandboxes,
-        (SELECT count(*) FROM ${this.t("definitions")})::int AS definitions`;
+        (SELECT count(*) FROM ${sessions})::int AS sessions,
+        (SELECT count(*) FROM ${sessions}
+          WHERE ${sessions.status} IN ('running', 'runnable'))::int AS running,
+        (SELECT count(*) FROM ${actions}
+          WHERE ${actions.status} IN ('pending', 'delivering'))::int AS actions,
+        (SELECT count(*) FROM ${effects} WHERE ${effects.status} = 'uncertain')::int AS uncertain,
+        (SELECT count(*) FROM ${sandboxes})::int AS sandboxes,
+        (SELECT count(*) FROM ${definitions})::int AS definitions`);
     return {
       sessions: row!.sessions,
       runningSessions: row!.running,
@@ -776,73 +764,75 @@ class PostgresTx implements Tx {
 
   async basinGenerations(): Promise<BasinGenerations> {
     this.check();
-    const [row] = await this.sql`
-      SELECT basin_generation, retired_generations FROM ${this.t("tenant")}`;
-    // A schema without its Tenant row (store tests) is at generation 0.
-    if (!row) return { current: 0, retired: [] };
-    return {
-      current: Number(row.basin_generation),
-      retired: (row.retired_generations as number[]).map(Number),
-    };
+    const [row] = await this.db
+      .select({ current: tenant.basinGeneration, retired: tenant.retiredGenerations })
+      .from(tenant);
+    // A database whose Tenant row is not written yet is at generation 0.
+    return row ?? { current: 0, retired: [] };
   }
 
   async forgetRetiredGeneration(generation: number): Promise<void> {
     this.check();
-    await this.sql`
-      UPDATE ${this.t("tenant")}
-      SET retired_generations = array_remove(retired_generations, ${generation}::int)`;
+    await this.db.update(tenant).set({
+      retiredGenerations: sql`array_remove(${tenant.retiredGenerations}, ${generation}::int)`,
+    });
   }
 
   // --- Action endpoints -----------------------------------------------------
 
   async listEndpoints(): Promise<EndpointRow[]> {
     this.check();
-    const rows = await this.sql`SELECT * FROM ${this.t("endpoints")} ORDER BY agent_id`;
+    const rows = await this.db.select().from(endpoints).orderBy(endpoints.agentId);
     return rows.map(endpointRow);
   }
 
   async getEndpoint(agentId: string): Promise<EndpointRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("endpoints")} WHERE agent_id = ${agentId}`;
+    const [row] = await this.db.select().from(endpoints).where(eq(endpoints.agentId, agentId));
     return row && endpointRow(row);
   }
 
   async putEndpoint(row: EndpointRegistrationRow): Promise<void> {
     this.check();
     // Health belongs to a URL: a new URL starts with none.
-    await this.sql`
-      INSERT INTO ${this.t("endpoints")} AS e (
-        agent_id, url, implementation_version, manifest_hash, timeout_ms,
-        max_concurrent, principal_id, consecutive_failures, created_at, updated_at
-      ) VALUES (
-        ${row.agentId}, ${row.url}, ${row.implementationVersion}, ${row.manifestHash ?? null},
-        ${row.timeoutMs}, ${row.maxConcurrent}, ${row.principalId ?? null}, 0,
-        ${row.updatedAt}, ${row.updatedAt}
-      )
-      ON CONFLICT (agent_id) DO UPDATE SET
-        url = excluded.url,
-        implementation_version = excluded.implementation_version,
-        manifest_hash = excluded.manifest_hash,
-        timeout_ms = excluded.timeout_ms,
-        max_concurrent = excluded.max_concurrent,
-        principal_id = excluded.principal_id,
-        updated_at = excluded.updated_at,
-        last_delivery_at = CASE WHEN e.url = excluded.url THEN e.last_delivery_at END,
-        last_success_at = CASE WHEN e.url = excluded.url THEN e.last_success_at END,
-        last_error_code = CASE WHEN e.url = excluded.url THEN e.last_error_code END,
-        last_error_message = CASE WHEN e.url = excluded.url THEN e.last_error_message END,
-        consecutive_failures =
-          CASE WHEN e.url = excluded.url THEN e.consecutive_failures ELSE 0 END,
-        served_implementation_version =
-          CASE WHEN e.url = excluded.url THEN e.served_implementation_version END,
-        served_manifest_hash =
-          CASE WHEN e.url = excluded.url THEN e.served_manifest_hash END`;
+    await this.db
+      .insert(endpoints)
+      .values({
+        agentId: row.agentId,
+        url: row.url,
+        implementationVersion: row.implementationVersion,
+        manifestHash: row.manifestHash ?? null,
+        timeoutMs: row.timeoutMs,
+        maxConcurrent: row.maxConcurrent,
+        principalId: row.principalId ?? null,
+        consecutiveFailures: 0,
+        createdAt: row.updatedAt,
+        updatedAt: row.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: endpoints.agentId,
+        set: {
+          url: excluded("url"),
+          implementationVersion: excluded("implementation_version"),
+          manifestHash: excluded("manifest_hash"),
+          timeoutMs: excluded("timeout_ms"),
+          maxConcurrent: excluded("max_concurrent"),
+          principalId: excluded("principal_id"),
+          updatedAt: excluded("updated_at"),
+          lastDeliveryAt: sameUrl(sql`${endpoints.lastDeliveryAt}`),
+          lastSuccessAt: sameUrl(sql`${endpoints.lastSuccessAt}`),
+          lastErrorCode: sameUrl(sql`${endpoints.lastErrorCode}`),
+          lastErrorMessage: sameUrl(sql`${endpoints.lastErrorMessage}`),
+          consecutiveFailures: sameUrl(sql`${endpoints.consecutiveFailures}`, sql`0`),
+          servedImplementationVersion: sameUrl(sql`${endpoints.servedImplementationVersion}`),
+          servedManifestHash: sameUrl(sql`${endpoints.servedManifestHash}`),
+        },
+      });
   }
 
   async deleteEndpoint(agentId: string): Promise<void> {
     this.check();
-    await this.sql`DELETE FROM ${this.t("endpoints")} WHERE agent_id = ${agentId}`;
+    await this.db.delete(endpoints).where(eq(endpoints.agentId, agentId));
   }
 
   async recordEndpointHealth(
@@ -850,86 +840,83 @@ class PostgresTx implements Tx {
     update: EndpointHealthUpdate,
   ): Promise<void> {
     this.check();
-    const table = this.t("endpoints");
-    switch (update.kind) {
-      case "success":
-        await this.sql`
-          UPDATE ${table} SET last_delivery_at = ${update.at}, last_success_at = ${update.at},
-            consecutive_failures = 0, last_error_code = NULL, last_error_message = NULL
-          WHERE agent_id = ${agentId}`;
-        return;
-      case "failure":
-        await this.sql`
-          UPDATE ${table} SET last_delivery_at = ${update.at}, last_error_code = ${update.code},
-            last_error_message = ${update.message},
-            consecutive_failures = consecutive_failures + 1
-          WHERE agent_id = ${agentId}`;
-        return;
-      case "served":
-        await this.sql`
-          UPDATE ${table} SET served_implementation_version = ${update.implementationVersion},
-            served_manifest_hash = ${update.manifestHash ?? null}
-          WHERE agent_id = ${agentId}`;
-        return;
-    }
+    const set: PgUpdateSetSource<typeof endpoints> =
+      update.kind === "success"
+        ? {
+            lastDeliveryAt: update.at,
+            lastSuccessAt: update.at,
+            consecutiveFailures: 0,
+            lastErrorCode: null,
+            lastErrorMessage: null,
+          }
+        : update.kind === "failure"
+          ? {
+              lastDeliveryAt: update.at,
+              lastErrorCode: update.code,
+              lastErrorMessage: update.message,
+              consecutiveFailures: sql`${endpoints.consecutiveFailures} + 1`,
+            }
+          : {
+              servedImplementationVersion: update.implementationVersion,
+              servedManifestHash: update.manifestHash ?? null,
+            };
+    await this.db.update(endpoints).set(set).where(eq(endpoints.agentId, agentId));
   }
 
   // --- principals ----------------------------------------------------------
 
   async insertPrincipal(row: PrincipalRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("principals")} (id, role, token_hash, idempotency_key, created_at)
-      VALUES (${row.id}, ${row.role}, ${row.tokenHash}, ${row.idempotencyKey}, ${row.createdAt})`;
+    await this.db.insert(principals).values(row);
   }
 
   async principalByTokenHash(
     tokenHash: string,
   ): Promise<PrincipalRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("principals")} WHERE token_hash = ${tokenHash}`;
-    return row && principalRow(row);
+    const [row] = await this.db
+      .select()
+      .from(principals)
+      .where(eq(principals.tokenHash, tokenHash));
+    return row;
   }
 
   async principalById(id: string): Promise<PrincipalRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("principals")} WHERE id = ${id}`;
-    return row && principalRow(row);
+    const [row] = await this.db.select().from(principals).where(eq(principals.id, id));
+    return row;
   }
 
   async applicationTokenHashes(): Promise<string[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT token_hash FROM ${this.t("principals")}
-      WHERE role = 'application' ORDER BY id`;
-    return rows.map((row) => row.token_hash as string);
+    const rows = await this.db
+      .select({ tokenHash: principals.tokenHash })
+      .from(principals)
+      .where(eq(principals.role, "application"))
+      .orderBy(principals.id);
+    return rows.map((row) => row.tokenHash);
   }
 
   // --- vault ---------------------------------------------------------------
 
   async insertVault(row: VaultRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("vaults")} (id, name, owner_user_id, metadata_json, created_at, scope)
-      VALUES (${row.id}, ${row.name}, ${row.ownerUserId}, ${row.metadataJson},
-              ${row.createdAt}, ${row.scope})`;
+    await this.db.insert(vaults).values(row);
   }
 
   async getVault(id: string): Promise<VaultRow | undefined> {
     this.check();
-    const [row] = await this.sql`SELECT * FROM ${this.t("vaults")} WHERE id = ${id}`;
-    return row && vaultRow(row);
+    const [row] = await this.db.select().from(vaults).where(eq(vaults.id, id));
+    return row;
   }
 
   async vaultsByOwner(ownerUserId: string): Promise<VaultRow[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT * FROM ${this.t("vaults")}
-      WHERE owner_user_id = ${ownerUserId} AND scope = 'user'
-      ORDER BY created_at, id`;
-    return rows.map(vaultRow);
+    return this.db
+      .select()
+      .from(vaults)
+      .where(and(eq(vaults.ownerUserId, ownerUserId), eq(vaults.scope, "user")))
+      .orderBy(vaults.createdAt, vaults.id);
   }
 
   async updateVaultMetadata(
@@ -937,34 +924,27 @@ class PostgresTx implements Tx {
     metadataJson: string | null,
   ): Promise<void> {
     this.check();
-    await this.sql`
-      UPDATE ${this.t("vaults")} SET metadata_json = ${metadataJson} WHERE id = ${id}`;
+    await this.db.update(vaults).set({ metadataJson }).where(eq(vaults.id, id));
   }
 
   async deleteVault(id: string): Promise<void> {
     this.check();
     // Credentials go with it (ON DELETE CASCADE).
-    await this.sql`DELETE FROM ${this.t("vaults")} WHERE id = ${id}`;
+    await this.db.delete(vaults).where(eq(vaults.id, id));
   }
 
   async insertCredential(row: VaultCredentialRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("vault_credentials")} (
-        id, vault_id, name, type, binding_json, expires_at, created_at,
-        rotated_at, kek_id, nonce, ciphertext, wrapped_dek
-      ) VALUES (
-        ${row.id}, ${row.vaultId}, ${row.name}, ${row.type}, ${row.bindingJson},
-        ${row.expiresAt}, ${row.createdAt}, ${row.rotatedAt}, ${row.kekId},
-        ${bytes(row.nonce)}, ${bytes(row.ciphertext)}, ${bytes(row.wrappedDek)}
-      )`;
+    await this.db.insert(vaultCredentials).values(row);
   }
 
   async getCredential(id: string): Promise<VaultCredentialRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("vault_credentials")} WHERE id = ${id}`;
-    return row && credentialRow(row);
+    const [row] = await this.db
+      .select()
+      .from(vaultCredentials)
+      .where(eq(vaultCredentials.id, id));
+    return row;
   }
 
   async credentialsForVault(
@@ -972,13 +952,16 @@ class PostgresTx implements Tx {
     filter: { type?: VaultCredentialRow["type"] } = {},
   ): Promise<VaultCredentialRow[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT * FROM ${this.t("vault_credentials")}
-      WHERE vault_id = ${vaultId}
-      ${filter.type === undefined ? sql`` : sql`AND type = ${filter.type}`}
-      ORDER BY created_at, id`;
-    return rows.map(credentialRow);
+    return this.db
+      .select()
+      .from(vaultCredentials)
+      .where(
+        and(
+          eq(vaultCredentials.vaultId, vaultId),
+          filter.type === undefined ? undefined : eq(vaultCredentials.type, filter.type),
+        ),
+      )
+      .orderBy(vaultCredentials.createdAt, vaultCredentials.id);
   }
 
   async updateCredential(
@@ -987,118 +970,93 @@ class PostgresTx implements Tx {
     patch: VaultCredentialPatch,
   ): Promise<boolean> {
     this.check();
-    const sql = this.sql;
-    const columns: Record<string, unknown> = {};
-    for (const [field, column] of Object.entries(CREDENTIAL_COLUMNS)) {
-      const value = patch[field as keyof VaultCredentialPatch];
-      if (value === undefined) continue;
-      columns[column] = value instanceof Uint8Array ? bytes(value) : value;
-    }
-    if (Object.keys(columns).length === 0) {
-      const rows = await sql`
-        SELECT 1 FROM ${this.t("vault_credentials")}
-        WHERE vault_id = ${vaultId} AND id = ${id}`;
+    const where = and(eq(vaultCredentials.vaultId, vaultId), eq(vaultCredentials.id, id));
+    if (Object.values(patch).every((value) => value === undefined)) {
+      const rows = await this.db
+        .select({ id: vaultCredentials.id })
+        .from(vaultCredentials)
+        .where(where);
       return rows.length > 0;
     }
-    const result = await sql`
-      UPDATE ${this.t("vault_credentials")} SET ${sql(columns as Record<string, any>)}
-      WHERE vault_id = ${vaultId} AND id = ${id}`;
+    const result = await this.db.update(vaultCredentials).set(patch).where(where);
     return result.count > 0;
   }
 
   async deleteCredential(vaultId: string, id: string): Promise<boolean> {
     this.check();
-    const result = await this.sql`
-      DELETE FROM ${this.t("vault_credentials")}
-      WHERE vault_id = ${vaultId} AND id = ${id}`;
+    const result = await this.db
+      .delete(vaultCredentials)
+      .where(and(eq(vaultCredentials.vaultId, vaultId), eq(vaultCredentials.id, id)));
     return result.count > 0;
   }
 
   async countCredentials(): Promise<number> {
     this.check();
-    const [row] = await this.sql`
-      SELECT count(*)::int AS n FROM ${this.t("vault_credentials")}`;
+    const [row] = await this.db.select({ n: count() }).from(vaultCredentials);
     return row!.n;
   }
 
   async insertVaultAudit(row: VaultAuditRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("vault_audit")} (
-        id, at, actor, action, vault_id, credential_id, session_id, target, outcome
-      ) VALUES (
-        ${row.id}, ${row.at}, ${row.actor}, ${row.action}, ${row.vaultId},
-        ${row.credentialId}, ${row.sessionId}, ${row.target}, ${row.outcome}
-      )`;
+    await this.db.insert(vaultAudit).values(row);
   }
 
   async vaultAudit(
     filter: { vaultId?: string; limit?: number } = {},
   ): Promise<VaultAuditRow[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT * FROM ${this.t("vault_audit")}
-      ${filter.vaultId === undefined ? sql`` : sql`WHERE vault_id = ${filter.vaultId}`}
-      ORDER BY ord
-      ${filter.limit === undefined ? sql`` : sql`LIMIT ${filter.limit}`}`;
-    return rows.map(auditRow);
+    const query = this.db
+      .select(AUDIT)
+      .from(vaultAudit)
+      .where(filter.vaultId === undefined ? undefined : eq(vaultAudit.vaultId, filter.vaultId))
+      .orderBy(vaultAudit.ord)
+      .$dynamic();
+    return filter.limit === undefined ? query : query.limit(filter.limit);
   }
 
   async getVaultIdempotency(
     id: string,
   ): Promise<VaultIdempotencyRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT id, body_hash, response FROM ${this.t("vault_idempotency")} WHERE id = ${id}`;
-    return row && { id: row.id, bodyHash: row.body_hash, response: row.response };
+    const [row] = await this.db
+      .select()
+      .from(vaultIdempotency)
+      .where(eq(vaultIdempotency.id, id));
+    return row;
   }
 
   async insertVaultIdempotency(row: VaultIdempotencyRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("vault_idempotency")} (id, body_hash, response)
-      VALUES (${row.id}, ${row.bodyHash}, ${row.response})`;
+    await this.db.insert(vaultIdempotency).values(row);
   }
 
   // --- subject tokens ------------------------------------------------------
 
   async lockSigningKeys(): Promise<void> {
     this.check();
-    const key = `${this.schema}.signing_keys`;
-    await this.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.signing_keys'))`);
   }
 
   async insertSigningKey(row: SigningKeyRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("signing_keys")} (
-        id, state, alg, public_jwk, kek_id, nonce, ciphertext, wrapped_dek,
-        created_at, activated_at, retired_at, revoked_at
-      ) VALUES (
-        ${row.id}, ${row.state}, ${row.alg}, ${row.publicJwk}, ${row.kekId},
-        ${bytes(row.nonce)}, ${bytes(row.ciphertext)}, ${bytes(row.wrappedDek)},
-        ${row.createdAt}, ${row.activatedAt}, ${row.retiredAt}, ${row.revokedAt}
-      )`;
+    await this.db.insert(signingKeys).values(row);
   }
 
   async signingKey(id: string): Promise<SigningKeyRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("signing_keys")} WHERE id = ${id}`;
-    return row && signingKeyRow(row);
+    const [row] = await this.db.select().from(signingKeys).where(eq(signingKeys.id, id));
+    return row;
   }
 
   async signingKeys(
     states?: readonly SigningKeyRow["state"][],
   ): Promise<SigningKeyRow[]> {
     this.check();
-    const sql = this.sql;
-    const rows = await sql`
-      SELECT * FROM ${this.t("signing_keys")}
-      ${states === undefined ? sql`` : sql`WHERE state = ANY(${states as string[]})`}
-      ORDER BY created_at, id`;
-    return rows.map(signingKeyRow);
+    return this.db
+      .select()
+      .from(signingKeys)
+      .where(states === undefined ? undefined : inArray(signingKeys.state, states))
+      .orderBy(signingKeys.createdAt, signingKeys.id);
   }
 
   async setSigningKeyState(
@@ -1108,73 +1066,73 @@ class PostgresTx implements Tx {
     at: string,
   ): Promise<boolean> {
     this.check();
-    const sql = this.sql;
-    const column = SIGNING_KEY_STAMP[to];
-    const rows = await sql`
-      UPDATE ${this.t("signing_keys")}
-      SET state = ${to}${column ? sql`, ${sql(column)} = ${at}` : sql``}
-      WHERE id = ${id} AND state = ${from}
-      RETURNING id`;
+    const stamp = SIGNING_KEY_STAMP[to];
+    const rows = await this.db
+      .update(signingKeys)
+      .set({ state: to, ...(stamp ? { [stamp]: at } : {}) })
+      .where(and(eq(signingKeys.id, id), eq(signingKeys.state, from)))
+      .returning({ id: signingKeys.id });
     return rows.length === 1;
   }
 
   async countSigningKeys(): Promise<number> {
     this.check();
-    const [row] = await this.sql`
-      SELECT count(*)::int AS n FROM ${this.t("signing_keys")}`;
-    return row!.n as number;
+    const [row] = await this.db.select({ n: count() }).from(signingKeys);
+    return row!.n;
   }
 
   async subjectEpoch(subject: string): Promise<number> {
     this.check();
-    const [row] = await this.sql`
-      SELECT epoch FROM ${this.t("subject_epochs")} WHERE subject = ${subject}`;
-    return row ? Number(row.epoch) : 0;
+    const [row] = await this.db
+      .select({ epoch: subjectEpochs.epoch })
+      .from(subjectEpochs)
+      .where(eq(subjectEpochs.subject, subject));
+    return row?.epoch ?? 0;
   }
 
   async subjectEpochs(subjects: readonly string[]): Promise<Map<string, number>> {
     this.check();
     if (subjects.length === 0) return new Map();
-    const rows = await this.sql`
-      SELECT subject, epoch FROM ${this.t("subject_epochs")}
-      WHERE subject = ANY(${subjects as string[]})`;
-    return new Map(rows.map((row) => [row.subject as string, Number(row.epoch)]));
+    const rows = await this.db
+      .select({ subject: subjectEpochs.subject, epoch: subjectEpochs.epoch })
+      .from(subjectEpochs)
+      .where(inArray(subjectEpochs.subject, subjects));
+    return new Map(rows.map((row) => [row.subject, row.epoch]));
   }
 
   async bumpSubjectEpoch(subject: string, at: string): Promise<number> {
     this.check();
-    const [row] = await this.sql`
-      INSERT INTO ${this.t("subject_epochs")} (subject, epoch, revoked_at)
-      VALUES (${subject}, 1, ${at})
-      ON CONFLICT (subject) DO UPDATE
-        SET epoch = ${this.t("subject_epochs")}.epoch + 1, revoked_at = excluded.revoked_at
-      RETURNING epoch`;
-    return Number(row!.epoch);
+    const [row] = await this.db
+      .insert(subjectEpochs)
+      .values({ subject, epoch: 1, revokedAt: at })
+      .onConflictDoUpdate({
+        target: subjectEpochs.subject,
+        set: { epoch: sql`${subjectEpochs.epoch} + 1`, revokedAt: excluded("revoked_at") },
+      })
+      .returning({ epoch: subjectEpochs.epoch });
+    return row!.epoch;
   }
 
   async lockSubjectUsage(initial: SubjectUsageRow): Promise<SubjectUsageRow> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("subject_usage")} (subject, turn_tokens, refilled_at)
-      VALUES (${initial.subject}, ${initial.turnTokens}, ${initial.refilledAt})
-      ON CONFLICT (subject) DO NOTHING`;
-    const [row] = await this.sql`
-      SELECT subject, turn_tokens, refilled_at FROM ${this.t("subject_usage")}
-      WHERE subject = ${initial.subject} FOR UPDATE`;
-    return {
-      subject: row!.subject,
-      turnTokens: Number(row!.turn_tokens),
-      refilledAt: row!.refilled_at,
-    };
+    await this.db.insert(subjectUsage).values(initial).onConflictDoNothing();
+    const [row] = await this.db
+      .select()
+      .from(subjectUsage)
+      .where(eq(subjectUsage.subject, initial.subject))
+      .for("update");
+    return row!;
   }
 
   async putSubjectUsage(row: SubjectUsageRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("subject_usage")} (subject, turn_tokens, refilled_at)
-      VALUES (${row.subject}, ${row.turnTokens}, ${row.refilledAt})
-      ON CONFLICT (subject) DO UPDATE
-        SET turn_tokens = excluded.turn_tokens, refilled_at = excluded.refilled_at`;
+    await this.db
+      .insert(subjectUsage)
+      .values(row)
+      .onConflictDoUpdate({
+        target: subjectUsage.subject,
+        set: { turnTokens: excluded("turn_tokens"), refilledAt: excluded("refilled_at") },
+      });
   }
 
   async countOwnerSessions(
@@ -1182,40 +1140,44 @@ class PostgresTx implements Tx {
     statuses: readonly string[],
   ): Promise<number> {
     this.check();
-    const [row] = await this.sql`
-      SELECT count(*)::int AS n FROM ${this.t("sessions")}
-      WHERE owner_user_id = ${ownerUserId} AND status = ANY(${statuses as string[]})`;
-    return row!.n as number;
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(sessions)
+      .where(and(eq(sessions.ownerUserId, ownerUserId), inArray(sessions.status, statuses)));
+    return row!.n;
   }
 
   // --- publishable keys ----------------------------------------------------
 
   async insertPublishableKey(row: PublishableKeyRow): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("publishable_keys")} (id, key, name, origins_json, created_at, revoked_at)
-      VALUES (${row.id}, ${row.key}, ${row.name}, ${row.originsJson}, ${row.createdAt}, ${row.revokedAt})`;
+    await this.db.insert(publishableKeys).values(row);
   }
 
   async publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("publishable_keys")} WHERE key = ${key}`;
-    return row && publishableKeyRow(row);
+    const [row] = await this.db
+      .select()
+      .from(publishableKeys)
+      .where(eq(publishableKeys.key, key));
+    return row;
   }
 
   async publishableKey(id: string): Promise<PublishableKeyRow | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT * FROM ${this.t("publishable_keys")} WHERE id = ${id}`;
-    return row && publishableKeyRow(row);
+    const [row] = await this.db
+      .select()
+      .from(publishableKeys)
+      .where(eq(publishableKeys.id, id));
+    return row;
   }
 
   async publishableKeys(): Promise<PublishableKeyRow[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT * FROM ${this.t("publishable_keys")} ORDER BY created_at, id`;
-    return rows.map(publishableKeyRow);
+    return this.db
+      .select()
+      .from(publishableKeys)
+      .orderBy(publishableKeys.createdAt, publishableKeys.id);
   }
 
   async updatePublishableKey(
@@ -1223,16 +1185,13 @@ class PostgresTx implements Tx {
     patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
   ): Promise<boolean> {
     this.check();
-    const sql = this.sql;
-    const sets = [
-      ...(patch.originsJson === undefined ? [] : [sql`origins_json = ${patch.originsJson}`]),
-      ...(patch.revokedAt === undefined ? [] : [sql`revoked_at = ${patch.revokedAt}`]),
-    ];
-    if (sets.length === 0) return (await this.publishableKey(id)) !== undefined;
-    const rows = await sql`
-      UPDATE ${this.t("publishable_keys")}
-      SET ${sets.reduce((all, next) => sql`${all}, ${next}`)}
-      WHERE id = ${id} RETURNING id`;
+    if (patch.originsJson === undefined && patch.revokedAt === undefined)
+      return (await this.publishableKey(id)) !== undefined;
+    const rows = await this.db
+      .update(publishableKeys)
+      .set(patch)
+      .where(eq(publishableKeys.id, id))
+      .returning({ id: publishableKeys.id });
     return rows.length === 1;
   }
 
@@ -1240,104 +1199,130 @@ class PostgresTx implements Tx {
 
   async recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow> {
     this.check();
-    const [inserted] = await this.sql`
-      INSERT INTO ${this.t("model_usage")} (
-        id, effect_key, session_id, turn_id, agent_id, provider, model,
-        input_tokens, output_tokens, total_tokens, cached_tokens, cache_write_tokens,
-        reasoning_tokens, cost_usd, duplicate, created_at)
-      SELECT ${row.id}, ${row.effectKey}, ${row.sessionId}, ${row.turnId}, ${row.agentId},
-        ${row.provider}, ${row.model}, ${row.inputTokens}, ${row.outputTokens},
-        ${row.totalTokens}, ${row.cachedTokens}, ${row.cacheWriteTokens},
-        ${row.reasoningTokens}, ${row.costUsd},
-        EXISTS (SELECT 1 FROM ${this.t("model_usage")} WHERE effect_key = ${row.effectKey}),
-        ${row.createdAt}
-      RETURNING duplicate`;
-    return { ...row, duplicate: inserted!.duplicate as boolean };
+    const [inserted] = await this.db
+      .insert(modelUsage)
+      .values({
+        ...row,
+        duplicate: sql`EXISTS (SELECT 1 FROM ${modelUsage} WHERE ${modelUsage.effectKey} = ${row.effectKey})`,
+      })
+      .returning({ duplicate: modelUsage.duplicate });
+    return { ...row, duplicate: inserted!.duplicate };
   }
 
   async modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals> {
     this.check();
-    const sql = this.sql;
-    const where = [
-      ...(query.scope === "agent" ? [sql`agent_id = ${query.id ?? ""}`] : []),
-      ...(query.scope === "turn" ? [sql`turn_id = ${query.id ?? ""}`] : []),
-      ...(query.since !== undefined ? [sql`created_at >= ${query.since}`] : []),
-    ];
-    const [row] = await sql`
-      SELECT count(*)::int AS calls,
-        coalesce(sum(total_tokens), 0)::bigint AS tokens,
-        coalesce(sum(cost_usd), 0)::double precision AS cost_usd
-      FROM ${this.t("model_usage")}
-      ${where.length ? sql`WHERE ${where.reduce((all, next) => sql`${all} AND ${next}`)}` : sql``}`;
-    return { calls: row!.calls as number, tokens: Number(row!.tokens), costUsd: Number(row!.cost_usd) };
+    const [row] = await this.db
+      .select({
+        calls: count(),
+        tokens: sql<number>`coalesce(sum(${modelUsage.totalTokens}), 0)::bigint`.mapWith(Number),
+        costUsd: sql<number>`coalesce(sum(${modelUsage.costUsd}), 0)::double precision`.mapWith(
+          Number,
+        ),
+      })
+      .from(modelUsage)
+      .where(
+        and(
+          query.scope === "agent" ? eq(modelUsage.agentId, query.id ?? "") : undefined,
+          query.scope === "turn" ? eq(modelUsage.turnId, query.id ?? "") : undefined,
+          query.since !== undefined ? gte(modelUsage.createdAt, query.since) : undefined,
+        ),
+      );
+    return row!;
   }
 
   async listModelBudgets(): Promise<ModelBudgetRow[]> {
     this.check();
-    const rows = await this.sql`
-      SELECT * FROM ${this.t("model_budgets")} ORDER BY scope COLLATE "C", scope_id`;
-    return rows.map((row) => ({
-      scope: row.scope as ModelBudgetRow["scope"],
-      scopeId: row.scope_id as string,
-      period: row.period as ModelBudgetRow["period"],
-      limitUsd: row.limit_usd === null ? null : Number(row.limit_usd),
-      limitTokens: row.limit_tokens === null ? null : Number(row.limit_tokens),
-      updatedAt: row.updated_at as string,
-    }));
+    return this.db
+      .select()
+      .from(modelBudgets)
+      .orderBy(sql`${modelBudgets.scope} COLLATE "C"`, modelBudgets.scopeId);
   }
 
   async putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void> {
     this.check();
-    await this.sql`DELETE FROM ${this.t("model_budgets")}`;
-    for (const row of rows)
-      await this.sql`
-        INSERT INTO ${this.t("model_budgets")}
-          (scope, scope_id, period, limit_usd, limit_tokens, updated_at)
-        VALUES (${row.scope}, ${row.scopeId}, ${row.period}, ${row.limitUsd},
-          ${row.limitTokens}, ${row.updatedAt})`;
+    await this.db.delete(modelBudgets);
+    if (rows.length > 0) await this.db.insert(modelBudgets).values([...rows]);
+  }
+
+  // --- tool crossings --------------------------------------------------------
+
+  async toolCrossing(key: string): Promise<ToolCrossingRow | undefined> {
+    this.check();
+    const [row] = await this.db.select().from(toolCrossings).where(eq(toolCrossings.key, key));
+    return row;
+  }
+
+  async startToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean> {
+    this.check();
+    const inserted = await this.db
+      .insert(toolCrossings)
+      .values({ ...row, settledAt: null, answer: null })
+      .onConflictDoNothing()
+      .returning({ key: toolCrossings.key });
+    return inserted.length === 1;
+  }
+
+  async settleToolCrossing(key: string, answer: unknown, settledAt: string): Promise<void> {
+    this.check();
+    await this.db
+      .update(toolCrossings)
+      .set({ answer, settledAt })
+      .where(eq(toolCrossings.key, key));
+  }
+
+  async pruneToolCrossings(before: string): Promise<number> {
+    this.check();
+    const deleted = await this.db
+      .delete(toolCrossings)
+      .where(lt(toolCrossings.settledAt, before))
+      .returning({ key: toolCrossings.key });
+    return deleted.length;
   }
 
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
     this.check();
-    const [row] = await this.sql`
-      SELECT value FROM ${this.t("tenant_settings")} WHERE key = ${key}`;
-    return row?.value as string | undefined;
+    const [row] = await this.db
+      .select({ value: tenantSettings.value })
+      .from(tenantSettings)
+      .where(eq(tenantSettings.key, key));
+    return row?.value;
   }
 
   async putSetting(key: string, value: string): Promise<void> {
     this.check();
-    await this.sql`
-      INSERT INTO ${this.t("tenant_settings")} (key, value) VALUES (${key}, ${value})
-      ON CONFLICT (key) DO UPDATE SET value = excluded.value`;
+    await this.db
+      .insert(tenantSettings)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: tenantSettings.key, set: { value: excluded("value") } });
   }
 
   // --- reset ---------------------------------------------------------------
 
   async reset(scope: ResetScope): Promise<void> {
     this.check();
-    const sql = this.sql;
+    const db = this.db;
     if (scope === "sessions" || scope === "all") {
-      for (const table of SESSION_TABLES) await sql`DELETE FROM ${this.t(table)}`;
-      await sql`DELETE FROM ${this.t("subject_usage")}`;
+      for (const table of SESSION_TABLES) await db.delete(table);
+      await db.delete(subjectUsage);
+      await db.delete(toolCrossings);
       // The record goes with the sessions, and the Tenant moves to a new basin: the ids it
       // frees start again in an empty one (Durable Streams §8.1).
-      await sql`DELETE FROM ${sql(SESSION_EVENTS)} WHERE tenant_id = ${this.tenantId}`;
-      await sql`DELETE FROM ${sql(LOG_HEADS)} WHERE tenant_id = ${this.tenantId}`;
-      await sql`
-        UPDATE ${this.t("tenant")}
-        SET retired_generations = array_append(retired_generations, basin_generation),
-            basin_generation = basin_generation + 1`;
+      await db.delete(sessionEvents);
+      await db.delete(sessionLogHeads);
+      await db.update(tenant).set({
+        retiredGenerations: sql`array_append(${tenant.retiredGenerations}, ${tenant.basinGeneration})`,
+        basinGeneration: sql`${tenant.basinGeneration} + 1`,
+      });
     }
-    if (scope === "sandboxes" || scope === "all")
-      await sql`DELETE FROM ${this.t("sandboxes")}`;
+    if (scope === "sandboxes" || scope === "all") await db.delete(sandboxes);
     if (scope === "all") {
-      await sql`DELETE FROM ${this.t("definitions")}`;
-      await sql`DELETE FROM ${this.t("endpoints")}`;
-      await sql`DELETE FROM ${this.t("model_usage")}`;
-      await sql`DELETE FROM ${this.t("model_budgets")}`;
-      await sql`DELETE FROM ${this.t("vaults")} WHERE scope <> 'host'`;
+      await db.delete(definitions);
+      await db.delete(endpoints);
+      await db.delete(modelUsage);
+      await db.delete(modelBudgets);
+      await db.delete(vaults).where(ne(vaults.scope, "host"));
     }
   }
 }

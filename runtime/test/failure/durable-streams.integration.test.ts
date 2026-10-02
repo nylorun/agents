@@ -4,46 +4,43 @@
  * record through a relay crash, an S2 outage, a slot Postgres invalidated, and a takeover by
  * another process.
  *
- * Each test has its own Tenant, basin prefix and replication slot.
+ * Each test has its own Tenant (in a database of its own), basin prefix and replication slot.
  */
 import { randomBytes } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { newTenantId } from "@nylorun/core/compatibility";
 import { createPgoutputSource } from "../../src/adapters/replication/pgoutput.js";
 import { createS2Streams } from "../../src/adapters/streams/s2.js";
-import { createPostgresClient, type PostgresClient } from "../../src/store/postgres/connect.js";
-import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared/index.js";
+import type { PostgresClient } from "../../src/store/postgres/connect.js";
 import { createStreamRelay, type StreamRelay } from "../../src/streams/relay/core.js";
 import { sessionStream, type DurableStreams } from "../../src/streams/types.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+import { tenantTestDatabase } from "../support/database.js";
 import { recordOf, recordedRows, writeRecord } from "../support/record.js";
 import { tcpProxy } from "./support.js";
 
 describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lite", () => {
-  const url = stackEndpoints().postgres.url;
   const s2Port = Number(new URL(stackEndpoints().s2.endpoint).port);
+  // The test's database: set by `setup`.
+  let url: string;
   let sql: PostgresClient;
   const slots: string[] = [];
   const relays: StreamRelay[] = [];
   const cleanups: (() => Promise<unknown>)[] = [];
 
-  beforeAll(async () => {
-    sql = createPostgresClient(url, { max: 30 });
-    await migrateStreamsSchema(sql);
-  });
   afterEach(async () => {
     for (const relay of relays.splice(0)) await relay.stop().catch(() => undefined);
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup().catch(() => undefined);
-  });
-  afterAll(async () => {
-    for (const slot of slots)
+    // A logical slot is dropped from its own database, and keeps the database from being dropped.
+    for (const slot of slots.splice(0))
       await sql`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
                 WHERE slot_name = ${slot} AND NOT active`.catch(() => undefined);
-    await sql.end();
   });
 
   async function setup(options: { endpoint?: string } = {}) {
+    ({ sql, url } = await tenantTestDatabase());
     const id = randomBytes(4).toString("hex");
-    const tenantId = `tn_dsfail_${id}`;
+    const tenantId = newTenantId();
     const slot = `nylorun_test_${id}`;
     slots.push(slot);
     const streams = createS2Streams({
@@ -60,7 +57,7 @@ describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lit
     await streams.ensureTenant(tenantId);
     const relay = () => {
       const r = createStreamRelay({
-        source: createPgoutputSource({ connectionString: url, slot, retryMs: 200 }),
+        source: createPgoutputSource({ connectionString: url, tenantId, slot, retryMs: 200 }),
         record: recordOf(sql, tenantId),
         streams,
       });
@@ -105,7 +102,7 @@ describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lit
     const sessions = Array.from({ length: 20 }, (_, i) => `s${i}`);
     const writing = Promise.all(
       sessions.map(async (sessionId) => {
-        for (let i = 0; i < 25; i += 1) await writeRecord(sql, t.tenantId, sessionId);
+        for (let i = 0; i < 25; i += 1) await writeRecord(sql, sessionId);
       }),
     );
     // Crash while writes and appends are in flight.
@@ -124,7 +121,7 @@ describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lit
     const t = await setup({ endpoint: proxy.endpoint });
     const relay = t.relay();
     await until("the relay to be active", () => relay.status().active);
-    await writeRecord(sql, t.tenantId, "s1", 3);
+    await writeRecord(sql, "s1", 3);
     await until("three events in S2", () => caughtUp(t.streams, t.tenantId));
     const [{ lsn: before }] = await sql<{ lsn: string }[]>`
       SELECT confirmed_flush_lsn::text AS lsn FROM pg_replication_slots WHERE slot_name = ${t.slot}`;
@@ -133,7 +130,7 @@ describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lit
     const started = Date.now();
     let commits = 0;
     while (Date.now() - started < 10_000) {
-      await writeRecord(sql, t.tenantId, commits % 2 ? "s1" : "s2", 2);
+      await writeRecord(sql, commits % 2 ? "s1" : "s2", 2);
       commits += 1;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -153,13 +150,13 @@ describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lit
     const t = await setup();
     const first = t.relay();
     await until("the relay to be active", () => first.status().active);
-    await writeRecord(sql, t.tenantId, "s1", 2);
+    await writeRecord(sql, "s1", 2);
     await until("two events in S2", () => caughtUp(t.streams, t.tenantId));
     await first.stop();
 
     // While no relay runs: more events, then enough WAL past a 1 MB cap to lose the slot.
-    await writeRecord(sql, t.tenantId, "s1", 3);
-    await writeRecord(sql, t.tenantId, "s2", 2);
+    await writeRecord(sql, "s1", 3);
+    await writeRecord(sql, "s2", 2);
     await sql`ALTER SYSTEM SET max_slot_wal_keep_size = '1MB'`;
     await sql`SELECT pg_reload_conf()`;
     cleanups.push(async () => {
@@ -198,13 +195,13 @@ describe.skipIf(!STACK_ENABLED)("Durable Streams failures on Postgres and s2-lit
     const b = t.relay();
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(b.status().active).toBe(false);
-    await writeRecord(sql, t.tenantId, "s1", 3);
+    await writeRecord(sql, "s1", 3);
     await until("three events in S2", () => caughtUp(t.streams, t.tenantId));
 
     // The active relay's replication connection is killed (a crashed process).
     await a.stop();
     await until("b to take over", () => b.status().active, 15_000);
-    await writeRecord(sql, t.tenantId, "s1", 3);
+    await writeRecord(sql, "s1", 3);
     await until("six events in S2", () => caughtUp(t.streams, t.tenantId));
     await expectStreamsEqualRecord(t.streams, t.tenantId);
   });

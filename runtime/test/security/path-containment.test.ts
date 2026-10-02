@@ -6,7 +6,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { newTenantId } from "@nylorun/core/compatibility";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import { startSecurityHost } from "./support.js";
 
@@ -16,30 +15,28 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-it("G7: tenantPaths rejects symlink escape after realpath", async () => {
+it("G7: tenantPaths rejects a Tenant directory that is a symlink out of the Host root", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "sec-path-"));
   roots.push(hostRoot);
-  const outside = join(hostRoot, "outside");
-  mkdirSync(outside);
+  const outside = await mkdtemp(join(tmpdir(), "sec-path-outside-"));
+  roots.push(outside);
   writeFileSync(join(outside, "marker"), "x");
-  const tenants = join(hostRoot, "tenants");
-  mkdirSync(tenants);
-  const id = newTenantId();
-  symlinkSync(outside, join(tenants, id));
-  expect(() => tenantPaths(hostRoot, id)).toThrow(/escapes/);
+  symlinkSync(outside, join(hostRoot, "tenant"));
+  expect(() => tenantPaths(hostRoot)).toThrow(/escapes/);
 });
 
-it("G7: tenantPaths rejects invalid ids before path joins", () => {
-  expect(() => tenantPaths("/tmp/host", "../etc")).toThrow(/Invalid tenant id/);
-  expect(() => tenantPaths("/tmp/host", "tn_short")).toThrow(/Invalid tenant id/);
+it("G7: a symlinked Tenant directory inside the Host root is allowed", async () => {
+  const hostRoot = await mkdtemp(join(tmpdir(), "sec-path-"));
+  roots.push(hostRoot);
+  mkdirSync(join(hostRoot, "data"));
+  symlinkSync(join(hostRoot, "data"), join(hostRoot, "tenant"));
+  expect(tenantPaths(hostRoot).home).toMatch(/tenant\/home$/);
 });
 
-it("G7: live Tenant directories stay under hostRoot/tenants/<id>", async () => {
+it("G7: the live Tenant directory is hostRoot/tenant", async () => {
   const host = await startSecurityHost();
-  const [a] = host.tenants;
-  expect(a.paths.root.startsWith(join(host.hostRoot, "tenants", a.id))).toBe(
-    true,
-  );
-  expect(a.paths.home.includes(join("tenants", a.id, "home"))).toBe(true);
-  expect(a.paths.kek.includes(join("tenants", a.id))).toBe(true);
+  const a = host.tenant;
+  expect(a.paths.root).toBe(join(host.hostRoot, "tenant"));
+  expect(a.paths.home).toBe(join(host.hostRoot, "tenant", "home"));
+  expect(a.paths.kek).toBe(join(host.hostRoot, "keys", "vault-kek"));
 });

@@ -3,7 +3,6 @@ import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
   PUBLISHABLE_KEY_HEADER,
-  TENANT_HEADER,
   checkCompatibility,
   type Compatibility,
   type ProtocolRange,
@@ -19,14 +18,17 @@ export interface TokenSource {
   invalidate(): void;
 }
 
+/**
+ * Where a client sends its requests. Nothing names a Tenant: the Runtime at `url` serves one
+ * (protocol 5).
+ */
 export interface Destination {
   url?: string;
   key?: string;
-  tenant?: string;
   fetch?: typeof fetch;
   /** Instead of `key`: subject tokens. The client then skips the `/health` check. */
   token?: TokenSource;
-  /** A publishable key (Host feature `browser-access`); it also names the Tenant. */
+  /** A publishable key (Host feature `browser-access`): names the app and its origins. */
   publishableKey?: string;
 }
 
@@ -106,8 +108,6 @@ export class Transport {
   readonly url: string;
   /** The Tenant key; empty for a client that uses subject tokens. */
   readonly key: string;
-  /** The Tenant id; empty when a publishable key names it. */
-  readonly tenant: string;
   readonly token: TokenSource | undefined;
   readonly publishableKey: string | undefined;
   readonly fetcher: typeof fetch;
@@ -119,21 +119,17 @@ export class Transport {
     const url = options.url ?? env("NYLORUN_RUNTIME_URL");
     const token = options.token;
     const key = token ? "" : options.key ?? env("NYLORUN_SERVER_KEY");
-    const tenant = options.tenant ?? (token ? undefined : env("NYLORUN_TENANT"));
     if (!url || (!token && !key))
       throw new Error(
         "Set Runtime url and server key explicitly or via NYLORUN_RUNTIME_URL / NYLORUN_SERVER_KEY",
       );
     if (token && options.key)
       throw new Error("Use a Tenant key or subject tokens, not both");
-    if (!tenant && !options.publishableKey)
-      throw new Error("Set tenant explicitly or via NYLORUN_TENANT");
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol))
       throw new Error("Runtime requires an HTTP(S) URL");
     this.url = url.replace(/\/$/, "");
     this.key = key!;
-    this.tenant = tenant ?? "";
     this.token = token;
     this.publishableKey = options.publishableKey;
     // Browsers may not call `/health` (it refuses `Origin`); token clients rely on `426`.
@@ -232,7 +228,6 @@ export class Transport {
       ? await this.token.get(init.signal ?? undefined)
       : this.key;
     headers.set("Authorization", `Bearer ${bearer}`);
-    if (this.tenant) headers.set(TENANT_HEADER, this.tenant);
     if (this.publishableKey)
       headers.set(PUBLISHABLE_KEY_HEADER, this.publishableKey);
     headers.set(PROTOCOL_HEADER, String(PROTOCOL_VERSION));

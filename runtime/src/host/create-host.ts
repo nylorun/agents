@@ -65,15 +65,15 @@ export interface CreateHostOptions {
   operator?: OperatorListen;
   /**
    * Infrastructure readiness (`infra/readiness.ts`). `/ready` adds its checks
-   * and answers 503 while it reports not ok. Default: listener and discovery
-   * only.
+   * and answers 503 while it reports not ok. Default: the listener and the
+   * Tenant only.
    */
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
   /**
-   * Shutdown steps around closing the Tenants. `close()` runs them whatever asked for it
+   * Shutdown steps around closing the Tenant. `close()` runs them whatever asked for it
    * (SIGTERM in `host/main.ts`, `POST /v1/admin/host/shutdown`): the listener stops, then
-   * `beforeTenants` (stop the Worker so no advance starts on a closing Tenant), the Tenants
-   * close, then `afterTenants` (end the infrastructure clients). A failing step is logged
+   * `beforeTenants` (stop the Worker so no advance starts on the closing Tenant), the Tenant
+   * closes, then `afterTenants` (end the infrastructure clients). A failing step is logged
    * and shutdown goes on.
    */
   shutdown?: {
@@ -134,7 +134,6 @@ export function createHost(options: CreateHostOptions): HostServer {
   let closePromise: Promise<void> | undefined;
 
   const adminStatusBody = async () => {
-    const tenants = await module.list();
     const aggregate = await module.summarize();
     return AdminStatusSchema.parse({
       service: "nylorun-runtime",
@@ -144,7 +143,7 @@ export function createHost(options: CreateHostOptions): HostServer {
         max: HOST_PROTOCOL.max,
         features: [...HOST_PROTOCOL.features],
       },
-      tenants,
+      tenant: module.tenant(),
       aggregate,
       host: {
         hostId: config.hostId,
@@ -155,7 +154,6 @@ export function createHost(options: CreateHostOptions): HostServer {
   };
 
   const adminApi = createAdminApi({
-    module,
     status: adminStatusBody,
     shutdown: () => void close(),
     document: adminDocument,
@@ -285,6 +283,8 @@ export function createHost(options: CreateHostOptions): HostServer {
           : operator.port;
       adminUrl = `http://${operator.host}:${operatorPort}`;
     }
+    // The Tenant opens once the listener is bound: `/ready` and `/v1/admin/status` answer
+    // while it opens, and say why when it cannot.
     await module.start();
     logger.info("host_listening", {
       hostId: config.hostId,

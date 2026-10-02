@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -51,15 +50,11 @@ import {
 } from "@/embed/session.ts";
 import {
   StudioSignedOutError,
-  createTenant,
   createTenantClient,
   fetchHello,
-  listTenants,
   tenantHref,
   tenantRuntime,
   tenantScope,
-  tenantUseCommand,
-  type StudioTenant,
 } from "@/proxy-client";
 import type {
   AgentManifest,
@@ -119,7 +114,8 @@ type BootState =
   | { kind: "waiting-for-app" }
   | { kind: "unreachable"; message: string }
   | { kind: "runtime-incompatible"; message: string }
-  | { kind: "ready" };
+  | { kind: "tenant-unavailable"; message: string }
+  | { kind: "ready"; tenant: StudioTenantInfo };
 
 function StatusScreen({
   title,
@@ -142,9 +138,10 @@ const code =
   "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
 
 /**
- * `/` is the Tenant picker. `/tenants/<id>/…` is one Tenant's dashboard, with
- * the router based at `/tenants/<id>` so its routes (`/agents/…`, `/vault`,
- * `/settings`) stay Tenant-relative. Switching Tenants reloads the page.
+ * Studio serves its installation's one Tenant. `/tenants/<id>/…` is its
+ * dashboard, with the router based at `/tenants/<id>` so its routes
+ * (`/agents/…`, `/vault`, `/settings`) stay Tenant-relative. The server
+ * redirects `/` there.
  */
 export default function App() {
   const scope = tenantScope(window.location.pathname);
@@ -168,8 +165,7 @@ function useEmbedStatus(): EmbedStatus {
 
 /**
  * Embed mode: reports every route to the embedder (`route.changed`) and follows
- * its `navigate`. A route in another Tenant is refused: the session is limited
- * to this one.
+ * its `navigate`. A route outside this Tenant is refused: Studio serves one.
  */
 function EmbedRouteSync({ basename }: { basename: string }) {
   const location = useLocation();
@@ -189,7 +185,7 @@ function EmbedRouteSync({ basename }: { basename: string }) {
           postToEmbedder({
             kind: "error",
             code: "route_other_tenant",
-            message: "This Studio session is limited to another Tenant.",
+            message: "This Studio serves only its installation's Tenant.",
           });
           return;
         }
@@ -224,7 +220,18 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
           });
           return;
         }
-        setBoot({ kind: "ready" });
+        const tenant = hello.tenant;
+        if (tenant.state !== "open" || tenant.id === null) {
+          setBoot({
+            kind: "tenant-unavailable",
+            message: tenant.message ?? "The Tenant is unavailable.",
+          });
+          return;
+        }
+        setBoot({
+          kind: "ready",
+          tenant: { id: tenant.id, name: tenant.name ?? tenant.id },
+        });
       } catch (cause) {
         if (cancelled) return;
         if (cause instanceof EmbedSessionUnavailableError)
@@ -289,154 +296,63 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
       </StatusScreen>
     );
   }
-  if (embedded())
-    return tenantId === undefined ? (
-      <StatusScreen title="No Tenant selected">
-        <p>Open Studio on one of your Tenants from the app.</p>
-      </StatusScreen>
-    ) : (
-      // The session is limited to this Tenant, so there is no list to check.
-      <ViewErrorBoundary>
-        <Workspace tenant={{ id: tenantId, name: tenantId }} />
-      </ViewErrorBoundary>
-    );
-  return tenantId === undefined ? (
-    <TenantPicker />
-  ) : (
-    <TenantWorkspace tenantId={tenantId} />
-  );
-}
-
-type TenantsState =
-  | { kind: "loading" }
-  | { kind: "failed"; message: string }
-  | { kind: "loaded"; tenants: readonly StudioTenant[] };
-
-function useTenants(): TenantsState {
-  const [state, setState] = useState<TenantsState>({ kind: "loading" });
-  useEffect(() => {
-    let cancelled = false;
-    listTenants().then(
-      (tenants) => {
-        if (!cancelled) setState({ kind: "loaded", tenants });
-      },
-      (cause: unknown) => {
-        if (!cancelled)
-          setState({
-            kind: "failed",
-            message: cause instanceof Error ? cause.message : String(cause),
-          });
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return state;
-}
-
-function TenantPicker() {
-  const state = useTenants();
-  return (
-    <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-6 p-8">
-      <h1 className="text-2xl font-semibold">Tenants</h1>
-      {state.kind === "loading" ? (
-        <p className="text-muted-foreground">Loading Tenants…</p>
-      ) : state.kind === "failed" ? (
-        <p role="alert" className="text-red-600">
-          {state.message}
+  if (boot.kind === "tenant-unavailable") {
+    return (
+      <StatusScreen title="Tenant unavailable">
+        <p>{boot.message}</p>
+        <p>
+          Check the stack with <code className={code}>npx nylorun status</code>.
         </p>
-      ) : state.tenants.length === 0 ? (
-        <section className="space-y-4">
-          <p className="text-muted-foreground">
-            A Tenant holds your agents, their sessions, a model provider and a
-            vault. Create one to get started; you connect your code to it next.
+        <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
+          Try again
+        </Button>
+      </StatusScreen>
+    );
+  }
+  const tenant = boot.tenant;
+  if (tenantId === undefined) return <OpenTenant tenant={tenant} />;
+  if (tenantId !== tenant.id) {
+    return (
+      <StatusScreen title="Tenant not found">
+        <p>
+          This Studio serves the Tenant{" "}
+          <code className={code}>{tenant.name}</code>, not{" "}
+          <code className={code}>{tenantId}</code>.
+        </p>
+        {embedded() ? null : (
+          <p>
+            <a className="text-primary underline" href={tenantHref(tenant.id)}>
+              Open {tenant.name}
+            </a>
           </p>
-          <CreateTenantForm initialName="my-agents" />
-        </section>
-      ) : (
-        <>
-          <ul className="divide-y rounded-lg border">
-            {state.tenants.map((tenant) => (
-              <li key={tenant.id}>
-                <a
-                  className="flex items-center gap-3 p-4 hover:bg-muted/50"
-                  href={tenantHref(tenant.id)}
-                >
-                  <span className="font-medium">{tenant.name ?? tenant.id}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {shortTenantId(tenant.id)}
-                  </span>
-                  {tenant.state !== "open" ? (
-                    <Badge variant="outline" className="ml-auto">
-                      {tenant.state}
-                    </Badge>
-                  ) : null}
-                </a>
-              </li>
-            ))}
-          </ul>
-          <section className="space-y-2">
-            <h2 className="font-medium">New Tenant</h2>
-            <CreateTenantForm initialName="" />
-          </section>
-        </>
-      )}
-    </main>
-  );
-}
-
-type CreateState =
-  | { kind: "idle" }
-  | { kind: "creating" }
-  | { kind: "failed"; message: string };
-
-/** Creates a Tenant, then opens it (switching Tenants reloads the page). */
-function CreateTenantForm({ initialName }: { initialName: string }) {
-  const [name, setName] = useState(initialName);
-  const [state, setState] = useState<CreateState>({ kind: "idle" });
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim() || state.kind === "creating") return;
-    setState({ kind: "creating" });
-    try {
-      const tenant = await createTenant(name.trim());
-      window.location.assign(tenantHref(tenant.id));
-    } catch (cause) {
-      setState({
-        kind: "failed",
-        message:
-          cause instanceof StudioSignedOutError
-            ? "Studio signed you out. Run npx nylorun studio to sign in again."
-            : cause instanceof Error
-              ? cause.message
-              : String(cause),
-      });
-    }
+        )}
+      </StatusScreen>
+    );
   }
   return (
-    <form className="space-y-2" onSubmit={(event) => void submit(event)}>
-      <div className="flex gap-2">
-        <label className="sr-only" htmlFor="tenant-name">
-          Tenant name
-        </label>
-        <Input
-          id="tenant-name"
-          value={name}
-          maxLength={64}
-          placeholder="Tenant name"
-          onChange={(event) => setName(event.target.value)}
-        />
-        <Button type="submit" disabled={!name.trim() || state.kind === "creating"}>
-          {state.kind === "creating" ? "Creating…" : "Create Tenant"}
-        </Button>
-      </div>
-      {state.kind === "failed" ? (
-        <p role="alert" className="text-sm text-red-600">
-          {state.message}
-        </p>
-      ) : null}
-    </form>
+    <ViewErrorBoundary>
+      <Workspace tenant={tenant} />
+    </ViewErrorBoundary>
+  );
+}
+
+/**
+ * A path outside `/tenants/<id>` (the server already redirects `/`): a browser
+ * tab moves to the Tenant; an embedded Studio waits for the app to navigate.
+ */
+function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
+  useEffect(() => {
+    if (!embedded()) window.location.replace(tenantHref(tenant.id));
+  }, [tenant.id]);
+  return embedded() ? (
+    <StatusScreen title="No Tenant route">
+      <p>
+        Open Studio on <code className={code}>{tenantHref(tenant.id)}</code>{" "}
+        from the app.
+      </p>
+    </StatusScreen>
+  ) : (
+    <main className="min-h-svh" aria-busy="true" />
   );
 }
 
@@ -544,13 +460,14 @@ function ConnectYourCode({ tenant }: { tenant: StudioTenantInfo }) {
           )}
         </li>
         <li className="space-y-2">
-          <h2 className="font-medium">2. Link your project to this Tenant</h2>
+          <h2 className="font-medium">2. Start your project's stack</h2>
           <p className="text-sm text-muted-foreground">
             In your project's directory, run:
           </p>
-          <CommandLine command={tenantUseCommand(tenant.id)} />
+          <CommandLine command="npx nylorun start" />
           <p className="text-sm text-muted-foreground">
-            No project yet? Create one with{" "}
+            It creates the project's stack and its Tenant, and links the
+            project to it. No project yet? Create one with{" "}
             <code className={code}>npm create @nylorun/agent@beta my-agent</code>,
             then run the command above inside it.
           </p>
@@ -564,41 +481,6 @@ function ConnectYourCode({ tenant }: { tenant: StudioTenantInfo }) {
         Waiting for an agent to register…
       </p>
     </section>
-  );
-}
-
-function TenantWorkspace({ tenantId }: { tenantId: string }) {
-  const state = useTenants();
-  if (state.kind === "loading") {
-    return (
-      <StatusScreen title="Connecting to Studio">
-        <p>Loading the Tenant…</p>
-      </StatusScreen>
-    );
-  }
-  const listed =
-    state.kind === "loaded"
-      ? state.tenants.find((tenant) => tenant.id === tenantId)
-      : undefined;
-  if (state.kind === "loaded" && !listed) {
-    return (
-      <StatusScreen title="Tenant not found">
-        <p>
-          This Host has no Tenant <code className={code}>{tenantId}</code>.
-        </p>
-        <p>
-          <a className="text-primary underline" href="/">
-            Choose a Tenant
-          </a>
-        </p>
-      </StatusScreen>
-    );
-  }
-  // If the list failed, still open the Tenant; its own calls report errors.
-  return (
-    <ViewErrorBoundary>
-      <Workspace tenant={{ id: tenantId, name: listed?.name ?? tenantId }} />
-    </ViewErrorBoundary>
   );
 }
 

@@ -3,21 +3,21 @@
  * committed to `nylorun_streams.session_events` reach their streams exactly once and in
  * order, through a crash, an S2 outage, a dropped slot and a second relay.
  *
- * Each test has its own slot and Tenants. Other tests' rows also arrive on the shared
- * publication; the record reader below calls their Tenants gone, so the relay drops them.
+ * Each test has its own database (one Tenant) and its own slot on it.
  */
 import { randomBytes } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { newTenantId } from "@nylorun/core/compatibility";
 import { createPgoutputSource } from "../../src/adapters/replication/pgoutput.js";
-import { createPostgresClient, type PostgresClient } from "../../src/store/postgres/connect.js";
-import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared/index.js";
+import type { PostgresClient } from "../../src/store/postgres/connect.js";
 import { createPostgresRecordReader } from "../../src/store/postgres/record.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import { createStreamRelay, type StreamRelay } from "../../src/streams/relay/core.js";
 import { sessionStream } from "../../src/streams/types.js";
 import type { RecordReader } from "../../src/streams/relay/types.js";
 import type { AppendOptions, AppendResult } from "../../src/streams/types.js";
-import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+import { STACK_ENABLED } from "../stack/endpoints.js";
+import { tenantTestDatabase } from "../support/database.js";
 
 class FlakyStreams extends MemoryStreams {
   down = false;
@@ -33,34 +33,28 @@ class FlakyStreams extends MemoryStreams {
 }
 
 describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
-  const url = stackEndpoints().postgres.url;
+  // The test's database: set by `setup`.
+  let url: string;
   let sql: PostgresClient;
   const slots: string[] = [];
   const relays: StreamRelay[] = [];
 
-  beforeAll(async () => {
-    sql = createPostgresClient(url, { max: 4 });
-    await migrateStreamsSchema(sql);
-  });
-
   afterEach(async () => {
     for (const relay of relays.splice(0)) await relay.stop();
-  });
-
-  afterAll(async () => {
-    for (const slot of slots)
+    // A logical slot is dropped from its own database, and keeps the database from being dropped.
+    for (const slot of slots.splice(0))
       await sql`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
                 WHERE slot_name = ${slot} AND NOT active`.catch(() => undefined);
-    await sql.end();
   });
 
   async function setup() {
-    const tenantId = `tn_relay_${randomBytes(4).toString("hex")}`;
+    ({ sql, url } = await tenantTestDatabase());
+    const tenantId = newTenantId();
     const slot = `nylorun_test_${randomBytes(4).toString("hex")}`;
     slots.push(slot);
     const streams = new FlakyStreams();
     await streams.ensureTenant(tenantId);
-    const pgRecord = createPostgresRecordReader(sql);
+    const pgRecord = createPostgresRecordReader(sql, { tenantId });
     const record: RecordReader = {
       readRange: (...args) => pgRecord.readRange(...args),
       heads: (...args) => pgRecord.heads(...args),
@@ -72,24 +66,23 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
       await sql.begin(async (tx) => {
         for (let i = 0; i < n; i += 1) {
           const [head] = await tx<{ seq: string }[]>`
-            INSERT INTO nylorun_streams.session_log_heads (tenant_id, session_id, generation, head)
-            VALUES (${tenantId}, ${sessionId}, 0, 1)
-            ON CONFLICT (tenant_id, session_id)
+            INSERT INTO nylorun_streams.session_log_heads (session_id, generation, head)
+            VALUES (${sessionId}, 0, 1)
+            ON CONFLICT (session_id)
               DO UPDATE SET head = nylorun_streams.session_log_heads.head + 1
             RETURNING head - 1 AS seq`;
           const seq = Number(head!.seq);
           seqs.set(sessionId, seq + 1);
           await tx`
-            INSERT INTO nylorun_streams.session_events
-              (tenant_id, session_id, seq, generation, type, body)
-            VALUES (${tenantId}, ${sessionId}, ${seq}, 0, 'turn.completed',
+            INSERT INTO nylorun_streams.session_events (session_id, seq, generation, type, body)
+            VALUES (${sessionId}, ${seq}, 0, 'turn.completed',
                     ${JSON.stringify({ sessionId, seq })}::text::json)`;
         }
       });
     };
     const relay = () => {
       const r = createStreamRelay({
-        source: createPgoutputSource({ connectionString: url, slot, retryMs: 200 }),
+        source: createPgoutputSource({ connectionString: url, tenantId, slot, retryMs: 200 }),
         record,
         streams,
       });
@@ -218,7 +211,12 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
 
   it("stops while the slot is still being prepared, and leaves the slot free", async () => {
     const t = await setup();
-    const source = createPgoutputSource({ connectionString: url, slot: t.slot, retryMs: 200 });
+    const source = createPgoutputSource({
+      connectionString: url,
+      tenantId: t.tenantId,
+      slot: t.slot,
+      retryMs: 200,
+    });
     let active = false;
     source.start({
       onActive: () => {

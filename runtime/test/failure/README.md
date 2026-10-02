@@ -5,15 +5,15 @@ infrastructure: a Tenant schema in Postgres, advances through Restate, and event
 relayed to s2-lite, all on the Docker test stack (`test/stack/compose.yaml`). The
 tests in this directory run all three together. The table also lists the tests
 that cover each case lower down, against one component or against the in-memory
-fakes.
+execution and streams (the unit tests run every Tenant on Postgres too).
 
 ```sh
 npm run test:stack:up -w @nylorun/runtime
-NYLORUN_TEST_STACK=1 NYLORUN_TEST_STORE=postgres npm run test:integration -w @nylorun/runtime
+NYLORUN_TEST_STACK=1 npm run test:integration -w @nylorun/runtime
 npm run test:stack:down -w @nylorun/runtime
 ```
 
-The files skip unless both variables are set. CI runs them in the `integration`
+The files skip unless `NYLORUN_TEST_STACK=1`. CI runs them in the `integration`
 job. §17.3 also runs against a real `nylorun up` stack, where the `runtime`
 container is killed with `docker compose kill` (`npm run test:failure`,
 `scripts/smoke-failure.mjs`, in the `stack` job).
@@ -97,6 +97,17 @@ provider. The real cases run on a `nylorun up` stack in `scripts/smoke-failure.m
 | The runtime dies or stops mid-call | steps 3–5: the gateway keeps the keyed call; after takeover the runtime re-sends it and joins it; the turn completes, nothing `uncertain`, one provider call (P1.2) | `tenant/recovery.test.ts`; `gates/inflight.test.ts`; `gates/gates-host.test.ts` › "keyed calls (P1.2)" |
 | A wrong gates token | step 10: `401` | `gates/gates-host.test.ts` › "refuses a missing or wrong token…"; `gates/http-client.test.ts` › "is an auth failure naming NYLORUN_GATES_TOKEN…" |
 | A runaway loop reaches its cap | step 11: a Tenant day cap fails the next turn with `model.budget_exhausted`, and the provider sees no call (P1.3) | `model-budget.test.ts` › "stops a runaway loop at the turn's token cap" (both gates); `gates/meter.test.ts` › "caps" |
+
+## Tool Gate (F4.1)
+
+Remote MCP calls and Action deliveries of the loop cross the gates service too. The real cases
+run after the Model Gate's, with a stub MCP server holding `tools/call` open:
+
+| Case | `scripts/smoke-failure.mjs` | Also covered by |
+| --- | --- | --- |
+| The runtime dies mid MCP call | step 12: the gateway keeps the keyed call; after takeover the runtime re-sends it and joins it; the turn completes, nothing `uncertain`, one tool run; `mcp_request` lines only in the gateway | `tenant/mcp-recovery.test.ts` (dead owner, graceful stop, cancel); `gates/tool-calls.test.ts` |
+| Runtime and gateway both die mid MCP call | step 13: the new gateway finds the crossing without an answer: `uncertain`, and the tool never runs again | `gates/tool-calls.test.ts` › "answers uncertain for a call lost with the old gateway…" |
+| Deliveries through the gateway | every delivery of the earlier steps' turns | `gates/tool-gate.test.ts`; `gates/tool-gate-delivery.test.ts` (the delivery suites through the gate) |
 
 The hop's cost, 50 calls through the HTTP gate against the in-process gate, is
 `gates/hop-latency.test.ts`; it runs only with `NYLORUN_BENCH=1`.

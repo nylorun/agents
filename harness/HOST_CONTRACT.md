@@ -8,22 +8,27 @@ Bearer application credentials: `PUT /v1/agents/:agentId` (`PutAgentRequest`: re
 
 **Action endpoints (protocol 3).** The Runtime POSTs each Action to its agent's endpoint as `ActionDelivery` `{type: "action", action, sandbox}` (or `{type: "ping"}`), signed with a delivery token in `Nylorun-Signature`: an ES256 JWT (`typ` `nylorun-delivery+jwt`, `kid` from the Tenant's public JWKS at `GET /v1/access/jwks`, readable without a credential) whose `aud` is the registered URL, `sub` the Action id (or `ping`), `gen` the delivery generation, `bdy` the base64url SHA-256 of the body, and `exp` at most 900 s ahead. Before sending, the Action becomes `delivering` with a new `generation` and a `deadlineAt`, and `action.delivered` is published. The endpoint answers `200` with the tool value (with `Nylorun-Outcome: 1`, a tagged outcome), `202` to finish in the background, `409` when it serves a different manifest (retried), `429`/`503` to be retried later, or another `4xx` to fail the Action (`endpoint.rejected`). A background delivery keeps its deadline with `POST /v1/actions/:id/heartbeat` (delivery token; returns `{token, deadlineAt}`, `409` once the Action was cancelled, lost or delivered again) and settles with `POST /v1/actions/:id/result` `{value}`, whose receipt is idempotent. The delivery token authorizes only those routes and `POST /v1/actions/:id/sandbox/:tool` for its own Action and generation, and is refused from browsers. A delivery that may have been received but was never answered is lost: a `tool` becomes `uncertain`; a `hook`, `fn` or `verify` returns to pending and is delivered again, and the new generation fences the earlier one. An endpoint that cannot be reached is retried with backoff and `action.delivery_failed`. Cancelling a turn aborts its deliveries. Action rows may use `kind` `tool` | `hook` | `fn` | `verify`; workflow code carries `path` and `key` instead of `capabilityId` / `toolName`.
 
-**Tenant and protocol headers.** Every Tenant route requires `Nylorun-Tenant`
-(Tenant id matching `tn_` + 26 Crockford chars) and `Nylorun-Protocol` (client
-protocol integer). Missing or malformed Tenant header → `400` before filesystem
-access. Missing or unsupported protocol → `426` with
+**Tenant and protocol headers.** A Host serves the one Tenant of its
+installation, and nothing in a request selects it (protocol 5). Every Tenant
+route requires `Nylorun-Protocol` (client protocol integer). Missing or
+unsupported protocol → `426` with
 `{ status: "rejected", code: "protocol_unsupported", protocol }` before
-authentication. A Tenant id in the query string or body is ignored. Selection of
-a Tenant is not authentication: unknown Tenant, quarantined Tenant, and rejected
-credential share an opaque `404` body. Admin routes use the Host admin key and
-never accept a Tenant bearer. Vocabulary:
+authentication. For one release the Host also serves protocol 4 clients, which
+send `Nylorun-Tenant`: a header naming the Host's Tenant is accepted, one naming
+another Tenant (or a malformed one), or a publishable key of another Tenant, is
+the opaque `404`. A Tenant id in the query string or body is ignored. A Tenant
+that could not be opened, an unknown Tenant and a rejected credential share the
+opaque `404` body. Admin routes use the Host admin key and never accept a
+Tenant bearer; there are no Admin Tenant routes. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 Unauthenticated `GET /health` returns status, `service: "nylorun-runtime"`,
 version, `hostId`, pid, and `protocol: { min, max, features }` (plus diagnostic
 `coreVersion`). Clients treat unknown fields as optional so an older parser
-still works. `GET /ready` is `200` only after the listener is up and Tenant
-discovery has finished.
+still works. `GET /ready` is `200` only after the listener is up and the Host's
+Tenant is open; a Tenant that cannot be opened fails it with its cause
+(`schema-too-new`, `kek-missing`, `database-layout-old`, …), also reported in
+`/v1/admin/status`.
 
 All command idempotency keys bind to canonical request content within a session; requestId is transport metadata and is excluded from content comparison; exact semantic duplicates return the stored original response; changed content conflicts (409). A background result posted again for the same delivery returns its original receipt; a different outcome, or a result for a lost, cancelled or redelivered generation, is rejected (`409`). Heartbeat cannot resurrect a lost delivery. Lost tool work is uncertain, not automatically delivered again. A lost `hook` action returns to pending and is delivered again, because hooks are pure by contract. Results after cancellation cannot resume a turn. Only a delivery token can submit an action result. No hardcoded production credentials.
 

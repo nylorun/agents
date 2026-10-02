@@ -1,8 +1,9 @@
 /**
- * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's
- * routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's listeners.
+ * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's and
+ * the Tool Gate's routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's
+ * listeners.
  * It opens no Tenant runtime, no Restate endpoint and no stream relay, and runs no migration;
- * it needs only the Postgres pool and the Host's tenants directory (read-only).
+ * it needs only the Postgres pool and the Host's tenant directory (read-only).
  *
  * Nothing is written while a model call runs, so the server's request timeout sits above the
  * gate's longest call. Closing stops accepting calls, lets running ones finish for up to
@@ -14,6 +15,12 @@ import { getRequestListener } from "@hono/node-server";
 import { createGatesApp } from "../api/gate/routes.js";
 import { createModelCallHandler } from "../gates/handler.js";
 import { createInflightCalls, type InflightCallsOptions } from "../gates/inflight.js";
+import { createMcpHandler, GATE_MCP_IDLE_MS } from "../gates/mcp-handler.js";
+import { createToolCalls } from "../gates/tool-calls.js";
+import type { openMcpServer } from "../mcp/connect.js";
+import type { OutboundPolicy } from "../tenant/outbound.js";
+import { existsSync } from "node:fs";
+import { tenantPaths } from "../tenant/paths.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { probeDatabase } from "../infra/database.js";
@@ -28,11 +35,11 @@ export const GATES_REQUEST_TIMEOUT_MS = 660_000;
 export interface StartGatesOptions {
   readonly gates: GatesConfig;
   readonly logger: Logger;
-  /** The Host root, for the Tenants' vault keys. Required unless `vaults` is given. */
+  /** The Host root, for the Tenant's vault key. Required unless `vaults` is given. */
   readonly hostRoot?: string;
-  /** The pool for Tenant vaults and readiness. Required unless `vaults` is given. */
+  /** The pool for the Tenant's vault and readiness. Required unless `vaults` is given. */
   readonly database?: PostgresClient;
-  /** Replaces the Postgres-backed Tenant vaults (tests). */
+  /** Replaces the Postgres-backed Tenant vault (tests). */
   readonly vaults?: TenantVaults;
   /** Retries and timeouts of model calls (tests). */
   readonly settings?: ModelCallSettings;
@@ -42,6 +49,17 @@ export interface StartGatesOptions {
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
   readonly inflight?: InflightCallsOptions;
+  /** How the gate may call Action endpoints (`NYLORUN_ENDPOINT_*`). Default: no limits. */
+  readonly delivery?: OutboundPolicy;
+  /** How long an MCP connection may sit unused. Default `GATE_MCP_IDLE_MS`. */
+  readonly mcpIdleMs?: number;
+  /** Tests replace how a remote MCP server is opened. */
+  readonly openMcp?: typeof openMcpServer;
+  /**
+   * Serve the keys service too (`--service gates,keys`, F4.2): vault writes and token signing
+   * with the Tenant's vault key. The gateway is then not ready until the key file is there.
+   */
+  readonly keys?: boolean;
 }
 
 export interface GatesServer {
@@ -60,6 +78,23 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
   }
   const inflight = createInflightCalls(options.inflight);
+  const mcpIdleMs = options.mcpIdleMs ?? GATE_MCP_IDLE_MS;
+  const mcp = createMcpHandler({
+    vaults,
+    logger,
+    idleMs: mcpIdleMs,
+    ...(options.openMcp ? { open: options.openMcp } : {}),
+  });
+  const toolCalls = createToolCalls({
+    vaults,
+    mcp,
+    logger,
+    ...(options.inflight ? { inflight: options.inflight } : {}),
+  });
+  const sweep = setInterval(() => void mcp.sweep(), Math.max(1_000, Math.min(mcpIdleMs, 60_000)));
+  sweep.unref();
+  const prune = setInterval(() => void toolCalls.prune(), 60 * 60_000);
+  prune.unref();
   const app = createGatesApp({
     token: gates.token,
     inflight,
@@ -69,6 +104,9 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       ...(options.settings ? { settings: options.settings } : {}),
     }),
     ready: async () => {
+      // The keys service needs the vault key, which `nylorun start` writes; it never creates one.
+      if (options.keys && options.hostRoot !== undefined && !existsSync(tenantPaths(options.hostRoot).kek))
+        return false;
       if (!database) return true;
       try {
         await probeDatabase(database, AbortSignal.timeout(2000));
@@ -78,6 +116,11 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       }
     },
     ...(options.maxBodyBytes !== undefined ? { maxBodyBytes: options.maxBodyBytes } : {}),
+    mcp,
+    toolCalls,
+    delivery: options.delivery ?? {},
+    logger,
+    ...(options.keys ? { keys: async () => (await vaults.open()).keys() } : {}),
   });
   const listener = getRequestListener(app.fetch);
   const inFlight = new Set<ServerResponse>();
@@ -121,6 +164,10 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
         // Closing a running call's connection aborts an unkeyed one; keyed calls stop here.
         server.closeAllConnections();
         inflight.close();
+        toolCalls.close();
+        clearInterval(sweep);
+        clearInterval(prune);
+        await mcp.closeAll();
         await closed;
       })();
       return closing;

@@ -52,6 +52,13 @@ export class McpPool {
       readonly now?: () => number;
       /** Tests replace how a declared server is opened. */
       readonly open?: typeof openMcpServer;
+      /**
+       * Opens a remote (`streamable-http` or `sse`) server somewhere else: the gates service
+       * holds the connection and its credential, and the loop never sees either (F4.1).
+       * Absent: remote servers are opened in this process, with `authorize`. Stdio servers
+       * always run here.
+       */
+      readonly openRemote?: (server: McpServerRef) => Promise<LiveConnection>;
     },
   ) {
     this.idleMs = options.idleMs ?? DEFAULT_MCP_IDLE_MS;
@@ -84,6 +91,7 @@ export class McpPool {
           capabilityId: declared.capabilityId,
           serverName: declared.server.name,
           taken: taken.get(declared.agentId)!,
+          ...(input.signal ? { signal: input.signal } : {}),
         });
         tools.push(...listed.tools.map((tool) => owned(declared, tool)));
         diagnostics.push({
@@ -164,6 +172,9 @@ export class McpPool {
     args: unknown;
     manifest: AgentManifest;
     pluginRoots: Readonly<Record<string, string>>;
+    /** The effect id: a gate runs the call once under it (F4.1). */
+    effectId?: string;
+    signal?: AbortSignal;
   }): Promise<Awaited<ReturnType<typeof callMcpTool>>> {
     const key = this.liveKey(input.sessionId, input.agentId, input.capabilityId, input.serverName);
     let live = this.live.get(key);
@@ -186,7 +197,10 @@ export class McpPool {
     }
     live.active += 1;
     try {
-      return await callMcpTool(live.connection.client, input.serverToolName, input.args);
+      return await callMcpTool(live.connection.client, input.serverToolName, input.args, {
+        ...(input.effectId === undefined ? {} : { key: input.effectId }),
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
     } finally {
       live.active -= 1;
       live.lastUsedAt = this.now();
@@ -259,6 +273,15 @@ export class McpPool {
     declared: DeclaredServer,
   ): Promise<Opened> {
     try {
+      if (declared.server.type !== "stdio" && this.options.openRemote) {
+        const connection = await this.options.openRemote({
+          sessionId: input.sessionId,
+          ...ownerOf(declared),
+          capabilityId: declared.capabilityId,
+          serverName: declared.server.name,
+        });
+        return { ok: true, connection };
+      }
       const connection = await this.open({
         server: declared.server,
         pluginRoot: input.pluginRoots[pluginKey(declared)],
@@ -289,7 +312,16 @@ export class McpPool {
   }
 }
 
-interface DeclaredServer {
+/** One declared MCP server of a session: what a gate needs to find it in the pinned manifest. */
+export interface McpServerRef {
+  readonly sessionId: string;
+  /** The agent used as a tool that declares the server; absent for the session's root agent. */
+  readonly agentId?: string;
+  readonly capabilityId: string;
+  readonly serverName: string;
+}
+
+export interface DeclaredServer {
   /** Absent for the session's root agent. */
   readonly agentId?: string;
   /** The manifest of the agent that declares the server. */
@@ -316,7 +348,7 @@ export function serversOf(manifest: AgentManifest): DeclaredServer[] {
   return servers;
 }
 
-function findServer(
+export function findServer(
   manifest: AgentManifest,
   agentId: string | undefined,
   capabilityId: string,

@@ -4,7 +4,6 @@ import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import { createActionHandler } from "../src/action-handler.js";
 import { AgentsClient } from "../src/client.js";
 
-const TENANT = "tn_00000000000000000000000001";
 const APPLICATION_KEY = "a".repeat(64);
 const URL = "http://127.0.0.1:8787";
 const ENDPOINT = "http://localhost:3000/nylorun/actions";
@@ -43,7 +42,6 @@ describe("createActionHandler workflows (WF-R3 / WF-C5 / SD-C1)", () => {
     const application = new AgentsClient({
       url: URL,
       key: APPLICATION_KEY,
-      tenant: TENANT,
       fetch: async (url, init) => {
         const path = String(url);
         if (path.endsWith("/health")) return healthOk();

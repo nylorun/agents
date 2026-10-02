@@ -24,23 +24,25 @@
  *   probes from inside the container.
  *
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
- * `infra/*` builds the clients from them.
+ * `infra/*` builds the clients from them. So is who the Host's Tenant is when its database
+ * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
  */
+import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
 
 /** A Runtime service this release has. */
-export type RuntimeService = "core" | "loop" | "gates";
+export type RuntimeService = "core" | "loop" | "gates" | "keys";
 
 export type RuntimeServices = ReadonlySet<RuntimeService>;
 
-export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates"];
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys"];
 
 /**
  * Services that may share a process (D12): they hold the same secrets and parse the same
- * trust class of input. Egress and keys join gates in later releases.
+ * trust class of input. keys joins gates (F4.2); egress joins them in a later release.
  */
 const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
   ["core", "loop"],
-  ["gates"],
+  ["gates", "keys"],
 ];
 
 /** Where the gates service listens by default. */
@@ -55,7 +57,6 @@ export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
 /** Services of the blueprint this release doesn't have yet. */
 const LATER_SERVICES: readonly string[] = [
   "egress",
-  "keys",
   "harness",
   "sandboxd",
 ];
@@ -129,11 +130,19 @@ export interface StackConfig {
   /** Present when the process runs gates. */
   gates?: GatesConfig;
   /**
-   * Present when the process runs loop and `NYLORUN_GATES_URL` is set: its model calls cross
-   * the gates service. Required in container mode; outside a container (a development Host,
-   * tests) the loop may call the model in its own process.
+   * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
+   * remote MCP calls and Action deliveries cross the gates service. Required for loop in
+   * container mode; outside a container (a development Host, tests) the loop may make them in
+   * its own process.
    */
   modelGate?: ModelGateEndpoint;
+  /**
+   * Present when the process runs core or loop and `NYLORUN_KEYS_URL`, or else
+   * `NYLORUN_GATES_URL`, is set (F4.2): its vault writes and token signing cross the gateway's
+   * keys service, with `NYLORUN_GATES_TOKEN`, and it never reads the vault key. A loop in a
+   * container always has it, since it requires `NYLORUN_GATES_URL`.
+   */
+  keys?: ModelGateEndpoint;
   /**
    * How the stack packs services into containers (`NYLORUN_PACKING`), for the startup log:
    * `combined` (the local stack: runtime and gateway) or `split` (one container per service).
@@ -170,6 +179,24 @@ export interface StackConfig {
     privateAddresses?: "allow" | "refuse";
     allowHttp?: boolean;
   };
+  /** Present when the process runs core or loop: who its Tenant is on first start. */
+  tenant?: TenantSettings;
+}
+
+/**
+ * The Tenant a Host creates when its database holds none (tenancy.md §4). Later starts open the
+ * Tenant the database holds; only principals missing from it are added.
+ */
+export interface TenantSettings {
+  /** `NYLORUN_TENANT_ID`: the new Tenant's id. Default: a new id. */
+  id?: string;
+  /** `NYLORUN_TENANT_NAME`. Default `default`. */
+  name: string;
+  /**
+   * `NYLORUN_DERIVED_PRINCIPALS`: comma-separated application principals whose keys the admin
+   * key derives (`deriveTenantKey`). Default `project`.
+   */
+  derivedPrincipals: readonly string[];
 }
 
 export class StackConfigError extends Error {
@@ -406,8 +433,11 @@ export function parseStackConfig(
   const servesApi = services.has("core") || services.has("loop");
   const listen = servesApi ? parseListen(env) : undefined;
   const operator = servesApi ? parseAdminListen(env) : undefined;
-  const gates = services.has("gates") ? parseGates(env) : undefined;
-  const modelGate = services.has("loop") ? parseModelGate(env) : undefined;
+  const gates = services.has("gates") || services.has("keys") ? parseGates(env) : undefined;
+  // The gates service's clients: the loop's model and tool calls, and core's endpoint pings.
+  const modelGate = servesApi ? parseModelGate(env) : undefined;
+  // The keys service is the gateway's unless NYLORUN_KEYS_URL names another listener.
+  const keys = servesApi ? (parseKeysEndpoint(env) ?? modelGate) : undefined;
   if (operator && listen && operator.port === listen.port)
     throw new StackConfigError(
       "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
@@ -452,11 +482,13 @@ export function parseStackConfig(
       `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
     );
   const delivery = parseDelivery(env);
+  const tenant = servesApi ? parseTenant(env) : undefined;
   return {
     services,
     ...(deprecatedRole ? { deprecatedRole } : {}),
     ...(gates ? { gates } : {}),
     ...(modelGate ? { modelGate } : {}),
+    ...(keys ? { keys } : {}),
     ...(rawPacking ? { packing: rawPacking } : {}),
     ...(listen ? { listen } : {}),
     endpoints,
@@ -464,6 +496,27 @@ export function parseStackConfig(
     ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
+    ...(tenant ? { tenant } : {}),
+  };
+}
+
+function parseTenant(env: EnvSnapshot): TenantSettings {
+  const id = read(env, "NYLORUN_TENANT_ID");
+  if (id !== undefined && !isTenantId(id))
+    throw new StackConfigError(
+      `NYLORUN_TENANT_ID must be a Tenant id (tn_ and 26 Crockford characters), not ${id}`,
+    );
+  const raw = read(env, "NYLORUN_DERIVED_PRINCIPALS");
+  const derivedPrincipals = raw === undefined ? ["project"] : raw.split(",").map((entry) => entry.trim());
+  for (const principal of derivedPrincipals)
+    if (!DERIVED_PRINCIPAL_ID_PATTERN.test(principal) || principal === "studio")
+      throw new StackConfigError(
+        `NYLORUN_DERIVED_PRINCIPALS has '${principal}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio`,
+      );
+  return {
+    ...(id ? { id } : {}),
+    name: read(env, "NYLORUN_TENANT_NAME") ?? "default",
+    derivedPrincipals: [...new Set(derivedPrincipals)],
   };
 }
 
@@ -519,6 +572,20 @@ function parseModelGate(env: EnvSnapshot): ModelGateEndpoint | undefined {
   if (token === undefined)
     throw new StackConfigError(
       "NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL: the gates service refuses calls without it",
+    );
+  if (!GATES_TOKEN.test(token))
+    throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
+  return { url: url.replace(/\/+$/, ""), token };
+}
+
+/** `StackConfig.keys` from `NYLORUN_KEYS_URL` and `NYLORUN_GATES_TOKEN`. */
+function parseKeysEndpoint(env: EnvSnapshot): ModelGateEndpoint | undefined {
+  const url = parseUrl(env, "NYLORUN_KEYS_URL", ["http:", "https:"]);
+  if (url === undefined) return undefined;
+  const token = read(env, "NYLORUN_GATES_TOKEN");
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_GATES_TOKEN is required with NYLORUN_KEYS_URL: the keys service refuses calls without it",
     );
   if (!GATES_TOKEN.test(token))
     throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");

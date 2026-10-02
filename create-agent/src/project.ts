@@ -103,14 +103,13 @@ export async function createProject(
 }
 
 /**
- * After creation: start the local stack (nylorun), create and link the
- * Project's Tenant (the Runtime client, @nylorun/cli), then develop. The
- * creator runs none of them; the project itself depends only on
- * @nylorun/agents.
+ * After creation: `nylorun start` in the project creates and starts its
+ * local stack, whose Runtime creates the stack's one Tenant, and links the
+ * project to it; then develop. The creator runs neither; the project itself
+ * depends only on @nylorun/agents.
  */
 const NEXT = [
-  "npx nylorun@beta up                  # the local Runtime and Studio (Docker)",
-  "npx @nylorun/cli@beta tenant create  # this project's Tenant, linked in .nylorun/",
+  "npx nylorun@beta start  # this project's stack, its Tenant and the link in .nylorun/ (Docker)",
   "npm run dev",
 ];
 

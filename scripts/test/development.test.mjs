@@ -69,9 +69,6 @@ test(
       async startStack() {
         calls.push("start");
       },
-      async linkProject() {
-        calls.push("link");
-      },
       async openStudio(_group, { open }) {
         calls.push(`studio open=${open}`);
       },
@@ -107,7 +104,6 @@ test(
         "build cli",
         "images",
         "start",
-        "link",
         "studio open=true",
         "runner",
       ]);
@@ -164,7 +160,6 @@ test("a runner that exits on its own ends development with its code", { timeout:
         commands: {
           prepareImages: async () => {},
           startStack: async () => {},
-          linkProject: async () => {},
           startRunner: (group) => group.start("examples", process.execPath, ["-e", "process.exit(3)"]),
         },
       },

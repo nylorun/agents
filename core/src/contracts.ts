@@ -16,7 +16,6 @@ import { canonical } from "./utils/canonical.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
-import { DERIVED_PRINCIPAL_ID_PATTERN } from "./compatibility.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
@@ -1518,76 +1517,13 @@ export const TenantEnvelopeSchema = z
   .strict();
 export type TenantEnvelope = z.infer<typeof TenantEnvelopeSchema>;
 
-export const CreateTenantRequestSchema = z
-  .object({
-    tenantId: z.string().min(1),
-    name: z.string().min(1),
-    /** `studio` is reserved for the derived Studio principal. */
-    principalId: z
-      .string()
-      .min(1)
-      .refine((id) => id !== "studio", "principalId `studio` is reserved"),
-    credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
-    idempotencyKey: IdempotencyKeySchema,
-    /** SHA-256 of the derived Studio key; registers principal `studio` (feature `studio-principal`). */
-    studioCredentialHash: z
-      .string()
-      .regex(/^[0-9a-f]{64}$/)
-      .optional(),
-    /**
-     * SHA-256 of each derived principal's key (feature `derived-principals`): application
-     * principals whose keys the admin key derives, so their clients store no key.
-     */
-    derivedPrincipals: z
-      .array(
-        z
-          .object({
-            id: z
-              .string()
-              .regex(DERIVED_PRINCIPAL_ID_PATTERN)
-              .refine((id) => id !== "studio", "principal id `studio` is reserved"),
-            credentialHash: z.string().regex(/^[0-9a-f]{64}$/),
-          })
-          .strict()
-      )
-      .max(16)
-      .optional(),
-  })
-  .strict()
-  .superRefine((body, ctx) => {
-    const ids = new Set([body.principalId]);
-    const hashes = new Set([body.credentialHash]);
-    if (body.studioCredentialHash) hashes.add(body.studioCredentialHash);
-    for (const [index, principal] of (body.derivedPrincipals ?? []).entries()) {
-      if (ids.has(principal.id))
-        ctx.addIssue({
-          code: "custom",
-          path: ["derivedPrincipals", index, "id"],
-          message: `Principal id ${principal.id} is used twice`,
-        });
-      if (hashes.has(principal.credentialHash))
-        ctx.addIssue({
-          code: "custom",
-          path: ["derivedPrincipals", index, "credentialHash"],
-          message: "Every principal needs its own credential",
-        });
-      ids.add(principal.id);
-      hashes.add(principal.credentialHash);
-    }
-  });
-export type CreateTenantRequest = z.infer<typeof CreateTenantRequestSchema>;
-
-export const AdminTenantSchema = z
-  .object({
-    id: z.string().min(1),
-    name: z.string().nullable(),
-    state: z.enum(["open", "quarantined"]),
-    envelope: TenantEnvelopeSchema.nullable(),
-  })
-  .strict();
-export type AdminTenant = z.infer<typeof AdminTenantSchema>;
-
-export const QuarantineSchema = z
+/**
+ * Why a Host's Tenant is not open (`HostTenant.cause`): it could not be opened, and the Host
+ * fails readiness until the cause is repaired and the Host restarted. `database-layout-old`:
+ * the database was written by a Runtime from before one Tenant per installation; this release
+ * starts fresh on a new database.
+ */
+export const TenantCauseSchema = z
   .object({
     code: z.enum([
       "kek-missing",
@@ -1597,17 +1533,29 @@ export const QuarantineSchema = z
       "envelope-invalid",
       "open-timeout",
       "open-failed",
+      "database-layout-old",
     ]),
     message: z.string(),
     repair: z.string(),
   })
   .strict();
-export type QuarantineInfo = z.infer<typeof QuarantineSchema>;
+export type TenantCause = z.infer<typeof TenantCauseSchema>;
 
-export const AdminTenantStatusSchema = AdminTenantSchema.extend({
-  quarantine: QuarantineSchema.optional(),
-});
-export type AdminTenantStatus = z.infer<typeof AdminTenantStatusSchema>;
+/**
+ * The Host's one Tenant, as `/v1/admin/status` reports it. `unavailable` while it opens, when
+ * opening it failed (`cause`), or when it is closing.
+ */
+export const HostTenantSchema = z
+  .object({
+    /** Null until the Tenant row has been read (an old or newer database). */
+    id: z.string().min(1).nullable(),
+    name: z.string().nullable(),
+    state: z.enum(["open", "unavailable"]),
+    envelope: TenantEnvelopeSchema.nullable(),
+    cause: TenantCauseSchema.optional(),
+  })
+  .strict();
+export type HostTenant = z.infer<typeof HostTenantSchema>;
 
 /** A stream relay's state (Durable Streams §7). */
 export const StreamRelayStatusSchema = z
@@ -1632,7 +1580,7 @@ export type StreamRelayStatus = z.infer<typeof StreamRelayStatusSchema>;
 export const HostAggregateSchema = z
   .object({
     runningSessions: z.number().int().nonnegative(),
-    /** Deliveries to Action endpoints in flight on this Host's open Tenants. */
+    /** Deliveries to Action endpoints in flight on this Host. */
     inFlightDeliveries: z.number().int().nonnegative(),
     pendingActions: z.number().int().nonnegative(),
     uncertainEffects: z.number().int().nonnegative(),
@@ -1649,7 +1597,7 @@ export const AdminHostStatusSchema = z
     pid: z.number().int(),
     version: z.string().min(1),
     protocol: ProtocolRangeSchema,
-    tenants: z.array(AdminTenantSchema),
+    tenant: HostTenantSchema,
     aggregate: HostAggregateSchema,
   })
   .strict();
@@ -1661,7 +1609,8 @@ export const AdminStatusSchema = z
     service: z.string().min(1),
     version: z.string().min(1),
     protocol: ProtocolRangeSchema,
-    tenants: z.array(AdminTenantSchema),
+    /** The Tenant this installation serves. */
+    tenant: HostTenantSchema,
     aggregate: HostAggregateSchema,
     host: z
       .object({
@@ -1675,12 +1624,20 @@ export const AdminStatusSchema = z
   .strict();
 export type AdminStatus = z.infer<typeof AdminStatusSchema>;
 
+/**
+ * `.nylorun/link.json`: the installation a Project uses. Format 2 (one Tenant per
+ * installation) names the local `stack` that `nylorun start` created or attached; `tenantId`
+ * is information only, since nothing in a request selects a Tenant. Formats 0 and 1 named a
+ * Tenant on a multi-Tenant Host of an older Runtime.
+ */
 export const ProjectLinkFileSchema = z
   .object({
-    format: z.union([z.literal(0), z.literal(1)]).default(0),
+    format: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
+    /** The local stack's name (format 2); absent for an installation that is not a stack. */
+    stack: z.string().min(1).optional(),
     hostUrl: z.string().min(1),
     hostId: z.string().min(1),
-    tenantId: z.string().min(1),
+    tenantId: z.string().min(1).optional(),
   })
   .passthrough();
 export type ProjectLinkFile = z.infer<typeof ProjectLinkFileSchema>;
@@ -1817,7 +1774,7 @@ export const SeedTenantConfigRequestSchema = z
     model: seedModelSchema.optional(),
     /**
      * The Tenant's model calls use the Runtime's deterministic fixture model instead of its
-     * host model, e.g. for a temporary test Tenant (scripts/lib/temporary-tenant.mjs). Stored
+     * host model, e.g. for the stack Tenant a smoke check resets (scripts/lib/stack-tenant.mjs). Stored
      * as Tenant setting `model.fixture`. Host feature `tenant-fixture-model`.
      */
     fixtureModel: z.literal(true).optional(),
@@ -2468,7 +2425,6 @@ export const ListPublishableKeysResponseSchema = z
   .strict();
 export type ListPublishableKeysResponse = z.infer<typeof ListPublishableKeysResponseSchema>;
 
-export const AdminTenantListSchema = z.array(AdminTenantSchema);
 export const HostShutdownResponseSchema = z
   .object({ status: z.literal("shutting_down") })
   .strict();

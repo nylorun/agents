@@ -15,6 +15,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../src/tenant/ephemeral.js";
+import { testPool } from "./support/store.js";
 
 const ORIGIN = "http://localhost:5173";
 let root: string;
@@ -25,6 +26,7 @@ let key: string;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-browser-client-"));
   rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     browserAccess: true,
     model: { kind: "scripted", output: "hello from the agent" },

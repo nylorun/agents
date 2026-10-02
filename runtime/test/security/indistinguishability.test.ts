@@ -1,5 +1,6 @@
 /**
- * G6 — Indistinguishability of unknown / quarantined / credential-rejected.
+ * G6 — Indistinguishability of another Tenant named / a Tenant not opened /
+ * credential-rejected.
  */
 import { expect, it } from "vitest";
 import { OPAQUE_NOT_FOUND } from "../../src/host/http.js";
@@ -17,54 +18,48 @@ import {
   tenantHeaders,
 } from "./support.js";
 
-it("G6: unknown and quarantined Host responses are byte-identical", async () => {
-  const openId = newTenantId();
-  const quarantinedId = newTenantId();
-  const module = createFakeModule({
-    tenants: [
-      { id: openId, name: "open", state: "open" },
-      {
-        id: quarantinedId,
-        name: "q",
-        state: "quarantined",
-        quarantine: {
-          code: "kek-missing",
-          message: "vault key missing",
-          repair: "nylo tenant status",
-        },
+it("G6: another Tenant named and a Tenant that could not open are byte-identical", async () => {
+  const unavailable = createFakeModule({
+    tenant: {
+      state: "unavailable",
+      cause: {
+        code: "kek-missing",
+        message: "vault key missing",
+        repair: "restore vault-kek",
       },
-    ],
+    },
   });
-  const { url } = await startTestHost({ module });
+  const open = await startTestHost({ module: createFakeModule() });
+  const failed = await startTestHost({ module: unavailable });
 
-  const unknown = await getRaw(`${url}/v1/agents`, {
-    headers: hostTenantHeaders(newTenantId()),
+  const unknown = await getRaw(`${open.url}/v1/agents`, {
+    headers: hostTenantHeaders(undefined, newTenantId()),
   });
-  const quarantined = await getRaw(`${url}/v1/agents`, {
-    headers: hostTenantHeaders(quarantinedId),
+  const notOpened = await getRaw(`${failed.url}/v1/agents`, {
+    headers: hostTenantHeaders(),
   });
 
   expect(unknown.status).toBe(404);
-  expect(quarantined.status).toBe(404);
+  expect(notOpened.status).toBe(404);
   expect(JSON.parse(unknown.body)).toEqual(OPAQUE_NOT_FOUND);
-  expect(unknown.status).toBe(quarantined.status);
-  expect(unknown.body).toBe(quarantined.body);
+  expect(unknown.body).toBe(notOpened.body);
   expect(comparableHeaders(unknown.headers)).toEqual(
-    comparableHeaders(quarantined.headers),
+    comparableHeaders(notOpened.headers),
   );
 });
 
-it("G6: credential-rejected matches unknown status and body (D5)", async () => {
-  const host = await startSecurityHost();
-  const [a, b] = host.tenants;
+it("G6: credential-rejected matches another Tenant named in status and body (D5)", async () => {
+  const host = await startSecurityHost({ tenantName: "alpha" });
+  const other = await startSecurityHost({ tenantName: "beta" });
+  const a = host.tenant;
+  const b = other.tenant;
 
   const unknown = await getRaw(`${host.url}/v1/agents`, {
-    headers: tenantHeaders(newTenantId(), a.applicationKey),
+    headers: tenantHeaders(a.applicationKey, newTenantId()),
   });
   const rejected = await getRaw(`${host.url}/v1/agents`, {
-    headers: tenantHeaders(a.id, b.applicationKey),
+    headers: tenantHeaders(b.applicationKey),
   });
-
   expect(JSON.parse(unknown.body)).toEqual(OPAQUE_NOT_FOUND);
   expect(JSON.parse(rejected.body)).toEqual(OPAQUE_NOT_FOUND);
   expect(unknown.status).toBe(404);

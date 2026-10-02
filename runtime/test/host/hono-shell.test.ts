@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { testPool } from "../support/store.js";
 
 // Captured before the Runtime's modules load.
 const globals = { Request: globalThis.Request, Response: globalThis.Response };
@@ -14,7 +15,7 @@ const { startEphemeralRuntime } = await import("../../src/tenant/ephemeral.js");
 
 it("leaves the process's Request and Response alone: an embedding app keeps its own", async () => {
   const root = await mkdtemp(join(tmpdir(), "nylorun-hono-shell-"));
-  const rt = await startEphemeralRuntime({ hostRoot: root, model: { kind: "fixture" } });
+  const rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, model: { kind: "fixture" } });
   try {
     expect((await fetch(`${rt.url}/health`)).status).toBe(200);
     expect(globalThis.Request).toBe(globals.Request);
@@ -27,7 +28,7 @@ it("leaves the process's Request and Response alone: an embedding app keeps its 
 
 it("answers a request target that is not a path with a JSON 400", async () => {
   const root = await mkdtemp(join(tmpdir(), "nylorun-hono-shell-"));
-  const rt = await startEphemeralRuntime({ hostRoot: root, model: { kind: "fixture" } });
+  const rt = await startEphemeralRuntime({ database: testPool(), hostRoot: root, model: { kind: "fixture" } });
   try {
     const { host } = new URL(rt.url);
     const answer = await new Promise<{ status: number; body: string }>((resolve, reject) => {
