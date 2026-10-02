@@ -24,7 +24,7 @@ import {
   type ModelProvider,
 } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
-import { inProcessModelGate } from "../gates/in-process.js";
+import { tenantModelGate } from "../gates/in-process.js";
 import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { SigningKeys } from "./signing-keys.js";
@@ -230,13 +230,14 @@ export class TenantRuntime implements TenantHandle {
       else if (config.model.kind === "fixture")
         modelProvider = toolFixtureModel();
       else modelProvider = scriptedModel();
+      // With the gates service the loop never reads a model credential: only a Runtime
+      // without one (embedding, the ephemeral Runtime, tests) reads it here.
       const modelGate =
         hooks.modelGate ??
-        inProcessModelGate({
+        tenantModelGate({
+          store: opened,
+          kek: ensureKek,
           root: paths.home,
-          readHostModel: () => vault.readHostModel(),
-          writeHostCredential: (credential) =>
-            vault.updateHostCredential(credential),
           ...(config.modelCall ? { settings: config.modelCall } : {}),
         });
 

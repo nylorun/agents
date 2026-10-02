@@ -9,8 +9,10 @@
  * the deprecated name of the same choice (core, loop, or both). `gates` (the
  * Model Gate) never shares a process with core or loop: it holds the
  * credentials they must not. Only a process that runs core or loop parses the
- * API listener (`NYLORUN_LISTEN_*`); only one that runs gates parses
- * `NYLORUN_GATES_*`.
+ * API listener (`NYLORUN_LISTEN_*`); only one that runs gates parses its
+ * listener (`NYLORUN_GATES_LISTEN_*`), and only one that runs loop parses
+ * where to reach the gate (`NYLORUN_GATES_URL`). Both read
+ * `NYLORUN_GATES_TOKEN`.
  *
  * Two listen modes:
  * - **local** (no `NYLORUN_LISTEN_*` / `NYLORUN_ALLOWED_HOSTS`): the Host binds
@@ -114,11 +116,22 @@ export interface GatesConfig {
   token: string;
 }
 
+/** Where the loop reaches the gates service (`NYLORUN_GATES_URL`, `NYLORUN_GATES_TOKEN`). */
+export interface ModelGateEndpoint {
+  url: string;
+  token: string;
+}
+
 export interface StackConfig {
   /** The Runtime services this process runs. */
   services: RuntimeServices;
   /** Present when the process runs gates. */
   gates?: GatesConfig;
+  /**
+   * Present when the process runs loop and `NYLORUN_GATES_URL` is set: its model calls cross
+   * the gates service. Absent, the loop calls the model in its own process.
+   */
+  modelGate?: ModelGateEndpoint;
   /** Set when the process was started with the deprecated `--role` (logged at startup). */
   deprecatedRole?: RuntimeRole;
   /** Present in container mode; absent means bind what host.json names. */
@@ -387,6 +400,7 @@ export function parseStackConfig(
   const listen = servesApi ? parseListen(env) : undefined;
   const operator = servesApi ? parseAdminListen(env) : undefined;
   const gates = services.has("gates") ? parseGates(env) : undefined;
+  const modelGate = services.has("loop") ? parseModelGate(env) : undefined;
   if (operator && listen && operator.port === listen.port)
     throw new StackConfigError(
       "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
@@ -428,6 +442,7 @@ export function parseStackConfig(
     services,
     ...(deprecatedRole ? { deprecatedRole } : {}),
     ...(gates ? { gates } : {}),
+    ...(modelGate ? { modelGate } : {}),
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
@@ -473,6 +488,26 @@ function parseGates(env: EnvSnapshot): GatesConfig {
     listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
     token,
   };
+}
+
+/** `StackConfig.modelGate` from `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. */
+function parseModelGate(env: EnvSnapshot): ModelGateEndpoint | undefined {
+  const url = parseUrl(env, "NYLORUN_GATES_URL", ["http:", "https:"]);
+  const token = read(env, "NYLORUN_GATES_TOKEN");
+  if (url === undefined) {
+    if (token !== undefined)
+      throw new StackConfigError(
+        "NYLORUN_GATES_TOKEN is set without NYLORUN_GATES_URL: set the URL of the gates service, e.g. http://gateway:4100",
+      );
+    return undefined;
+  }
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL: the gates service refuses calls without it",
+    );
+  if (!GATES_TOKEN.test(token))
+    throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
+  return { url: url.replace(/\/+$/, ""), token };
 }
 
 /** `StackConfig.delivery` from `NYLORUN_ENDPOINT_*`, or `undefined` when none is set. */

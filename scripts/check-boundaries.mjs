@@ -43,6 +43,8 @@ const restrictedModules = {
       modules: ["model/pi-model.js", "model/models.js"],
       importers: ["gates", "model", "node", "configuration.ts"],
     },
+    // Reading the host model credential in plaintext: the Model Gate only.
+    { modules: ["vault/host-model.js"], importers: ["gates", "vault"] },
   ],
 };
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.

@@ -4,6 +4,7 @@
  * `fetch`, which the gates service (in this test process) uses as well.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { newTenantId } from "@nylorun/core/compatibility";
 import type { RuntimeModelCall } from "../../src/contracts.js";
 import type { ModelCallSettings, ModelGate, ModelGateRequest } from "../../src/gates/model-gate.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
@@ -42,7 +43,7 @@ const call: RuntimeModelCall = {
 };
 
 const request = (overrides: Partial<ModelGateRequest> = {}): ModelGateRequest => ({
-  tenantId: "01J00000000000000000000000",
+  tenantId: newTenantId(),
   sessionId: "session-1",
   turnId: "turn-1",
   effectId: "turn-1:0:model:1",

@@ -52,6 +52,7 @@ import {
 import { createExecution, createInfra } from "../infra/index.js";
 import { createDatabase } from "../infra/database.js";
 import { startGates } from "./gates.js";
+import { httpModelGate } from "../gates/http-client.js";
 import type { StackConfig } from "./stack-config.js";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -167,6 +168,9 @@ export async function main(): Promise<void> {
     });
   logger.info("host_stack_config", {
     services: [...stack.services],
+    ...(stack.services.has("loop")
+      ? { modelGate: stack.modelGate ? stack.modelGate.url : "in-process" }
+      : {}),
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
@@ -224,6 +228,11 @@ export async function main(): Promise<void> {
     const status = relay.status;
     relayLag = async () => ({ ...status(), ...(await lagOf(source)) });
   }
+  // With the gates service every Tenant's vault-backed model calls cross it, and this process
+  // never reads a model credential.
+  const modelGate = stack.modelGate
+    ? httpModelGate({ url: stack.modelGate.url, token: stack.modelGate.token })
+    : undefined;
   const store = createPostgresTenantStore({
     hostRoot,
     sql: database,
@@ -232,6 +241,7 @@ export async function main(): Promise<void> {
     openRuntime: (tenantConfig, opened) =>
       openTenantRuntime(tenantConfig, {
         execution: hostExecution.tenantExecution,
+        ...(modelGate ? { modelGate } : {}),
         ...(streams ? { streams, hostRelay: true } : {}),
         ...opened,
       }),

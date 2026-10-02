@@ -274,10 +274,41 @@ describe("parseStackConfig for --service gates", () => {
     });
   });
 
-  it("leaves NYLORUN_GATES_* to gates processes", () => {
+  it("leaves the gate's listener to gates processes", () => {
     expect(
-      parseStackConfig({ NYLORUN_GATES_TOKEN: "short" }, ["--service", "core,loop"]).gates,
+      parseStackConfig({ NYLORUN_GATES_LISTEN_HOST: "bad host" }, ["--service", "core,loop"]).gates,
     ).toBeUndefined();
+  });
+});
+
+describe("parseStackConfig: where the loop reaches the gate", () => {
+  const token = "ab".repeat(32);
+
+  it("reads NYLORUN_GATES_URL and the token for a process that runs loop", () => {
+    expect(
+      parseStackConfig(
+        { NYLORUN_GATES_URL: "http://gateway:4100/", NYLORUN_GATES_TOKEN: token },
+        ["--service", "core,loop"],
+      ).modelGate,
+    ).toEqual({ url: "http://gateway:4100", token });
+    expect(
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, [
+        "--service",
+        "core",
+      ]).modelGate,
+    ).toBeUndefined();
+  });
+
+  it("requires the token with the URL, and the URL with the token", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100" }, []),
+    ).toThrow(/NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL/);
+    expect(() => parseStackConfig({ NYLORUN_GATES_TOKEN: token }, [])).toThrow(
+      /without NYLORUN_GATES_URL/,
+    );
+    expect(() =>
+      parseStackConfig({ NYLORUN_GATES_URL: "ftp://gateway", NYLORUN_GATES_TOKEN: token }, []),
+    ).toThrow(/NYLORUN_GATES_URL must use http or https/);
   });
 });
 

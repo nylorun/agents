@@ -5,6 +5,8 @@
  */
 import type { Credential } from "@earendil-works/pi-ai";
 import { piModel, type ModelCallSettings } from "../model/pi-model.js";
+import type { SessionStore } from "../store/types.js";
+import { HostModelVault } from "../vault/host-model.js";
 import type { HostModelSecret } from "../vault/service.js";
 import type { ModelGate } from "./model-gate.js";
 
@@ -15,6 +17,25 @@ export interface InProcessModelGateOptions {
   /** Writes back a credential pi-ai refreshed (OAuth). */
   readonly writeHostCredential: (credential: Credential) => Promise<void>;
   readonly settings?: ModelCallSettings;
+}
+
+/**
+ * The in-process gate of an open Tenant: reads its host model from its own vault. Only a
+ * Runtime without the gates service (embedding, the ephemeral Runtime, tests) builds one.
+ */
+export function tenantModelGate(options: {
+  readonly store: SessionStore;
+  readonly kek: () => Buffer;
+  readonly root: string;
+  readonly settings?: ModelCallSettings;
+}): ModelGate {
+  const vault = new HostModelVault({ store: options.store, kek: options.kek });
+  return inProcessModelGate({
+    root: options.root,
+    readHostModel: () => vault.readHostModel(),
+    writeHostCredential: (credential) => vault.updateHostCredential(credential),
+    ...(options.settings ? { settings: options.settings } : {}),
+  });
 }
 
 export function inProcessModelGate(options: InProcessModelGateOptions): ModelGate {

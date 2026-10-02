@@ -34,9 +34,11 @@
  * listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }>
  * putHostModel(body: PutHostModelRequest): Promise<HostModelView>
  * selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>
- * readHostModel(): Promise<HostModelSecret | undefined>
- * updateHostCredential(credential): Promise<void>
  * ```
+ *
+ * Reading the host model's secret and writing back a refreshed one are `HostModelVault`'s
+ * (`vault/host-model.ts`), which only the Model Gate uses: this service seals the host model's
+ * credential but never reads it back.
  *
  * ## Transactions and I/O
  *
@@ -89,7 +91,7 @@ import { normalizeVaultUrl } from "./url.js";
 
 const REFRESH_SKEW_MS = 60_000;
 const REFRESH_TIMEOUT_MS = 30_000;
-const HOST_VAULT_ID = "host";
+export const HOST_VAULT_ID = "host";
 const HOST_MODEL_ID = "host-model";
 
 export type HostModelSecret = {
@@ -547,11 +549,11 @@ export class VaultService {
 
   async listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }> {
     return this.store.tx(async (t) => {
-      const active = await this.activeProviderId(t);
+      const active = await activeProviderId(t);
       const catalog = new Map(
         hostModelCatalog().providers.map((provider) => [provider.id, provider.name]),
       );
-      const providers = (await this.hostModelRows(t)).map((row) => {
+      const providers = (await hostModelRows(t)).map((row) => {
         const binding = modelBinding(row);
         return {
           id: binding.provider,
@@ -615,7 +617,7 @@ export class VaultService {
     return this.store.tx((t) =>
       this.replay(t, `host-model-select:${body.idempotencyKey}`, body, async () => {
         this.validateHostModel(body);
-        const row = await this.hostCredentialRowFor(t, body.provider);
+        const row = await hostCredentialRowFor(t, body.provider);
         if (!row)
           throw new VaultError(404, "Model provider is not configured");
         const binding = modelBinding(row);
@@ -643,64 +645,6 @@ export class VaultService {
         return this.hostModelView(t);
       }),
     );
-  }
-
-  /** Reads the active host model secret. Decrypts after the read commits. */
-  async readHostModel(): Promise<HostModelSecret | undefined> {
-    const row = await this.store.tx((t) => this.activeHostCredentialRow(t));
-    if (!row) return undefined;
-    const binding = modelBinding(row);
-    const payload = readHostPayload(this.kek(), row, binding);
-    const credential =
-      binding.authType === "oauth"
-        ? { type: "oauth" as const, ...payload.oauth }
-        : {
-            type: "api_key" as const,
-            key: payload.apiKey,
-            ...(payload.env ? { env: payload.env } : {}),
-          };
-    return {
-      provider: binding.provider,
-      model: binding.model,
-      ...(binding.baseUrl ? { baseUrl: binding.baseUrl } : {}),
-      ...(binding.settings ? { settings: binding.settings } : {}),
-      authType: binding.authType,
-      credential,
-    };
-  }
-
-  async updateHostCredential(credential: {
-    type: "api_key" | "oauth";
-    key?: string;
-    env?: Record<string, string>;
-    refresh?: string;
-    access?: string;
-    expires?: number;
-  }): Promise<void> {
-    const kek = this.kek();
-    await this.store.tx(async (t) => {
-      const row = await this.activeHostCredentialRow(t);
-      if (!row) throw new VaultError(404, "Model provider is not configured");
-      const binding = modelBinding(row);
-      const payload =
-        credential.type === "oauth"
-          ? { oauth: credential }
-          : {
-              apiKey: credential.key,
-              ...(credential.env ? { env: credential.env } : {}),
-            };
-      const sealed = encryptSecret(
-        kek,
-        hostModelAad(binding.provider, binding.model),
-        Buffer.from(JSON.stringify(payload), "utf8"),
-      );
-      await t.updateCredential(HOST_VAULT_ID, row.id, {
-        type: "model",
-        bindingJson: JSON.stringify({ ...binding, authType: credential.type }),
-        ...sealed,
-        rotatedAt: new Date().toISOString(),
-      });
-    });
   }
 
   // --- internals -----------------------------------------------------------------
@@ -1006,7 +950,7 @@ export class VaultService {
   }
 
   private async hostModelView(t: Tx): Promise<HostModelView> {
-    const row = await this.activeHostCredentialRow(t);
+    const row = await activeHostCredentialRow(t);
     if (!row) return { configured: false };
     const binding = modelBinding(row);
     return {
@@ -1019,66 +963,9 @@ export class VaultService {
     };
   }
 
-  private async hostModelRows(t: Tx): Promise<VaultCredentialRow[]> {
-    return (
-      await t.credentialsForVault(HOST_VAULT_ID, { type: "model" })
-    ).filter((row) => {
-      try {
-        modelBinding(row);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-  }
 
-  private async hostCredentialRowFor(
-    t: Tx,
-    provider: string,
-  ): Promise<VaultCredentialRow | undefined> {
-    const preferred = hostModelCredentialId(provider);
-    const rows = await this.hostModelRows(t);
-    return (
-      rows.find((row) => row.id === preferred) ??
-      rows.find((row) => modelBinding(row).provider === provider)
-    );
-  }
 
-  private async activeHostCredentialRow(
-    t: Tx,
-  ): Promise<VaultCredentialRow | undefined> {
-    const active = await this.activeProviderId(t);
-    if (!active) return undefined;
-    return this.hostCredentialRowFor(t, active);
-  }
 
-  private async activeProviderId(t: Tx): Promise<string | undefined> {
-    const vault = await t.getVault(HOST_VAULT_ID);
-    if (vault?.metadataJson) {
-      let activeProvider: unknown;
-      try {
-        activeProvider = (
-          JSON.parse(vault.metadataJson) as { activeProvider?: unknown }
-        ).activeProvider;
-      } catch {
-        /* Fall through to the only configured provider. */
-      }
-      if (typeof activeProvider === "string" && activeProvider) {
-        try {
-          if (await this.hostCredentialRowFor(t, activeProvider))
-            return activeProvider;
-        } catch {
-          /* An invalid provider id falls through, as before. */
-        }
-      }
-    }
-    const rows = await this.hostModelRows(t);
-    if (rows.length === 0) return undefined;
-    if (rows.length === 1) return modelBinding(rows[0]!).provider;
-    const legacy = rows.find((row) => row.id === HOST_MODEL_ID);
-    if (legacy) return modelBinding(legacy).provider;
-    return modelBinding(rows[0]!).provider;
-  }
 
   private async setActiveProvider(t: Tx, provider: string): Promise<void> {
     await this.ensureHostVault(t);
@@ -1089,7 +976,7 @@ export class VaultService {
   }
 
   private async deleteHostProviderRows(t: Tx, provider: string): Promise<void> {
-    const ids = (await this.hostModelRows(t))
+    const ids = (await hostModelRows(t))
       .filter((row) => modelBinding(row).provider === provider)
       .map((row) => row.id);
     ids.push(hostModelCredentialId(provider));
@@ -1172,7 +1059,72 @@ function readPayload(kek: Buffer, row: UserCredentialRow): SecretPayload {
   }
 }
 
-function readHostPayload(
+/** The host vault's model credential rows that parse. */
+export async function hostModelRows(t: Tx): Promise<VaultCredentialRow[]> {
+  return (
+    await t.credentialsForVault(HOST_VAULT_ID, { type: "model" })
+  ).filter((row) => {
+    try {
+      modelBinding(row);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The host model credential of `provider`. */
+export async function hostCredentialRowFor(
+  t: Tx,
+  provider: string,
+): Promise<VaultCredentialRow | undefined> {
+  const preferred = hostModelCredentialId(provider);
+  const rows = await hostModelRows(t);
+  return (
+    rows.find((row) => row.id === preferred) ??
+    rows.find((row) => modelBinding(row).provider === provider)
+  );
+}
+
+/** The provider the host model selection names, or the only (or legacy) one configured. */
+export async function activeProviderId(t: Tx): Promise<string | undefined> {
+  const vault = await t.getVault(HOST_VAULT_ID);
+  if (vault?.metadataJson) {
+    let activeProvider: unknown;
+    try {
+      activeProvider = (
+        JSON.parse(vault.metadataJson) as { activeProvider?: unknown }
+      ).activeProvider;
+    } catch {
+      /* Fall through to the only configured provider. */
+    }
+    if (typeof activeProvider === "string" && activeProvider) {
+      try {
+        if (await hostCredentialRowFor(t, activeProvider))
+          return activeProvider;
+      } catch {
+        /* An invalid provider id falls through, as before. */
+      }
+    }
+  }
+  const rows = await hostModelRows(t);
+  if (rows.length === 0) return undefined;
+  if (rows.length === 1) return modelBinding(rows[0]!).provider;
+  const legacy = rows.find((row) => row.id === HOST_MODEL_ID);
+  if (legacy) return modelBinding(legacy).provider;
+  return modelBinding(rows[0]!).provider;
+}
+
+/** The active host model credential row (ciphertext), in `t`. */
+export async function activeHostCredentialRow(
+  t: Tx,
+): Promise<VaultCredentialRow | undefined> {
+  const active = await activeProviderId(t);
+  if (!active) return undefined;
+  return hostCredentialRowFor(t, active);
+}
+
+export function readHostPayload(
   kek: Buffer,
   row: VaultCredentialRow,
   binding: ModelBinding,
@@ -1274,7 +1226,7 @@ type HostSecretPayload = {
   oauth?: HostModelSecret["credential"];
 };
 
-function modelBinding(row: VaultCredentialRow): ModelBinding {
+export function modelBinding(row: VaultCredentialRow): ModelBinding {
   const binding = JSON.parse(row.bindingJson) as ModelBinding;
   if (!binding.provider || !binding.model || !binding.authType)
     throw new VaultError(500, "Host model credential is unreadable");
@@ -1287,7 +1239,7 @@ function hostModelCredentialId(provider: string): string {
   return `${HOST_MODEL_ID}:${provider}`;
 }
 
-function hostModelAad(provider: string, model: string): Buffer {
+export function hostModelAad(provider: string, model: string): Buffer {
   return Buffer.from(
     canonical({
       scope: "host",

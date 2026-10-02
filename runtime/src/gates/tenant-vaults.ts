@@ -19,7 +19,8 @@ import { tenantSchemaName } from "../store/postgres/names.js";
 import { createPostgresSessionStore } from "../store/postgres/store.js";
 import { tenantPaths } from "../tenant/paths.js";
 import { readVaultKek } from "../vault/kek.js";
-import { VaultService, type HostModelSecret } from "../vault/service.js";
+import { HostModelVault } from "../vault/host-model.js";
+import type { HostModelSecret } from "../vault/service.js";
 
 /** One Tenant, as a model call needs it. */
 export interface TenantVault {
@@ -59,7 +60,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
   function build(tenantId: string): TenantVault {
     const paths = tenantPaths(hostRoot, tenantId);
     let kek: Buffer | undefined;
-    const vault = new VaultService({
+    const vault = new HostModelVault({
       store: createPostgresSessionStore({ sql, tenantId }),
       kek: () => {
         kek ??= readVaultKek({ vaultKekPath: paths.kek });
@@ -73,7 +74,6 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
           );
         return kek;
       },
-      fetch: globalThis.fetch,
     });
     return {
       root: paths.home,
