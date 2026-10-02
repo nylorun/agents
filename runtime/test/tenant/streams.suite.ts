@@ -117,6 +117,11 @@ export const contextOf = (handle: TenantHandle): TenantContext =>
 
 const seqs = (events: readonly LiveEvent[]) =>
   events.map((e) => decodeCursor(e.sessionId, e.cursor));
+/**
+ * Served events skip the seqs of internal events (`transcript.updated`), so their seqs only
+ * increase: no duplicate and nothing out of order.
+ */
+const increasing = (values: readonly number[]) => values.every((v, i) => i === 0 || v > values[i - 1]!);
 const range = (from: number, to: number) =>
   Array.from({ length: to - from }, (_, i) => from + i);
 
@@ -589,7 +594,8 @@ export function tenantStreamsSuite(
       // The relay retries on its own; every event arrives, once and in order.
       await t.relayed(a);
       const recovered = await t.items(a);
-      expect(seqs(recovered.items)).toEqual(range(0, recovered.items.length));
+      expect(seqs(recovered.items)[0]).toBe(0);
+      expect(increasing(seqs(recovered.items))).toBe(true);
       expect(recovered.items.map((e) => e.cursor)).toContain(accepted.cursor);
       expect(recovered.items.filter((e) => e.type === "turn.completed")).toHaveLength(2);
       await observer.until(
@@ -658,7 +664,8 @@ export function tenantStreamsSuite(
       observer.close();
       expect(endpoint.deliveries).toHaveLength(1);
       const { items } = await t.items(b);
-      expect(seqs(items)).toEqual(range(0, items.length));
+      expect(seqs(items)[0]).toBe(0);
+      expect(increasing(seqs(items))).toBe(true);
     });
 
     it("ends observers on reset and starts a re-created session in a new basin at 0", async () => {

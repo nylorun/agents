@@ -5,5 +5,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, "**/*.integration.test.ts"],
+    // One history (P0.3): every turn checks the folded transcript against the engine's.
+    setupFiles: ["test/setup/transcript-shadow.ts"],
   },
 });

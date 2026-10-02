@@ -14,5 +14,7 @@ export default defineConfig({
     // Suites share one stack; run files one at a time.
     fileParallelism: false,
     passWithNoTests: true,
+    // One history (P0.3): every turn checks the folded transcript against the engine's.
+    setupFiles: ["test/setup/transcript-shadow.ts"],
   },
 });

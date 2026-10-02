@@ -285,7 +285,10 @@ export async function completeHistory(node: Node, id = "s1"): Promise<LiveEvent[
     expect(seqsOf(records.map((record) => record.body))).toEqual(range(0, records.length));
     expect(records.length).toBe(await headOf());
     const served = await items(node, id);
-    expect(served).toEqual(records.map((record) => record.body));
+    // Internal events (transcript.updated) are in the stream but never served.
+    expect(served).toEqual(
+      records.map((record) => record.body).filter((event) => event.visibility !== "internal")
+    );
     return served;
   } finally {
     await store.close();
