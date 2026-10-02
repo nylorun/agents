@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { Action, LiveEvent } from "@nylorun/core/contracts";
-import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
+import { decodeCursor, encodeCursor } from "../../src/record/index.js";
 import {
   OwnershipLostError,
   isOwnershipLost,
@@ -1094,7 +1094,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx(async (t) => {
           await t.put("sessions", "s1", session("s1"));
           await t.put("commands", "c1", { id: "c1" });
-          await t.put("checkpoints", "k1", { id: "k1" });
           await t.put("effects", "e1", effect("e1", "s1", "t1", "pending"));
           await t.put("actions", "a1", action("a1"));
           await t.put("links", "l1", { workflowSessionId: "s1", path: "p", effectId: "e1", turnId: "t1" });
@@ -1116,7 +1115,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await populate(store);
         await store.tx((t) => t.reset("sessions"));
         await store.tx(async (t) => {
-          const cleared = { sessions: "s1", commands: "c1", checkpoints: "k1", effects: "e1", actions: "a1", links: "l1" } as const;
+          const cleared = { sessions: "s1", commands: "c1", effects: "e1", actions: "a1", links: "l1" } as const;
           for (const [table, id] of Object.entries(cleared))
             expect(await t.get(table as keyof typeof cleared, id)).toBeUndefined();
           expect(await t.listSandboxes()).toHaveLength(1);

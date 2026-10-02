@@ -8,8 +8,7 @@ import type {
 } from "@nylorun/core/contracts";
 import { MemoryRecord } from "../streams/relay/memory.js";
 import type { RecordRow } from "../streams/relay/types.js";
-import { buildEvent } from "./event.js";
-import { encodeCursor } from "./cursor.js";
+import { buildEvent } from "../record/index.js";
 import { OwnershipLostError } from "./ownership.js";
 import {
   DOC_TABLES,
@@ -1000,7 +999,6 @@ class MemoryTx implements Tx {
       for (const table of [
         "sessions",
         "commands",
-        "checkpoints",
         "effects",
         "actions",
         "links",

@@ -23,7 +23,7 @@
  *    committed transactions. The sequence is also the S2 sequence number of the
  *    event in the session's stream (`sessions/<id>` in the Tenant's basin
  *    generation, `streams/basin.ts`), and the cursor is
- *    `base64url("<sessionId>:<seq>")` (see `store/cursor.ts`).
+ *    `base64url("<sessionId>:<seq>")` (see `record/cursor.ts`).
  * 4. **No external I/O inside `fn`.** No model, tool, MCP, sandbox, Restate or
  *    S2 call, and no `fetch`, runs inside a transaction. Wakes and deliveries go
  *    through `afterCommit`, and events are delivered to commit listeners after
@@ -72,7 +72,6 @@ export type DocTable =
   | "definitions"
   | "sessions"
   | "commands"
-  | "checkpoints"
   | "effects"
   | "actions"
   | "sandboxes"
@@ -82,7 +81,6 @@ export const DOC_TABLES: readonly DocTable[] = [
   "definitions",
   "sessions",
   "commands",
-  "checkpoints",
   "effects",
   "actions",
   "sandboxes",
@@ -715,7 +713,7 @@ export interface Tx {
 
   /**
    * Deletes Tenant state by scope, in this transaction:
-   * - `sessions`: sessions, commands, checkpoints, effects, actions, links, subject turn
+   * - `sessions`: sessions, commands, effects, actions, links, subject turn
    *   buckets and the Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;

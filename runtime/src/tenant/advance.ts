@@ -125,6 +125,7 @@ export async function advance(
   if (signal.aborted) forward();
   else signal.addEventListener("abort", forward, { once: true });
   ctx.work.running.set(id, controller);
+  ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
   const heartbeat = startHeartbeat(ctx, lease, controller);
   let result = DONE;
   try {
@@ -146,7 +147,10 @@ export async function advance(
   } finally {
     heartbeat.stop();
     signal.removeEventListener("abort", forward);
-    if (ctx.work.running.get(id) === controller) ctx.work.running.delete(id);
+    if (ctx.work.running.get(id) === controller) {
+      ctx.work.running.delete(id);
+      ctx.work.runningTurns.delete(id);
+    }
     // Best effort: a release that fails leaves a lease that simply expires.
     await ctx.store
       .tx((t) => t.releaseOwnership(id, lease.owner, lease.epoch))
@@ -440,11 +444,6 @@ async function settle(
         };
         current.status = "runnable";
         current.waits = undefined;
-        await t.put(
-          "checkpoints",
-          JSON.stringify([id, s.activeTurnId, finished.segment]),
-          { checkpoint: finished, status: "yielded" }
-        );
         await slimModelEffects(t, id, s.activeTurnId);
         await t.put("sessions", id, current);
         const segment = finished.segment + 1;
@@ -464,11 +463,6 @@ async function settle(
             : (result.result as any).state;
       }
       current.checkpoint = result.checkpoint;
-      await t.put(
-        "checkpoints",
-        JSON.stringify([id, s.activeTurnId, result.checkpoint.segment]),
-        { checkpoint: result.checkpoint, status: result.status }
-      );
       current.status = result.status;
       current.waits =
         result.status === "paused" ? (result.result as any).pending : undefined;
@@ -570,12 +564,6 @@ async function settleFailure(
       return;
     current.status = "failed";
     current.state = current.turnStartState;
-    if (current.checkpoint)
-      await t.put(
-        "checkpoints",
-        JSON.stringify([id, s.activeTurnId, current.checkpoint.segment]),
-        { checkpoint: current.checkpoint, status: "failed" }
-      );
     current.error = error instanceof Error ? error.message : String(error);
     const payload = { message: current.error };
     await t.event(id, current.activeTurnId, "turn.failed", payload);

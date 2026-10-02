@@ -17,6 +17,8 @@ import { AdvanceAbort, type AdvanceAbortKind } from "./worker.js";
 export interface WorkState {
   /** Advances running on this process, by session id. */
   readonly running: Map<string, AbortController>;
+  /** The turn each running advance belongs to, by session id (`null`: none). */
+  readonly runningTurns: Map<string, string | null>;
   /** Deliveries to Action endpoints in flight on this process, by their Action's session id. */
   readonly deliveries: Map<string, Set<AbortController>>;
   /** When each Action last reported a failed delivery (`action.delivery_failed` throttling). */
@@ -24,7 +26,7 @@ export interface WorkState {
 }
 
 export function createWorkState(): WorkState {
-  return { running: new Map(), deliveries: new Map(), deliveryNotices: new Map() };
+  return { running: new Map(), runningTurns: new Map(), deliveries: new Map(), deliveryNotices: new Map() };
 }
 
 const MESSAGES: Record<AdvanceAbortKind, string> = {
@@ -42,15 +44,17 @@ function abortWith(controller: AbortController, kind: AdvanceAbortKind): void {
 /**
  * Abort the advance of `id` if it runs on this process, and its deliveries to Action endpoints.
  * Cancel calls it after committing `cancelled`, and so does the control stream for cancels made
- * elsewhere.
+ * elsewhere. With `turnId`, an advance of another turn keeps running: the signal came late.
  */
 export function abortLocal(
   ctx: TenantContext,
   id: string,
-  kind: AdvanceAbortKind = "cancel"
+  kind: AdvanceAbortKind = "cancel",
+  turnId?: string
 ): void {
   const controller = ctx.work.running.get(id);
-  if (controller) abortWith(controller, kind);
+  if (controller && (turnId === undefined || ctx.work.runningTurns.get(id) === turnId))
+    abortWith(controller, kind);
   // A cancel also closes the session's deliveries, which aborts the tools' `ctx.signal`.
   for (const delivery of ctx.work.deliveries.get(id) ?? []) abortWith(delivery, kind);
 }

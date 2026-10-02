@@ -31,6 +31,7 @@ container is killed with `docker compose kill` (`npm run test:failure`,
 | 9. Cancel delivered to another Worker | `workers.integration.test.ts` › "§17.9 cancel delivered to another Worker: …" | `host/execution.integration.test.ts` › "cancels a long model call on the Worker from another node through the control stream"; `tenant/streams.suite.ts` › "delivers a cancel to the node running the advance through the control stream" |
 | 10. A Restate abort during a long advance | `workers.integration.test.ts` › "§17.10 …" › "retries an advance Restate aborted without calling the model again: …" and "bounds a runaway advance with its deadline and grace; …" | `execution/restate.integration.test.ts` › "fails and retries an advance that outlives short timeouts, without overlapping it"; `host/execution.test.ts` › "settles a runaway model call as uncertain at the deadline" and "abandons an advance that ignores the deadline; the next advance takes over" |
 | 11. Restate state wiped (sweeps re-armed, runnable sessions resumed) | `wakes.integration.test.ts` › "§17.11 Restate state wiped: …" (the test stack's `restate` container is recreated) | `host/execution.integration.test.ts` › "re-arms sweeps after Restate state is lost and resumes runnable sessions" (a fresh service prefix) |
+| 12. Cancel while S2 is down (the cancel commits; nothing of the cancelled turn is written after it) | `workers.integration.test.ts` › "§17.12 cancel while S2 is down: …" (both nodes reach s2-lite through a TCP proxy that is taken down) | — |
 
 ## How the cases are staged
 

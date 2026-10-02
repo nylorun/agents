@@ -55,7 +55,7 @@ describe("Postgres migrations", () => {
 });
 
 describe("Postgres driver boundary", () => {
-  it("is imported only under src/store/postgres/ and, for replication, adapters/replication/", () => {
+  it("is imported only under src/store/postgres/, record/postgres.ts and, for replication, adapters/replication/", () => {
     const src = fileURLToPath(new URL("../../src/", import.meta.url));
     const files = (dir: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
@@ -72,7 +72,10 @@ describe("Postgres driver boundary", () => {
         (path) =>
           !path.startsWith("store/postgres/") &&
           // The stream relay's replication connection (`pg`, needed by pg-logical-replication).
-          path !== "adapters/replication/pgoutput.ts",
+          path !== "adapters/replication/pgoutput.ts" &&
+          // The record module's insert into the shared record (blueprint D27), in the caller's
+          // transaction (driver types only).
+          path !== "record/postgres.ts",
       );
     expect(offenders).toEqual([]);
   });

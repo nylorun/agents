@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
-import { decodeCursor, encodeCursor } from "../src/store/cursor.js";
+import { decodeCursor, encodeCursor } from "../src/record/index.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -129,4 +129,5 @@ it("numbers events per session and replays SSE after a cursor, then follows live
   } finally {
     await runtime.close();
   }
-});
+  // Two full turns: on Postgres this takes 4–5 s unloaded, so the 5 s default flakes.
+}, 20_000);

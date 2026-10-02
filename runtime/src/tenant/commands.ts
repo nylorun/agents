@@ -203,7 +203,7 @@ export async function command(
       });
       await slimModelEffects(t, id, cancelledTurnId);
       // The process running the advance aborts it on `session.cancel` (tenant/control).
-      t.afterCommit(() => signalSessionCancel(ctx, id));
+      t.afterCommit(() => signalSessionCancel(ctx, id, cancelledTurnId));
       s.activeTurnId = null;
       if (cancelledTurnId !== null) s.lastTurnId = cancelledTurnId;
       // The next turn starts from the state preceding the cancelled turn, never its paused plan.
@@ -319,11 +319,6 @@ export async function command(
           segment: (s.checkpoint?.segment ?? 0) + 1,
         });
       }
-      await t.put(
-        "checkpoints",
-        JSON.stringify([id, s.activeTurnId, s.checkpoint!.segment]),
-        { checkpoint: s.checkpoint, status: "runnable" }
-      );
       s.status = "runnable";
       s.waits = undefined;
       const commandWake = {

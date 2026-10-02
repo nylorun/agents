@@ -11,7 +11,7 @@ import { z } from "zod";
 import { Agent, tool } from "@nylorun/core/define";
 import { newTenantId } from "@nylorun/core/compatibility";
 import type { LiveEvent } from "@nylorun/core/contracts";
-import { decodeCursor, encodeCursor } from "../../src/store/cursor.js";
+import { decodeCursor, encodeCursor } from "../../src/record/index.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import {
   createTenantStreams,
@@ -922,6 +922,7 @@ export function tenantStreamsSuite(
       expect(await t.records(CONTROL_STREAM)).toContainEqual({
         type: "session.cancel",
         sessionId: "s1",
+        turnId: expect.any(String),
       });
     });
   });

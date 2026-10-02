@@ -279,7 +279,7 @@ export class TenantRuntime implements TenantHandle {
           if (ctx.closing || ctx.closed) return;
           await execution.wake(config.tenantId, sessionId, wake);
         },
-        abortLocal: (sessionId) => abortLocal(ctx, sessionId),
+        abortLocal: (sessionId, turnId) => abortLocal(ctx, sessionId, "cancel", turnId),
         deliver: async (actionId) => {
           if (ctx.closing || ctx.closed) return;
           await execution.deliver(config.tenantId, actionId);
