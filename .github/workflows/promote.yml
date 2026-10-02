@@ -1,0 +1,32 @@
+name: Promote to latest
+# The one human step of a release: an administrator clicks Run workflow on
+# main. It moves each npm package's `latest` tag onto its version on main,
+# which a beta release already published (scripts/release/promote.mjs).
+# Nothing is published or built.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: npm-publication
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Restricted to main; holds NPM_LATEST_TOKEN, a granular npm token (read
+    # and write, stage only) that can move dist-tags but cannot publish.
+    environment: release
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release/promote.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_LATEST_TOKEN }}

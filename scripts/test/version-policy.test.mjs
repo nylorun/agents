@@ -43,8 +43,7 @@ test("the migration computes the approved package targets and exact pins", () =>
       intent("runtime"),
       intent("studio", "minor"),
       intent("create-agent", "minor"),
-    ],
-    "beta"
+    ]
   );
   assert.deepEqual(plan.packages, {
     nylorun: "0.1.1-beta",
@@ -74,87 +73,17 @@ for (const [before, type, expected] of [
       planVersions(
         { ...versions, harness: before },
         pins,
-        [intent("harness", type)],
-        "beta"
+        [intent("harness", type)]
       ).plan.packages.harness,
       expected
     );
   });
 
-test("pre-1.0 latest promotion keeps *-beta versions for dist-tag moves", () => {
-  const current = {
-    core: "0.1.0-beta",
-    cli: "0.1.0-beta",
-    harness: "0.10.0-beta",
-    agents: "0.1.0-beta",
-    admin: "0.1.0-beta",
-    runtime: "0.1.0-beta",
-    studio: "0.3.0-beta",
-    nylorun: "0.1.0-beta",
-    "create-agent": "0.1.0-beta",
-  };
-  const { plan, releases } = planVersions(
-    current,
-    {
-      core: current.core,
-      cli: current.cli,
-      harness: current.harness,
-      agents: current.agents,
-      admin: current.admin,
-      runtime: current.runtime,
-    },
-    [],
-    "latest"
-  );
-  assert.deepEqual(plan.packages, current);
-  assert.equal(plan.channel, "latest");
-  for (const release of releases)
-    assert.equal(release.oldVersion, release.newVersion);
-});
-
-test("a latest release refuses pending changesets: they publish on beta first", () => {
-  assert.throws(
-    () =>
-      planVersions(
-        { ...versions, runtime: "0.1.1-beta" },
-        pins,
-        [intent("runtime")],
-        "latest"
-      ),
-    /promotes versions already published on beta/
-  );
-});
-
-test("a post-1.0 latest release refuses to strip -beta: that would be a new publication", () => {
-  const before = {
-    core: "1.0.0",
-    cli: "1.0.0",
-    harness: "1.0.0",
-    agents: "1.0.0",
-    admin: "1.0.0",
-    runtime: "1.1.0-beta",
-    studio: "1.0.0",
-    nylorun: "1.0.0",
-    "create-agent": "1.0.0",
-  };
-  assert.throws(
-    () =>
-      planVersions(
-        before,
-        { core: "1.0.0", cli: "1.0.0", harness: "1.0.0", agents: "1.0.0", admin: "1.0.0", runtime: "1.1.0-beta" },
-        [],
-        "latest"
-      ),
-    /Cannot promote @nylorun\/runtime@1\.1\.0-beta/
-  );
-});
-
 test("creator-only releases retain the exact compatibility combination", () => {
   const { plan } = planVersions(
     versions,
     pins,
-    [intent("create-agent")],
-    "beta"
+    [intent("create-agent")]
   );
   assert.deepEqual(plan.packages, { "create-agent": "0.1.1-beta" });
   assert.deepEqual(plan.compatibility, pins);
@@ -166,34 +95,33 @@ test("the strongest intent wins without double-counting changesets", () => {
     { ...intent("harness", "minor"), id: "feature" },
   ];
   assert.equal(
-    planVersions(versions, pins, changes, "beta").plan.packages.harness,
+    planVersions(versions, pins, changes).plan.packages.harness,
     "0.11.0-beta"
   );
 });
 
 test("invalid inputs and empty release intent fail before applying a plan", () => {
-  assert.throws(() => planVersions(versions, pins, [], "beta"), /No pending/);
-  assert.throws(() => planVersions(versions, pins, [], "rc"), /Choose/);
+  assert.throws(() => planVersions(versions, pins, []), /No pending/);
   assert.throws(
-    () => planVersions({ ...versions, runtime: "invalid" }, pins, [], "latest"),
+    () => planVersions({ ...versions, runtime: "invalid" }, pins, []),
     /Invalid current/
   );
   assert.throws(
-    () => planVersions(versions, pins, [intent("unknown")], "beta"),
+    () => planVersions(versions, pins, [intent("unknown")]),
     /Unsupported/
   );
   assert.throws(
-    () => planVersions(versions, pins, [intent("runtime", "invalid")], "beta"),
+    () => planVersions(versions, pins, [intent("runtime", "invalid")]),
     /Unsupported/
   );
   const stable = Object.fromEntries(
     Object.keys(versions).map((name) => [name, "1.0.0"])
   );
-  assert.throws(() => planVersions(stable, pins, [], "latest"), /No pending/);
+  assert.throws(() => planVersions(stable, pins, []), /No pending/);
 });
 
 test("a Harness release also advances Runtime and pins the canonical contracts together", () => {
-  const { plan, changesets } = planVersions(versions, pins, [intent("harness", "minor")], "beta");
+  const { plan, changesets } = planVersions(versions, pins, [intent("harness", "minor")]);
   assert.equal(plan.packages.harness, "0.11.0-beta");
   assert.equal(plan.packages.runtime, "0.1.1-beta");
   assert.equal(plan.compatibility.harness, plan.packages.harness);
@@ -202,7 +130,7 @@ test("a Harness release also advances Runtime and pins the canonical contracts t
 
 
 test("a Studio release advances nylorun, which pins its image, and the creator", () => {
-  const { plan, changesets } = planVersions(versions, pins, [intent("studio", "minor")], "beta");
+  const { plan, changesets } = planVersions(versions, pins, [intent("studio", "minor")]);
   assert.deepEqual(plan.packages, {
     nylorun: "0.1.1-beta",
     studio: "0.4.0-beta",
@@ -214,7 +142,7 @@ test("a Studio release advances nylorun, which pins its image, and the creator",
 });
 
 test("a Runtime release advances nylorun, which pins its image, and not the CLI", () => {
-  const { plan } = planVersions(versions, pins, [intent("runtime")], "beta");
+  const { plan } = planVersions(versions, pins, [intent("runtime")]);
   assert.equal(plan.packages.nylorun, "0.1.1-beta");
   assert.equal(plan.packages.cli, undefined);
 });
@@ -222,21 +150,21 @@ test("a Runtime release advances nylorun, which pins its image, and not the CLI"
 test("the creator pins exactly core, harness, agents, admin, runtime and cli", () => {
   assert.deepEqual([...CREATOR_PINS], ["core", "harness", "agents", "admin", "runtime", "cli"]);
   assert.throws(
-    () => planVersions(versions, { ...pins, studio: versions.studio }, [intent("runtime")], "beta"),
+    () => planVersions(versions, { ...pins, studio: versions.studio }, [intent("runtime")]),
     /exactly the valid creator pins/,
   );
   const { runtime: _runtime, ...missing } = pins;
   assert.throws(
-    () => planVersions(versions, missing, [intent("cli")], "beta"),
+    () => planVersions(versions, missing, [intent("cli")]),
     /exactly the valid creator pins/,
   );
 });
 
 test("core releases propagate to both hosts and SDK without coupling engine releases to SDK", () => {
-  const shared = planVersions(versions, pins, [intent("core", "minor")], "beta").plan;
+  const shared = planVersions(versions, pins, [intent("core", "minor")]).plan;
   for (const name of ["core", "harness", "agents", "runtime", "studio", "nylorun", "cli", "create-agent"])
     assert.ok(shared.packages[name], `${name} must receive its updated dependency pin`);
-  const engine = planVersions(versions, pins, [intent("harness")], "beta").plan;
+  const engine = planVersions(versions, pins, [intent("harness")]).plan;
   assert.equal(engine.packages.agents, undefined);
   assert.equal(engine.packages.studio, undefined);
   assert.equal(engine.packages.cli, undefined);
@@ -275,7 +203,7 @@ export const HOST_PROTOCOL: ProtocolRange = {
 test("D1: protocol change without breaking bumps for core/runtime/agents/cli fails", () => {
   assert.throws(
     () =>
-      planVersions(versions, pins, [intent("harness", "minor")], "beta", {
+      planVersions(versions, pins, [intent("harness", "minor")], {
         currentProtocol: protocolV2,
         releasedProtocol: protocolV1,
       }),
@@ -295,7 +223,6 @@ test("D1: protocol change with only patch intent fails", () => {
           intent("agents", "patch"),
           intent("cli", "patch"),
         ],
-        "beta",
         { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
       ),
     /breaking bump/,
@@ -312,7 +239,6 @@ test("D1: protocol change with pre-1.0 minor bumps for core/runtime/agents/cli p
       intent("agents", "minor"),
       intent("cli", "minor"),
     ],
-    "beta",
     { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
   );
   assert.equal(plan.packages.core, "0.2.0-beta");
@@ -352,7 +278,6 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
           intent("agents", "minor"),
           intent("cli", "minor"),
         ],
-        "beta",
         { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
       ),
     /breaking bump/,
@@ -366,14 +291,13 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
       intent("agents", "major"),
       intent("cli", "major"),
     ],
-    "beta",
     { currentProtocol: protocolV2, releasedProtocol: protocolV1 },
   );
   assert.equal(plan.packages.core, "2.0.0-beta");
 });
 
 test("D1: unchanged protocol does not require breaking bumps", () => {
-  const { plan } = planVersions(versions, pins, [intent("harness")], "beta", {
+  const { plan } = planVersions(versions, pins, [intent("harness")], {
     currentProtocol: protocolV2,
     releasedProtocol: protocolV2,
   });

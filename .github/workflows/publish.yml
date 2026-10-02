@@ -19,12 +19,10 @@ concurrency:
 env:
   RELEASE_SHA: ${{ inputs.commit || github.sha }}
 # Order: validate → images (ghcr.io/nylorun/runtime and studio) → publish
-# (npm, beta only) → promote (latest plans only). A beta release runs without
-# approval. `promote` is the only reviewed step: it alone holds the npm token
-# that moves `latest`, and it waits for an administrator to approve the
-# `release` environment. nylorun names its image pins (nylorun/package.json
-# nylorun.runtime and nylorun.studio), so both images exist before nylorun
-# reaches npm.
+# (npm, beta only). No step waits for approval: moving `latest` is a separate
+# workflow, Promote to latest (promote.yml). nylorun names its image pins
+# (nylorun/package.json nylorun.runtime and nylorun.studio), so both images
+# exist before nylorun reaches npm.
 jobs:
   validate:
     if: github.ref == 'refs/heads/main'
@@ -33,8 +31,6 @@ jobs:
     permissions:
       contents: read
       checks: read
-    outputs:
-      channel: ${{ steps.plan.outputs.channel }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -56,10 +52,6 @@ jobs:
         with:
           ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
-      # beta or latest; release:check validates the plan below.
-      - name: Read the release channel
-        id: plan
-        run: echo "channel=$(jq -r .channel .release/plan.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -193,8 +185,7 @@ jobs:
     timeout-minutes: 60
     # Bound to npm trusted publishing and holds NPM_BOOTSTRAP_TOKEN; it has no
     # reviewers. It publishes on beta only (scripts/release/registry.mjs
-    # refuses any other tag); for a latest plan it only verifies that every
-    # version is already on npm, and runs the public smoke.
+    # refuses any other tag).
     environment: npm
     permissions:
       contents: write
@@ -221,30 +212,3 @@ jobs:
         env:
           # Optional first-publication fallback; npm prefers configured OIDC trust.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
-  # The single approval: moving `latest`. Environment `release` has the
-  # required reviewers and holds NPM_LATEST_TOKEN, a granular npm token
-  # (read and write, stage only) that can move dist-tags but cannot publish.
-  # A beta plan skips this job.
-  promote:
-    needs: [validate, publish]
-    if: needs.validate.outputs.channel == 'latest'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: release
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ env.RELEASE_SHA }}
-          fetch-depth: 0
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version-file: .node-version
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-      - run: npm install --global npm@11.15.0
-      - run: npm ci --ignore-scripts
-      - run: node scripts/release/promote.mjs
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_LATEST_TOKEN }}

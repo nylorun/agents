@@ -11,13 +11,10 @@ import {
 import { prepareVersions } from "./model.mjs";
 
 try {
-  const [flag, channel, ...extra] = process.argv.slice(2);
-  if (
-    flag !== "--channel" ||
-    !["beta", "latest"].includes(channel) ||
-    extra.length
-  )
-    throw new Error("Usage: npm run release:prepare -- --channel beta|latest");
+  if (process.argv.length > 2)
+    throw new Error(
+      "Usage: npm run release:prepare (every release publishes on beta; Promote to latest moves the tag).",
+    );
   await verifyToolchain();
   if (await run("git", ["status", "--porcelain"], { capture: true }))
     throw new Error(
@@ -28,7 +25,7 @@ try {
   });
   if (!branch || branch === "main")
     throw new Error("Prepare releases on a branch, not main or detached HEAD.");
-  const plan = await prepareVersions(root, channel);
+  const plan = await prepareVersions(root);
   await npm(["install", "--package-lock-only", "--ignore-scripts"]);
   await npm(["run", "examples:sync"]);
   await npm(["install", "--package-lock-only", "--ignore-scripts"], {

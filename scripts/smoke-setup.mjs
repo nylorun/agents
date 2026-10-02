@@ -109,7 +109,7 @@ try {
     "Release fixture",
   ]);
   await git(["switch", "-c", "codex/release-fixture"]);
-  await npm(["run", "release:prepare", "--", "--channel", "beta"], {
+  await npm(["run", "release:prepare"], {
     cwd: temporary,
   });
   const plan = await readJson(join(temporary, ".release/plan.json"));

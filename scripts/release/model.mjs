@@ -9,7 +9,7 @@ import { root, packages, readJson, writeJson, run } from "../lib/repo.mjs";
 import { syncImagePins } from "./pins.mjs";
 import { CREATOR_PINS, planVersions } from "./version-policy.mjs";
 
-export async function prepareVersions(repo, channel) {
+export async function prepareVersions(repo) {
   const workspace = await getPackages(repo);
   // @changesets/config v4 and apply-release-plan@8 both use manypkg v3 graphs (rootDir).
   const { config, errors } = await readConfig(repo);
@@ -44,69 +44,60 @@ export async function prepareVersions(repo, channel) {
   const allChangesets = await readChangesets(repo);
   const consumed = new Set(legacy?.changesets ?? []);
   const pending = allChangesets.filter((item) => !consumed.has(item.id));
-  const calculated = planVersions(before, compatibility, pending, channel);
-  const tagOnly = calculated.releases.every(
-    (release) => release.oldVersion === release.newVersion,
+  const calculated = planVersions(before, compatibility, pending);
+  await applyReleasePlan(
+    {
+      changesets: calculated.changesets,
+      releases: calculated.releases,
+      preState: undefined,
+    },
+    workspace,
+    config,
+    undefined,
+    // Resolve @changesets/cli/changelog from the repo root when needed.
+    root,
   );
-  if (!tagOnly) {
-    await applyReleasePlan(
-      {
-        changesets: calculated.changesets,
-        releases: calculated.releases,
-        preState: undefined,
-      },
-      workspace,
-      config,
-      undefined,
-      // Resolve @changesets/cli/changelog from the repo root when needed.
-      root,
+  const runtimeManifestPath = join(repo, "runtime/package.json");
+  const runtimeManifest = await readJson(runtimeManifestPath);
+  if (runtimeManifest.dependencies?.["@nylorun/harness"]) {
+    runtimeManifest.dependencies["@nylorun/harness"] =
+      calculated.plan.compatibility.harness;
+    await writeJson(runtimeManifestPath, runtimeManifest);
+  }
+  for (const name of packages) {
+    const path = join(repo, name, "package.json");
+    const manifest = await readJson(path);
+    for (const dependency of ["core", "harness", "agents", "runtime"]) {
+      if (manifest.dependencies?.[`@nylorun/${dependency}`])
+        manifest.dependencies[`@nylorun/${dependency}`] =
+          calculated.plan.compatibility[dependency];
+    }
+    await writeJson(path, manifest);
+  }
+  // Numbered prerelease state is retired; already-applied changes must not replay.
+  if (legacy) {
+    for (const item of allChangesets.filter((item) => consumed.has(item.id)))
+      await rm(join(repo, ".changeset", `${item.id}.md`));
+    await rm(join(repo, ".changeset/pre.json"));
+  }
+  await writeJson(
+    join(repo, "create-agent/compatibility.json"),
+    calculated.plan.compatibility,
+  );
+  // Runtime advertises its package version via RUNTIME_VERSION; CLI refuses mismatched hosts.
+  const runtimeVersion = calculated.plan.packages.runtime;
+  if (runtimeVersion) {
+    const versionPath = join(repo, "runtime/src/version.ts");
+    const current = await readFile(versionPath, "utf8");
+    const next = current.replace(
+      /export const RUNTIME_VERSION = "[^"]+";/,
+      `export const RUNTIME_VERSION = "${runtimeVersion}";`,
     );
-    const runtimeManifestPath = join(repo, "runtime/package.json");
-    const runtimeManifest = await readJson(runtimeManifestPath);
-    if (runtimeManifest.dependencies?.["@nylorun/harness"]) {
-      runtimeManifest.dependencies["@nylorun/harness"] =
-        calculated.plan.compatibility.harness;
-      await writeJson(runtimeManifestPath, runtimeManifest);
-    }
-    for (const name of packages) {
-      const path = join(repo, name, "package.json");
-      const manifest = await readJson(path);
-      for (const dependency of ["core", "harness", "agents", "runtime"]) {
-        if (manifest.dependencies?.[`@nylorun/${dependency}`])
-          manifest.dependencies[`@nylorun/${dependency}`] =
-            calculated.plan.compatibility[dependency];
-      }
-      await writeJson(path, manifest);
-    }
-    // Numbered prerelease state is retired; already-applied changes must not replay.
-    if (legacy) {
-      for (const item of allChangesets.filter((item) => consumed.has(item.id)))
-        await rm(join(repo, ".changeset", `${item.id}.md`));
-      await rm(join(repo, ".changeset/pre.json"));
-    }
-    await writeJson(
-      join(repo, "create-agent/compatibility.json"),
-      calculated.plan.compatibility,
-    );
-    // Runtime advertises its package version via RUNTIME_VERSION; CLI refuses mismatched hosts.
-    const runtimeVersion = calculated.plan.packages.runtime;
-    if (runtimeVersion) {
-      const versionPath = join(repo, "runtime/src/version.ts");
-      const current = await readFile(versionPath, "utf8");
-      const next = current.replace(
-        /export const RUNTIME_VERSION = "[^"]+";/,
-        `export const RUNTIME_VERSION = "${runtimeVersion}";`,
+    if (next === current)
+      throw new Error(
+        `Could not update RUNTIME_VERSION to ${runtimeVersion} in runtime/src/version.ts`,
       );
-      if (next === current)
-        throw new Error(
-          `Could not update RUNTIME_VERSION to ${runtimeVersion} in runtime/src/version.ts`,
-        );
-      await writeFile(versionPath, next);
-    }
-  } else if (legacy) {
-    throw new Error(
-      "Clear legacy prerelease state before a latest dist-tag promotion.",
-    );
+    await writeFile(versionPath, next);
   }
   // D7: nylorun's image pins (nylorun.runtime, nylorun.studio) equal the
   // tested Runtime and Studio: the version this plan publishes, or keeps.
@@ -121,7 +112,8 @@ export async function prepareVersions(repo, channel) {
 export async function validatePlan(plan, repo) {
   if (
     plan?.version !== 1 ||
-    !["beta", "latest"].includes(plan.channel) ||
+    // Every release publishes on beta; Promote to latest moves the tag.
+    plan.channel !== "beta" ||
     !plan.packages ||
     !Object.keys(plan.packages).length
   )
@@ -136,25 +128,8 @@ export async function validatePlan(plan, repo) {
       !semver.valid(version)
     )
       throw new Error(`Invalid release package/version: ${name}`);
-    const prerelease = semver.prerelease(version);
-    if (plan.channel === "beta") {
-      if (prerelease?.length !== 1 || prerelease[0] !== "beta")
-        throw new Error(
-          `Version ${version} does not match channel ${plan.channel}.`,
-        );
-    } else if (plan.channel === "latest") {
-      // Pre-1.0 latest keeps *-beta product branding; post-1.0 latest is stable.
-      if (semver.major(version) === 0) {
-        if (prerelease?.length !== 1 || prerelease[0] !== "beta")
-          throw new Error(
-            `Pre-1.0 latest versions must use the -beta product suffix: ${version}`,
-          );
-      } else if (prerelease) {
-        throw new Error(
-          `Version ${version} does not match channel ${plan.channel}.`,
-        );
-      }
-    }
+    if (semver.prerelease(version)?.join(".") !== "beta")
+      throw new Error(`Version ${version} does not match channel beta.`);
     if ((await readJson(join(repo, name, "package.json"))).version !== version)
       throw new Error(`Release version differs from ${name}/package.json.`);
   }
@@ -203,10 +178,6 @@ export async function releaseNotes(repo, name, version) {
  * packages (artifact `image: true`, e.g. a private Studio) are never
  * published to npm; the release workflow pushed their images before this.
  *
- * Only a beta plan publishes. A latest plan is a promotion: this checks that
- * every version is already on npm with the verified integrity, and
- * promoteCandidates moves the latest tag after an administrator approves.
- *
  * A beta tag the registry client cannot move (an error carrying
  * `distTagCommand`: npm trusted publishing cannot edit tags of published
  * versions) does not stop the release: every package is tried, then one error
@@ -227,20 +198,6 @@ export async function publishCandidates(
   for (const name of names)
     if (!artifacts[name]?.integrity)
       throw new Error(`Missing verified artifact for ${name}.`);
-  if (plan.channel === "latest") {
-    for (const name of names) {
-      const version = plan.packages[name];
-      const published = await registry.lookup(name, version);
-      if (!published)
-        throw new Error(
-          `${name}@${version} is not on npm. A latest release only promotes versions already published on beta.`,
-        );
-      if (published.integrity !== artifacts[name].integrity)
-        throw new Error(`Published integrity conflict for ${name}@${version}.`);
-      report(`${name}@${version}: on npm with matching integrity`);
-    }
-    return;
-  }
   await Promise.all(
     names.map((name) =>
       registry.checkTag(name, plan.packages[name], plan.channel),
@@ -270,48 +227,34 @@ export async function publishCandidates(
 }
 
 /**
- * Move the latest tag onto a promotion's versions, which publishCandidates
- * already found on npm. Only the workflow's `promote` job runs this, after an
- * administrator approves the `release` environment, which holds the npm token
- * allowed to move tags. Every package is tried; one error names the command
- * for the tags that did not move.
+ * Promote to latest: move each package's latest tag onto `versions` (package
+ * name → version), which beta releases already published. Nothing is
+ * published. Every version must be on npm before any tag moves; then every
+ * tag is tried, and one error names the command for those that did not move.
  */
-export async function promoteCandidates(
-  plan,
-  registry,
-  imageOnly,
-  report = () => {},
-) {
-  if (plan.channel !== "latest")
-    throw new Error("Only a latest release moves the latest tag.");
-  const names = packages.filter(
-    (name) => plan.packages[name] && !imageOnly(name),
-  );
+export async function promoteCandidates(versions, registry, report = () => {}) {
+  const names = Object.keys(versions);
   await Promise.all(
-    names.map((name) =>
-      registry.checkTag(name, plan.packages[name], "latest"),
-    ),
+    names.map((name) => registry.checkTag(name, versions[name], "latest")),
   );
   for (const name of names)
-    if (!(await registry.lookup(name, plan.packages[name])))
+    if (!(await registry.lookup(name, versions[name])))
       throw new Error(
-        `${name}@${plan.packages[name]} is not on npm. A latest release only promotes versions already published on beta.`,
+        `${name}@${versions[name]} is not on npm. Promote to latest only moves the tag onto versions a beta release published.`,
       );
   const results = await Promise.allSettled(
-    names.map((name) =>
-      registry.ensureTag(name, plan.packages[name], "latest"),
-    ),
+    names.map((name) => registry.ensureTag(name, versions[name], "latest")),
   );
   results.forEach((result, index) => {
     if (result.status === "fulfilled")
-      report(`${names[index]}@${plan.packages[names[index]]}: on latest`);
+      report(`${names[index]}@${versions[names[index]]}: on latest`);
   });
   const untagged = settleTags(results);
   if (untagged.length)
     throw new Error(
       `The latest tag of ${untagged.length} package(s) could not be moved. Renew the release ` +
-        `environment's NPM_LATEST_TOKEN and rerun this job, or have an npm administrator run, ` +
-        `after npm login:\n  ${untagged.join(" && ")}\nthen rerun this job.`,
+        `environment's NPM_LATEST_TOKEN and run Promote to latest again, or have an npm ` +
+        `administrator run, after npm login:\n  ${untagged.join(" && ")}`,
     );
 }
 
