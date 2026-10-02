@@ -228,6 +228,10 @@ a model credential.
   `host.docker.internal`.
 - While it is down, model calls fail with a retryable `transient` outcome and
   the session takes the next message; reads, commands and Studio keep working.
+- A model call outlives the runtime that sent it: if the runtime is killed or
+  restarted mid-call, the gateway finishes the call and keeps its outcome for
+  30 minutes, and the restarted runtime picks it up instead of calling the
+  provider again. A gateway restart loses calls in flight.
   `nylorun doctor` and `nylorun status` report it, and `nylorun logs gateway`
   shows one `model_call` line per call (never the prompt, the output or a key).
 - A Compose file you write yourself must run both containers: in a container,

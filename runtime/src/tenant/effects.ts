@@ -154,7 +154,21 @@ async function linkedOutcome(
 type Journaled =
   | { kind: "resolved"; resolution: EffectResolution }
   | { kind: "flow" }
-  | { kind: "invoke"; invoke: "model" | "mcp" | "sandbox" };
+  | {
+      kind: "invoke";
+      invoke: "model" | "mcp" | "sandbox";
+      /** The journaled request, when re-sending a call that outlived its owner (P1.2). */
+      journaled?: HostEffect;
+    };
+
+/**
+ * True when this Tenant's vault-backed model calls outlive the process that sent them (the
+ * gates service, P1.2): after a takeover or a shutdown, the journaled call is re-sent and joins
+ * the running call or gets its outcome, instead of becoming `uncertain`.
+ */
+export function recoversModelCalls(ctx: TenantContext): boolean {
+  return ctx.useVaultModel && ctx.modelGate.recovers === true;
+}
 
 /**
  * What an effect's journal row must match on replay. A delegation's context carries only the
@@ -195,6 +209,14 @@ export async function resolveEffect(
         throw new Error("Effect identity request drift");
       if (existing.status === "completed")
         return resolved({ status: "completed", outcome: existing.outcome });
+      // A model call its previous owner left running at the gate: re-send it, same key and
+      // request, to join it or collect its outcome.
+      if (
+        existing.status === "invoking" &&
+        request.kind === "model" &&
+        recoversModelCalls(ctx)
+      )
+        return { kind: "invoke", invoke: "model", journaled: existing.request as HostEffect };
       if (request.kind === "agent" && existing.status === "pending") {
         const agentSessionId = existing.agentSessionId as string | undefined;
         if (agentSessionId) {
@@ -332,7 +354,7 @@ export async function resolveEffect(
         ? await callMcpTool(ctx, request)
         : invoke === "sandbox"
         ? await callSandboxTool(ctx, request, signal)
-        : await invokeModel(ctx, request, signal, segment.model);
+        : await invokeModel(ctx, journaled.journaled ?? request, signal, segment.model);
     return await store.tx(async (t) => {
       const s = await ownedSession(t, lease, request.sessionId);
       // Only a cancel discards an outcome in hand (§10.7). After any other abort (shutdown,
@@ -381,6 +403,10 @@ export async function resolveEffect(
   } catch (error) {
     // A lost epoch writes nothing: the new owner decides what the effect became.
     if (isOwnershipLost(error)) throw error;
+    // A shutdown leaves a model call running at the gate, still `invoking`: the next advance
+    // re-sends it (P1.2). The segment stops for the shutdown as usual.
+    if (invoke === "model" && recoversModelCalls(ctx) && abortKind(signal) === "shutdown")
+      throw error;
     await store.tx(async (t) => {
       const s =
         request.sessionId === lease.sessionId

@@ -54,7 +54,7 @@ import {
   sessionToolsOf,
   turnManifestOf,
 } from "./session.js";
-import { prepareMcp, resolveEffect } from "./effects.js";
+import { prepareMcp, recoversModelCalls, resolveEffect } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
 import { command } from "./commands.js";
 import { usesFixtureModel } from "./model-setting.js";
@@ -186,7 +186,8 @@ async function takeOwnership(ctx: TenantContext, id: string): Promise<Taken> {
       epoch: taken.epoch,
     };
     const s = await t.assertEpoch<Session>(id, taken.epoch);
-    if (taken.takeover) await takeOver(t, s);
+    if (taken.takeover)
+      await takeOver(t, s, { recoversModelCalls: recoversModelCalls(ctx) });
     if (!s.checkpoint || !["running", "runnable"].includes(s.status)) {
       await t.releaseOwnership(id, lease.owner, lease.epoch);
       return { status: "idle" };
@@ -199,15 +200,22 @@ async function takeOwnership(ctx: TenantContext, id: string): Promise<Taken> {
 
 /**
  * Takeover (§10.5 step 2, §11.4), inside the transaction that took ownership: the dead
- * owner's `invoking` effects become `uncertain` and are never invoked again. When one belongs
+ * owner's `invoking` effects become `uncertain` and are never invoked again, except model
+ * calls when the gate recovers them (P1.2): those stay `invoking`, and the replay re-sends them. When one belongs
  * to the active turn, the session becomes `uncertain` too, with an `effect.uncertain` event.
  * Mutates and writes `s`. Returns the effect ids it marked.
  */
-export async function takeOver(t: Tx, s: Session): Promise<string[]> {
+export async function takeOver(
+  t: Tx,
+  s: Session,
+  options: { recoversModelCalls?: boolean } = {}
+): Promise<string[]> {
   const marked: string[] = [];
   for (const effect of await t.invokingEffects<
     EffectDoc & { error?: string }
   >(s.id)) {
+    // Still running at the gate, or finished there: the replay re-sends it (P1.2).
+    if (options.recoversModelCalls && effect.request.kind === "model") continue;
     effect.status = "uncertain";
     effect.error ??= "The Worker running this effect stopped before its outcome was recorded";
     await t.put("effects", effect.request.effectId, effect);
