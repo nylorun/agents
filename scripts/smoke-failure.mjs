@@ -28,6 +28,9 @@
 //    uncertain, and once it is back the next turn completes.
 // 8. Gateway killed mid-call: the same, and the stub's request is closed.
 // 9. Cancel mid-call: the stub sees its request aborted within 2 s.
+// 10. The gateway refuses a caller without the stack's token.
+// 11. A budget's cap is reached (P1.3): the turn fails with
+//     model.budget_exhausted and the stub sees no call.
 // 10. A wrong gates token is refused (401).
 //
 // The stack is always reset at the end.
@@ -337,6 +340,27 @@ try {
         "fetch('http://gateway:4100/nylorun/v1/model-calls',{method:'POST',headers:{authorization:'Bearer '+'00'.repeat(32)}}).then(r=>console.log(r.status))",
       ]);
       assert.equal(refused.trim(), "401", "a wrong gates token is refused");
+
+      // 11. A cap one token above today's spend: one more call runs, the next is refused at
+      // the gateway before it reaches the provider. The ledger recorded every call.
+      const spent = await request(runtimeUrl, tenant, "/v1/tenant/usage?period=day");
+      assert.ok(spent.calls >= 1 && spent.tokens > 0, `the ledger recorded the calls: ${JSON.stringify(spent)}`);
+      await request(runtimeUrl, tenant, "/v1/tenant/budgets", {
+        method: "PUT",
+        body: { requestId: randomUUID(), budgets: [{ scope: "tenant", period: "day", limitTokens: spent.tokens + 1 }] },
+      });
+      await message(8);
+      assert.equal((await settled()).status, "completed");
+      const capped = (await stub()).calls;
+      await message(9);
+      assert.equal((await settled()).status, "failed");
+      assert.equal((await lastFailure())?.error?.code, "model.budget_exhausted");
+      assert.equal((await stub()).calls, capped, "a capped call never reaches the provider");
+      await request(runtimeUrl, tenant, "/v1/tenant/budgets", {
+        method: "PUT",
+        body: { requestId: randomUUID(), budgets: [] },
+      });
+      console.log(`[failure] a reached cap fails the turn with model.budget_exhausted (${elapsed()})`);
       console.log(`[failure] Model Gate cases passed (${elapsed()})`);
     } finally {
       await docker(["rm", "--force", stubName]).catch(() => {});

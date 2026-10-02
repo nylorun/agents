@@ -343,6 +343,18 @@ export interface ModelUsageTotals {
   costUsd: number;
 }
 
+/** A hard cap on model spend (P1.3). At least one limit is set. */
+export interface ModelBudgetRow {
+  scope: "tenant" | "agent" | "turn";
+  /** The agent id for `agent`; `*` for `tenant` and `turn` (every turn). */
+  scopeId: string;
+  /** The UTC period spend is counted over; null for `turn`. */
+  period: "day" | "month" | null;
+  limitUsd: number | null;
+  limitTokens: number | null;
+  updatedAt: string;
+}
+
 export interface VaultCredentialRow extends SealedSecret {
   id: string;
   vaultId: string;
@@ -746,6 +758,10 @@ export interface Tx {
   /** Appends a row, setting `duplicate` when one with the same `effectKey` exists; returns it. */
   recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow>;
   modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals>;
+  /** Every budget, ordered by scope, then scope id. */
+  listModelBudgets(): Promise<ModelBudgetRow[]>;
+  /** Replaces every budget with `rows`. */
+  putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void>;
 
   // --- tenant settings (non-secret) -----------------------------------------
 
@@ -761,8 +777,8 @@ export interface Tx {
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
    * - `sandboxes`: sandbox records;
-   * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials
-   *   and the model usage ledger. The host vault, principals, signing keys, subject epochs,
+   * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials,
+   *   the model usage ledger and the model budgets. The host vault, principals, signing keys, subject epochs,
    *   publishable keys, settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;

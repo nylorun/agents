@@ -71,7 +71,9 @@ export type ModelFailureCode =
   | "content_policy"
   | "auth"
   | "invalid_request"
-  | "invalid_output";
+  | "invalid_output"
+  /** A model budget's cap is reached (`PUT /v1/tenant/budgets`); never retried. */
+  | "budget_exhausted";
 
 /**
  * A model call that failed in a known way. It is a completed outcome, not a lost one:

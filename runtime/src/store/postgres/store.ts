@@ -77,6 +77,7 @@ import type {
   SigningKeyRow,
   PublishableKeyRow,
   SubjectUsageRow,
+  ModelBudgetRow,
   ModelUsageQuery,
   ModelUsageRow,
   ModelUsageTotals,
@@ -1271,6 +1272,31 @@ class PostgresTx implements Tx {
     return { calls: row!.calls as number, tokens: Number(row!.tokens), costUsd: Number(row!.cost_usd) };
   }
 
+  async listModelBudgets(): Promise<ModelBudgetRow[]> {
+    this.check();
+    const rows = await this.sql`
+      SELECT * FROM ${this.t("model_budgets")} ORDER BY scope COLLATE "C", scope_id`;
+    return rows.map((row) => ({
+      scope: row.scope as ModelBudgetRow["scope"],
+      scopeId: row.scope_id as string,
+      period: row.period as ModelBudgetRow["period"],
+      limitUsd: row.limit_usd === null ? null : Number(row.limit_usd),
+      limitTokens: row.limit_tokens === null ? null : Number(row.limit_tokens),
+      updatedAt: row.updated_at as string,
+    }));
+  }
+
+  async putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void> {
+    this.check();
+    await this.sql`DELETE FROM ${this.t("model_budgets")}`;
+    for (const row of rows)
+      await this.sql`
+        INSERT INTO ${this.t("model_budgets")}
+          (scope, scope_id, period, limit_usd, limit_tokens, updated_at)
+        VALUES (${row.scope}, ${row.scopeId}, ${row.period}, ${row.limitUsd},
+          ${row.limitTokens}, ${row.updatedAt})`;
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1310,6 +1336,7 @@ class PostgresTx implements Tx {
       await sql`DELETE FROM ${this.t("definitions")}`;
       await sql`DELETE FROM ${this.t("endpoints")}`;
       await sql`DELETE FROM ${this.t("model_usage")}`;
+      await sql`DELETE FROM ${this.t("model_budgets")}`;
       await sql`DELETE FROM ${this.t("vaults")} WHERE scope <> 'host'`;
     }
   }

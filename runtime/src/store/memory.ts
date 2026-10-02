@@ -41,6 +41,7 @@ import {
   type StoreHealth,
   type StoredSession,
   type SubjectUsageRow,
+  type ModelBudgetRow,
   type ModelUsageQuery,
   type ModelUsageRow,
   type ModelUsageTotals,
@@ -82,6 +83,7 @@ interface State {
   subjectUsage: Map<string, SubjectUsageRow>;
   publishableKeys: Map<string, PublishableKeyRow>;
   modelUsage: ModelUsageRow[];
+  modelBudgets: ModelBudgetRow[];
 }
 
 function emptyState(): State {
@@ -104,6 +106,7 @@ function emptyState(): State {
     subjectUsage: new Map(),
     publishableKeys: new Map(),
     modelUsage: [],
+    modelBudgets: [],
   };
 }
 
@@ -1010,6 +1013,22 @@ class MemoryTx implements Tx {
     return totals;
   }
 
+  async listModelBudgets(): Promise<ModelBudgetRow[]> {
+    this.check();
+    return this.s.modelBudgets.map(copy);
+  }
+
+  async putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void> {
+    this.check();
+    const keys = new Set(rows.map((row) => `${row.scope}\0${row.scopeId}`));
+    if (keys.size !== rows.length) throw new Error("model_budgets scope and scope id must be unique");
+    this.s.modelBudgets = rows
+      .map(copy)
+      .sort((a, b) =>
+        a.scope !== b.scope ? (a.scope < b.scope ? -1 : 1) : a.scopeId < b.scopeId ? -1 : a.scopeId > b.scopeId ? 1 : 0,
+      );
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1050,6 +1069,7 @@ class MemoryTx implements Tx {
       this.s.docs.definitions.clear();
       this.s.endpoints.clear();
       this.s.modelUsage = [];
+      this.s.modelBudgets = [];
       for (const vault of [...this.s.vaults.values()])
         if (vault.scope !== "host") await this.deleteVault(vault.id);
     }

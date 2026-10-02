@@ -29,6 +29,8 @@ import {
   HostModelCatalogSchema,
   TenantSandboxViewSchema,
   ModelUsageTotalsSchema,
+  ModelBudgetsSchema,
+  PutModelBudgetsRequestSchema,
   PutTenantSandboxRequestSchema,
   ListProvidersResponseSchema,
   HostModelViewSchema,
@@ -146,6 +148,8 @@ export const SeedTenantConfigResponse = named("SeedTenantConfigResponse", SeedTe
 export const HostModelCatalog = named("HostModelCatalog", HostModelCatalogSchema);
 export const TenantSandboxView = named("TenantSandboxView", TenantSandboxViewSchema);
 export const ModelUsageTotals = named("ModelUsageTotals", ModelUsageTotalsSchema);
+export const ModelBudgets = named("ModelBudgets", ModelBudgetsSchema);
+export const PutModelBudgetsRequest = named("PutModelBudgetsRequest", PutModelBudgetsRequestSchema);
 export const PutTenantSandboxRequest = named("PutTenantSandboxRequest", PutTenantSandboxRequestSchema);
 export const ListProvidersResponse = named("ListProvidersResponse", ListProvidersResponseSchema);
 export const HostModelView = named("HostModelView", HostModelViewSchema);

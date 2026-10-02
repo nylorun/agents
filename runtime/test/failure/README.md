@@ -81,7 +81,7 @@ The latency gate, commit to S2 under 200 ms at p99 with 50 sessions, is
 NYLORUN_TEST_STACK=1 NYLORUN_BENCH=1 npx vitest run -c vitest.integration.config.ts test/streams/relay-bench
 ```
 
-## Model Gate (blueprint P1.1)
+## Model Gate (blueprint P1)
 
 Model calls of the loop cross the gates service (the stack's `gateway` container). A failure
 of that hop is a failure outcome, never an uncertain effect, and cancel still reaches the
@@ -96,6 +96,7 @@ provider. The real cases run on a `nylorun up` stack in `scripts/smoke-failure.m
 | Cancel mid-call | step 9: the provider request aborted within 2 s; the turn ends `cancelled` | `contracts/model-gate.contract.ts` › "throws and aborts the provider request when cancelled during the call" (both gates); `gates/gates-host.test.ts` › "aborts the provider request when the caller goes away mid-call" |
 | The runtime dies or stops mid-call | steps 3–5: the gateway keeps the keyed call; after takeover the runtime re-sends it and joins it; the turn completes, nothing `uncertain`, one provider call (P1.2) | `tenant/recovery.test.ts`; `gates/inflight.test.ts`; `gates/gates-host.test.ts` › "keyed calls (P1.2)" |
 | A wrong gates token | step 10: `401` | `gates/gates-host.test.ts` › "refuses a missing or wrong token…"; `gates/http-client.test.ts` › "is an auth failure naming NYLORUN_GATES_TOKEN…" |
+| A runaway loop reaches its cap | step 11: a Tenant day cap fails the next turn with `model.budget_exhausted`, and the provider sees no call (P1.3) | `model-budget.test.ts` › "stops a runaway loop at the turn's token cap" (both gates); `gates/meter.test.ts` › "caps" |
 
 The hop's cost, 50 calls through the HTTP gate against the in-process gate, is
 `gates/hop-latency.test.ts`; it runs only with `NYLORUN_BENCH=1`.

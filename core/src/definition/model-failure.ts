@@ -10,6 +10,7 @@ export const MODEL_FAILURE_CODES: readonly ModelFailureCode[] = Object.freeze([
   "auth",
   "invalid_request",
   "invalid_output",
+  "budget_exhausted",
 ]);
 
 /** True for a model adapter's failure outcome (`{ kind: "failed", code, message, retryable }`). */

@@ -1029,6 +1029,26 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect((await store.tx((t) => t.modelUsageTotals({ scope: "tenant" }))).calls).toBe(0);
       });
 
+      it("replaces the budgets as a set, ordered, and clears them on a full reset only", async () => {
+        const store = await fresh();
+        const at = "2030-01-01T00:00:00.000Z";
+        const budgets = [
+          { scope: "turn" as const, scopeId: "*", period: null, limitUsd: null, limitTokens: 500, updatedAt: at },
+          { scope: "agent" as const, scopeId: "bot", period: "day" as const, limitUsd: 2.5, limitTokens: null, updatedAt: at },
+          { scope: "tenant" as const, scopeId: "*", period: "month" as const, limitUsd: 100, limitTokens: 5_000_000_000, updatedAt: at },
+        ];
+        await store.tx((t) => t.putModelBudgets(budgets));
+        expect(await store.tx((t) => t.listModelBudgets())).toEqual([budgets[1], budgets[2], budgets[0]]);
+        await store.tx((t) => t.putModelBudgets([budgets[0]!]));
+        expect(await store.tx((t) => t.listModelBudgets())).toEqual([budgets[0]]);
+        await expect(store.tx((t) => t.putModelBudgets([budgets[1]!, budgets[1]!]))).rejects.toThrow();
+        expect(await store.tx((t) => t.listModelBudgets())).toEqual([budgets[0]]);
+        await store.tx((t) => t.reset("sessions"));
+        expect(await store.tx((t) => t.listModelBudgets())).toHaveLength(1);
+        await store.tx((t) => t.reset("all"));
+        expect(await store.tx((t) => t.listModelBudgets())).toEqual([]);
+      });
+
       it("rolls a row back with its transaction", async () => {
         const store = await fresh();
         await expect(
