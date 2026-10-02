@@ -8,4 +8,4 @@
 - `GET /v1/tenant/usage?scope=tenant|agent|turn&id=&period=day|month|total` totals the ledger. It needs the application key or `tenant:settings`, like the other Tenant settings.
 - `@nylorun/core/contracts` adds `ModelUsageScopeSchema`, `ModelUsageQuerySchema` and `ModelUsageTotalsSchema`.
 - The ledger survives a `sessions` reset. A reset of scope `all` clears it.
-- Tenant schema migration 10 adds the `model_usage` table. The gateway and the runtime must run the same build, as before.
+- The gateway and the runtime must run the same build, as before.
