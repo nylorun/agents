@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.21.0-beta
+
+### Minor Changes
+
+- 6ab4c59: **Long sessions on any model: compaction.** A session whose history outgrows the model's context window keeps going, on a 16k local model as on a 1M hosted one.
+
+  - **Compaction.**
+    - **When.** Before each model call the engine estimates the prompt: the last reported usage, plus about four characters per token for what came after. If the estimate would not leave room for the reply, the engine first compacts: it asks the model to summarize the older history, then keeps about the newest 20,000 tokens (at most 30% of the window) verbatim.
+    - **What it keeps.** The cut never separates a tool call from its result. The current turn's request is always kept. A later compaction merges with the earlier summary.
+    - **Overflow.** If a provider still reports a context overflow, the engine compacts once and asks again.
+    - **Storage.** The summary is a `compaction` transcript entry that replaces the older entries in the session state; the event log keeps the full history. The summary call is a journaled model effect, so replays are deterministic.
+    - **New event.** `context.compacted` (`trigger`, `tokensBefore`, `tokensAfter`).
+  - **Custom endpoints.**
+    - **Settings.** Model Settings take `settings: { contextWindow, maxTokens, reasoning, compat }` for a custom OpenAI-compatible provider (vLLM, SGLang, llama.cpp, Ollama, LM Studio). `compat` is passed to pi-ai: `thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs` and the rest.
+    - **Defaults.** Without settings, a custom endpoint is assumed to have a 32k window and an 8k output limit. They used to be 128k and 16k.
+    - **Where to set them.** `nylo configure` asks for the window and output limit. Studio's Model Settings shows all four fields.
+  - **Storage.**
+    - Model effects no longer journal the model request next to the call, so each call's prompt is stored once.
+    - When a turn ends, its model effects are slimmed to their identity and status; the transcript holds the answers.
+    - Session storage now grows with the window, not with the square of the session's length.
+  - **Core.**
+    - `TranscriptEntry` adds `compaction` (`TranscriptCompactionEntry`).
+    - `ModelAdapterContext.compaction` marks a summary call.
+    - `CustomModelSettings` / `CustomModelSettingsSchema` describe the custom endpoint settings.
+
+- 6ab4c59: **Model calls don't strand sessions.** A model provider failure is now a known outcome, not a lost call. The Runtime retries what can be retried, and otherwise fails the turn with `model.<code>`, so the session accepts the next message instead of sitting `uncertain` until it is cancelled.
+
+  - **Runtime.**
+
+    - **Upgrade.** The model adapter moves to pi-ai 0.99.1 and always streams.
+    - **Per-call settings.**
+      - Every call carries the session id, so OpenAI and other providers reuse the prompt cache and route to the same backend.
+      - Provider auth no longer reads the process environment.
+      - Rate limits, overloads, timeouts and transient errors are retried: 3 attempts with backoff, honouring `Retry-After`.
+      - A stream that produces nothing for 300 s is aborted and retried. `TenantConfig.modelCall` sets attempts, backoff, the idle timeout and the request timeout.
+    - **Failures.** Anything else fails the turn with one of these codes:
+
+      - `model.context_overflow`, `model.rate_limited`, `model.overloaded`, `model.timeout`, `model.transient`
+      - `model.content_policy`, `model.auth` (whose message says where to fix the credential)
+      - `model.invalid_request`, `model.invalid_output`
+
+      Only a call whose outcome was lost, such as a Worker dying mid-call, is still `uncertain`.
+
+    - **Structured output.** A structured final answer is repaired (control characters, a Markdown code fence) before it is parsed.
+    - **Model history.** Replayed history keeps the model that produced each message, so a model switch no longer sends one model's signatures or tool-call ids to another. Reasoning from OpenAI-compatible servers (`reasoning_content`, `reasoning`) is sent back only within the turn that produced it.
+
+  - **Events.**
+    - `message.assistant` adds `model` (`provider`, `model`), `finishReason` and `usage`.
+    - A new `model.failed` transcript event (`code`, `message`, `retryable`) is written instead of `message.assistant` when a call fails.
+  - **Core and harness.**
+    - New types and helpers: `ModelFailureOutcome`, `ModelFailureCode`, `MODEL_FAILURE_CODES`, `isModelFailureOutcome`, `ModelProducer`.
+    - `PromptItem` assistant messages may carry `producer`.
+    - `ModelUsage` adds `cacheWriteTokens`.
+    - A model adapter may return a failure outcome.
+    - The durable engine version is `hosted-3`: a turn that is running when the Runtime is upgraded fails once with `execution.incompatible`, and the next message works.
+  - **CLI.**
+    - `nylo configure` passes a stable installation id to OAuth logins that need one (OpenAI "Sign in with ChatGPT"), stored as `cli-installation-id` in the Host root.
+    - A custom OpenAI-compatible provider now prompts for its API key instead of failing.
+
+- 6ab4c59: **Long turns roll over.** A turn no longer fails when it runs past the 50-minute advance deadline.
+
+  - **How it works.** At a step boundary with no open work, a long turn ends its segment and continues in the next one: same turn, a new checkpoint, woken at once. By default this happens after 50 steps or 20 minutes in a segment; `TenantConfig.rollover` changes both.
+  - **What clients see.** A rolled-over turn emits no `turn.*` event, and clients still see one turn.
+  - **Storage.** Each finished segment's model effects are slimmed.
+  - **Harness.** `runDurable` takes `yieldAfter: { steps, ms }` and can return `yielded`, and `RunResult` adds `yielded`. The durable host writes the next checkpoint at `segment + 1` with `{ kind: "continue" }`. Agents used as tools never roll over.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [c7614a4]
+- Updated dependencies [679c488]
+- Updated dependencies [c85cd9e]
+- Updated dependencies [4282d5f]
+- Updated dependencies [82d95ef]
+- Updated dependencies [f48f12f]
+- Updated dependencies [50d0fb5]
+- Updated dependencies [50d0fb5]
+- Updated dependencies [c121144]
+- Updated dependencies [6ab4c59]
+- Updated dependencies [6ab4c59]
+- Updated dependencies [2ab8ed1]
+- Updated dependencies [c121144]
+- Updated dependencies [9546ac7]
+- Updated dependencies [9546ac7]
+- Updated dependencies [9d52189]
+- Updated dependencies [50d0fb5]
+- Updated dependencies [18468d9]
+  - @nylorun/core@0.9.0-beta
+
 ## 0.20.0-beta
 
 ### Minor Changes

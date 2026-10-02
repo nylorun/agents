@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/cli",
-  "version": "0.5.0-beta",
+  "version": "0.6.0-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Nylorun Runtime client: Tenants, Project links and model providers",
@@ -30,8 +30,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@nylorun/agents": "0.9.0-beta",
-    "@nylorun/admin": "0.5.0-beta",
+    "@nylorun/agents": "0.10.0-beta",
+    "@nylorun/admin": "0.6.0-beta",
     "@earendil-works/pi-ai": "0.99.1"
   },
   "devDependencies": {
