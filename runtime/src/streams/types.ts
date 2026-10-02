@@ -147,6 +147,11 @@ export function sessionStream(sessionId: string): string {
 export interface SessionCancelSignal {
   type: "session.cancel";
   sessionId: string;
+  /**
+   * The cancelled turn. Only an advance of this turn stops, so a signal delivered late (an
+   * append retried after S2 returns) never stops a later turn. Absent: any advance stops.
+   */
+  turnId?: string;
 }
 
 /**

@@ -922,6 +922,7 @@ export function tenantStreamsSuite(
       expect(await t.records(CONTROL_STREAM)).toContainEqual({
         type: "session.cancel",
         sessionId: "s1",
+        turnId: expect.any(String),
       });
     });
   });

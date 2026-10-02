@@ -167,8 +167,11 @@ export interface TenantContext {
    * re-wakes anything left runnable.
    */
   wake(sessionId: string, wake: Wake): Promise<void>;
-  /** Seam: abort the advance of a session running in this process, if any. */
-  abortLocal(sessionId: string): void;
+  /**
+   * Seam: abort the advance of a session running in this process, if any. With `turnId`, only
+   * an advance of that turn (a cancel signal names the turn it cancelled).
+   */
+  abortLocal(sessionId: string, turnId?: string): void;
   /**
    * Seam: deliver an Action to its agent's Action endpoint (`DurableExecution.deliver`). Call it
    * from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends it.

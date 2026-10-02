@@ -10,9 +10,14 @@ export async function signalCancel(
   streams: DurableStreams,
   basin: string,
   sessionId: string,
+  turnId?: string,
 ): Promise<void> {
   if (!sessionId) throw new Error("sessionId is required");
-  const signal: ControlSignal = { type: "session.cancel", sessionId };
+  const signal: ControlSignal = {
+    type: "session.cancel",
+    sessionId,
+    ...(turnId ? { turnId } : {}),
+  };
   await streams.append(basin, CONTROL_STREAM, [signal]);
 }
 

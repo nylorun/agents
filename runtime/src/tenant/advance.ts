@@ -125,6 +125,7 @@ export async function advance(
   if (signal.aborted) forward();
   else signal.addEventListener("abort", forward, { once: true });
   ctx.work.running.set(id, controller);
+  ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
   const heartbeat = startHeartbeat(ctx, lease, controller);
   let result = DONE;
   try {
@@ -146,7 +147,10 @@ export async function advance(
   } finally {
     heartbeat.stop();
     signal.removeEventListener("abort", forward);
-    if (ctx.work.running.get(id) === controller) ctx.work.running.delete(id);
+    if (ctx.work.running.get(id) === controller) {
+      ctx.work.running.delete(id);
+      ctx.work.runningTurns.delete(id);
+    }
     // Best effort: a release that fails leaves a lease that simply expires.
     await ctx.store
       .tx((t) => t.releaseOwnership(id, lease.owner, lease.epoch))

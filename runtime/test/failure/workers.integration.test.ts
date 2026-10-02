@@ -4,13 +4,16 @@
  * - §17.3 a Worker killed during a model effect;
  * - §17.4 two advances racing for one session;
  * - §17.9 cancel delivered to another Worker;
- * - §17.10 a Restate abort during a long advance.
+ * - §17.10 a Restate abort during a long advance;
+ * - §17.12 cancel while S2 is down.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { tenantSchemaName } from "../../src/store/postgres/names.js";
 import { CONTROL_STREAM } from "../../src/streams/types.js";
-import { testPool } from "../support/store.js";
+import { stackEndpoints } from "../stack/endpoints.js";
+import { openTestSessionStore, testPool } from "../support/store.js";
 import {
   cancel,
   controlledModel,
@@ -27,14 +30,28 @@ import {
   effectsOf,
   sessionRow,
   sleep,
+  tcpProxy,
   typesOf,
   workerOf,
+  type Node,
 } from "./support.js";
 
 const tenants: FailureTenant[] = [];
 afterEach(async () => {
   for (const tenant of tenants.splice(0).reverse()) await tenant.dispose();
 });
+/** The session's events straight from the record in Postgres (readable while S2 is down). */
+async function recordOf(node: Node, id = "s1"): Promise<LiveEvent[]> {
+  const store = await openTestSessionStore(node);
+  try {
+    const head = (await store.record().heads(undefined, 10_000)).find((h) => h.sessionId === id);
+    if (!head) return [];
+    const rows = await store.record().readRange(head.tenantId, id, 0, head.head);
+    return rows.map((row) => row.body as LiveEvent);
+  } finally {
+    await store.close();
+  }
+}
 function failureTenant(): FailureTenant {
   const tenant = new FailureTenant();
   tenants.push(tenant);
@@ -218,8 +235,70 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
       follow: false,
     }))
       control.push(record.body);
-    expect(control).toContainEqual({ type: "session.cancel", sessionId: "s1" });
+    expect(control).toContainEqual({
+      type: "session.cancel",
+      sessionId: "s1",
+      turnId: expect.any(String),
+    });
     expect(await completeHistory(workerNode)).toEqual(history);
+  });
+
+  it("§17.12 cancel while S2 is down: the cancel commits, nothing of the cancelled turn is written after it, and the stream matches once S2 returns", async () => {
+    const t = failureTenant();
+    // Both nodes reach s2-lite through a proxy the test takes down, so the cancel signal on
+    // tenant/control cannot reach the Worker: only the Postgres fence stops the turn.
+    const proxy = await tcpProxy(Number(new URL(stackEndpoints().s2.endpoint).port));
+    t.atEnd(() => proxy.close());
+    const model = controlledModel(); // ignores its signal: the call outlives the cancel
+    t.onDispose(() => model.release());
+    const worker = t.worker({ offset: 12, prefix: "cancel_s2" });
+    await worker.host.start();
+    const workerNode = await t.node({
+      worker,
+      workerId: "worker-a",
+      modelProvider: model.provider,
+      streams: t.s2(proxy.endpoint),
+    });
+    const api = t.worker({ offset: 12, prefix: "cancel_s2", services: new Set(["core"] as const) });
+    const apiNode = await t.node({
+      worker: api,
+      workerId: "api-node",
+      modelProvider: model.provider,
+      streams: t.s2(proxy.endpoint),
+    });
+
+    await openSession(apiNode);
+    await sendMessage(apiNode);
+    await model.started;
+    expect(await sessionRow(apiNode)).toMatchObject({ owner: "worker-a" });
+
+    await proxy.down();
+    await cancel(apiNode);
+    expect((await view(apiNode)).status).toBe("cancelled");
+    const cancelled = await recordOf(apiNode);
+    expect(countOf(cancelled, "turn.cancelled")).toBe(1);
+    const turnId = cancelled.find((e) => e.type === "turn.cancelled")!.turnId;
+
+    // The Worker's model call answers after the cancel; its advance must not record it.
+    model.release();
+    await until(async () => worker.execution.results, (r) => r.length > 0, "the advance to end", 20_000);
+    const after = await recordOf(apiNode);
+    expect(after.slice(0, cancelled.length)).toEqual(cancelled);
+    expect(after.slice(cancelled.length).filter((e) => e.turnId === turnId)).toEqual([]);
+    expect(typesOf(after)).not.toContain("message.assistant");
+    expect(typesOf(after)).not.toContain("turn.completed");
+    expect((await view(apiNode)).status).toBe("cancelled");
+    expect(model.calls).toBe(1);
+    expect((await effectsOf(apiNode)).filter((e) => e.request.kind === "model").map((e) => e.status))
+      .not.toContain("completed");
+
+    await proxy.up();
+    expect(await completeHistory(apiNode)).toEqual(after);
+    expect(await completeHistory(workerNode)).toEqual(after);
+    // The session is usable: the next message runs a new turn to completion.
+    await sendMessage(apiNode, "s1", 2);
+    await until(() => view(apiNode), (v) => v.status === "completed", "the next turn", 20_000);
+    expect(model.calls).toBe(2);
   });
 
   describe("§17.10 a Restate abort during a long advance", () => {

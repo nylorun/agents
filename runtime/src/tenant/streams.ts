@@ -159,7 +159,10 @@ export async function wireStreams(
       (body) => {
         const signal = body as Partial<ControlSignal> | null;
         if (signal?.type === "session.cancel" && typeof signal.sessionId === "string")
-          ctx.abortLocal(signal.sessionId);
+          ctx.abortLocal(
+            signal.sessionId,
+            typeof signal.turnId === "string" ? signal.turnId : undefined
+          );
         else if (signal?.type === "sessions.reset")
           void checkSessionStreams(ctx).catch(report("session stream check failed"));
         else if (
@@ -266,19 +269,24 @@ function commitSource(store: SessionStore, tenantId: string): ChangeSource {
 }
 
 /**
- * Appends `session.cancel` for `sessionId` to `tenant/control`, so the process running its
- * advance aborts it. Call it from `t.afterCommit` after a cancel commits. A lost signal costs
- * latency only (the advance checks the Session Store before every effect), so failures are
- * logged, never thrown.
+ * Appends `session.cancel` for `sessionId` and its cancelled turn to `tenant/control`, so the
+ * process running that turn's advance aborts it. Call it from `t.afterCommit` after a cancel
+ * commits. A lost signal costs latency only (the advance checks the Session Store before every
+ * effect), so failures are logged, never thrown.
  */
-export function signalSessionCancel(ctx: TenantContext, sessionId: string): void {
+export function signalSessionCancel(
+  ctx: TenantContext,
+  sessionId: string,
+  turnId: string | null
+): void {
   const streams = ctx.sessionStreams.wiring?.streams;
   if (!streams) return;
-  void signalCancel(streams, currentBasin(ctx), sessionId).catch((error: unknown) =>
-    ctx.config.logger.warn("cancel signal failed", {
-      sessionId,
-      message: messageOf(error),
-    })
+  void signalCancel(streams, currentBasin(ctx), sessionId, turnId ?? undefined).catch(
+    (error: unknown) =>
+      ctx.config.logger.warn("cancel signal failed", {
+        sessionId,
+        message: messageOf(error),
+      })
   );
 }
 
