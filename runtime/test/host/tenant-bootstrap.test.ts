@@ -21,7 +21,6 @@ import { createHost } from "../../src/host/create-host.js";
 import { createHostLogger } from "../../src/host/logger.js";
 import { OPAQUE_NOT_FOUND } from "../../src/host/http.js";
 import type { PostgresClient } from "../../src/store/postgres/connect.js";
-import { POSTGRES_SCHEMA_VERSION } from "../../src/store/postgres/migrations/index.js";
 import { createTenantModule } from "../../src/tenant/module.js";
 import { hostPrincipals } from "../../src/tenant/principals.js";
 import { openTenantRuntime } from "../../src/tenant/runtime.js";
@@ -172,7 +171,8 @@ it("refuses a database migrated by a newer Runtime, naming its Tenant", async ()
   const tenantId = newTenantId();
   const first = await startHost(sql, { tenantId });
   await first.close();
-  await sql`INSERT INTO nylorun.schema_version (version, name) VALUES (${POSTGRES_SCHEMA_VERSION + 1}, 'future')`;
+  // A migration of a newer Runtime in the journal.
+  await sql`INSERT INTO nylorun.__drizzle_migrations (hash, created_at) VALUES ('future', 0)`;
   const host = await startHost(sql);
   expect(await host.ready()).toBe(503);
   expect((await host.status()).tenant).toMatchObject({

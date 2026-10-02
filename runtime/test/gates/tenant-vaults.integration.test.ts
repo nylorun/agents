@@ -12,12 +12,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { createTenantVaults, GateRefusal } from "../../src/gates/tenant-vaults.js";
 import type { PostgresClient } from "../../src/store/postgres/connect.js";
+import { database } from "../../src/store/postgres/db.js";
 import {
-  MIGRATIONS,
   readSchemaVersion,
+  shippedMigrations,
   type Migration,
-} from "../../src/store/postgres/migrations/index.js";
-import { TENANT_SCHEMA } from "../../src/store/postgres/names.js";
+} from "../../src/store/postgres/migrate.js";
 import { openTenantDatabase } from "../../src/store/postgres/tenant.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
@@ -113,14 +113,14 @@ describe.skipIf(!STACK_ENABLED)("the gates service's Tenant vault on Postgres", 
   });
 
   it("refuses a database without a Tenant, and one not yet migrated, without migrating it", async () => {
-    const { sql, hostRoot } = await tenant(MIGRATIONS.slice(0, -1));
-    const before = await readSchemaVersion(sql, TENANT_SCHEMA);
+    const { sql, hostRoot } = await tenant(shippedMigrations().slice(0, -1));
+    const before = await readSchemaVersion(database(sql));
     const stale = await createTenantVaults({ sql, hostRoot })
       .open()
       .catch((error: unknown) => error);
     expect(stale).toBeInstanceOf(GateRefusal);
     expect((stale as GateRefusal).outcome).toMatchObject({ code: "transient", retryable: true });
-    expect(await readSchemaVersion(sql, TENANT_SCHEMA)).toBe(before);
+    expect(await readSchemaVersion(database(sql))).toBe(before);
 
     for (const empty of [await emptyTestDatabase(), await tenantTestDatabase()]) {
       const refused = await createTenantVaults({ sql: empty.sql, hostRoot })

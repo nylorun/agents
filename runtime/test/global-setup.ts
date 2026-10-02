@@ -4,7 +4,7 @@
  *
  * 1. When Postgres does not answer, starts the test stack (`test/stack/up.mjs`), unless
  *    `NYLORUN_TEST_STACK_EXTERNAL=1` says someone else runs it.
- * 2. Creates this run's template database, migrated (`nylorun_streams` and `nylorun`) but
+ * 2. Creates this run's template database, migrated (`store/postgres/migrate.ts`) but
  *    holding no Tenant yet, and hands its name to the workers. Each test file clones it
  *    (`setup-database.ts`), and so does each further test Tenant.
  * 3. Drops the template at teardown, and any database of this run a crashed file left. A
@@ -18,9 +18,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { TestProject } from "vitest/node";
 import { createPostgresClient } from "../src/store/postgres/connect.js";
-import { migrateSchema } from "../src/store/postgres/migrations/index.js";
-import { migrateStreamsSchema } from "../src/store/postgres/migrations/shared/index.js";
-import { TENANT_SCHEMA } from "../src/store/postgres/names.js";
+import { migrateDatabase } from "../src/store/postgres/migrate.js";
 import { stackEndpoints } from "./stack/endpoints.js";
 import {
   dropTestDatabase,
@@ -71,8 +69,7 @@ export default async function setup(project: TestProject): Promise<() => Promise
   // Clones need a template nobody is connected to: this pool ends before any test starts.
   const sql = testDatabasePool(template, 1);
   try {
-    await migrateStreamsSchema(sql);
-    await migrateSchema(sql, TENANT_SCHEMA);
+    await migrateDatabase(sql);
   } finally {
     await sql.end({ timeout: 5 });
   }

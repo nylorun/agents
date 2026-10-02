@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { POSTGRES_SCHEMA_VERSION } from "../../src/store/postgres/migrations/index.js";
-import { TENANT_SCHEMA } from "../../src/store/postgres/names.js";
+import { expectedSchemaVersion } from "../../src/store/postgres/migrate.js";
+import { TENANT_SCHEMA } from "../../src/store/postgres/schema.js";
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
 import { decodeCursor, encodeCursor } from "../../src/record/index.js";
 import { createTestSessionStore, isolatedTestDatabase } from "../support/store.js";
@@ -14,7 +14,7 @@ storeContract("postgres", async (options) => {
   const now = new Date().toISOString();
   await sql`
     INSERT INTO ${sql(`${TENANT_SCHEMA}.tenant`)} (id, name, created_at, updated_at, schema_version)
-    VALUES (${options.tenantId}, 'Test', ${now}, ${now}, ${POSTGRES_SCHEMA_VERSION})`;
+    VALUES (${options.tenantId}, 'Test', ${now}, ${now}, ${expectedSchemaVersion()})`;
   return {
     store: createPostgresSessionStore({ ...options, sql }),
     dispose: () => database.drop(),

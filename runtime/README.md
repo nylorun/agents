@@ -28,13 +28,17 @@ A Runtime serves one **Tenant**: an installation is one Runtime with its own
 Postgres database, Restate and S2 basin, and two Tenants are two installations. No
 Tenant state lives only in the Runtime process. The Tenant's data is its Postgres
 database, in the fixed schemas `nylorun` (its state: the Session Store) and
-`nylorun_streams` (the record of its session events). The Host migrates the database
-and, on first start, creates the Tenant there: its id (`NYLORUN_TENANT_ID`, default a
+`nylorun_streams` (the record of its session events). Drizzle defines the tables
+(`src/store/postgres/schema.ts`) and generates the migrations, which ship in the package
+(`dist/store/postgres/drizzle/`). At startup the Host applies the missing ones in one
+transaction under an advisory lock, records them in `nylorun.__drizzle_migrations`, and
+refuses a database holding a migration it does not ship (`schema-too-new`); then, on
+first start, it creates the Tenant there: its id (`NYLORUN_TENANT_ID`, default a
 new one), its name (`NYLORUN_TENANT_NAME`, default `default`), its Studio principal and
 the derived principals (`NYLORUN_DERIVED_PRINCIPALS`, default `project`) whose keys the
 admin key derives. A database written by a Runtime that kept several Tenants in one
-database (`tenant_<id>` schemas) is refused: this release starts fresh on a new
-database. Restate runs one advance of a session at a time and holds the Tenant's sweep
+database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per database
+(`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time and holds the Tenant's sweep
 timer (Durable Session Execution); every session's events are relayed from the record to
 its own S2 stream, which history and SSE read (Durable Streams). One image runs every **service**,
 and `--service` picks what a process runs: `core` serves the Tenant API, Admin
@@ -206,7 +210,7 @@ writes the Project link; the project's `npm run dev` runs `src/main.ts` under
 | `GET /ready` is 503 and `/v1/admin/status` names a `tenant.cause` | The Tenant could not be opened; every Tenant request is the opaque `404`. Follow the cause's `repair`, then restart the Runtime |
 | `corrupt` / `migration-failed` / `envelope-invalid` / `open-failed` / `open-timeout` | Follow the cause's `repair` string |
 | `schema-too-new` | Run a Runtime at least as new as the one that migrated the database |
-| `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime: point the Runtime at a new database (a new stack); the old one is left as it is |
+| `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime, or the `schema_version` tables of a pre-release one: point the Runtime at a new database (a new stack); the old one is left as it is |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |

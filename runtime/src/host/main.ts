@@ -28,7 +28,7 @@ import { hostPrincipals } from "../tenant/principals.js";
 import { createPostgresTenantOpener } from "../tenant/store-pg.js";
 import { openTenantRuntime } from "../tenant/runtime.js";
 import { createPgoutputSource } from "../adapters/replication/pgoutput.js";
-import { assertLogicalReplication } from "../store/postgres/migrations/shared/index.js";
+import { assertLogicalReplication } from "../store/postgres/connect.js";
 import { createPostgresRecordReader } from "../store/postgres/record.js";
 import { createStreamRelay, type StreamRelay } from "../streams/relay/core.js";
 import type { HostConfigFile, HostCredentialsFile } from "./config.js";

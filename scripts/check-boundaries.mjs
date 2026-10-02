@@ -32,8 +32,9 @@ const moduleImports = {
       forbidden: ["tenant", "core", "api", "store", "host", "execution"],
       except: [],
     },
-    // The record module (blueprint D27) is the write path into the shared record. It may use
-    // the store's schema names but never tenant, engine, API, gate or stream code.
+    // The record module (blueprint D27) is the write path into the record. It runs its
+    // statements through the store's RecordWriter and never imports tenant, engine, API, gate
+    // or stream code.
     {
       dir: "record",
       forbidden: ["tenant", "core", "api", "host", "execution", "gates", "streams"],
@@ -54,17 +55,27 @@ const restrictedModules = {
     { modules: ["vault/host-model.js"], importers: ["gates", "vault"] },
   ],
 };
-// Only the record module (and the migrations that create the tables) inserts into the shared
-// record. Other code may read it, and the stores delete a Tenant's rows on reset.
+// Only the record module inserts into the record, as SQL or through Drizzle's query builder. Its
+// two Postgres statements sit behind the driver boundary in store/postgres/record-writer.ts,
+// which only the record module calls (`RecordWriter`). Other code may read the record, and the
+// store deletes its rows on reset.
 const recordInserts = {
   runtime: {
-    dirs: ["record", "store/postgres/migrations"],
-    pattern: /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads)/,
+    dirs: ["record"],
+    files: ["store/postgres/record-writer"],
+    pattern:
+      /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads)|\.insert\(\s*(?:sessionEvents|sessionLogHeads)\b/,
   },
 };
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.
 const httpFramework = {
   runtime: { packages: ["hono", "@hono/[^/\"']+", "@asteasolutions/[^/\"']+"], dirs: ["host", "api"] },
+};
+// The Session Store's driver and query builder stay behind store/postgres/ (session-store.md §3):
+// postgres.js and drizzle-orm are imported there only; drizzle-kit is a development tool and is
+// never imported by shipped code.
+const storeDriver = {
+  runtime: { packages: ["postgres", "drizzle-orm"], dir: ["store", "postgres"], devOnly: ["drizzle-kit"] },
 };
 const files = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -138,8 +149,22 @@ export function checkBoundaries(name) {
       const inserts = recordInserts[name];
       if (inserts && (relative[0] === "src" || relative[0] === "dist")) {
         const inside = relative.slice(1).join("/");
-        if (!inserts.dirs.some((dir) => inside.startsWith(`${dir}/`)) && inserts.pattern.test(source))
+        const allowed =
+          inserts.dirs.some((dir) => inside.startsWith(`${dir}/`)) ||
+          inserts.files.includes(inside.replace(/\.(?:d\.ts|ts|js)$/, ""));
+        if (!allowed && inserts.pattern.test(source))
           throw new Error(`${path} inserts into the record; only record/ may (blueprint D27)`);
+      }
+      const store = storeDriver[name];
+      if (store) {
+        const [, ...rest] = path.slice(join(root, name).length).split(/[\\/]/).slice(1);
+        const within = store.dir.every((part, index) => rest[index] === part);
+        const imports = (packages) =>
+          new RegExp(`(?:from\\s*|import\\s*\\()["'](?:${packages.join("|")})(?:/[^"']*)?["']`).test(source);
+        if (imports(store.packages) && !within)
+          throw new Error(`${path} imports the Session Store's driver; only ${store.dir.join("/")}/ may`);
+        if (imports(store.devOnly))
+          throw new Error(`${path} imports ${store.devOnly.join(", ")}, a development tool`);
       }
       const http = httpFramework[name];
       if (http) {

@@ -2,12 +2,13 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { decodeCursor } from "../../src/record/index.js";
 import {
+  assertLogicalReplication,
   createPostgresClient,
   type PostgresClient,
 } from "../../src/store/postgres/connect.js";
 import { lockSessions } from "../../src/store/postgres/locking.js";
-import { POSTGRES_SCHEMA_VERSION } from "../../src/store/postgres/migrations/index.js";
-import { TENANT_SCHEMA } from "../../src/store/postgres/names.js";
+import { expectedSchemaVersion } from "../../src/store/postgres/migrate.js";
+import { TENANT_SCHEMA } from "../../src/store/postgres/schema.js";
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { SessionStore } from "../../src/store/types.js";
@@ -36,7 +37,7 @@ async function freshTenant(): Promise<{ tenantId: string; sql: PostgresClient; u
   const now = new Date().toISOString();
   await sql`
     INSERT INTO ${sql(`${TENANT_SCHEMA}.tenant`)} (id, name, created_at, updated_at, schema_version)
-    VALUES (${tenantId}, 'Test', ${now}, ${now}, ${POSTGRES_SCHEMA_VERSION})`;
+    VALUES (${tenantId}, 'Test', ${now}, ${now}, ${expectedSchemaVersion()})`;
   return { tenantId, sql, url };
 }
 
@@ -167,15 +168,22 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       expect(await two.tx((t) => t.counts())).toMatchObject({ sessions: 0 });
     });
 
+    it("finds logical replication on the test stack", async () => {
+      const { sql } = await open();
+      await expect(assertLogicalReplication(sql)).resolves.toBeUndefined();
+    });
+
     it("reports health against the schema version", async () => {
       const { store, schema, sql } = await open();
+      const latest = expectedSchemaVersion();
       expect(await store.health()).toEqual({
         ok: true,
-        schemaVersion: POSTGRES_SCHEMA_VERSION,
-        expectedSchemaVersion: POSTGRES_SCHEMA_VERSION,
+        schemaVersion: latest,
+        expectedSchemaVersion: latest,
       });
-      await sql`INSERT INTO ${sql(`${schema}.schema_version`)} (version, name) VALUES (99, 'future')`;
-      expect(await store.health()).toMatchObject({ ok: false, schemaVersion: 99 });
+      // A migration of a newer Runtime in the journal.
+      await sql`INSERT INTO ${sql(`${schema}.__drizzle_migrations`)} (hash, created_at) VALUES ('future', 0)`;
+      expect(await store.health()).toMatchObject({ ok: false, schemaVersion: latest + 1 });
       await sql`DROP SCHEMA ${sql(schema)} CASCADE`;
       expect(await store.health()).toMatchObject({ ok: false, schemaVersion: 0 });
     });

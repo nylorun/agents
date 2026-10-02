@@ -63,6 +63,18 @@ import type {
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { HostEffect } from "@nylorun/harness/run";
+import type {
+  ModelBudgetRow,
+  ModelUsageRow,
+  PrincipalRow,
+  PublishableKeyRow,
+  SigningKeyRow,
+  SubjectUsageRow,
+  VaultAuditRow,
+  VaultCredentialRow,
+  VaultIdempotencyRow,
+  VaultRow,
+} from "./postgres/schema.js";
 
 // ---------------------------------------------------------------------------
 // Documents
@@ -249,84 +261,25 @@ export type EndpointHealthUpdate =
   /** A ping was answered with what the endpoint serves. */
   | { kind: "served"; implementationVersion: string; manifestHash?: string };
 
-export interface PrincipalRow {
-  id: string;
-  role: "application" | (string & {});
-  tokenHash: string;
-  idempotencyKey: string | null;
-  createdAt: string;
-}
-
-export interface VaultRow {
-  id: string;
-  name: string;
-  ownerUserId: string;
-  /** JSON text, or null. */
-  metadataJson: string | null;
-  createdAt: string;
-  scope: "user" | "host";
-}
-
-/** Envelope-encrypted secret material. Always in columns, never inside a JSON body. */
-export interface SealedSecret {
-  kekId: string;
-  nonce: Uint8Array;
-  ciphertext: Uint8Array;
-  wrappedDek: Uint8Array;
-}
-
-/** A Tenant signing key (subject tokens). The private key is sealed; the public JWK is not. */
-export interface SigningKeyRow extends SealedSecret {
-  id: string;
-  state: "standby" | "current" | "previous" | "revoked";
-  alg: "ES256";
-  /** JSON text of the public JWK. */
-  publicJwk: string;
-  createdAt: string;
-  activatedAt: string | null;
-  retiredAt: string | null;
-  revokedAt: string | null;
-}
-
-/** A publishable key (Host feature `browser-access`). Public by design. */
-export interface PublishableKeyRow {
-  id: string;
-  key: string;
-  name: string;
-  /** JSON array of allowed origins. */
-  originsJson: string;
-  createdAt: string;
-  revokedAt: string | null;
-}
-
-/** A subject's turn bucket (subject limits): tokens left and when they were last refilled. */
-export interface SubjectUsageRow {
-  subject: string;
-  turnTokens: number;
-  refilledAt: string;
-}
-
-/** One model call in the usage ledger (P1.3). Token counts are 0 when the provider sent none. */
-export interface ModelUsageRow {
-  id: string;
-  /** The model effect's id; unique per Tenant, since it carries the turn id. */
-  effectKey: string;
-  sessionId: string;
-  turnId: string;
-  agentId: string;
-  provider: string | null;
-  model: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  cachedTokens: number;
-  cacheWriteTokens: number;
-  reasoningTokens: number;
-  costUsd: number;
-  /** True when an earlier row has the same `effectKey`: the provider billed the call twice. */
-  duplicate: boolean;
-  createdAt: string;
-}
+/**
+ * The rows of the typed tables, inferred from the tables Drizzle defines
+ * (`store/postgres/schema.ts`): a principal, a vault and its credentials (secrets sealed in
+ * `bytea` columns, never inside a JSON body), the vault's audit and idempotency records, the
+ * Tenant's signing keys, a subject's turn bucket, a publishable key, a model call in the usage
+ * ledger and a model budget.
+ */
+export type {
+  ModelBudgetRow,
+  ModelUsageRow,
+  PrincipalRow,
+  PublishableKeyRow,
+  SigningKeyRow,
+  SubjectUsageRow,
+  VaultAuditRow,
+  VaultCredentialRow,
+  VaultIdempotencyRow,
+  VaultRow,
+};
 
 /** Which rows of the usage ledger a total covers. */
 export interface ModelUsageQuery {
@@ -343,53 +296,10 @@ export interface ModelUsageTotals {
   costUsd: number;
 }
 
-/** A hard cap on model spend (P1.3). At least one limit is set. */
-export interface ModelBudgetRow {
-  scope: "tenant" | "agent" | "turn";
-  /** The agent id for `agent`; `*` for `tenant` and `turn` (every turn). */
-  scopeId: string;
-  /** The UTC period spend is counted over; null for `turn`. */
-  period: "day" | "month" | null;
-  limitUsd: number | null;
-  limitTokens: number | null;
-  updatedAt: string;
-}
-
-export interface VaultCredentialRow extends SealedSecret {
-  id: string;
-  vaultId: string;
-  name: string;
-  type: "bearer" | "oauth" | "model";
-  /** JSON text of the non-secret binding (url, or provider and model). */
-  bindingJson: string;
-  expiresAt: string | null;
-  createdAt: string;
-  rotatedAt: string | null;
-}
-
 /** Fields `updateCredential` may change. */
 export type VaultCredentialPatch = Partial<
   Omit<VaultCredentialRow, "id" | "vaultId" | "createdAt">
 >;
-
-export interface VaultAuditRow {
-  id: string;
-  at: string;
-  actor: string;
-  action: string;
-  vaultId: string | null;
-  credentialId: string | null;
-  sessionId: string | null;
-  target: string | null;
-  outcome: string;
-}
-
-export interface VaultIdempotencyRow {
-  id: string;
-  bodyHash: string;
-  /** JSON text of the original response. */
-  response: string;
-}
 
 // ---------------------------------------------------------------------------
 // Queries

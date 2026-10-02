@@ -38,6 +38,22 @@ for (const path of [
   "LICENSE",
 ])
   if (!files.includes(path)) throw new Error(`Missing ${path}`);
+// The Session Store's migrations, read next to the built runner (`store/postgres/migrate.ts`).
+const migrations = "dist/store/postgres/drizzle";
+const journal = JSON.parse(readFileSync(`${migrations}/meta/_journal.json`, "utf8"));
+if (journal.entries.length === 0) throw new Error("The migration journal is empty");
+for (const path of [
+  `${migrations}/meta/_journal.json`,
+  ...journal.entries.map(({ tag }) => `${migrations}/${tag}.sql`),
+])
+  if (!files.includes(path)) throw new Error(`Missing ${path}: the build copies the migrations`);
+for (const path of files)
+  if (path.startsWith(`${migrations}/`) && !path.endsWith(".sql") && path !== `${migrations}/meta/_journal.json`)
+    throw new Error(`${path} must not be packed: only the migrations and their journal ship`);
+if (files.includes("drizzle.config.ts") || pkg.dependencies?.["drizzle-kit"])
+  throw new Error("drizzle-kit and its configuration are for development only");
+if (!pkg.dependencies?.["drizzle-orm"])
+  throw new Error("The Session Store runs on drizzle-orm: it must be a dependency");
 // The packed OpenAPI documents are the routes' (`openapi/` is their committed snapshot).
 execFileSync(process.execPath, ["scripts/build-openapi.mjs", "--check"], { stdio: "inherit" });
 console.log("Runtime Node host package checks passed.");

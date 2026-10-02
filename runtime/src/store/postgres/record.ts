@@ -7,34 +7,43 @@
  * that Tenant (`tenantId`), fills `RecordRow.tenantId` and `LogHead.tenantId` with it, and
  * reads nothing for any other id.
  */
+import { and, asc, eq, gt, gte, lt } from "drizzle-orm";
 import type { Sql } from "postgres";
 import type { LogHead, RecordReader, RecordRow } from "../../streams/relay/types.js";
-import { STREAMS_SCHEMA } from "./migrations/shared/index.js";
-import { TENANT_SCHEMA } from "./names.js";
+import { database, driverError } from "./db.js";
+import { sessionEvents, sessionLogHeads, tenant } from "./schema.js";
 
 export function createPostgresRecordReader(
   sql: Sql,
   options: { tenantId: string },
 ): RecordReader {
   const own = options.tenantId;
-  const events = sql(`${STREAMS_SCHEMA}.session_events`);
-  const heads = sql(`${STREAMS_SCHEMA}.session_log_heads`);
+  const db = database(sql);
+  const read = <T>(query: PromiseLike<T>): Promise<T> =>
+    Promise.resolve(query).catch((error: unknown) => {
+      throw driverError(error);
+    });
   return {
     async readRange(tenantId, sessionId, from, to) {
       if (tenantId !== own) return [];
-      const rows = await sql<{ seq: string; generation: number; body: unknown }[]>`
-        SELECT seq, generation, body FROM ${events}
-        WHERE session_id = ${sessionId} AND seq >= ${from} AND seq < ${to}
-        ORDER BY seq`;
-      return rows.map(
-        (row): RecordRow => ({
-          tenantId,
-          sessionId,
-          seq: Number(row.seq),
-          generation: row.generation,
-          body: row.body,
-        }),
+      const rows = await read(
+        db
+          .select({
+            seq: sessionEvents.seq,
+            generation: sessionEvents.generation,
+            body: sessionEvents.body,
+          })
+          .from(sessionEvents)
+          .where(
+            and(
+              eq(sessionEvents.sessionId, sessionId),
+              gte(sessionEvents.seq, from),
+              lt(sessionEvents.seq, to),
+            ),
+          )
+          .orderBy(asc(sessionEvents.seq)),
       );
+      return rows.map((row): RecordRow => ({ tenantId, sessionId, ...row }));
     },
 
     async heads(after, limit) {
@@ -42,28 +51,33 @@ export function createPostgresRecordReader(
       // Tenant id that sorts before it, and none after one that sorts after it.
       if (after && after.tenantId > own) return [];
       const from = after?.tenantId === own ? after.sessionId : undefined;
-      const rows = await sql<{ session_id: string; generation: number; head: string }[]>`
-        SELECT session_id, generation, head FROM ${heads}
-        WHERE head > 0
-          ${from === undefined ? sql`` : sql`AND session_id > ${from}`}
-        ORDER BY session_id
-        LIMIT ${limit}`;
-      return rows.map(
-        (row): LogHead => ({
-          tenantId: own,
-          sessionId: row.session_id,
-          generation: row.generation,
-          head: Number(row.head),
-        }),
+      const rows = await read(
+        db
+          .select({
+            sessionId: sessionLogHeads.sessionId,
+            generation: sessionLogHeads.generation,
+            head: sessionLogHeads.head,
+          })
+          .from(sessionLogHeads)
+          .where(
+            and(
+              gt(sessionLogHeads.head, 0),
+              from === undefined ? undefined : gt(sessionLogHeads.sessionId, from),
+            ),
+          )
+          .orderBy(asc(sessionLogHeads.sessionId))
+          .limit(limit),
       );
+      return rows.map((row): LogHead => ({ tenantId: own, ...row }));
     },
 
     async generation(tenantId) {
       if (tenantId !== own) return undefined;
-      const [row] = await sql<{ basin_generation: number }[]>`
-        SELECT basin_generation FROM ${sql(`${TENANT_SCHEMA}.tenant`)}`;
+      const [row] = await read(
+        db.select({ generation: tenant.basinGeneration }).from(tenant),
+      );
       // A database whose Tenant row is not written yet is at generation 0.
-      return row ? Number(row.basin_generation) : 0;
+      return row?.generation ?? 0;
     },
   };
 }

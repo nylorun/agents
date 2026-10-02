@@ -3,14 +3,14 @@
  * Tenant: its state in the schema `nylorun`, its record in `nylorun_streams`, and its
  * envelope in the one row of `nylorun.tenant`. There is no catalog.
  *
- * `openTenantDatabase` runs in one transaction, under the advisory locks of both schemas, so
- * several processes starting at once migrate and create once:
+ * `openTenantDatabase` runs in one transaction, under the database's migration lock
+ * (`migrate.ts`), so several processes starting at once migrate and create once:
  *
- * 1. Refuse an old layout: a database with `tenant_<id>` schemas, or a record keyed by
- *    Tenant, was written by a Runtime from before one Tenant per installation
- *    (`database-layout-old`). It is never touched: this release starts fresh.
- * 2. Migrate `nylorun_streams`, then `nylorun`. A schema newer than this Runtime is
- *    `schema-too-new`; a migration Postgres rejects is `migration-failed`.
+ * 1. Refuse an old layout (`database-layout-old`): `tenant_<id>` schemas or a record keyed by
+ *    Tenant (a Runtime from before one Tenant per installation), or the `schema_version`
+ *    tables of a pre-release build of it. It is never touched: this release starts fresh.
+ * 2. Apply the missing migrations (`migrate.ts`). A database with migrations this Runtime
+ *    does not know is `schema-too-new`; a migration Postgres rejects is `migration-failed`.
  * 3. When `nylorun.tenant` is empty, create the Tenant: its row (id, name, created time) and
  *    its first principals. A database whose row is gone but that holds a Tenant's data
  *    (principals, sessions, agents, vaults, keys) is `envelope-invalid`, never given a new
@@ -21,7 +21,8 @@
  * A lost connection or an unavailable server says nothing about the Tenant: it is thrown as
  * it is, never as a cause.
  */
-import type { Sql, TransactionSql } from "postgres";
+import { sql } from "drizzle-orm";
+import type { Sql } from "postgres";
 import { isTenantId, newTenantId } from "@nylorun/core/compatibility";
 import {
   TenantEnvelopeSchema,
@@ -29,18 +30,24 @@ import {
 } from "@nylorun/core/contracts";
 import { openError, TenantOpenError } from "../../tenant/cause.js";
 import type { SessionStore } from "../types.js";
+import { database, driverError, type Queryable, type Transaction } from "./db.js";
 import {
-  MIGRATIONS,
-  lockSchema,
-  migrateSchemaInTx,
-  readSchemaVersion,
+  applyMigrations,
+  assertCurrentLayout,
+  isStatementError,
+  lockMigrations,
+  shippedMigrations,
   type Migration,
-} from "./migrations/index.js";
+} from "./migrate.js";
 import {
-  STREAMS_SCHEMA,
-  migrateStreamsSchemaInTx,
-} from "./migrations/shared/index.js";
-import { OLD_TENANT_SCHEMA_PREFIX, TENANT_SCHEMA } from "./names.js";
+  definitions,
+  principals,
+  sessions,
+  signingKeys,
+  TENANT_SCHEMA,
+  tenant,
+  vaults,
+} from "./schema.js";
 import { createPostgresSessionStore } from "./store.js";
 
 /** An application principal the Tenant is created with (or given later). */
@@ -71,7 +78,7 @@ export interface OpenTenantDatabaseOptions {
   now?: () => Date;
   /** Passed to the store (post-commit failures). */
   onError?: (error: unknown) => void;
-  /** Tests only: the Tenant schema migrations this Runtime knows. */
+  /** Tests only: the migrations this Runtime knows. Default: the shipped ones. */
   migrations?: readonly Migration[];
 }
 
@@ -80,7 +87,7 @@ export interface OpenedTenantDatabase {
   envelope: TenantEnvelope;
   /** This call created the Tenant. */
   created: boolean;
-  /** The Tenant schema's versions before and after. */
+  /** The schema versions (applied migrations) before and after. */
   migrated: { from: number; to: number };
 }
 
@@ -91,32 +98,21 @@ export interface OpenedTenantDatabase {
 export async function openTenantDatabase(
   options: OpenTenantDatabaseOptions,
 ): Promise<OpenedTenantDatabase> {
-  const { sql } = options;
+  const { sql: pool } = options;
+  const db = database(pool);
   const now = options.now ?? (() => new Date());
-  const migrations = options.migrations ?? MIGRATIONS;
-  const latest = migrations.length;
+  const migrations = options.migrations ?? shippedMigrations();
   let outcome: { created: boolean; migrated: { from: number; to: number } };
   try {
-    outcome = await sql.begin(async (tx) => {
-      // Always streams first, then the Tenant schema: one order for every process.
-      await lockSchema(tx, STREAMS_SCHEMA);
-      await lockSchema(tx, TENANT_SCHEMA);
+    outcome = await db.transaction(async (tx) => {
+      await lockMigrations(tx);
       await assertCurrentLayout(tx);
-      await migrateStreamsSchemaInTx(tx);
-      let migrated: { from: number; to: number };
-      try {
-        migrated = await migrateSchemaInTx(tx, TENANT_SCHEMA, migrations);
-      } catch (error) {
-        if (error instanceof TenantOpenError || !isStatementError(error)) throw error;
-        throw openError(
-          "migration-failed",
-          `Migrating the ${TENANT_SCHEMA} schema failed: ${(error as Error).message}`,
-        );
-      }
-      const created = await ensureTenant(tx, options.create, latest, now);
+      const migrated = await applyMigrations(tx, migrations);
+      const created = await ensureTenant(tx, options.create, migrated, now);
       return { created, migrated };
     });
-  } catch (error) {
+  } catch (thrown) {
+    const error = driverError(thrown);
     if (!(error instanceof TenantOpenError) && !isStatementError(error)) throw error;
     // A statement of the bootstrap itself (the layout check, the Tenant row) was rejected.
     const failure =
@@ -125,15 +121,15 @@ export async function openTenantDatabase(
         : openError("open-failed", `Opening the Tenant database failed: ${(error as Error).message}`);
     // Name the Tenant when its row reads (a database newer than this Runtime, say).
     if (failure.code !== "database-layout-old")
-      failure.envelope ??= await readTenantEnvelope(sql).catch(() => undefined);
+      failure.envelope ??= await readTenantEnvelope(db).catch(() => undefined);
     throw failure;
   }
-  const envelope = await readTenantEnvelope(sql);
+  const envelope = await readTenantEnvelope(db);
   if (!envelope) throw openError("envelope-invalid", "The Tenant row is missing");
   const store = createPostgresSessionStore({
-    sql,
+    sql: pool,
     tenantId: envelope.id,
-    schemaVersion: latest,
+    schemaVersion: migrations.length,
     ...(options.now ? { now: options.now } : {}),
     ...(options.onError ? { onError: options.onError } : {}),
   });
@@ -143,78 +139,55 @@ export async function openTenantDatabase(
 /**
  * The Tenant's envelope, or undefined when the database holds no Tenant yet (no `nylorun`
  * schema, or an empty `tenant` table). Throws `envelope-invalid` when the row does not parse.
+ * Takes the pool or a Drizzle database or transaction on it.
  */
 export async function readTenantEnvelope(
-  q: Sql | TransactionSql,
+  q: Sql | Queryable,
 ): Promise<TenantEnvelope | undefined> {
-  const [exists] = await q<{ exists: boolean }[]>`
-    SELECT to_regclass(${`${TENANT_SCHEMA}.tenant`}) IS NOT NULL AS exists`;
-  if (!exists?.exists) return undefined;
-  const rows = await q`
-    SELECT id, name, created_at, updated_at, schema_version
-    FROM ${q(`${TENANT_SCHEMA}.tenant`)}`;
-  if (rows.length === 0) return undefined;
-  const row = rows[0]!;
-  const parsed = TenantEnvelopeSchema.safeParse({
-    id: row.id,
-    name: row.name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    schemaVersion: row.schema_version,
-  });
-  if (!parsed.success || !isTenantId(parsed.data.id))
-    throw openError("envelope-invalid", "The Tenant row is not valid");
-  return parsed.data;
+  const db = typeof q === "function" ? database(q) : q;
+  try {
+    const [table] = await db.execute<{ exists: boolean }>(sql`
+      SELECT to_regclass(${`${TENANT_SCHEMA}.tenant`}) IS NOT NULL AS exists`);
+    if (!table?.exists) return undefined;
+    const [row] = await db
+      .select({
+        id: tenant.id,
+        name: tenant.name,
+        createdAt: tenant.createdAt,
+        updatedAt: tenant.updatedAt,
+        schemaVersion: tenant.schemaVersion,
+      })
+      .from(tenant);
+    if (!row) return undefined;
+    const parsed = TenantEnvelopeSchema.safeParse(row);
+    if (!parsed.success || !isTenantId(parsed.data.id))
+      throw openError("envelope-invalid", "The Tenant row is not valid");
+    return parsed.data;
+  } catch (error) {
+    throw driverError(error);
+  }
 }
 
 /**
- * Throws `database-layout-old` when the database was written by a Runtime that kept several
- * Tenants in one database: `tenant_<id>` schemas, or a record keyed by Tenant.
+ * Creates the Tenant when there is none, and adds the principals it is missing. Records the
+ * schema version on the Tenant row when this transaction migrated.
  */
-export async function assertCurrentLayout(q: Sql | TransactionSql): Promise<void> {
-  const [row] = await q<{ tenant_schemas: boolean; keyed_record: boolean }[]>`
-    SELECT
-      EXISTS (
-        SELECT 1 FROM pg_namespace WHERE starts_with(nspname, ${OLD_TENANT_SCHEMA_PREFIX})
-      ) AS tenant_schemas,
-      EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = ${STREAMS_SCHEMA} AND table_name = 'session_events'
-          AND column_name = 'tenant_id'
-      ) AS keyed_record`;
-  if (row?.tenant_schemas || row?.keyed_record)
-    throw openError(
-      "database-layout-old",
-      "The database was written by an older Runtime that kept several Tenants in one database " +
-        "(tenant_<id> schemas). This release starts fresh with one Tenant per database and " +
-        "never changes the old one: point the Runtime at a new database (with the local stack, " +
-        "start a new stack).",
-    );
-}
-
-/** The Tenant schema's version: undefined before the database is migrated. */
-export function readTenantSchemaVersion(q: Sql | TransactionSql): Promise<number | undefined> {
-  return readSchemaVersion(q, TENANT_SCHEMA);
-}
-
-/** Creates the Tenant when there is none, and adds the principals it is missing. */
 async function ensureTenant(
-  tx: TransactionSql,
+  tx: Transaction,
   create: TenantCreation,
-  schemaVersion: number,
+  migrated: { from: number; to: number },
   now: () => Date,
 ): Promise<boolean> {
-  const [existing] = await tx<{ id: string }[]>`
-    SELECT id FROM ${tx(`${TENANT_SCHEMA}.tenant`)}`;
+  const [existing] = await tx.select({ id: tenant.id }).from(tenant);
   const createdAt = now().toISOString();
   let tenantId = existing?.id;
   if (tenantId === undefined) {
-    const [data] = await tx<{ held: boolean }[]>`
-      SELECT EXISTS (SELECT 1 FROM ${tx(`${TENANT_SCHEMA}.principals`)})
-        OR EXISTS (SELECT 1 FROM ${tx(`${TENANT_SCHEMA}.sessions`)})
-        OR EXISTS (SELECT 1 FROM ${tx(`${TENANT_SCHEMA}.definitions`)})
-        OR EXISTS (SELECT 1 FROM ${tx(`${TENANT_SCHEMA}.vaults`)})
-        OR EXISTS (SELECT 1 FROM ${tx(`${TENANT_SCHEMA}.signing_keys`)}) AS held`;
+    const [data] = await tx.execute<{ held: boolean }>(sql`
+      SELECT EXISTS (SELECT 1 FROM ${principals})
+        OR EXISTS (SELECT 1 FROM ${sessions})
+        OR EXISTS (SELECT 1 FROM ${definitions})
+        OR EXISTS (SELECT 1 FROM ${vaults})
+        OR EXISTS (SELECT 1 FROM ${signingKeys}) AS held`);
     if (data?.held)
       throw openError(
         "envelope-invalid",
@@ -223,29 +196,27 @@ async function ensureTenant(
     tenantId = create.tenantId ?? newTenantId();
     if (!isTenantId(tenantId)) throw new Error(`Invalid Tenant id: ${tenantId}`);
     if (!create.name) throw new Error("A Tenant needs a name");
-    await tx`
-      INSERT INTO ${tx(`${TENANT_SCHEMA}.tenant`)} (id, name, created_at, updated_at, schema_version)
-      VALUES (${tenantId}, ${create.name}, ${createdAt}, ${createdAt}, ${schemaVersion})`;
+    await tx.insert(tenant).values({
+      id: tenantId,
+      name: create.name,
+      createdAt,
+      updatedAt: createdAt,
+      schemaVersion: migrated.to,
+    });
+  } else if (migrated.from !== migrated.to) {
+    await tx.update(tenant).set({ schemaVersion: migrated.to });
   }
   for (const principal of create.principals?.(tenantId) ?? [])
     // A principal with this id or this key already exists: it is kept as it is.
-    await tx`
-      INSERT INTO ${tx(`${TENANT_SCHEMA}.principals`)} (id, role, token_hash, idempotency_key, created_at)
-      VALUES (${principal.id}, 'application', ${principal.credentialHash}, NULL, ${createdAt})
-      ON CONFLICT DO NOTHING`;
+    await tx
+      .insert(principals)
+      .values({
+        id: principal.id,
+        role: "application",
+        tokenHash: principal.credentialHash,
+        idempotencyKey: null,
+        createdAt,
+      })
+      .onConflictDoNothing();
   return existing === undefined;
-}
-
-/**
- * Whether Postgres rejected a statement (a SQLSTATE), rather than the connection or the
- * server failing (classes 08, 53, 57, and the driver's own connection errors). Only the
- * first says something about the Tenant's database.
- */
-function isStatementError(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
-  return (
-    typeof code === "string" &&
-    /^[0-9A-Z]{5}$/.test(code) &&
-    !/^(08|53|57)/.test(code)
-  );
 }

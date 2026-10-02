@@ -503,15 +503,16 @@ async function i4(stack, admin) {
   assert.equal((await admin.status()).tenant.id, id, "the same Tenant after a restart");
   pass("I4", "a stack restart restores sessions and agents");
 
-  // The Tenant's state is in schema "nylorun" with a schema_version table
-  // (runtime/src/store/postgres/migrations).
+  // The Runtime records the migrations it applied in Drizzle's journal,
+  // nylorun.__drizzle_migrations (runtime/src/store/postgres/migrate.ts). A migration this
+  // Runtime does not ship is one a newer Runtime applied.
   assert.equal(
-    await stack.psql(`SELECT to_regclass('nylorun.schema_version') IS NOT NULL`),
+    await stack.psql(`SELECT count(*) > 0 FROM nylorun.__drizzle_migrations`),
     "t",
-    "schema nylorun has a schema_version table",
+    "the database has a migration journal",
   );
   await stack.psql(
-    `INSERT INTO nylorun.schema_version (version, name) VALUES (999999, 'from-a-newer-runtime')`,
+    `INSERT INTO nylorun.__drizzle_migrations (hash, created_at) VALUES ('from-a-newer-runtime', 9999999999999)`,
   );
   // Only the Runtime restarts: `nylorun start` would wait for the Tenant to open.
   await stack.compose(["restart", "runtime"]);

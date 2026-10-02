@@ -1,10 +1,12 @@
 /**
  * The Host's Postgres pool bounds statements and idle transactions, so one that hangs cannot
- * hold a shared connection forever; schema migrations under `lockSchema` are not bounded.
+ * hold a shared connection forever; migrations under `lockMigrations` are not bounded.
  */
 import { afterAll, describe, expect, it } from "vitest";
 import { createPostgresClient, type PostgresClient } from "../../src/store/postgres/connect.js";
-import { lockSchema } from "../../src/store/postgres/migrations/index.js";
+import { sql as fragment } from "drizzle-orm";
+import { database } from "../../src/store/postgres/db.js";
+import { lockMigrations } from "../../src/store/postgres/migrate.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 
 describe.skipIf(!STACK_ENABLED)("Postgres pool timeouts", () => {
@@ -46,11 +48,11 @@ describe.skipIf(!STACK_ENABLED)("Postgres pool timeouts", () => {
     expect(await sql`SELECT 1 AS ok`).toEqual([{ ok: 1 }]);
   });
 
-  it("lifts the statement timeout for a transaction under the schema lock", async () => {
+  it("lifts the statement timeout for a transaction under the migration lock", async () => {
     const sql = client({ statementTimeoutMs: 100 });
-    await sql.begin(async (tx) => {
-      await lockSchema(tx, "nylorun_test_timeouts");
-      await tx`SELECT pg_sleep(0.3)`;
+    await database(sql).transaction(async (tx) => {
+      await lockMigrations(tx);
+      await tx.execute(fragment`SELECT pg_sleep(0.3)`);
     });
     // Only for that transaction.
     await expect(sql`SELECT pg_sleep(1)`).rejects.toMatchObject({ code: "57014" });

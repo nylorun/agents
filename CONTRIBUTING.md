@@ -107,6 +107,28 @@ run; the examples' tests use it too. Manage it yourself with
 --workspace @nylorun/runtime`; set `NYLORUN_TEST_STACK_EXTERNAL=1` to make the tests fail
 instead of starting it, and the `NYLORUN_TEST_*_PORT` variables to move its ports.
 
+### Adding a migration
+
+Drizzle defines the Session Store's tables in `runtime/src/store/postgres/schema.ts`, and
+drizzle-kit generates the migrations from it into `runtime/src/store/postgres/drizzle/`
+(SQL files, `meta/_journal.json`, and the snapshots drizzle-kit diffs against). The build
+copies the SQL files and the journal into `dist/`; the Host applies the missing ones at
+startup and refuses a database holding one it does not ship.
+
+1. Edit `schema.ts`.
+2. Run `npm run db:generate --workspace @nylorun/runtime` and review the SQL it writes. A
+   migration is forward-only: never edit, reorder or delete one that has been released.
+3. For SQL drizzle-kit does not model (functions, publications, grants, data changes), add
+   a custom migration with `npm run db:generate --workspace @nylorun/runtime --
+   --custom --name=<name>` and write the SQL into the empty file it creates; separate
+   statements with `--> statement-breakpoint`.
+4. Run the Runtime's tests: the template database every test file clones is migrated
+   with the new files.
+
+`npm run db:studio --workspace @nylorun/runtime` opens Drizzle Studio on the database in
+`NYLORUN_DATABASE_URL` (a stack's, or a test database on the test stack). drizzle-kit and
+`runtime/drizzle.config.ts` are for development only and are not published.
+
 The Runtime and Studio ship as the images `ghcr.io/nylorun/runtime` and
 `ghcr.io/nylorun/studio`, built from the repository root. To run your changes
 under `nylorun up` without `npm run dev`, build them and point `nylorun` at the

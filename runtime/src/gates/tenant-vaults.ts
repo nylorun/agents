@@ -11,11 +11,9 @@ import type { ModelFailureOutcome } from "@nylorun/core/define";
 import { isTenantId } from "@nylorun/core/compatibility";
 import { failure } from "../model/classify.js";
 import type { PostgresClient } from "../store/postgres/connect.js";
-import { POSTGRES_SCHEMA_VERSION } from "../store/postgres/migrations/index.js";
-import {
-  readTenantEnvelope,
-  readTenantSchemaVersion,
-} from "../store/postgres/tenant.js";
+import { database } from "../store/postgres/db.js";
+import { expectedSchemaVersion, readSchemaVersion } from "../store/postgres/migrate.js";
+import { readTenantEnvelope } from "../store/postgres/tenant.js";
 import { createPostgresSessionStore } from "../store/postgres/store.js";
 import { tenantPaths } from "../tenant/paths.js";
 import { readVaultKek } from "../vault/kek.js";
@@ -91,17 +89,18 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
 
   /** The database's Tenant, once its schema is at this build's version. */
   async function load(): Promise<TenantVault> {
-    const version = await readTenantSchemaVersion(sql);
+    const version = await readSchemaVersion(database(sql));
+    const expected = expectedSchemaVersion();
     if (version === undefined || version === 0)
       throw new GateRefusal(
         failure("transient", "The Tenant's database is not migrated yet; the Runtime does that when it starts", true),
       );
-    if (version !== POSTGRES_SCHEMA_VERSION)
+    if (version !== expected)
       throw new GateRefusal(
         failure(
           "transient",
-          `The Tenant is at schema version ${version}; the gateway serves version ${POSTGRES_SCHEMA_VERSION}`,
-          version < POSTGRES_SCHEMA_VERSION,
+          `The Tenant is at schema version ${version}; the gateway serves version ${expected}`,
+          version < expected,
         ),
       );
     const envelope = await readTenantEnvelope(sql).catch(() => undefined);

@@ -15,7 +15,7 @@
  */
 import { mkdirSync } from "node:fs";
 import type { PostgresClient } from "../store/postgres/connect.js";
-import type { Migration } from "../store/postgres/migrations/index.js";
+import type { Migration } from "../store/postgres/migrate.js";
 import {
   openTenantDatabase,
   type TenantCreation,
@@ -40,7 +40,7 @@ export interface PostgresTenantOptions {
   openRuntime: OpenTenantRuntime;
   configFor: (tenantId: string) => TenantConfig;
   logger?: Logger;
-  /** Tests only: the Tenant schema migrations this Runtime knows. */
+  /** Tests only: the migrations this Runtime knows. */
   migrations?: readonly Migration[];
 }
 
