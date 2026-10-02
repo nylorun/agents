@@ -1,6 +1,6 @@
 /**
  * The engine host: `resolveEffect` journals each effect before it is invoked and dispatches it
- * to the model service, the MCP pool, the SandboxManager, or an Action for the agent's endpoint.
+ * to the Model Gate, the MCP pool, the SandboxManager, or an Action for the agent's endpoint.
  * `resolveNewFlowEffect` does the same for workflow effects (linked agent sessions, tool
  * nodes, fn, verify). Also MCP preparation and vault authorization for MCP servers.
  *
@@ -40,7 +40,7 @@ import { mayDispatchMore } from "../core/limits.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import { isOwnershipLost } from "../store/ownership.js";
-import { piModel } from "../model/pi-model.js";
+import type { RuntimeModelCall } from "../contracts.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import { serversOf } from "../mcp/pool.js";
@@ -102,19 +102,17 @@ export async function invokeModel(
   try {
     if (model) return await model(request, signal);
     if (!ctx.useVaultModel) return await ctx.modelProvider(request, signal);
-    const adapter = piModel({
-      root: ctx.config.paths.home,
-      readHostModel: () => ctx.vault.readHostModel(),
-      writeHostCredential: (credential) =>
-        ctx.vault.updateHostCredential(credential),
-      ...(ctx.config.modelCall ? { settings: ctx.config.modelCall } : {}),
-    });
-    return await adapter(request.input as any, {
-      request: request.context.request as any,
-      invocationId: String(request.context.invocationId),
-      signal,
-      reportPreparedCall() {},
-    });
+    return await ctx.modelGate.call(
+      {
+        tenantId: ctx.config.tenantId,
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        effectId: request.effectId,
+        invocationId: String(request.context.invocationId),
+        call: request.input as RuntimeModelCall,
+      },
+      signal
+    );
   } catch (error) {
     if (signal.aborted) throw error;
     return classifyThrown(error);

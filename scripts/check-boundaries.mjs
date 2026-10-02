@@ -34,6 +34,17 @@ const moduleImports = {
     },
   ],
 };
+// The provider adapter runs behind the Model Gate (blueprint §15): the loop calls the gate and
+// never pi-ai, so it never holds a model credential. `node/` and `configuration.ts` re-export
+// the adapter for embedders.
+const restrictedModules = {
+  runtime: [
+    {
+      modules: ["model/pi-model.js", "model/models.js"],
+      importers: ["gates", "model", "node", "configuration.ts"],
+    },
+  ],
+};
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.
 const httpFramework = {
   runtime: { packages: ["hono", "@hono/[^/\"']+", "@asteasolutions/[^/\"']+"], dirs: ["host", "api"] },
@@ -96,6 +107,15 @@ export function checkBoundaries(name) {
             const top = target.split(/[\\/]/)[0];
             if (rule.forbidden.includes(top))
               throw new Error(`${path} imports ${match[1]}; ${rule.dir}/ must not import ${top}/`);
+          }
+        }
+      if (relative[0] === "src")
+        for (const rule of restrictedModules[name] ?? []) {
+          if (rule.importers.includes(relative[1])) continue;
+          for (const match of source.matchAll(/(?:from\s*|import\s*\()["'](\.\.?\/[^"']+)["']/g)) {
+            const target = join(dirname(path), match[1]).slice(join(root, name, "src").length + 1).split(/[\\/]/).join("/");
+            if (rule.modules.includes(target))
+              throw new Error(`${path} imports ${match[1]}; only ${rule.importers.join(", ")} may (the Model Gate)`);
           }
         }
       const http = httpFramework[name];

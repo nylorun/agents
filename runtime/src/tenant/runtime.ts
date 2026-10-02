@@ -20,10 +20,11 @@ import type { TenantEnvelope } from "@nylorun/core/contracts";
 import { resolveFlowLimits, type FlowLimits } from "../core/limits.js";
 import {
   scriptedModel,
-  gatewayModel,
   toolFixtureModel,
   type ModelProvider,
 } from "../core/provider.js";
+import type { ModelGate } from "../gates/model-gate.js";
+import { inProcessModelGate } from "../gates/in-process.js";
 import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { SigningKeys } from "./signing-keys.js";
@@ -76,6 +77,11 @@ import { tenantApi } from "../api/http/app.js";
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
   modelProvider?: ModelProvider;
+  /**
+   * Serves the Tenant's vault-backed model calls (the gates service's client). Without one,
+   * the Tenant calls the model in this process.
+   */
+  modelGate?: ModelGate;
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
@@ -223,21 +229,16 @@ export class TenantRuntime implements TenantHandle {
         modelProvider = scriptedModel(config.model.output);
       else if (config.model.kind === "fixture")
         modelProvider = toolFixtureModel();
-      else if (config.model.kind === "gateway") {
-        const gateway = config.model;
-        modelProvider = async (effect, signal) => {
-          const secret = await vault.readHostModel();
-          const token =
-            typeof secret?.credential.key === "string"
-              ? secret.credential.key
-              : "";
-          return gatewayModel({
-            url: gateway.url,
-            model: gateway.model,
-            token,
-          })(effect, signal);
-        };
-      } else modelProvider = scriptedModel();
+      else modelProvider = scriptedModel();
+      const modelGate =
+        hooks.modelGate ??
+        inProcessModelGate({
+          root: paths.home,
+          readHostModel: () => vault.readHostModel(),
+          writeHostCredential: (credential) =>
+            vault.updateHostCredential(credential),
+          ...(config.modelCall ? { settings: config.modelCall } : {}),
+        });
 
       const sessionStreams = createSessionStreams();
       const local = hooks.execution
@@ -265,6 +266,7 @@ export class TenantRuntime implements TenantHandle {
         flowLimits,
         modelProvider,
         useVaultModel,
+        modelGate,
         closing: false,
         closed: false,
         work: createWorkState(),
