@@ -45,11 +45,25 @@ try {
     assert.equal(status.project, stack.project);
     assert.equal(status.runtime.healthy, true);
     assert.equal(status.runtime.url, runtimeUrl);
-    for (const service of ["postgres", "restate", "s2", "runtime", "studio"]) {
+    for (const service of ["postgres", "restate", "s2", "gateway", "runtime", "studio"]) {
       const entry = status.services.find((s) => s.service === service);
       assert.equal(entry?.state, "running", `${service} is running`);
       assert.ok(entry.health === "" || entry.health === "healthy", `${service} is healthy`);
     }
+
+    // The combined packing: model calls cross the gateway (the Model Gate), which sees only
+    // the Tenants' directory, and the runtime holds no model credential.
+    assert.equal(status.gateway.healthy, true, "status reports the gateway healthy");
+    const printenv = async (service, name) =>
+      (await stack.compose(["exec", "-T", service, "printenv", name], { check: false })).trim();
+    assert.equal(await printenv("runtime", "NYLORUN_GATES_URL"), "http://gateway:4100");
+    assert.equal(
+      await printenv("runtime", "NYLORUN_GATES_TOKEN"),
+      await printenv("gateway", "NYLORUN_GATES_TOKEN"),
+      "the runtime and the gateway share the gates token",
+    );
+    const mounted = (await stack.compose(["exec", "-T", "gateway", "ls", "-A", "/nylorun"])).trim();
+    assert.equal(mounted, "tenants", "the gateway mounts only the tenants directory");
 
     const ready = await fetch(`${runtimeUrl}/ready`);
     const readyBody = await ready.json();

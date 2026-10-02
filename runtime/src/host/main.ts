@@ -97,6 +97,7 @@ async function runGates(stack: StackConfig): Promise<void> {
   const logger = createHostLogger();
   logger.info("host_stack_config", {
     services: [...stack.services],
+    ...(stack.packing ? { packing: stack.packing } : {}),
     endpoints: describeEndpoints(stack.endpoints),
   });
   const database = createDatabase(stack);
@@ -168,6 +169,7 @@ export async function main(): Promise<void> {
     });
   logger.info("host_stack_config", {
     services: [...stack.services],
+    ...(stack.packing ? { packing: stack.packing } : {}),
     ...(stack.services.has("loop")
       ? { modelGate: stack.modelGate ? stack.modelGate.url : "in-process" }
       : {}),

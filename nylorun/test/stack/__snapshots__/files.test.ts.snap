@@ -1,9 +1,9 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`.env > renders every setting, including the Restate identity public key 1`] = `
-"# Written by \`nylorun start\`. Mode 0600: holds the Postgres password.
-# Ports and the password are kept across starts; images, UID/GID and the
-# Host root are refreshed on every start.
+"# Written by \`nylorun start\`. Mode 0600: holds the Postgres password and the
+# gates token. Ports, the password and the token are kept across starts;
+# images, UID/GID and the Host root are refreshed on every start.
 
 # Published on 127.0.0.1; clients use http://localhost:<port>.
 NYLORUN_PORT=8787
@@ -12,6 +12,10 @@ NYLORUN_STUDIO_PORT=4161
 NYLORUN_RESTATE_PORT=9070
 
 NYLORUN_POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef
+
+# The runtime presents this token to the gateway (the Model Gate) with every
+# model call.
+NYLORUN_GATES_TOKEN=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 
 # Restate signs requests to the Runtime's Worker endpoint with the private
 # key in restate-identity.pem; the Runtime accepts only this public key.
@@ -83,9 +87,34 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
+  gateway: # the Model Gate: model credentials and provider calls; not published
+    image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
+    command: ["--service", "gates"]
+    user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NYLORUN_HOME: /nylorun
+      NYLORUN_PACKING: combined
+      NYLORUN_GATES_LISTEN_PORT: "4100"
+      NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
+      NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
+      NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+    extra_hosts:
+      host.docker.internal: host-gateway # a model server on this machine, e.g. Ollama
+    volumes:
+      # The Tenants' vault keys and homes only, read-only.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenants:/nylorun/tenants:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped
+
   runtime:
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
-    command: ["--role", "all"]
+    command: ["--service", "core,loop"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
       postgres: { condition: service_healthy }
@@ -93,6 +122,10 @@ services:
       s2: { condition: service_started }
     environment:
       NYLORUN_HOME: /nylorun
+      NYLORUN_PACKING: combined
+      # Model calls go through the gateway; this container never reads a model credential.
+      NYLORUN_GATES_URL: http://gateway:4100
+      NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_LISTEN_HOST: 0.0.0.0
       NYLORUN_LISTEN_PORT: "4000"
       # Host headers the Runtime accepts: the stack network name, and the

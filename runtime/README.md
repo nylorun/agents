@@ -28,9 +28,15 @@ No Tenant state lives only in the Runtime process. Each Tenant's data is the
 Postgres schema `tenant_<id>` (the Session Store); Restate runs one advance of a session at a
 time and holds the Tenant's sweep timer (Durable Session Execution); every
 session's events are relayed from the schema's outbox to its own S2 stream,
-which history and SSE read (Durable Streams). An API node serves the Tenant API,
-Admin API and SSE, and a Worker runs advances; `--role api|worker|all` picks
-them, and the local stack runs one process with `all`.
+which history and SSE read (Durable Streams). One image runs every **service**,
+and `--service` picks what a process runs: `core` serves the Tenant API, Admin
+API and SSE and runs the stream relay, `loop` runs advances (the Worker), and
+`gates` is the Model Gate, the only process that reads a model credential and
+calls providers. `core` and `loop` may share a process; `gates` never joins
+them. The local stack packs `core,loop` into the `runtime` container and
+`gates` into the `gateway` container (the combined packing). `--role
+api|worker|all` is the deprecated name of `--service core`, `loop` and
+`core,loop`.
 
 The container is configured by its environment, which the stack's Compose file
 sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
@@ -40,7 +46,13 @@ sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`, plus
 `NYLORUN_BROWSER_ACCESS` (`on` or `off`) and the operator listener
 (`NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`,
-`NYLORUN_ADMIN_ALLOWED_HOSTS`).
+`NYLORUN_ADMIN_ALLOWED_HOSTS`). A process that runs `loop` sends its model
+calls to the gate at `NYLORUN_GATES_URL` with `NYLORUN_GATES_TOKEN`; in a
+container it refuses to start without them. A `gates` process needs only
+`NYLORUN_DATABASE_URL`, `NYLORUN_GATES_TOKEN`, its listener
+(`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
+`NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenants/` directory, which it
+never writes. `NYLORUN_PACKING` (`combined` or `split`) is logged at startup.
 
 With an operator listener (the stack's default: container port 4001), the Host
 serves two ports. The public one serves the Tenant API, to browsers too when

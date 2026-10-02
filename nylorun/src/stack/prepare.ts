@@ -126,6 +126,8 @@ export async function prepareStack(input: {
     studioPort,
     restatePort,
     postgresPassword: persisted.postgresPassword ?? randomBytes(24).toString("hex"),
+    // Kept across starts: a new token would recreate the runtime and gateway containers.
+    gatesToken: persisted.gatesToken ?? randomBytes(32).toString("hex"),
     restateIdentityKey: identity.publicKey,
     uid: input.uid,
     gid: input.gid,

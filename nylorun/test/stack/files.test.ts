@@ -20,6 +20,7 @@ const env: StackEnv = {
   studioPort: 4161,
   restatePort: 9070,
   postgresPassword: "0123456789abcdef0123456789abcdef0123456789abcdef",
+  gatesToken: "fedcba9876543210".repeat(4),
   restateIdentityKey: "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv",
   uid: 501,
   gid: 20,
@@ -93,6 +94,25 @@ describe("compose.yaml", () => {
     expect(compose).toContain("NYLORUN_PUBLIC_URL: http://localhost:${NYLORUN_PORT}");
   });
 
+  it("packs core and loop into runtime and the Model Gate into gateway (combined packing)", () => {
+    expect(compose).toContain('command: ["--service", "core,loop"]');
+    expect(compose).toContain('command: ["--service", "gates"]');
+    expect(compose).toContain("NYLORUN_GATES_URL: http://gateway:4100");
+    expect(compose).toContain("NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100");
+    expect(compose.match(/NYLORUN_GATES_TOKEN: \$\{NYLORUN_GATES_TOKEN:\?run nylorun start\}/g)).toHaveLength(2);
+    expect(compose.match(/NYLORUN_PACKING: combined/g)).toHaveLength(2);
+  });
+
+  it("mounts only the tenants directory into the gateway, read-only, and never the admin key", () => {
+    const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
+    expect(gateway).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}/tenants:/nylorun/tenants:ro");
+    expect(gateway).not.toContain("host-credentials");
+    expect(gateway).not.toMatch(/^\s+ports:/m);
+    // The runtime does not wait for the gateway: a gate outage fails model calls, nothing else.
+    const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
+    expect(runtime).not.toContain("gateway: {");
+  });
+
   it("keeps s2-lite's data in a volume its non-root user can write", () => {
     expect(compose).toContain('command: ["lite", "--local-root", "/home/nonroot/data"]');
     expect(compose).toContain("- s2:/home/nonroot\n");
@@ -126,6 +146,7 @@ describe(".env", () => {
       studioPort: 4161,
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
+      gatesToken: env.gatesToken,
       studioFrameAncestors: ["nylorun://localhost", "http://nylorun.localhost"],
     });
     expect(renderEnvFile(env)).toContain(
@@ -223,6 +244,7 @@ describe("prepareStack", () => {
     expect(prepared.firstRun).toBe(true);
     expect(prepared.env).toMatchObject({ runtimePort: 8787, adminPort: 8788, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
     expect(prepared.env.postgresPassword).toMatch(/^[0-9a-f]{48}$/);
+    expect(prepared.env.gatesToken).toMatch(/^[0-9a-f]{64}$/);
     expect(prepared.env.restateIdentityKey).toMatch(/^publickeyv1_[1-9A-HJ-NP-Za-km-z]{43,44}$/);
     const pem = await readFile(paths.restateIdentity, "utf8");
     expect(pem).toMatch(/^-----BEGIN PRIVATE KEY-----\n/);
@@ -266,6 +288,7 @@ describe("prepareStack", () => {
     expect(second.env.studioPort).toBe(4161);
     expect(second.env.restatePort).toBe(9070);
     expect(second.env.postgresPassword).toBe(first.env.postgresPassword);
+    expect(second.env.gatesToken).toBe(first.env.gatesToken);
     expect(second.env.restateIdentityKey).toBe(first.env.restateIdentityKey);
     expect(second.env.uid).toBe(777);
     expect(second.env.runtimeImage).toBe("nylorun-runtime:dev");

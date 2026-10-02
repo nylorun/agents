@@ -14,7 +14,7 @@ export interface StackDoctorReport {
   node: { version: string; ok: boolean };
   docker: Check;
   compose?: Check;
-  stack?: Pick<StackStatus, "project" | "home" | "state" | "runtime" | "studio">;
+  stack?: Pick<StackStatus, "project" | "home" | "state" | "runtime" | "studio" | "gateway">;
 }
 
 /**
@@ -46,10 +46,12 @@ export async function doctorStack(options: {
       state: status.state,
       runtime: status.runtime,
       studio: status.studio,
+      gateway: status.gateway,
     };
   }
   const stackBroken =
-    report.stack?.state === "running" && !report.stack.runtime.healthy;
+    report.stack?.state === "running" &&
+    (!report.stack.runtime.healthy || !report.stack.gateway.healthy);
   const failed =
     !nodeOk || !checks.docker.ok || checks.compose?.ok === false || stackBroken;
   if (options.json) {
@@ -90,6 +92,12 @@ export async function doctorStack(options: {
         stack.runtime.healthy
           ? `✓ ${stack.runtime.url ?? "?"} · ${stack.runtime.version ?? "?"}`
           : `✗ ${stack.runtime.url ?? "?"} not answering`,
+      ]);
+      rows.push([
+        "gateway",
+        stack.gateway.healthy
+          ? `✓ ${stack.gateway.state} · combined packing (runtime: core,loop; gateway: gates)`
+          : `✗ ${stack.gateway.state}: model calls fail; see nylorun logs gateway`,
       ]);
       rows.push(["studio", `${stack.studio.url ?? "?"} · ${stack.studio.state}`]);
     }

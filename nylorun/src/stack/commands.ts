@@ -20,8 +20,8 @@ import type { PortProbe } from "./ports.js";
 import { prepareStack, readStackEnv } from "./prepare.js";
 import { mintStudioLogin, studioOrigin, type FetchLike } from "./studio-login.js";
 
-export const STACK_SERVICES = ["postgres", "restate", "s2", "runtime", "studio"] as const;
-const CORE_SERVICES = ["postgres", "restate", "s2", "runtime"] as const;
+export const STACK_SERVICES = ["postgres", "restate", "s2", "gateway", "runtime", "studio"] as const;
+const CORE_SERVICES = ["postgres", "restate", "s2", "gateway", "runtime"] as const;
 const DEFAULT_PROJECT = "nylorun";
 
 export const stackUsage = `  up|start [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
@@ -344,7 +344,7 @@ async function bringUp(
   );
   if (up !== 0)
     throw new CliError(
-      `docker compose up failed (exit ${up}). See "nylorun logs runtime" and "nylorun status".`,
+      `docker compose up failed (exit ${up}). See "nylorun logs runtime", "nylorun logs gateway" and "nylorun status".`,
       7,
     );
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.runtimePort}`;
@@ -479,6 +479,8 @@ export interface StackStatus {
     embedOrigins?: string[];
   };
   restate: { url?: string };
+  /** The gateway container (the Model Gate), in the combined packing. */
+  gateway: { state: string; healthy: boolean };
   services: ComposeService[];
 }
 
@@ -514,6 +516,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     runtime: { healthy: false },
     studio: { state: "absent" },
     restate: {},
+    gateway: { state: "absent", healthy: false },
     services: [],
   };
   if (!existsSync(ctx.paths.compose) || !existsSync(ctx.paths.env)) return base;
@@ -536,6 +539,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
       ? await adminTenantCount(ctx.deps, adminUrl, await readAdminKey(ctx.paths))
       : undefined;
   const studio = services.find((s) => s.service === "studio");
+  const gateway = services.find((s) => s.service === "gateway");
   return {
     ...base,
     state: services.some((s) => s.state === "running") ? "running" : "stopped",
@@ -557,6 +561,10 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     restate: persisted.restatePort
       ? { url: `http://${STACK_CLIENT_HOST}:${persisted.restatePort}` }
       : {},
+    gateway: {
+      state: gateway ? [gateway.state, gateway.health].filter(Boolean).join(", ") : "absent",
+      healthy: isUp(services, "gateway"),
+    },
     services,
   };
 }
@@ -588,6 +596,9 @@ async function status(ctx: Context, args: readonly string[]): Promise<number> {
     out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun studio")`);
     if (result.studio.embedOrigins?.length)
       out(`Embeds      ${result.studio.embedOrigins.join(" ")}  (may show Studio in a frame)`);
+    out(
+      `Gateway     ${result.gateway.state} (the Model Gate; model calls fail while it is down)`,
+    );
     if (result.restate.url) out(`Restate UI  ${result.restate.url}`);
     out(
       `Services    ${
@@ -686,7 +697,7 @@ async function runningStack(
   if (!persisted?.runtimePort || !persisted.studioPort || !adminKey) return undefined;
   if (typeof host?.hostId !== "string") return undefined;
   const services = await composePs(ctx);
-  if (!isUp(services, "runtime")) return undefined;
+  if (!isUp(services, "runtime") || !isUp(services, "gateway")) return undefined;
   const studioUp = isUp(services, "studio");
   if (options.studio && !studioUp) return undefined;
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${persisted.runtimePort}`;

@@ -12,7 +12,8 @@
  * API listener (`NYLORUN_LISTEN_*`); only one that runs gates parses its
  * listener (`NYLORUN_GATES_LISTEN_*`), and only one that runs loop parses
  * where to reach the gate (`NYLORUN_GATES_URL`). Both read
- * `NYLORUN_GATES_TOKEN`.
+ * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
+ * process must never hold a model credential.
  *
  * Two listen modes:
  * - **local** (no `NYLORUN_LISTEN_*` / `NYLORUN_ALLOWED_HOSTS`): the Host binds
@@ -129,9 +130,15 @@ export interface StackConfig {
   gates?: GatesConfig;
   /**
    * Present when the process runs loop and `NYLORUN_GATES_URL` is set: its model calls cross
-   * the gates service. Absent, the loop calls the model in its own process.
+   * the gates service. Required in container mode; outside a container (a development Host,
+   * tests) the loop may call the model in its own process.
    */
   modelGate?: ModelGateEndpoint;
+  /**
+   * How the stack packs services into containers (`NYLORUN_PACKING`), for the startup log:
+   * `combined` (the local stack: runtime and gateway) or `split` (one container per service).
+   */
+  packing?: "combined" | "split";
   /** Set when the process was started with the deprecated `--role` (logged at startup). */
   deprecatedRole?: RuntimeRole;
   /** Present in container mode; absent means bind what host.json names. */
@@ -405,6 +412,13 @@ export function parseStackConfig(
     throw new StackConfigError(
       "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
     );
+  if (services.has("loop") && listen && !modelGate)
+    throw new StackConfigError(
+      "NYLORUN_GATES_URL is required for the loop service in a container: model calls go through the gates service (the gateway container), so the loop never holds a model credential. Set NYLORUN_GATES_URL and NYLORUN_GATES_TOKEN (`nylorun start` sets both)",
+    );
+  const rawPacking = read(env, "NYLORUN_PACKING");
+  if (rawPacking !== undefined && rawPacking !== "combined" && rawPacking !== "split")
+    throw new StackConfigError(`NYLORUN_PACKING must be combined or split, not ${rawPacking}`);
   const http = ["http:", "https:"] as const;
   const endpoints: StackEndpoints = {};
   const databaseUrl = parseUrl(env, "NYLORUN_DATABASE_URL", [
@@ -443,6 +457,7 @@ export function parseStackConfig(
     ...(deprecatedRole ? { deprecatedRole } : {}),
     ...(gates ? { gates } : {}),
     ...(modelGate ? { modelGate } : {}),
+    ...(rawPacking ? { packing: rawPacking } : {}),
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
