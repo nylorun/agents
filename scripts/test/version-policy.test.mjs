@@ -112,19 +112,20 @@ test("pre-1.0 latest promotion keeps *-beta versions for dist-tag moves", () => 
     assert.equal(release.oldVersion, release.newVersion);
 });
 
-test("pending latest changes before 1.0 bump the core and keep -beta", () => {
-  const { plan } = planVersions(
-    { ...versions, runtime: "0.1.1-beta" },
-    pins,
-    [intent("runtime")],
-    "latest"
+test("a latest release refuses pending changesets: they publish on beta first", () => {
+  assert.throws(
+    () =>
+      planVersions(
+        { ...versions, runtime: "0.1.1-beta" },
+        pins,
+        [intent("runtime")],
+        "latest"
+      ),
+    /promotes versions already published on beta/
   );
-  assert.equal(plan.packages.runtime, "0.1.2-beta");
-  assert.equal(plan.compatibility.runtime, "0.1.2-beta");
-  assert.equal(plan.packages["create-agent"], "0.1.1-beta");
 });
 
-test("post-1.0 latest promotion strips -beta from the promoted package", () => {
+test("a post-1.0 latest release refuses to strip -beta: that would be a new publication", () => {
   const before = {
     core: "1.0.0",
     cli: "1.0.0",
@@ -136,14 +137,15 @@ test("post-1.0 latest promotion strips -beta from the promoted package", () => {
     nylorun: "1.0.0",
     "create-agent": "1.0.0",
   };
-  assert.deepEqual(
-    planVersions(
-      before,
-      { core: "1.0.0", cli: "1.0.0", harness: "1.0.0", agents: "1.0.0", admin: "1.0.0", runtime: "1.1.0-beta" },
-      [],
-      "latest"
-    ).plan.packages,
-    { runtime: "1.1.0", nylorun: "1.0.1", "create-agent": "1.0.1" }
+  assert.throws(
+    () =>
+      planVersions(
+        before,
+        { core: "1.0.0", cli: "1.0.0", harness: "1.0.0", agents: "1.0.0", admin: "1.0.0", runtime: "1.1.0-beta" },
+        [],
+        "latest"
+      ),
+    /Cannot promote @nylorun\/runtime@1\.1\.0-beta/
   );
 });
 

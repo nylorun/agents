@@ -99,6 +99,10 @@ export const registry = {
     }
   },
   async publish(_name, path, channel) {
+    // New versions reach npm only on beta; latest moves by promotion, after
+    // an administrator approves it.
+    if (channel !== "beta")
+      throw new Error(`Refusing to publish on the ${channel} tag; publish on beta, then promote.`);
     await npm([
       "publish",
       path,
@@ -148,7 +152,8 @@ export const registry = {
         );
       // First publish sets the tag via `npm publish --tag`. Retagging an already
       // published version (e.g. promote beta → latest) needs dist-tag add, which
-      // requires a classic npm token (OIDC covers publish, not tag edits).
+      // needs an npm token (OIDC covers publish, not tag edits): the promote
+      // job's NPM_LATEST_TOKEN.
       if (attempt === 0 || attempt === 4) {
         try {
           await npm(

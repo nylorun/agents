@@ -7,6 +7,7 @@ import {
   prepareVersions,
   validatePlan,
   publishCandidates,
+  promoteCandidates,
   verifyReleaseCommit,
   releaseNotes,
 } from "../release/model.mjs";
@@ -270,10 +271,11 @@ test("publication retries retain completed packages and never publish creator be
   );
 });
 
-test("a promotion tries every tag and names one command for the ones it cannot move", async () => {
+function promotion() {
   const versions = {
     core: "0.2.0-beta",
     runtime: "0.2.0-beta",
+    studio: "0.2.0-beta",
     nylorun: "0.1.0-beta",
     "create-agent": "0.2.0-beta",
   };
@@ -290,21 +292,54 @@ test("a promotion tries every tag and names one command for the ones it cannot m
     },
   };
   const artifacts = Object.fromEntries(
-    Object.keys(versions).map((name) => [name, { integrity: `${name}-hash`, path: `${name}.tgz` }]),
-  );
-  // Everything is already on the registry: a promotion publishes nothing.
-  const published = new Map(
-    [...Object.keys(versions), "harness", "agents", "admin", "cli"].map((name) => [
+    Object.keys(versions).map((name) => [
       name,
-      { integrity: `${name}-hash` },
+      name === "studio"
+        ? { image: true }
+        : { integrity: `${name}-hash`, path: `${name}.tgz` },
     ]),
   );
+  // Everything is already on the registry, from its beta release.
+  const published = new Map(
+    [...Object.keys(versions), "harness", "agents", "admin", "cli"]
+      .filter((name) => name !== "studio")
+      .map((name) => [name, { integrity: `${name}-hash` }]),
+  );
+  return { plan, artifacts, published };
+}
+
+test("publication of a promotion verifies npm and moves no tag", async () => {
+  const { plan, artifacts, published } = promotion();
+  const registry = {
+    lookup: async (name) => published.get(name),
+    checkTag: async () => assert.fail("checked a tag"),
+    publish: async (name) => assert.fail(`published ${name}`),
+    ensureTag: async (name) => assert.fail(`tagged ${name}`),
+  };
+  const messages = [];
+  await publishCandidates(plan, artifacts, registry, (message) =>
+    messages.push(message),
+  );
+  assert.ok(messages.includes("core@0.2.0-beta: on npm with matching integrity"));
+
+  published.set("runtime", { integrity: "different-hash" });
+  await assert.rejects(
+    publishCandidates(plan, artifacts, registry),
+    /integrity conflict for runtime/,
+  );
+  published.delete("runtime");
+  await assert.rejects(
+    publishCandidates(plan, artifacts, registry),
+    /runtime@0\.2\.0-beta is not on npm/,
+  );
+});
+
+test("a promotion tries every latest tag and names one command for the ones it cannot move", async () => {
+  const { plan, published } = promotion();
   const tried = [];
   const registry = {
     lookup: async (name) => published.get(name),
     checkTag: async () => {},
-    publish: async (name) => assert.fail(`published ${name}`),
-    waitFor: async (name) => published.get(name),
     async ensureTag(name, version, channel) {
       tried.push(name);
       if (name === "runtime") return; // Already on the channel.
@@ -314,25 +349,50 @@ test("a promotion tries every tag and names one command for the ones it cannot m
       });
     },
   };
-  await assert.rejects(publishCandidates(plan, artifacts, registry), (error) => {
-    assert.match(error.message, /latest tag of 3 package\(s\) could not be moved/);
-    assert.ok(
-      error.message.includes(
-        "npm dist-tag add @nylorun/core@0.2.0-beta latest && " +
-          "npm dist-tag add nylorun@0.1.0-beta latest && " +
-          "npm dist-tag add @nylorun/create-agent@0.2.0-beta latest",
-      ),
-      error.message,
-    );
-    return true;
-  });
+  const imageOnly = (name) => name === "studio";
+  const messages = [];
+  await assert.rejects(
+    promoteCandidates(plan, registry, imageOnly, (message) =>
+      messages.push(message),
+    ),
+    (error) => {
+      assert.match(error.message, /latest tag of 3 package\(s\) could not be moved/);
+      assert.match(error.message, /NPM_LATEST_TOKEN/);
+      assert.ok(
+        error.message.includes(
+          "npm dist-tag add @nylorun/core@0.2.0-beta latest && " +
+            "npm dist-tag add nylorun@0.1.0-beta latest && " +
+            "npm dist-tag add @nylorun/create-agent@0.2.0-beta latest",
+        ),
+        error.message,
+      );
+      return true;
+    },
+  );
+  // Studio is image only: it has no npm tag.
   assert.deepEqual(tried.sort(), ["core", "create-agent", "nylorun", "runtime"]);
+  assert.deepEqual(messages, ["runtime@0.2.0-beta: on latest"]);
 
-  // Any other failure still stops the release at once.
+  // Any other failure still stops the promotion at once.
   registry.ensureTag = async () => {
     throw new Error("registry unreachable");
   };
-  await assert.rejects(publishCandidates(plan, artifacts, registry), /registry unreachable/);
+  await assert.rejects(
+    promoteCandidates(plan, registry, imageOnly),
+    /registry unreachable/,
+  );
+
+  // Only versions already on npm are promoted, and only from a latest plan.
+  registry.ensureTag = async (name) => assert.fail(`tagged ${name}`);
+  published.delete("core");
+  await assert.rejects(
+    promoteCandidates(plan, registry, imageOnly),
+    /core@0\.2\.0-beta is not on npm/,
+  );
+  await assert.rejects(
+    promoteCandidates({ ...plan, channel: "beta" }, registry, imageOnly),
+    /Only a latest release/,
+  );
 });
 
 test("publication waits for the engines together, then publishes the creator", async () => {

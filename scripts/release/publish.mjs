@@ -17,7 +17,7 @@ import { registry } from "./registry.mjs";
 try {
   if (process.env.GITHUB_ACTIONS !== "true" || !process.env.RELEASE_SHA)
     throw new Error(
-      "Publication is only available through the manual GitHub release workflow.",
+      "Publication is only available through the GitHub release workflow.",
     );
   await verifyReleaseCommit(root, process.env.RELEASE_SHA);
   const plan = await readJson(join(root, ".release/plan.json"));
