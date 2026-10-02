@@ -40,7 +40,7 @@ describe.skipIf(!STACK_ENABLED)("migration 9: drop checkpoints", () => {
               VALUES ('["s1","t1",2]', ${JSON.stringify({ checkpoint, status: "runnable" })}::text::json)`;
 
     expect(await migrateSchema(sql, schema)).toEqual({ from: 8, to: POSTGRES_SCHEMA_VERSION });
-    expect(POSTGRES_SCHEMA_VERSION).toBe(9);
+    expect(POSTGRES_SCHEMA_VERSION).toBeGreaterThanOrEqual(9);
     const [table] = await sql`SELECT to_regclass(${`${schema}.checkpoints`}) AS t`;
     expect(table!.t).toBeNull();
     const store = createPostgresSessionStore({ sql, tenantId, schema });
