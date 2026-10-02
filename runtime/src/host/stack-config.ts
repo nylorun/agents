@@ -3,6 +3,18 @@
  * snapshot and argv. Pure: `host/main.ts` passes the process environment and
  * arguments; nothing here reads ambient state.
  *
+ * `--service core,loop` names the Runtime services the process runs (blueprint
+ * §19, D12): one image runs every service, and a container may pack several.
+ * Without the flag a process runs core and loop. `--role api|worker|all` is
+ * the deprecated name of the same choice (core, loop, or both). `gates` (the
+ * Model Gate) never shares a process with core or loop: it holds the
+ * credentials they must not. Only a process that runs core or loop parses the
+ * API listener (`NYLORUN_LISTEN_*`); only one that runs gates parses its
+ * listener (`NYLORUN_GATES_LISTEN_*`), and only one that runs loop parses
+ * where to reach the gate (`NYLORUN_GATES_URL`). Both read
+ * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
+ * process must never hold a model credential.
+ *
  * Two listen modes:
  * - **local** (no `NYLORUN_LISTEN_*` / `NYLORUN_ALLOWED_HOSTS`): the Host binds
  *   what `host.json` names, loopback only unless `allowNonLoopback`.
@@ -15,9 +27,58 @@
  * `infra/*` builds the clients from them.
  */
 
+/** A Runtime service this release has. */
+export type RuntimeService = "core" | "loop" | "gates";
+
+export type RuntimeServices = ReadonlySet<RuntimeService>;
+
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates"];
+
+/**
+ * Services that may share a process (D12): they hold the same secrets and parse the same
+ * trust class of input. Egress and keys join gates in later releases.
+ */
+const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
+  ["core", "loop"],
+  ["gates"],
+];
+
+/** Where the gates service listens by default. */
+export const DEFAULT_GATES_LISTEN_PORT = 4100;
+
+/** What a process runs without `--service`: core and loop, as `--role all` did. */
+export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
+  "core",
+  "loop",
+]);
+
+/** Services of the blueprint this release doesn't have yet. */
+const LATER_SERVICES: readonly string[] = [
+  "egress",
+  "keys",
+  "harness",
+  "sandboxd",
+];
+
+/** The deprecated `--role` values, and the services each stands for. */
 export type RuntimeRole = "api" | "worker" | "all";
 
-export const RUNTIME_ROLES: readonly RuntimeRole[] = ["api", "worker", "all"];
+const ROLE_SERVICES: Readonly<Record<RuntimeRole, readonly RuntimeService[]>> = {
+  api: ["core"],
+  worker: ["loop"],
+  all: ["core", "loop"],
+};
+
+/** `services` as the `--service` value that selects them, e.g. `core,loop`. */
+export function describeServices(services: RuntimeServices): string {
+  return RUNTIME_SERVICES.filter((service) => services.has(service)).join(",");
+}
+
+export interface ServiceSelection {
+  services: RuntimeServices;
+  /** Set when the process was started with the deprecated `--role`. */
+  deprecatedRole?: RuntimeRole;
+}
 
 export const DEFAULT_CONTAINER_LISTEN_HOST = "0.0.0.0";
 export const DEFAULT_CONTAINER_LISTEN_PORT = 4000;
@@ -49,8 +110,37 @@ export interface StackEndpoints {
   restateIdentityKeys?: string[];
 }
 
+/** The gates service's listener and the token callers must present (`NYLORUN_GATES_*`). */
+export interface GatesConfig {
+  listen: ContainerListen;
+  /** `NYLORUN_GATES_TOKEN`: the bearer the loop presents; at least 32 bytes as hex. */
+  token: string;
+}
+
+/** Where the loop reaches the gates service (`NYLORUN_GATES_URL`, `NYLORUN_GATES_TOKEN`). */
+export interface ModelGateEndpoint {
+  url: string;
+  token: string;
+}
+
 export interface StackConfig {
-  role: RuntimeRole;
+  /** The Runtime services this process runs. */
+  services: RuntimeServices;
+  /** Present when the process runs gates. */
+  gates?: GatesConfig;
+  /**
+   * Present when the process runs loop and `NYLORUN_GATES_URL` is set: its model calls cross
+   * the gates service. Required in container mode; outside a container (a development Host,
+   * tests) the loop may call the model in its own process.
+   */
+  modelGate?: ModelGateEndpoint;
+  /**
+   * How the stack packs services into containers (`NYLORUN_PACKING`), for the startup log:
+   * `combined` (the local stack: runtime and gateway) or `split` (one container per service).
+   */
+  packing?: "combined" | "split";
+  /** Set when the process was started with the deprecated `--role` (logged at startup). */
+  deprecatedRole?: RuntimeRole;
   /** Present in container mode; absent means bind what host.json names. */
   listen?: ContainerListen;
   endpoints: StackEndpoints;
@@ -98,32 +188,75 @@ function read(env: EnvSnapshot, name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-export function parseRole(argv: readonly string[]): RuntimeRole {
-  let role: RuntimeRole | undefined;
+const USAGE = "Usage: main.js [--service core,loop|gates]";
+
+/** Parses `--service a,b` (or the deprecated `--role`); throws `StackConfigError`. */
+export function parseServices(argv: readonly string[]): ServiceSelection {
+  let service: string | undefined;
+  let role: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
+    const flag = arg.startsWith("--service")
+      ? "--service"
+      : arg.startsWith("--role")
+        ? "--role"
+        : undefined;
     let value: string | undefined;
-    if (arg === "--role") {
+    if (flag && arg === flag) {
       value = argv[index + 1];
       index += 1;
       if (value === undefined || value.startsWith("-"))
-        throw new StackConfigError("--role requires a value: api, worker or all");
-    } else if (arg.startsWith("--role=")) {
-      value = arg.slice("--role=".length);
+        throw new StackConfigError(
+          flag === "--service"
+            ? "--service requires a value, e.g. core,loop"
+            : "--role requires a value: api, worker or all",
+        );
+    } else if (flag && arg.startsWith(`${flag}=`)) {
+      value = arg.slice(flag.length + 1);
     } else {
-      throw new StackConfigError(
-        `Unknown argument ${arg}. Usage: main.js [--role api|worker|all]`,
-      );
+      throw new StackConfigError(`Unknown argument ${arg}. ${USAGE}`);
     }
-    if (role !== undefined)
-      throw new StackConfigError("--role may only be supplied once");
-    if (!(RUNTIME_ROLES as readonly string[]).includes(value))
-      throw new StackConfigError(
-        `Invalid --role ${value}; expected api, worker or all`,
-      );
-    role = value as RuntimeRole;
+    if ((flag === "--service" ? service : role) !== undefined)
+      throw new StackConfigError(`${flag} may only be supplied once`);
+    if (flag === "--service") service = value;
+    else role = value;
   }
-  return role ?? "all";
+  if (service !== undefined && role !== undefined)
+    throw new StackConfigError(
+      "--role is the deprecated name of --service; supply only --service",
+    );
+  if (role !== undefined) {
+    if (!Object.hasOwn(ROLE_SERVICES, role))
+      throw new StackConfigError(
+        `Invalid --role ${role}; expected api, worker or all (deprecated: use --service core, loop or core,loop)`,
+      );
+    const deprecatedRole = role as RuntimeRole;
+    return { services: new Set(ROLE_SERVICES[deprecatedRole]), deprecatedRole };
+  }
+  if (service === undefined) return { services: DEFAULT_SERVICES };
+  const names = service.split(",").map((name) => name.trim());
+  const services = new Set<RuntimeService>();
+  for (const name of names) {
+    if (name === "")
+      throw new StackConfigError(`--service ${service} has an empty entry. ${USAGE}`);
+    if (name === "all")
+      throw new StackConfigError("--service all is not a service; use --service core,loop");
+    if (LATER_SERVICES.includes(name))
+      throw new StackConfigError(`The ${name} service is not in this release of the Runtime`);
+    if (!(RUNTIME_SERVICES as readonly string[]).includes(name))
+      throw new StackConfigError(
+        `Unknown service ${name}; expected ${RUNTIME_SERVICES.join(" or ")}`,
+      );
+    if (services.has(name as RuntimeService))
+      throw new StackConfigError(`--service names ${name} twice`);
+    services.add(name as RuntimeService);
+  }
+  const groups = SERVICE_GROUPS.filter((group) => group.some((name) => services.has(name)));
+  if (groups.length > 1)
+    throw new StackConfigError(
+      `--service ${service}: ${groups.map((group) => group.join(" and ")).join(" may not share a process with ")}; run them as separate processes`,
+    );
+  return { services };
 }
 
 function parsePort(name: string, raw: string): number {
@@ -268,13 +401,24 @@ export function parseStackConfig(
   env: EnvSnapshot,
   argv: readonly string[],
 ): StackConfig {
-  const role = parseRole(argv);
-  const listen = parseListen(env);
-  const operator = parseAdminListen(env);
+  const { services, deprecatedRole } = parseServices(argv);
+  // The image sets NYLORUN_LISTEN_*: only the API's processes read them.
+  const servesApi = services.has("core") || services.has("loop");
+  const listen = servesApi ? parseListen(env) : undefined;
+  const operator = servesApi ? parseAdminListen(env) : undefined;
+  const gates = services.has("gates") ? parseGates(env) : undefined;
+  const modelGate = services.has("loop") ? parseModelGate(env) : undefined;
   if (operator && listen && operator.port === listen.port)
     throw new StackConfigError(
       "NYLORUN_ADMIN_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT",
     );
+  if (services.has("loop") && listen && !modelGate)
+    throw new StackConfigError(
+      "NYLORUN_GATES_URL is required for the loop service in a container: model calls go through the gates service (the gateway container), so the loop never holds a model credential. Set NYLORUN_GATES_URL and NYLORUN_GATES_TOKEN (`nylorun start` sets both)",
+    );
+  const rawPacking = read(env, "NYLORUN_PACKING");
+  if (rawPacking !== undefined && rawPacking !== "combined" && rawPacking !== "split")
+    throw new StackConfigError(`NYLORUN_PACKING must be combined or split, not ${rawPacking}`);
   const http = ["http:", "https:"] as const;
   const endpoints: StackEndpoints = {};
   const databaseUrl = parseUrl(env, "NYLORUN_DATABASE_URL", [
@@ -309,7 +453,11 @@ export function parseStackConfig(
     );
   const delivery = parseDelivery(env);
   return {
-    role,
+    services,
+    ...(deprecatedRole ? { deprecatedRole } : {}),
+    ...(gates ? { gates } : {}),
+    ...(modelGate ? { modelGate } : {}),
+    ...(rawPacking ? { packing: rawPacking } : {}),
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
@@ -317,6 +465,64 @@ export function parseStackConfig(
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
   };
+}
+
+const GATES_TOKEN = /^[0-9a-f]{64,}$/i;
+
+/** `StackConfig.gates` from `NYLORUN_GATES_*`. */
+function parseGates(env: EnvSnapshot): GatesConfig {
+  const host = read(env, "NYLORUN_GATES_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
+  if (/\s|\//.test(host))
+    throw new StackConfigError(`NYLORUN_GATES_LISTEN_HOST is not an address: ${host}`);
+  const rawPort = read(env, "NYLORUN_GATES_LISTEN_PORT");
+  const port =
+    rawPort === undefined
+      ? DEFAULT_GATES_LISTEN_PORT
+      : parsePort("NYLORUN_GATES_LISTEN_PORT", rawPort);
+  const rawAllowed = read(env, "NYLORUN_GATES_ALLOWED_HOSTS");
+  const explicit =
+    rawAllowed === undefined
+      ? []
+      : rawAllowed
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry !== "")
+          .map((entry) => normalizeAllowedHost("NYLORUN_GATES_ALLOWED_HOSTS", entry));
+  if (explicit.length === 0 && !isLoopbackAddress(host))
+    throw new StackConfigError(
+      `NYLORUN_GATES_ALLOWED_HOSTS is required when NYLORUN_GATES_LISTEN_HOST is ${host}: list the Host headers the loop sends, e.g. gateway:${port}`,
+    );
+  const token = read(env, "NYLORUN_GATES_TOKEN");
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_GATES_TOKEN is required for --service gates: the token the loop presents (`nylorun start` sets it)",
+    );
+  if (!GATES_TOKEN.test(token))
+    throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
+  return {
+    listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
+    token,
+  };
+}
+
+/** `StackConfig.modelGate` from `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. */
+function parseModelGate(env: EnvSnapshot): ModelGateEndpoint | undefined {
+  const url = parseUrl(env, "NYLORUN_GATES_URL", ["http:", "https:"]);
+  const token = read(env, "NYLORUN_GATES_TOKEN");
+  if (url === undefined) {
+    if (token !== undefined)
+      throw new StackConfigError(
+        "NYLORUN_GATES_TOKEN is set without NYLORUN_GATES_URL: set the URL of the gates service, e.g. http://gateway:4100",
+      );
+    return undefined;
+  }
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL: the gates service refuses calls without it",
+    );
+  if (!GATES_TOKEN.test(token))
+    throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
+  return { url: url.replace(/\/+$/, ""), token };
 }
 
 /** `StackConfig.delivery` from `NYLORUN_ENDPOINT_*`, or `undefined` when none is set. */

@@ -86,6 +86,10 @@ try {
         await stack.compose(["ps", "--format", "{{.Image}}", "runtime"])
       ).trim();
       assert.equal(containerImage, images.runtime, "the stack runs the images from this checkout");
+      const gatewayImage = (
+        await stack.compose(["ps", "--format", "{{.Image}}", "gateway"])
+      ).trim();
+      assert.equal(gatewayImage, images.runtime, "the gateway runs the same Runtime image");
 
       const { tenantId, hostUrl } = JSON.parse(await readFile(join(link, "link.json"), "utf8"));
       const { applicationKey } = JSON.parse(await readFile(join(link, "credentials.json"), "utf8"));

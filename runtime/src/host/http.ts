@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { jsonResponse } from "../api/http/respond.js";
 import {
   HOST_PROTOCOL,
@@ -25,6 +25,32 @@ export class HostListenError extends Error {
     super(message);
     this.name = "HostListenError";
   }
+}
+
+/**
+ * Binds `listening` on `host:port`. A port in use rejects with `HostListenError` (exit 98);
+ * once bound, a listener error goes to `onError` rather than being lost.
+ */
+export function bindListener(
+  listening: Server,
+  port: number,
+  host: string,
+  onError: (error: Error) => void,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const failed = (error: NodeJS.ErrnoException) =>
+      reject(
+        error.code === "EADDRINUSE"
+          ? new HostListenError(`Port ${port} on ${host} is already in use`, EXIT_PORT_IN_USE, error)
+          : error,
+      );
+    listening.once("error", failed);
+    listening.listen(port, host, () => {
+      listening.off("error", failed);
+      listening.on("error", onError);
+      resolve();
+    });
+  });
 }
 
 export function sendJson(

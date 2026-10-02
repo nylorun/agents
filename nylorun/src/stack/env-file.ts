@@ -11,8 +11,8 @@ export const DEFAULT_STUDIO_FRAME_ANCESTORS = [
 ] as const;
 
 /**
- * Settings in `stack/.env` (mode 0600). Ports and the password persist; the
- * Restate identity public key is derived from `restate-identity.pem`.
+ * Settings in `stack/.env` (mode 0600). Ports, the password and the gates token
+ * persist; the Restate identity public key is derived from `restate-identity.pem`.
  */
 export interface StackEnv {
   /** Published Runtime port (loopback): the Tenant API. */
@@ -24,6 +24,8 @@ export interface StackEnv {
   /** Published Restate UI and admin port (loopback). */
   restatePort: number;
   postgresPassword: string;
+  /** The token the runtime presents to the gateway (`NYLORUN_GATES_TOKEN`), 32 bytes as hex. */
+  gatesToken: string;
   /** `publickeyv1_...` of `stack/restate-identity.pem`. */
   restateIdentityKey: string;
   uid: number;
@@ -42,6 +44,7 @@ const KEYS = {
   studioPort: "NYLORUN_STUDIO_PORT",
   restatePort: "NYLORUN_RESTATE_PORT",
   postgresPassword: "NYLORUN_POSTGRES_PASSWORD",
+  gatesToken: "NYLORUN_GATES_TOKEN",
   restateIdentityKey: "NYLORUN_RESTATE_IDENTITY_KEY",
   uid: "NYLORUN_UID",
   gid: "NYLORUN_GID",
@@ -73,9 +76,9 @@ export function renderEnvFile(env: StackEnv): string {
   const line = (field: keyof StackEnv) =>
     `${KEYS[field]}=${quote(KEYS[field], String(env[field]))}`;
   return [
-    "# Written by `nylorun start`. Mode 0600: holds the Postgres password.",
-    "# Ports and the password are kept across starts; images, UID/GID and the",
-    "# Host root are refreshed on every start.",
+    "# Written by `nylorun start`. Mode 0600: holds the Postgres password and the",
+    "# gates token. Ports, the password and the token are kept across starts;",
+    "# images, UID/GID and the Host root are refreshed on every start.",
     "",
     "# Published on 127.0.0.1; clients use http://localhost:<port>.",
     line("runtimePort"),
@@ -84,6 +87,10 @@ export function renderEnvFile(env: StackEnv): string {
     line("restatePort"),
     "",
     line("postgresPassword"),
+    "",
+    "# The runtime presents this token to the gateway (the Model Gate) with every",
+    "# model call.",
+    line("gatesToken"),
     "",
     "# Restate signs requests to the Runtime's Worker endpoint with the private",
     "# key in restate-identity.pem; the Runtime accepts only this public key.",
@@ -131,6 +138,7 @@ export interface PersistedStackEnv {
   studioPort?: number;
   restatePort?: number;
   postgresPassword?: string;
+  gatesToken?: string;
   /** Validated origins; absent when the line is missing (an older .env). */
   studioFrameAncestors?: string[];
 }
@@ -149,6 +157,8 @@ export function parsePersisted(text: string): PersistedStackEnv {
   const password = values.get(KEYS.postgresPassword);
   if (password && /^[A-Za-z0-9]{16,}$/.test(password))
     out.postgresPassword = password;
+  const gatesToken = values.get(KEYS.gatesToken);
+  if (gatesToken && /^[0-9a-f]{64,}$/i.test(gatesToken)) out.gatesToken = gatesToken;
   const ancestors = values.get(KEYS.studioFrameAncestors);
   if (ancestors !== undefined) {
     try {

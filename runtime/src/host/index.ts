@@ -20,6 +20,8 @@ export {
   StackConfigError,
   type ContainerListen,
   type RuntimeRole,
+  type RuntimeService,
+  type RuntimeServices,
   type StackConfig,
   type StackEndpoints,
 } from "./stack-config.js";

@@ -1,0 +1,123 @@
+/**
+ * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's
+ * routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's listeners.
+ * It opens no Tenant runtime, no Restate endpoint and no stream relay, and runs no migration;
+ * it needs only the Postgres pool and the Host's tenants directory (read-only).
+ *
+ * Nothing is written while a model call runs, so the server's request timeout sits above the
+ * gate's longest call. Closing stops accepting calls, lets running ones finish for up to
+ * `drainMs`, then aborts them (their providers' requests with them).
+ */
+import { createServer, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { getRequestListener } from "@hono/node-server";
+import { createGatesApp } from "../api/gate/routes.js";
+import { createModelCallHandler } from "../gates/handler.js";
+import type { ModelCallSettings } from "../gates/model-gate.js";
+import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
+import { probeDatabase } from "../infra/database.js";
+import type { PostgresClient } from "../store/postgres/connect.js";
+import type { Logger } from "../tenant/types.js";
+import { bindListener, headerValue, isAllowedRequestHost, sendRejected } from "./http.js";
+import type { GatesConfig } from "./stack-config.js";
+
+/** Above the gate's 600 s provider request timeout and the loop's 630 s client timeout. */
+export const GATES_REQUEST_TIMEOUT_MS = 660_000;
+
+export interface StartGatesOptions {
+  readonly gates: GatesConfig;
+  readonly logger: Logger;
+  /** The Host root, for the Tenants' vault keys. Required unless `vaults` is given. */
+  readonly hostRoot?: string;
+  /** The pool for Tenant vaults and readiness. Required unless `vaults` is given. */
+  readonly database?: PostgresClient;
+  /** Replaces the Postgres-backed Tenant vaults (tests). */
+  readonly vaults?: TenantVaults;
+  /** Retries and timeouts of model calls (tests). */
+  readonly settings?: ModelCallSettings;
+  /** Largest model call body (tests). */
+  readonly maxBodyBytes?: number;
+  /** How long `close` lets running calls finish. Default 10 s. */
+  readonly drainMs?: number;
+}
+
+export interface GatesServer {
+  /** Where the gate listens, e.g. `http://0.0.0.0:4100`. */
+  readonly url: string;
+  readonly server: Server;
+  close(): Promise<void>;
+}
+
+export async function startGates(options: StartGatesOptions): Promise<GatesServer> {
+  const { gates, logger, database } = options;
+  let vaults = options.vaults;
+  if (!vaults) {
+    if (!database || options.hostRoot === undefined)
+      throw new Error("startGates needs the Postgres pool and the Host root");
+    vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
+  }
+  const app = createGatesApp({
+    token: gates.token,
+    modelGate: createModelCallHandler({
+      vaults,
+      logger,
+      ...(options.settings ? { settings: options.settings } : {}),
+    }),
+    ready: async () => {
+      if (!database) return true;
+      try {
+        await probeDatabase(database, AbortSignal.timeout(2000));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    ...(options.maxBodyBytes !== undefined ? { maxBodyBytes: options.maxBodyBytes } : {}),
+  });
+  const listener = getRequestListener(app.fetch);
+  const inFlight = new Set<ServerResponse>();
+  // The configured Host values, plus the loopback forms of the port actually bound (probes
+  // from inside the container; port 0 in tests).
+  let allowedHosts = gates.listen.allowedHosts;
+  const server = createServer((req, res) => {
+    if (
+      !isAllowedRequestHost(headerValue(req, "host"), {
+        port: gates.listen.port,
+        host: gates.listen.host,
+        allowedHosts,
+      })
+    )
+      return sendRejected(res, 421, "host_rejected", "Host header is not an allowed address of the gateway");
+    inFlight.add(res);
+    res.once("close", () => inFlight.delete(res));
+    void listener(req, res);
+  });
+  server.requestTimeout = GATES_REQUEST_TIMEOUT_MS;
+  await bindListener(server, gates.listen.port, gates.listen.host, (error) =>
+    logger.error("listener_error", { error: error.message }),
+  );
+  const port = (server.address() as AddressInfo).port;
+  allowedHosts = [
+    ...new Set([...allowedHosts, `localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]),
+  ];
+  const url = `http://${gates.listen.host.includes(":") ? `[${gates.listen.host}]` : gates.listen.host}:${port}`;
+
+  let closing: Promise<void> | undefined;
+  return {
+    url,
+    server,
+    close() {
+      closing ??= (async () => {
+        const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+        server.closeIdleConnections();
+        const deadline = Date.now() + (options.drainMs ?? 10_000);
+        while (inFlight.size > 0 && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        // Closing a running call's connection aborts it, and its provider request.
+        server.closeAllConnections();
+        await closed;
+      })();
+      return closing;
+    },
+  };
+}

@@ -67,7 +67,7 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     await worker.host.start();
     const a = await t.node({ worker, workerId: "worker-a", modelProvider: done });
     const b = await t.node({
-      worker: t.worker({ offset: 8, prefix: "gaps", role: "api" }),
+      worker: t.worker({ offset: 8, prefix: "gaps", services: new Set(["core"] as const) }),
       workerId: "api-b",
       modelProvider: done,
     });
@@ -160,7 +160,7 @@ describe.skipIf(!FULL_STACK)("§17 stream failures on Postgres, Restate and S2",
     await worker.host.start();
     const a = await t.node({ worker, workerId: "worker-a", modelProvider: model.provider });
     const b = await t.node({
-      worker: t.worker({ offset: 11, prefix: "sse", role: "api" }),
+      worker: t.worker({ offset: 11, prefix: "sse", services: new Set(["core"] as const) }),
       workerId: "api-b",
       modelProvider: model.provider,
     });

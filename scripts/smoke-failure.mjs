@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// A Worker killed during a model effect, on a real `nylorun start` stack
-// (Runtime architecture §11.4 and §17, case 3):
+// Failures around a model call on a real `nylorun start` stack: a Worker killed
+// during a model effect (Runtime architecture §11.4 and §17, case 3), and the
+// Model Gate's hop (the gateway container, blueprint P1.1):
 //
 //   node scripts/smoke-failure.mjs      # npm run test:failure
 //
@@ -19,6 +20,13 @@
 //    session over once the dead Worker's lease lapses: the effect and the
 //    session become `uncertain`, and the stub sees no second call.
 // 5. The session is usable afterwards: a cancel, then a new turn completes.
+// 6. Every call crossed the gateway (one model_call line per call); the
+//    runtime runs with the gate.
+// 7. Gateway stopped: the turn fails with model.transient, nothing becomes
+//    uncertain, and once it is back the next turn completes.
+// 8. Gateway killed mid-call: the same, and the stub's request is closed.
+// 9. Cancel mid-call: the stub sees its request aborted within 2 s.
+// 10. A wrong gates token is refused (401).
 //
 // The stack is always reset at the end.
 import assert from "node:assert/strict";
@@ -36,6 +44,7 @@ import { run } from "./lib/repo.mjs";
 const STUB_MODEL = String.raw`
 const http = require("node:http");
 let calls = 0;
+let aborted = 0;
 let hold = true;
 const held = new Set();
 function answer(res) {
@@ -50,7 +59,11 @@ function answer(res) {
 http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/calls") {
     res.setHeader("content-type", "application/json");
-    return res.end(JSON.stringify({ calls, held: held.size }));
+    return res.end(JSON.stringify({ calls, held: held.size, aborted }));
+  }
+  if (req.method === "POST" && req.url === "/hold") {
+    hold = true;
+    return res.end("{}");
   }
   if (req.method === "POST" && req.url === "/release") {
     hold = false;
@@ -64,7 +77,10 @@ http.createServer((req, res) => {
       calls += 1;
       if (!hold) return answer(res);
       held.add(res);
-      res.on("close", () => held.delete(res));
+      // Closed before it was answered: the caller (the gateway) aborted it.
+      res.on("close", () => {
+        if (held.delete(res)) aborted += 1;
+      });
     });
     return;
   }
@@ -199,7 +215,11 @@ try {
       assert.equal(count(afterTakeover, "turn.completed"), 0);
       // Give a duplicate call every chance to show up before counting.
       await new Promise((resolve) => setTimeout(resolve, 3000));
-      assert.deepEqual(await stub(), { calls: 1, held: 0 }, "the model was not called again");
+      assert.deepEqual(
+        await stub(),
+        { calls: 1, held: 0, aborted: 1 },
+        "the gateway aborted the provider request when the Runtime died, and the model was not called again",
+      );
 
       // The session is usable afterwards: cancel the uncertain turn, run the next one.
       await fetch(`${stubUrl}/release`, { method: "POST" });
@@ -222,6 +242,102 @@ try {
       assert.deepEqual(seqs, seqs.map((_, i) => i), "the history has no gap or duplicate");
       assert.equal((await stub()).calls, 2, "one call per turn");
       console.log(`[failure] next turn completed (${elapsed()})`);
+
+      // 6. Every call crossed the gateway, and the runtime runs with it.
+      const gatewayLogs = (await stack.compose(["logs", "--no-log-prefix", "gateway"])).split("\n");
+      const modelCalls = gatewayLogs.filter(
+        (line) => line.includes('"message":"model_call"') && line.includes(tenant.id),
+      );
+      assert.ok(modelCalls.length >= 2, `model_call lines in the gateway: ${modelCalls.length}`);
+      assert.ok(!gatewayLogs.join("\n").includes("stub-model-key"), "the gateway never logs the key");
+      const runtimeLogs = await stack.compose(["logs", "--no-log-prefix", "runtime"]);
+      assert.ok(runtimeLogs.includes('"modelGate":"http://gateway:4100"'), "the runtime calls the gate");
+
+      const settled = () =>
+        eventually(
+          async () => {
+            const view = await session();
+            return ["completed", "failed", "cancelled", "uncertain"].includes(view.status)
+              ? view
+              : undefined;
+          },
+          { timeout: 120_000, interval: 500, message: "the turn to settle" },
+        );
+      const lastFailure = async () =>
+        (await history()).items.filter((item) => item.type === "turn.failed").at(-1)?.payload;
+      const gatewayHealthy = () =>
+        eventually(
+          async () =>
+            (await stack.compose(["ps", "--format", "{{.Health}}", "gateway"])).trim() === "healthy",
+          { timeout: 120_000, interval: 1000, message: "the gateway to be healthy" },
+        );
+
+      // 7. Gateway stopped: a clean, retryable failure; nothing uncertain.
+      await stack.compose(["stop", "gateway"]);
+      await message(3);
+      assert.equal((await settled()).status, "failed");
+      assert.equal((await lastFailure())?.error?.code, "model.transient");
+      assert.equal(count(await history(), "effect.uncertain"), 1, "no new uncertain effect");
+      await stack.compose(["start", "gateway"]);
+      await gatewayHealthy();
+      await message(4);
+      assert.equal((await settled()).status, "completed");
+      console.log(`[failure] gateway stopped: model.transient, then recovered (${elapsed()})`);
+
+      // 8. Gateway killed mid-call: the same, and the provider request is closed.
+      await fetch(`${stubUrl}/hold`, { method: "POST" });
+      const callsBefore = (await stub()).calls;
+      await message(5);
+      await eventually(async () => (await stub()).held === 1, {
+        timeout: 60_000,
+        message: "the model call to reach the stub through the gateway",
+      });
+      await stack.compose(["kill", "gateway"]);
+      assert.equal((await settled()).status, "failed");
+      const lost = await lastFailure();
+      assert.equal(lost?.error?.code, "model.transient");
+      assert.equal(count(await history(), "effect.uncertain"), 1, "no new uncertain effect");
+      await eventually(async () => (await stub()).held === 0, {
+        timeout: 30_000,
+        message: "the killed gateway's provider request to close",
+      });
+      await stack.compose(["start", "gateway"]);
+      await gatewayHealthy();
+      await fetch(`${stubUrl}/release`, { method: "POST" });
+      await message(6);
+      assert.equal((await settled()).status, "completed");
+      assert.equal((await stub()).calls, callsBefore + 2);
+      console.log(`[failure] gateway killed mid-call: model.transient, then recovered (${elapsed()})`);
+
+      // 9. Cancel mid-call reaches the provider through the hop.
+      await fetch(`${stubUrl}/hold`, { method: "POST" });
+      await message(7);
+      await eventually(async () => (await stub()).held === 1, {
+        timeout: 60_000,
+        message: "the model call to reach the stub",
+      });
+      const abortedBefore = (await stub()).aborted;
+      const cancelledAt = Date.now();
+      await request(runtimeUrl, tenant, "/v1/sessions/s1/commands", {
+        method: "POST",
+        body: { type: "cancel", requestId: "c2", idempotencyKey: "c2" },
+      });
+      await eventually(async () => (await stub()).aborted === abortedBefore + 1, {
+        timeout: 2_000,
+        interval: 50,
+        message: "the provider request to be aborted within 2 s of the cancel",
+      });
+      console.log(`[failure] cancel aborted the provider request in ${Date.now() - cancelledAt} ms`);
+      assert.equal((await settled()).status, "cancelled");
+      await fetch(`${stubUrl}/release`, { method: "POST" });
+
+      // 10. The gateway refuses a caller without the stack's token.
+      const refused = await stack.compose([
+        "exec", "-T", "runtime", "node", "-e",
+        "fetch('http://gateway:4100/nylorun/v1/model-calls',{method:'POST',headers:{authorization:'Bearer '+'00'.repeat(32)}}).then(r=>console.log(r.status))",
+      ]);
+      assert.equal(refused.trim(), "401", "a wrong gates token is refused");
+      console.log(`[failure] Model Gate cases passed (${elapsed()})`);
     } finally {
       await docker(["rm", "--force", stubName]).catch(() => {});
     }

@@ -76,7 +76,7 @@ describe("createExecution", () => {
 
   it("uses Restate with both endpoints", () => {
     const execution = createExecution(
-      { role: "all", endpoints: { ...restate, restateIdentityKeys: ["publickeyv1_x"] } },
+      { services: new Set(["core", "loop"] as const), endpoints: { ...restate, restateIdentityKeys: ["publickeyv1_x"] } },
       { servicePrefix: "t_" },
     );
     expect(execution).toBeInstanceOf(RestateExecution);
@@ -91,14 +91,14 @@ describe("createExecution", () => {
       validateExecutionConfig({ endpoints: { restateIngressUrl: "http://r:8080" } }),
     ).toThrow(/NYLORUN_RESTATE_ADMIN_URL is required/);
     const noWorker = { restateIngressUrl: "http://r:8080", restateAdminUrl: "http://r:9070" };
-    expect(() => validateExecutionConfig({ role: "worker", endpoints: noWorker })).toThrow(
-      /NYLORUN_WORKER_URL is required for --role worker/,
+    expect(() => validateExecutionConfig({ services: new Set(["loop"] as const), endpoints: noWorker })).toThrow(
+      /NYLORUN_WORKER_URL is required for --service loop/,
     );
     expect(() => validateExecutionConfig({ endpoints: noWorker })).toThrow(
-      /NYLORUN_WORKER_URL is required for --role all/,
+      /NYLORUN_WORKER_URL is required for --service core,loop/,
     );
-    // The api role never serves the Worker endpoint.
-    expect(() => validateExecutionConfig({ role: "api", endpoints: noWorker })).not.toThrow();
+    // Without loop a process never serves the Worker endpoint.
+    expect(() => validateExecutionConfig({ services: new Set(["core"] as const), endpoints: noWorker })).not.toThrow();
     expect(() => createExecution({ endpoints: { workerUrl: "http://w:9080" } })).toThrow(
       /NYLORUN_WORKER_URL is set without the Restate endpoints/,
     );
@@ -112,14 +112,14 @@ describe("createExecution", () => {
     const admin = await serve((path) => (seen.push(`admin ${path}`), 200));
     const ingress = await serve((path) => (seen.push(`ingress ${path}`), 200));
     const execution = createExecution({
-      role: "api",
+      services: new Set(["core"] as const),
       endpoints: { restateAdminUrl: admin, restateIngressUrl: ingress },
     });
     await probeExecution(execution, AbortSignal.timeout(2000));
     expect(seen.sort()).toEqual(["admin /health", "ingress /restate/health"]);
 
     const failing = createExecution({
-      role: "api",
+      services: new Set(["core"] as const),
       endpoints: { restateAdminUrl: await serve(() => 503), restateIngressUrl: ingress },
     });
     await expect(probeExecution(failing, AbortSignal.timeout(2000))).rejects.toThrow(
@@ -153,14 +153,14 @@ describe("createDatabase", () => {
 
 describe("createInfra", () => {
   it("builds nothing and no readiness without endpoints", async () => {
-    const infra = createInfra({ role: "all", endpoints: {} });
+    const infra = createInfra({ services: new Set(["core", "loop"] as const), endpoints: {} });
     expect(infra.database ?? infra.execution ?? infra.streams ?? infra.readiness).toBeUndefined();
     await infra.close();
   });
 
   it("builds each configured client and checks exactly those", async () => {
     const infra = createInfra({
-      role: "api",
+      services: new Set(["core"] as const),
       endpoints: {
         restateIngressUrl: "http://127.0.0.1:1",
         restateAdminUrl: "http://127.0.0.1:1",
@@ -185,7 +185,7 @@ describe("createInfra", () => {
       error: (message: string, fields?: Record<string, unknown>) => lines.push(["error", message, fields]),
     };
     const infra = createInfra(
-      { role: "api", endpoints: { restateIngressUrl: url, restateAdminUrl: url } },
+      { services: new Set(["core"] as const), endpoints: { restateIngressUrl: url, restateAdminUrl: url } },
       { logger },
     );
     await infra.readiness!();

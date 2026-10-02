@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MemorySessionStore } from "../src/store/memory.js";
 import type { SessionStore, Tx } from "../src/store/types.js";
 import { VaultError } from "../src/vault/error.js";
+import { HostModelVault } from "../src/vault/host-model.js";
 import { VaultService } from "../src/vault/service.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
 
@@ -58,7 +59,15 @@ function setup(options: { fetch?: typeof fetch } = {}) {
     }) as typeof fetch,
   });
   const read = <T>(fn: (t: Tx) => Promise<T>) => store.tx(fn);
-  return { vault, store, read, kekCalls, fetchCalls };
+  // What only the Model Gate holds: the host model's secret in plaintext.
+  const hostModel = new HostModelVault({
+    store,
+    kek: () => {
+      kekCalls.push(inTx());
+      return KEK;
+    },
+  });
+  return { vault, hostModel, store, read, kekCalls, fetchCalls };
 }
 
 async function bearer(
@@ -588,10 +597,10 @@ describe("VaultService OAuth refresh races", () => {
 
 describe("VaultService host model", () => {
   it("keeps the host model credential out of user vaults and responses", async () => {
-    const { vault, store, read } = setup();
+    const { vault, hostModel, store, read } = setup();
     const secret = "host-model-plaintext-key-77ab";
     expect(await vault.getHostModel()).toEqual({ configured: false });
-    expect(await vault.readHostModel()).toBeUndefined();
+    expect(await hostModel.readHostModel()).toBeUndefined();
     const body = {
       requestId: "host-1",
       idempotencyKey: "host-model",
@@ -610,7 +619,7 @@ describe("VaultService host model", () => {
     });
     expect(await vault.putHostModel({ ...body, requestId: "host-2" })).toEqual(saved);
     expect(await status(vault.putHostModel({ ...body, model: "other" }))).toBe(409);
-    expect(await vault.readHostModel()).toEqual({
+    expect(await hostModel.readHostModel()).toEqual({
       provider: "custom",
       model: "fixture",
       baseUrl: "https://models.example.test/v1",
@@ -653,13 +662,13 @@ describe("VaultService host model", () => {
         baseUrl: "https://models.example.test/v2",
       }),
     ).toMatchObject({ configured: true, provider: "custom", model: "other-fixture" });
-    expect((await vault.readHostModel())?.credential).toEqual({
+    expect((await hostModel.readHostModel())?.credential).toEqual({
       type: "api_key",
       key: secret,
     });
 
-    await vault.updateHostCredential({ type: "api_key", key: `${secret}-new` });
-    expect((await vault.readHostModel())?.credential).toEqual({
+    await hostModel.updateHostCredential({ type: "api_key", key: `${secret}-new` });
+    expect((await hostModel.readHostModel())?.credential).toEqual({
       type: "api_key",
       key: `${secret}-new`,
     });
@@ -672,7 +681,7 @@ describe("VaultService host model", () => {
   });
 
   it("keeps a custom endpoint's model settings, also across a model selection", async () => {
-    const { vault } = setup();
+    const { vault, hostModel } = setup();
     const settings = {
       contextWindow: 16_384,
       maxTokens: 2_048,
@@ -690,7 +699,7 @@ describe("VaultService host model", () => {
         auth: { type: "api_key", key: "local" },
       }),
     ).toMatchObject({ configured: true, settings });
-    expect((await vault.readHostModel())?.settings).toEqual(settings);
+    expect((await hostModel.readHostModel())?.settings).toEqual(settings);
     await vault.selectHostModel({
       requestId: "settings-2",
       idempotencyKey: "settings-2",
@@ -698,12 +707,12 @@ describe("VaultService host model", () => {
       model: "qwen3-14b",
       baseUrl: "http://127.0.0.1:8000/v1",
     });
-    expect(await vault.readHostModel()).toMatchObject({ model: "qwen3-14b", settings });
+    expect(await hostModel.readHostModel()).toMatchObject({ model: "qwen3-14b", settings });
     expect((await vault.listHostProviders()).providers[0]?.settings).toEqual(settings);
   });
 
   it("refuses model settings for a catalog provider", async () => {
-    const { vault } = setup();
+    const { vault, hostModel } = setup();
     const openaiModel =
       hostModelCatalog().providers.find((provider) => provider.id === "openai")
         ?.models[0]?.id ?? "gpt-4o-mini";
@@ -722,7 +731,7 @@ describe("VaultService host model", () => {
   });
 
   it("validates providers before writing", async () => {
-    const { vault, read } = setup();
+    const { vault, hostModel, read } = setup();
     expect(
       await status(
         vault.putHostModel({
@@ -746,7 +755,7 @@ describe("VaultService host model", () => {
       ),
     ).toBe(404);
     expect(
-      await status(vault.updateHostCredential({ type: "api_key", key: "k" })),
+      await status(hostModel.updateHostCredential({ type: "api_key", key: "k" })),
     ).toBe(404);
     expect(await read((t) => t.vaultAudit())).toEqual([]);
     expect(await read((t) => t.getVault("host"))).toBeUndefined();

@@ -26,20 +26,22 @@ const handlers: WorkerHandlers = {
 };
 
 describe("startWorker", () => {
-  it("never starts the execution for the api role", async () => {
+  it("never starts the execution without the loop service", async () => {
     const execution = recordingExecution();
-    const handle = await startWorker({ role: "api", execution, handlers });
-    expect(handle).toEqual({ role: "api", serving: false });
+    const services = new Set(["core"] as const);
+    const handle = await startWorker({ services, execution, handlers });
+    expect(handle).toEqual({ services, serving: false });
     await stopWorker(handle);
     expect(execution.calls).toEqual([]);
-    expect(servesWorker("api")).toBe(false);
+    expect(servesWorker(services)).toBe(false);
   });
 
-  it.each(["worker", "all"] as const)("starts and stops once for the %s role", async (role) => {
+  it.each([["loop"], ["core", "loop"]] as const)("starts and stops once for %j", async (...names) => {
     const execution = recordingExecution();
-    const handle = await startWorker({ role, execution, handlers });
-    expect(handle).toEqual({ role, serving: true });
-    expect(servesWorker(role)).toBe(true);
+    const services = new Set<"core" | "loop">(names);
+    const handle = await startWorker({ services, execution, handlers });
+    expect(handle).toEqual({ services, serving: true });
+    expect(servesWorker(services)).toBe(true);
     await Promise.all([stopWorker(handle), stopWorker(handle)]);
     await stopWorker(handle);
     expect(execution.calls).toEqual(["start", "stop"]);
@@ -50,7 +52,9 @@ describe("startWorker", () => {
     execution.start = async () => {
       throw new Error("registration failed");
     };
-    await expect(startWorker({ role: "all", execution, handlers })).rejects.toThrow(
+    await expect(
+      startWorker({ services: new Set(["core", "loop"] as const), execution, handlers }),
+    ).rejects.toThrow(
       "registration failed",
     );
   });

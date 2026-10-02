@@ -1,30 +1,74 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseRole,
+  parseServices,
   parseStackConfig,
   StackConfigError,
 } from "../../src/host/stack-config.js";
 import { isAllowedRequestHost } from "../../src/host/http.js";
 
-describe("parseRole", () => {
-  it("defaults to all", () => {
-    expect(parseRole([])).toBe("all");
+describe("parseServices", () => {
+  const services = (...names: string[]) => new Set(names);
+
+  it("defaults to core and loop", () => {
+    expect(parseServices([])).toEqual({ services: services("core", "loop") });
   });
 
-  it("accepts --role <value> and --role=<value>", () => {
-    expect(parseRole(["--role", "api"])).toBe("api");
-    expect(parseRole(["--role=worker"])).toBe("worker");
-    expect(parseRole(["--role", "all"])).toBe("all");
+  it("accepts --service <list> and --service=<list>", () => {
+    expect(parseServices(["--service", "core,loop"])).toEqual({
+      services: services("core", "loop"),
+    });
+    expect(parseServices(["--service=loop"])).toEqual({ services: services("loop") });
+    expect(parseServices(["--service", " core "])).toEqual({ services: services("core") });
   });
 
-  it("rejects unknown roles, missing values, repeats and unknown arguments", () => {
-    expect(() => parseRole(["--role", "db"])).toThrow(StackConfigError);
-    expect(() => parseRole(["--role"])).toThrow(/requires a value/);
-    expect(() => parseRole(["--role", "--x"])).toThrow(/requires a value/);
-    expect(() => parseRole(["--role", "api", "--role", "all"])).toThrow(/once/);
-    expect(() => parseRole(["--port", "1"])).toThrow(/Unknown argument/);
+  it("maps the deprecated --role to services", () => {
+    expect(parseServices(["--role", "api"])).toEqual({
+      services: services("core"),
+      deprecatedRole: "api",
+    });
+    expect(parseServices(["--role=worker"])).toEqual({
+      services: services("loop"),
+      deprecatedRole: "worker",
+    });
+    expect(parseServices(["--role", "all"])).toEqual({
+      services: services("core", "loop"),
+      deprecatedRole: "all",
+    });
+  });
+
+  it("runs gates alone: never in a process with core or loop", () => {
+    expect(parseServices(["--service", "gates"])).toEqual({ services: services("gates") });
+    expect(() => parseServices(["--service", "core,gates"])).toThrow(
+      /core and loop may not share a process with gates/,
+    );
+    expect(() => parseServices(["--service", "loop,gates"])).toThrow(/separate processes/);
+  });
+
+  it("rejects unknown, later, empty and repeated services", () => {
+    expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
+    expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
+    expect(() => parseServices(["--service", "egress"])).toThrow(/not in this release/);
+    expect(() => parseServices(["--service", "core,,loop"])).toThrow(/empty entry/);
+    expect(() => parseServices(["--service", "core,core"])).toThrow(/twice/);
+  });
+
+  it("rejects missing values, repeats, both flags and unknown arguments", () => {
+    expect(() => parseServices(["--role", "db"])).toThrow(StackConfigError);
+    expect(() => parseServices(["--role"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--service"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--service", "--x"])).toThrow(/requires a value/);
+    expect(() => parseServices(["--role", "api", "--role", "all"])).toThrow(/once/);
+    expect(() => parseServices(["--service", "core", "--service", "loop"])).toThrow(/once/);
+    expect(() => parseServices(["--service", "core", "--role", "api"])).toThrow(
+      /only --service/,
+    );
+    expect(() => parseServices(["--port", "1"])).toThrow(/Unknown argument/);
+    expect(() => parseServices(["--services=core"])).toThrow(/Unknown argument/);
   });
 });
+
+/** A process that runs only core: it serves the API listener and needs no gate. */
+const CORE = ["--service", "core"];
 
 describe("parseStackConfig", () => {
   it("is local mode with no endpoints for a bare environment", () => {
@@ -32,7 +76,7 @@ describe("parseStackConfig", () => {
       { NYLORUN_HOME: "/home/u/.nylorun", PATH: "/usr/bin" },
       [],
     );
-    expect(config).toEqual({ role: "all", endpoints: {} });
+    expect(config).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
   });
 
   it("parses the Compose runtime service environment", () => {
@@ -50,11 +94,16 @@ describe("parseStackConfig", () => {
         NYLORUN_S2_ENDPOINT: "http://s2:80",
         NYLORUN_S2_TOKEN: "ignored",
         NYLORUN_WORKSPACE_STORE_URL: "file:///workspaces",
+        NYLORUN_GATES_URL: "http://gateway:4100",
+        NYLORUN_GATES_TOKEN: "ab".repeat(32),
+        NYLORUN_PACKING: "combined",
       },
-      ["--role", "all"],
+      ["--service", "core,loop"],
     );
     expect(config).toEqual({
-      role: "all",
+      services: new Set(["core", "loop"]),
+      modelGate: { url: "http://gateway:4100", token: "ab".repeat(32) },
+      packing: "combined",
       listen: {
         host: "0.0.0.0",
         port: 4000,
@@ -82,7 +131,7 @@ describe("parseStackConfig", () => {
   it("defaults container mode to 0.0.0.0:4000 when only the allowlist is set", () => {
     const config = parseStackConfig(
       { NYLORUN_ALLOWED_HOSTS: "RUNTIME:4000" },
-      [],
+      CORE,
     );
     expect(config.listen?.host).toBe("0.0.0.0");
     expect(config.listen?.port).toBe(4000);
@@ -101,7 +150,7 @@ describe("parseStackConfig", () => {
   it("allows a loopback listen host without an explicit allowlist", () => {
     const config = parseStackConfig(
       { NYLORUN_LISTEN_HOST: "127.0.0.1", NYLORUN_LISTEN_PORT: "4100" },
-      [],
+      CORE,
     );
     expect(config.listen).toEqual({
       host: "127.0.0.1",
@@ -115,17 +164,17 @@ describe("parseStackConfig", () => {
       expect(() =>
         parseStackConfig(
           { NYLORUN_LISTEN_PORT: port, NYLORUN_ALLOWED_HOSTS: "runtime:4000" },
-          [],
+          CORE,
         ),
       ).toThrow(/NYLORUN_LISTEN_PORT/);
     }
     for (const entry of ["runtime", "http://runtime:4000", "::1:4000", "a b:1", "runtime:0"]) {
       expect(() =>
-        parseStackConfig({ NYLORUN_ALLOWED_HOSTS: entry }, []),
+        parseStackConfig({ NYLORUN_ALLOWED_HOSTS: entry }, CORE),
       ).toThrow(/NYLORUN_ALLOWED_HOSTS/);
     }
     expect(
-      parseStackConfig({ NYLORUN_ALLOWED_HOSTS: "[::1]:8787" }, []).listen
+      parseStackConfig({ NYLORUN_ALLOWED_HOSTS: "[::1]:8787" }, CORE).listen
         ?.allowedHosts[0],
     ).toBe("[::1]:8787");
   });
@@ -180,7 +229,106 @@ describe("parseStackConfig", () => {
         },
         [],
       ),
-    ).toEqual({ role: "all", endpoints: {} });
+    ).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
+  });
+});
+
+describe("parseStackConfig for --service gates", () => {
+  const token = "ab".repeat(32);
+  const gateway = {
+    // The image sets these for the API; a gates process ignores them.
+    NYLORUN_LISTEN_HOST: "0.0.0.0",
+    NYLORUN_LISTEN_PORT: "4000",
+    NYLORUN_DATABASE_URL: "postgres://nylorun:pw@postgres:5432/nylorun",
+    NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100",
+    NYLORUN_GATES_TOKEN: token,
+  };
+
+  it("parses the gate's listener and token, and no API listener", () => {
+    expect(parseStackConfig(gateway, ["--service", "gates"])).toEqual({
+      services: new Set(["gates"]),
+      gates: {
+        listen: {
+          host: "0.0.0.0",
+          port: 4100,
+          allowedHosts: ["gateway:4100", "localhost:4100", "127.0.0.1:4100", "[::1]:4100"],
+        },
+        token,
+      },
+      endpoints: { databaseUrl: "postgres://nylorun:pw@postgres:5432/nylorun" },
+    });
+  });
+
+  it("requires a token of at least 32 bytes as hex, and Host values off loopback", () => {
+    const without = (name: string) => ({ ...gateway, [name]: undefined });
+    expect(() => parseStackConfig(without("NYLORUN_GATES_TOKEN"), ["--service", "gates"])).toThrow(
+      /NYLORUN_GATES_TOKEN is required/,
+    );
+    expect(() =>
+      parseStackConfig({ ...gateway, NYLORUN_GATES_TOKEN: "short" }, ["--service", "gates"]),
+    ).toThrow(/at least 32 bytes/);
+    expect(() =>
+      parseStackConfig(without("NYLORUN_GATES_ALLOWED_HOSTS"), ["--service", "gates"]),
+    ).toThrow(/NYLORUN_GATES_ALLOWED_HOSTS is required/);
+    expect(
+      parseStackConfig(
+        { ...without("NYLORUN_GATES_ALLOWED_HOSTS"), NYLORUN_GATES_LISTEN_HOST: "127.0.0.1", NYLORUN_GATES_LISTEN_PORT: "4555" },
+        ["--service", "gates"],
+      ).gates?.listen,
+    ).toEqual({
+      host: "127.0.0.1",
+      port: 4555,
+      allowedHosts: ["localhost:4555", "127.0.0.1:4555", "[::1]:4555"],
+    });
+  });
+
+  it("leaves the gate's listener to gates processes", () => {
+    expect(
+      parseStackConfig({ NYLORUN_GATES_LISTEN_HOST: "bad host" }, ["--service", "core,loop"]).gates,
+    ).toBeUndefined();
+  });
+});
+
+describe("parseStackConfig: where the loop reaches the gate", () => {
+  const token = "ab".repeat(32);
+
+  it("reads NYLORUN_GATES_URL and the token for a process that runs loop", () => {
+    expect(
+      parseStackConfig(
+        { NYLORUN_GATES_URL: "http://gateway:4100/", NYLORUN_GATES_TOKEN: token },
+        ["--service", "core,loop"],
+      ).modelGate,
+    ).toEqual({ url: "http://gateway:4100", token });
+    expect(
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, [
+        "--service",
+        "core",
+      ]).modelGate,
+    ).toBeUndefined();
+  });
+
+  it("is required for loop in a container, and only for loop", () => {
+    const container = { NYLORUN_LISTEN_HOST: "127.0.0.1" };
+    expect(() => parseStackConfig(container, ["--service", "core,loop"])).toThrow(
+      /NYLORUN_GATES_URL is required for the loop service in a container/,
+    );
+    expect(() => parseStackConfig(container, ["--service", "loop"])).toThrow(/gateway container/);
+    expect(parseStackConfig(container, ["--service", "core"]).modelGate).toBeUndefined();
+    // Outside a container (a development Host, tests) the loop may call the model itself.
+    expect(parseStackConfig({}, ["--service", "core,loop"]).modelGate).toBeUndefined();
+    expect(() => parseStackConfig({ NYLORUN_PACKING: "huge" }, [])).toThrow(/combined or split/);
+  });
+
+  it("requires the token with the URL, and the URL with the token", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100" }, []),
+    ).toThrow(/NYLORUN_GATES_TOKEN is required with NYLORUN_GATES_URL/);
+    expect(() => parseStackConfig({ NYLORUN_GATES_TOKEN: token }, [])).toThrow(
+      /without NYLORUN_GATES_URL/,
+    );
+    expect(() =>
+      parseStackConfig({ NYLORUN_GATES_URL: "ftp://gateway", NYLORUN_GATES_TOKEN: token }, []),
+    ).toThrow(/NYLORUN_GATES_URL must use http or https/);
   });
 });
 
@@ -243,7 +391,7 @@ describe("NYLORUN_ADMIN_LISTEN_*", () => {
   };
 
   it("is one listener when unset", () => {
-    expect(parseStackConfig(base, []).operator).toBeUndefined();
+    expect(parseStackConfig(base, CORE).operator).toBeUndefined();
   });
 
   it("adds the operator listener with its own Host allowlist", () => {
@@ -253,7 +401,7 @@ describe("NYLORUN_ADMIN_LISTEN_*", () => {
         NYLORUN_ADMIN_LISTEN_PORT: "4001",
         NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001,localhost:8788",
       },
-      []
+      CORE
     );
     expect(config.operator).toEqual({
       host: "0.0.0.0",
@@ -263,16 +411,16 @@ describe("NYLORUN_ADMIN_LISTEN_*", () => {
   });
 
   it("requires an allowlist off loopback, a port with the other variables, and a port of its own", () => {
-    expect(() => parseStackConfig({ ...base, NYLORUN_ADMIN_LISTEN_PORT: "4001" }, [])).toThrow(
+    expect(() => parseStackConfig({ ...base, NYLORUN_ADMIN_LISTEN_PORT: "4001" }, CORE)).toThrow(
       /NYLORUN_ADMIN_ALLOWED_HOSTS is required/
     );
     expect(() =>
-      parseStackConfig({ ...base, NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001" }, [])
+      parseStackConfig({ ...base, NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4001" }, CORE)
     ).toThrow(/NYLORUN_ADMIN_LISTEN_PORT is required/);
     expect(() =>
       parseStackConfig(
         { ...base, NYLORUN_ADMIN_LISTEN_PORT: "4000", NYLORUN_ADMIN_ALLOWED_HOSTS: "runtime:4000" },
-        []
+        CORE
       )
     ).toThrow(/must differ/);
   });

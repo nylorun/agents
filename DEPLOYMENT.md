@@ -1,8 +1,8 @@
 # Runtime deployment
 
 This release supports one machine: the **local Docker stack** that
-`nylorun up` runs (the Runtime, Studio, Postgres, Restate and s2-lite, as
-Docker Compose project `nylorun`), with **Tenants** served by that Runtime and
+`nylorun up` runs (the Runtime, its gateway, Studio, Postgres, Restate and
+s2-lite, as Docker Compose project `nylorun`), with **Tenants** served by that Runtime and
 the application's **Action endpoints** (the tools it serves) on the same machine
 or reachable from it. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
@@ -210,6 +210,35 @@ On a managed Postgres, turn on its logical replication option (for example
 `rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
 WAL; the relay catches up in order when S2 returns.
 
+## The gateway: model calls
+
+The stack runs the Runtime image twice (the combined packing). The `runtime`
+container runs the `core` and `loop` services: the APIs, Studio's backend and
+the agent loop. The `gateway` container runs `gates`, the Model Gate: it reads
+the Tenant's model credential from its vault and calls the provider. The loop
+sends every vault-backed model call to it (`NYLORUN_GATES_URL`) and never holds
+a model credential.
+
+- The gateway has no published port; only the runtime reaches it, on the stack
+  network, with `NYLORUN_GATES_TOKEN` from `stack/.env`. `nylorun up` generates
+  the token once and keeps it.
+- It mounts only the Host root's `tenants/` directory, read-only (the Tenants'
+  vault keys), never `host-credentials.json`, and writes nothing there.
+- It reaches model servers on this machine (Ollama, for example) at
+  `host.docker.internal`.
+- While it is down, model calls fail with a retryable `transient` outcome and
+  the session takes the next message; reads, commands and Studio keep working.
+  `nylorun doctor` and `nylorun status` report it, and `nylorun logs gateway`
+  shows one `model_call` line per call (never the prompt, the output or a key).
+- A Compose file you write yourself must run both containers: in a container,
+  a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and
+  `NYLORUN_GATES_TOKEN`. A proxy between the two must allow an idle request of
+  at least 630 s, because the gate answers only when the call has finished.
+
+The combined packing suits one developer on one machine. The vault key files
+are still mounted into the runtime container too, for MCP and signing keys,
+until a later release moves them into a keys service.
+
 ## Container images
 
 Each release publishes the Runtime and Studio as multi-arch images
@@ -217,7 +246,7 @@ Each release publishes the Runtime and Studio as multi-arch images
 
 | Image | Built from |
 | --- | --- |
-| `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` |
+| `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` (the `runtime` and `gateway` containers) |
 | `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
 
 `nylorun up` runs the versions its release pins (`nylorun/package.json`

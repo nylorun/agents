@@ -2,17 +2,19 @@
  * Runtime Host process entry (`@nylorun/runtime/server`).
  *
  * Reads `NYLORUN_HOME` (falls back to `~/.nylorun`), and hands an environment
- * snapshot and argv to `parseStackConfig` (container listen mode, `--role`,
+ * snapshot and argv to `parseStackConfig` (container listen mode, `--service`,
  * stack endpoints). Absolute Host root is resolved once and passed down.
  *
  * Composition: `createInfra` builds the Postgres pool, Durable Session
  * Execution and Durable Streams from the endpoints; `createHostExecution`
  * shares one execution across the Tenants; the Tenant store is Postgres
  * (`NYLORUN_DATABASE_URL`, required), with the shared record of session events
- * (`nylorun_streams`, migrated here); with S2, an `api` or `all` process runs
+ * (`nylorun_streams`, migrated here); with S2, a process running core runs
  * the stream relay, which feeds every Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
- * the infrastructure checks. See the startup order in `main()`. Tests compose a Host without this
+ * the infrastructure checks. A process running the gates service (the local
+ * stack's `gateway` container) starts only the gate (`runGates`): it needs
+ * neither host.json nor host-credentials.json. See the startup order in `main()`. Tests compose a Host without this
  * entry, with `createHost` and an injected Tenant module.
  */
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
@@ -42,8 +44,16 @@ import {
   EXIT_NON_LOOPBACK,
 } from "./http.js";
 import { createHostLogger } from "./logger.js";
-import { describeEndpoints, parseStackConfig } from "./stack-config.js";
+import {
+  describeEndpoints,
+  describeServices,
+  parseStackConfig,
+} from "./stack-config.js";
 import { createExecution, createInfra } from "../infra/index.js";
+import { createDatabase } from "../infra/database.js";
+import { startGates } from "./gates.js";
+import { httpModelGate } from "../gates/http-client.js";
+import type { StackConfig } from "./stack-config.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -74,8 +84,51 @@ async function lagOf(source: {
   return lagBytes === undefined ? {} : { lagBytes };
 }
 
+/**
+ * The gates service: the Model Gate's listener over the Postgres pool and the Host's tenants
+ * directory. Writes nothing to the Host root (the local stack mounts it read-only).
+ */
+async function runGates(stack: StackConfig): Promise<void> {
+  const gates = stack.gates!;
+  if (!stack.endpoints.databaseUrl)
+    throw new Error(
+      "NYLORUN_DATABASE_URL is required for --service gates: the gate reads Tenant vaults from Postgres (`nylorun start` sets it)",
+    );
+  const logger = createHostLogger();
+  logger.info("host_stack_config", {
+    services: [...stack.services],
+    ...(stack.packing ? { packing: stack.packing } : {}),
+    endpoints: describeEndpoints(stack.endpoints),
+  });
+  const database = createDatabase(stack);
+  let server;
+  try {
+    server = await startGates({ gates, database, hostRoot: resolveHostRoot(), logger });
+  } catch (error) {
+    await database.end({ timeout: 5 });
+    if (error instanceof HostListenError) {
+      logger.error("listen_failed", { message: error.message, exitCode: error.exitCode });
+      process.exitCode = error.exitCode;
+      return;
+    }
+    throw error;
+  }
+  logger.info("gates_ready", { url: server.url });
+  let stopping = false;
+  for (const signal of ["SIGINT", "SIGTERM"] as const)
+    process.on(signal, () => {
+      if (stopping) return;
+      stopping = true;
+      void server
+        .close()
+        .then(() => database.end({ timeout: 5 }))
+        .finally(() => process.exit(0));
+    });
+}
+
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
+  if (stack.services.has("gates")) return runGates(stack);
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
@@ -109,8 +162,17 @@ export async function main(): Promise<void> {
   const config = loadJson<HostConfigFile>(paths.config);
   const credentials = loadJson<HostCredentialsFile>(paths.credentials);
   const logger = createHostLogger();
+  if (stack.deprecatedRole)
+    logger.warn("deprecated_flag", {
+      flag: "--role",
+      use: `--service ${describeServices(stack.services)}`,
+    });
   logger.info("host_stack_config", {
-    role: stack.role,
+    services: [...stack.services],
+    ...(stack.packing ? { packing: stack.packing } : {}),
+    ...(stack.services.has("loop")
+      ? { modelGate: stack.modelGate ? stack.modelGate.url : "in-process" }
+      : {}),
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
   });
@@ -136,7 +198,7 @@ export async function main(): Promise<void> {
   // invocation for a Tenant that is not open here opens it on demand.
   const hostExecution = createHostExecution({
     execution: infra.execution ?? createExecution(stack),
-    role: stack.role,
+    services: stack.services,
     resolve: (tenantId) => module.worker(tenantId),
     logger,
   });
@@ -149,11 +211,11 @@ export async function main(): Promise<void> {
     | undefined;
   // The record of session events is shared by every Tenant; it exists before any opens.
   await migrateStreamsSchema(database);
-  // With S2, the stream relay feeds every Tenant's streams from the record. Every api or all
-  // process runs one; the replication slot lets exactly one be active. Without S2, each
+  // With S2, the stream relay feeds every Tenant's streams from the record. Every process
+  // running core runs one; the replication slot lets exactly one be active. Without S2, each
   // Tenant relays its own commits to its in-process streams.
   let relay: StreamRelay | undefined;
-  if (streams && stack.role !== "worker") {
+  if (streams && stack.services.has("core")) {
     await assertLogicalReplication(database);
     const source = createPgoutputSource({
       connectionString: stack.endpoints.databaseUrl,
@@ -168,6 +230,11 @@ export async function main(): Promise<void> {
     const status = relay.status;
     relayLag = async () => ({ ...status(), ...(await lagOf(source)) });
   }
+  // With the gates service every Tenant's vault-backed model calls cross it, and this process
+  // never reads a model credential.
+  const modelGate = stack.modelGate
+    ? httpModelGate({ url: stack.modelGate.url, token: stack.modelGate.token })
+    : undefined;
   const store = createPostgresTenantStore({
     hostRoot,
     sql: database,
@@ -176,6 +243,7 @@ export async function main(): Promise<void> {
     openRuntime: (tenantConfig, opened) =>
       openTenantRuntime(tenantConfig, {
         execution: hostExecution.tenantExecution,
+        ...(modelGate ? { modelGate } : {}),
         ...(streams ? { streams, hostRelay: true } : {}),
         ...opened,
       }),
@@ -238,9 +306,9 @@ export async function main(): Promise<void> {
   // Startup order. The Worker starts first: opening a Tenant arms its sweep
   // through Restate's ingress, which answers 404 until a Worker has registered
   // the services, so no Tenant may open before `start` (the listener opens
-  // Tenants on demand). An api-role process serves no Worker endpoint, so it
+  // Tenants on demand). A core-only process serves no Worker endpoint, so it
   // can open Tenants only once some Worker process has registered. Container
-  // mode runs one `--role all` process, which registers here. Then the
+  // mode runs one `--service core,loop` process, which registers here. Then the
   // listener starts (and marks discovery done), and every listed Tenant's
   // sweep is re-armed, which recovers wakes lost with Restate's state (§14.8).
   try {

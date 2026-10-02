@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 #
-# ghcr.io/nylorun/runtime: the Nylorun Runtime, one process with
-# `--role api|worker|all`. Build from the monorepo root:
+# ghcr.io/nylorun/runtime: the Nylorun Runtime. One image runs every service;
+# `--service` picks what a container runs: `core,loop` (the default: the APIs and
+# the agent loop) or `gates` (the Model Gate). In a container, loop needs the gate
+# (NYLORUN_GATES_URL and NYLORUN_GATES_TOKEN). `--role api|worker|all` is a
+# deprecated alias. Build from the monorepo root:
 #
 #   docker build -f runtime/Dockerfile -t nylorun-runtime:dev .
 #
@@ -71,6 +74,6 @@ COPY --from=build /app/runtime/dist runtime/dist
 # arbitrary compose `user:` can start without a mount; the mount replaces it.
 RUN mkdir -p /nylorun /workspaces && chmod 1777 /nylorun /workspaces
 USER node
-EXPOSE 4000 9080
+EXPOSE 4000 4100 9080
 ENTRYPOINT ["node", "runtime/dist/host/main.js"]
-CMD ["--role", "all"]
+CMD ["--service", "core,loop"]

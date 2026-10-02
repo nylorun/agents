@@ -24,7 +24,7 @@ import { createHostExecution, type HostExecution } from "../../src/host/executio
 import { openTestSessionStore } from "../support/store.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
-import type { RuntimeRole } from "../../src/host/stack-config.js";
+import type { RuntimeServices } from "../../src/host/stack-config.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
 import {
   boot,
@@ -114,7 +114,7 @@ afterEach(async () => {
 function hostExecution(input: {
   offset: number;
   prefix: string;
-  role?: RuntimeRole;
+  services?: RuntimeServices;
   restate?: Partial<RestateExecutionOptions>;
   resolve?: (tenantId: string) => Promise<TenantRuntime["worker"] | undefined>;
   advanceGraceMs?: number;
@@ -124,7 +124,7 @@ function hostExecution(input: {
   );
   const host = createHostExecution({
     execution,
-    role: input.role ?? "all",
+    services: input.services ?? new Set(["core", "loop"] as const),
     resolve: input.resolve ?? (async () => undefined),
     ...(input.advanceGraceMs !== undefined ? { advanceGraceMs: input.advanceGraceMs } : {}),
   });
@@ -361,7 +361,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     });
     finally_.push(() => rm(workerNode.root, { recursive: true, force: true }));
     // The API node shares the Tenant but never serves the Worker endpoint.
-    const api = hostExecution({ offset: 6, prefix: "cancel", role: "api" });
+    const api = hostExecution({ offset: 6, prefix: "cancel", services: new Set(["core"] as const) });
     await api.host.start();
     const apiNode = await tenant({
       hostRoot: workerNode.root,

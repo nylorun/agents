@@ -2,8 +2,11 @@
  * Model Calls P0 (design §6): a provider failure is a known outcome, not a lost call. The
  * turn retries, then fails cleanly with `model.<code>`, and the session takes the next
  * message. Providers are faked by answering the custom endpoint's requests.
+ *
+ * Every case runs twice: with the model called in the Tenant's process, and through the gates
+ * service over HTTP (blueprint P1.1), which must behave the same.
  */
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
 import { parseTranscriptEvent, type LiveEvent } from "@nylorun/core/contracts";
 import { startTestTenant } from "./support/tenant.js";
@@ -91,6 +94,7 @@ const ofType = (items: LiveEvent[], type: string) =>
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await Promise.all(closers.splice(0).map((close) => close()));
 });
 
@@ -105,92 +109,99 @@ async function run(reply: Reply, idleTimeoutMs?: number) {
   return { view, items, session, calls: counter.calls };
 }
 
-it("retries a rate-limited call and completes the turn without an uncertain effect", async () => {
-  let n = 0;
-  const { view, items, calls } = await run(() =>
-    ++n <= 2 ? error(429, "Rate limit reached", { "retry-after-ms": "1" }) : sse("answer"),
-  );
-  expect(view.status).toBe("completed");
-  expect(calls()).toBe(3);
-  expect(ofType(items, "effect.uncertain")).toEqual([]);
-  const [message] = ofType(items, "message.assistant");
-  expect(message).toMatchObject({
-    text: "answer",
-    model: { provider: "custom", model: "test-model" },
-    finishReason: "stop",
-    usage: { inputTokens: 12, outputTokens: 3 },
+
+describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (transport) => {
+  beforeEach(() => {
+    if (transport === "http") vi.stubEnv("NYLORUN_TEST_MODEL_GATE", "http");
   });
-  expect(parseTranscriptEvent(items.find((i) => i.type === "message.assistant")!)).toBeDefined();
-});
 
-it("fails the turn with model.overloaded and accepts the next message", async () => {
-  let healthy = false;
-  const { view, items, session } = await run(() =>
-    healthy
-      ? sse("recovered")
-      : error(503, "The server is overloaded", { "retry-after-ms": "1" }),
-  );
-  expect(view.status).toBe("failed");
-  expect(ofType(items, "turn.failed")[0]).toMatchObject({
-    error: { code: "model.overloaded" },
+  it("retries a rate-limited call and completes the turn without an uncertain effect", async () => {
+    let n = 0;
+    const { view, items, calls } = await run(() =>
+      ++n <= 2 ? error(429, "Rate limit reached", { "retry-after-ms": "1" }) : sse("answer"),
+    );
+    expect(view.status).toBe("completed");
+    expect(calls()).toBe(3);
+    expect(ofType(items, "effect.uncertain")).toEqual([]);
+    const [message] = ofType(items, "message.assistant");
+    expect(message).toMatchObject({
+      text: "answer",
+      model: { provider: "custom", model: "test-model" },
+      finishReason: "stop",
+      usage: { inputTokens: 12, outputTokens: 3 },
+    });
+    expect(parseTranscriptEvent(items.find((i) => i.type === "message.assistant")!)).toBeDefined();
   });
-  expect(ofType(items, "model.failed")[0]).toMatchObject({
-    code: "overloaded",
-    retryable: true,
-    invocationId: expect.any(String),
+
+  it("fails the turn with model.overloaded and accepts the next message", async () => {
+    let healthy = false;
+    const { view, items, session } = await run(() =>
+      healthy
+        ? sse("recovered")
+        : error(503, "The server is overloaded", { "retry-after-ms": "1" }),
+    );
+    expect(view.status).toBe("failed");
+    expect(ofType(items, "turn.failed")[0]).toMatchObject({
+      error: { code: "model.overloaded" },
+    });
+    expect(ofType(items, "model.failed")[0]).toMatchObject({
+      code: "overloaded",
+      retryable: true,
+      invocationId: expect.any(String),
+    });
+    expect(ofType(items, "effect.uncertain")).toEqual([]);
+
+    healthy = true;
+    await session.input("again", { idempotencyKey: "m2" });
+    expect((await settle(session)).status).toBe("completed");
   });
-  expect(ofType(items, "effect.uncertain")).toEqual([]);
 
-  healthy = true;
-  await session.input("again", { idempotencyKey: "m2" });
-  expect((await settle(session)).status).toBe("completed");
-});
-
-it("classifies a llama.cpp context overflow", async () => {
-  const { view, items } = await run(() =>
-    error(400, "the request exceeds the available context size, try increasing it"),
-  );
-  expect(view.status).toBe("failed");
-  expect(ofType(items, "turn.failed")[0]).toMatchObject({
-    error: { code: "model.context_overflow" },
+  it("classifies a llama.cpp context overflow", async () => {
+    const { view, items } = await run(() =>
+      error(400, "the request exceeds the available context size, try increasing it"),
+    );
+    expect(view.status).toBe("failed");
+    expect(ofType(items, "turn.failed")[0]).toMatchObject({
+      error: { code: "model.context_overflow" },
+    });
   });
-});
 
-it("fails with model.auth and names where to fix the credential", async () => {
-  const { items } = await run(() => error(401, "Incorrect API key provided"));
-  const failed = ofType(items, "turn.failed")[0];
-  expect(failed.error.code).toBe("model.auth");
-  expect(failed.error.message).toContain("Model Settings");
-});
-
-it("times out an idle stream, retries it, then fails with model.timeout", async () => {
-  const { items, calls } = await run(
-    () =>
-      new Response(new ReadableStream({ start() {} }), {
-        headers: { "content-type": "text/event-stream" },
-      }),
-    100,
-  );
-  expect(ofType(items, "turn.failed")[0]).toMatchObject({
-    error: { code: "model.timeout" },
+  it("fails with model.auth and names where to fix the credential", async () => {
+    const { items } = await run(() => error(401, "Incorrect API key provided"));
+    const failed = ofType(items, "turn.failed")[0];
+    expect(failed.error.code).toBe("model.auth");
+    expect(failed.error.message).toContain("Model Settings");
   });
-  expect(calls()).toBe(3);
-});
 
-it("records nothing as a model failure when the turn is cancelled during the call", async () => {
-  provider(
-    () =>
-      new Response(new ReadableStream({ start() {} }), {
-        headers: { "content-type": "text/event-stream" },
-      }),
-  );
-  const { runtime, client } = await tenant();
-  closers.push(() => runtime.close());
-  const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
-  await session.input("hello", { idempotencyKey: "m1" });
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  await session.cancel({ idempotencyKey: "c1" });
-  expect((await settle(session)).status).toBe("cancelled");
-  const { items } = await session.history();
-  expect(ofType(items, "model.failed")).toEqual([]);
+  it("times out an idle stream, retries it, then fails with model.timeout", async () => {
+    const { items, calls } = await run(
+      () =>
+        new Response(new ReadableStream({ start() {} }), {
+          headers: { "content-type": "text/event-stream" },
+        }),
+      100,
+    );
+    expect(ofType(items, "turn.failed")[0]).toMatchObject({
+      error: { code: "model.timeout" },
+    });
+    expect(calls()).toBe(3);
+  });
+
+  it("records nothing as a model failure when the turn is cancelled during the call", async () => {
+    provider(
+      () =>
+        new Response(new ReadableStream({ start() {} }), {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    );
+    const { runtime, client } = await tenant();
+    closers.push(() => runtime.close());
+    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    await session.input("hello", { idempotencyKey: "m1" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await session.cancel({ idempotencyKey: "c1" });
+    expect((await settle(session)).status).toBe("cancelled");
+    const { items } = await session.history();
+    expect(ofType(items, "model.failed")).toEqual([]);
+  });
 });

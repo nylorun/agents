@@ -39,7 +39,7 @@ import type {
   WorkerHandlers,
 } from "../../src/execution/types.js";
 import { createHostExecution, type HostExecution } from "../../src/host/execution.js";
-import type { RuntimeRole } from "../../src/host/stack-config.js";
+import type { RuntimeServices } from "../../src/host/stack-config.js";
 import { decodeCursor } from "../../src/store/cursor.js";
 import { sessionStream, type DurableStreams } from "../../src/streams/types.js";
 import { basinOf } from "../../src/streams/basin.js";
@@ -149,7 +149,7 @@ export class FailureTenant {
   worker(input: {
     offset: number;
     prefix: string;
-    role?: RuntimeRole;
+    services?: RuntimeServices;
     restate?: Partial<RestateExecutionOptions>;
     advanceGraceMs?: number;
     advanceDeadlineMs?: number;
@@ -163,7 +163,7 @@ export class FailureTenant {
     const execution = recording(input.wrap ? input.wrap(restate) : restate);
     const host = createHostExecution({
       execution,
-      role: input.role ?? "all",
+      services: input.services ?? new Set(["core", "loop"] as const),
       resolve: input.resolve ?? (async () => undefined),
       ...(input.advanceGraceMs !== undefined ? { advanceGraceMs: input.advanceGraceMs } : {}),
       ...(input.advanceDeadlineMs !== undefined

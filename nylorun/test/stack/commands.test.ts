@@ -1,3 +1,4 @@
+import { doctorStack } from "../../src/doctor.js";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -65,7 +66,7 @@ describe("start", () => {
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     expect(await runStackCommand("start", [], deps)).toBe(0);
     expect(docker.streamed).toEqual([
-      [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "postgres", "restate", "s2", "runtime"],
+      [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "postgres", "restate", "s2", "gateway", "runtime"],
       [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "120", "studio"],
     ]);
     expect(deps.lines).toEqual(["Runtime   http://localhost:8787", "Studio    http://localhost:4161"]);
@@ -400,6 +401,7 @@ describe("stop, logs, status", () => {
               code: 0,
               stdout: [
                 { Service: "postgres", State: "running", Health: "healthy" },
+                { Service: "gateway", State: "running", Health: "healthy" },
                 { Service: "runtime", State: "running", Health: "healthy" },
                 { Service: "studio", State: "running", Health: "healthy" },
               ]
@@ -523,6 +525,7 @@ describe("studio", () => {
     const psUp = {
       code: 0,
       stdout: JSON.stringify([
+        { Service: "gateway", State: "running", Health: "healthy" },
         { Service: "runtime", State: "running", Health: "healthy" },
         { Service: "studio", State: "running", Health: "healthy" },
       ]),
@@ -587,6 +590,7 @@ describe("ensureStack", () => {
     const psUp = {
       code: 0,
       stdout: JSON.stringify([
+        { Service: "gateway", State: "running", Health: "healthy" },
         { Service: "runtime", State: "running", Health: "healthy" },
         { Service: "studio", State: "running", Health: "healthy" },
       ]),
@@ -640,5 +644,33 @@ describe("parseComposePs", () => {
     expect(parseComposePs(JSON.stringify([row]))).toEqual(expected);
     expect(parseComposePs(`${JSON.stringify(row)}\n`)).toEqual(expected);
     expect(parseComposePs("")).toEqual([]);
+  });
+});
+
+describe("doctor with a running stack", () => {
+  it.each([
+    ["healthy", 0, /gateway\s+✓ running, healthy · combined packing/],
+    ["unhealthy", 1, /gateway\s+✗ running, unhealthy: model calls fail; see nylorun logs gateway/],
+  ] as const)("reports a %s gateway (exit %i)", async (health, code, line) => {
+    const home = await temporaryHome();
+    const docker = fakeDocker({
+      respond: (args) =>
+        args.includes("ps")
+          ? {
+              code: 0,
+              stdout: JSON.stringify([
+                { Service: "gateway", State: "running", Health: health },
+                { Service: "runtime", State: "running", Health: "healthy" },
+                { Service: "studio", State: "running", Health: "healthy" },
+              ]),
+              stderr: "",
+            }
+          : undefined,
+    });
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    await runStackCommand("start", ["--no-studio"], deps);
+    const lines: string[] = [];
+    expect(await doctorStack({ json: false, deps, log: (text) => lines.push(text) })).toBe(code);
+    expect(lines.join("\n")).toMatch(line);
   });
 });

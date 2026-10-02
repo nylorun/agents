@@ -21,7 +21,11 @@ import {
   openTenantRuntime,
   type TenantOpenHooks,
 } from "../../src/tenant/runtime.js";
-import { createKekFile } from "../../src/vault/kek.js";
+import { createKekFile, readVaultKek } from "../../src/vault/kek.js";
+import { HostModelVault } from "../../src/vault/host-model.js";
+import type { ModelGate } from "../../src/gates/model-gate.js";
+import { httpModelGate } from "../../src/gates/http-client.js";
+import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import { MemorySessionStore } from "../../src/store/memory.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
@@ -48,7 +52,14 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   }[];
   modelProvider?: ModelProvider;
   vaultKek?: Buffer | string | null;
+  /**
+   * Serve the model from the Tenant's vault (the `vault` model kind). With
+   * `NYLORUN_TEST_MODEL_GATE=http` the calls cross a gates service on 127.0.0.1, as they do in
+   * the local stack; otherwise the Tenant calls the model in process.
+   */
   useHostModel?: boolean;
+  /** Serves the Tenant's vault-backed calls instead (`TenantOpenHooks.modelGate`). */
+  modelGate?: ModelGate;
   /** Reuse an existing Host root (restart tests). */
   hostRoot?: string;
   applicationKey?: string;
@@ -234,6 +245,25 @@ export async function startTestTenant(
     createKekFile(paths.kek);
   }
 
+  let gate: GatesServer | undefined;
+  if (options.modelGate) hooks.modelGate = options.modelGate;
+  else if (options.useHostModel && process.env.NYLORUN_TEST_MODEL_GATE === "http") {
+    gate = await startTestGate({
+      vault: new HostModelVault({
+        store: opened.store,
+        kek: () => {
+          const kek = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
+          if (!kek) throw new Error("The test Tenant has no vault key");
+          return kek;
+        },
+      }),
+      root: paths.home,
+      logger,
+      ...(options.modelCall ? { settings: options.modelCall } : {}),
+    });
+    hooks.modelGate = gate.modelGate;
+  }
+
   const handle = await openTenantRuntime(config, hooks);
   const tenant = getRequestListener((request, node) => handle.fetch(request, node), {
     overrideGlobalObjects: false,
@@ -304,6 +334,7 @@ export async function startTestTenant(
     handle,
     async close() {
       await handle.close();
+      await gate?.close();
       if (!options.streams) {
         if (retainRoot) retainedStreams.set(streamsKey, defaultStreams);
         else {
@@ -320,4 +351,31 @@ export async function startTestTenant(
       }
     },
   };
+}
+
+/**
+ * A gates service on 127.0.0.1 serving one Tenant's vault, and the loop's HTTP client of it:
+ * what the local stack's `gateway` container and the runtime container's loop do.
+ */
+export async function startTestGate(options: {
+  vault: HostModelVault;
+  root: string;
+  logger: TenantConfig["logger"];
+  settings?: TenantConfig["modelCall"];
+}): Promise<GatesServer & { modelGate: ModelGate }> {
+  const token = randomBytes(32).toString("hex");
+  const server = await startGates({
+    gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
+    logger: options.logger,
+    vaults: {
+      open: async () => ({
+        root: options.root,
+        readHostModel: () => options.vault.readHostModel(),
+        writeHostCredential: (credential) => options.vault.updateHostCredential(credential),
+      }),
+    },
+    ...(options.settings ? { settings: options.settings } : {}),
+    drainMs: 0,
+  });
+  return Object.assign(server, { modelGate: httpModelGate({ url: server.url, token }) });
 }

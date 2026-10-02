@@ -1,6 +1,6 @@
 /**
  * The Host's Durable Session Execution (`host/execution.ts`) with the in-process execution:
- * roles, sweep arming, the Tenant status hook, and the advance deadline (`tenant/worker.ts`).
+ * services, sweep arming, the Tenant status hook, and the advance deadline (`tenant/worker.ts`).
  * The same wiring against Restate is in `execution.integration.test.ts`.
  */
 import { rm } from "node:fs/promises";
@@ -81,7 +81,7 @@ function host(
     Pick<Parameters<typeof createHostExecution>[0], "execution">
 ): HostExecution {
   const created = createHostExecution({
-    role: "all",
+    services: new Set(["core", "loop"] as const),
     resolve: async () => undefined,
     ...options,
   });
@@ -89,20 +89,20 @@ function host(
   return created;
 }
 
-describe("createHostExecution roles", () => {
-  it("never starts the Worker for the api role", async () => {
+describe("createHostExecution services", () => {
+  it("never starts the Worker without the loop service", async () => {
     const execution = recordingExecution();
-    const api = host({ execution, role: "api" });
+    const api = host({ execution, services: new Set(["core"] as const) });
     await api.start();
     await api.stop();
     expect(execution.calls).toEqual([]);
   });
 
-  it.each(["worker", "all"] as const)(
-    "starts the Worker once for the %s role and stops it once",
-    async (role) => {
+  it.each([["loop"], ["core", "loop"]] as const)(
+    "starts the Worker once for %j and stops it once",
+    async (...names) => {
       const execution = recordingExecution();
-      const worker = host({ execution, role });
+      const worker = host({ execution, services: new Set<"core" | "loop">(names) });
       await Promise.all([worker.start(), worker.start()]);
       await worker.start();
       await Promise.all([worker.stop(), worker.stop()]);
@@ -134,7 +134,7 @@ describe("createHostExecution roles", () => {
       sweep: async () => {},
     };
     const apiExecution = new MemoryExecution();
-    const api = host({ execution: apiExecution, role: "api", resolve: async () => worker });
+    const api = host({ execution: apiExecution, services: new Set(["core"] as const), resolve: async () => worker });
     await api.start();
     await api.tenantExecution.execution.wake("tenant_a", "s1", { reason: "message" });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -143,7 +143,7 @@ describe("createHostExecution roles", () => {
 
     const all = host({
       execution: new MemoryExecution(),
-      role: "all",
+      services: new Set(["core", "loop"] as const),
       resolve: async () => worker,
     });
     await all.start();
@@ -203,9 +203,9 @@ describe("createHostExecution roles", () => {
 });
 
 describe("createHostExecution sweeps", () => {
-  it("arms every Tenant once, whatever the role", async () => {
+  it("arms every Tenant once, whatever the services", async () => {
     const execution = recordingExecution();
-    const api = host({ execution, role: "api" });
+    const api = host({ execution, services: new Set(["core"] as const) });
     await api.armAll(["tenant_a", "tenant_b", "tenant_a"]);
     await api.armAll([]);
     expect(execution.calls.sort()).toEqual(["arm:tenant_a", "arm:tenant_b"]);

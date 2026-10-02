@@ -27,6 +27,7 @@ import type { CredentialSelection } from "@nylorun/core/contracts";
 import type { SessionStore, StoredSession, Tx } from "../store/types.js";
 import type { FlowLimits } from "../core/limits.js";
 import type { ModelProvider } from "../core/provider.js";
+import type { ModelGate } from "../gates/model-gate.js";
 import type { VaultService } from "../vault/service.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
@@ -142,8 +143,10 @@ export interface TenantContext {
   readonly sandbox: SandboxManager;
   readonly flowLimits: FlowLimits;
   readonly modelProvider: ModelProvider;
-  /** True when the model comes from the Tenant vault selection (pi-ai adapter). */
+  /** True when the model comes from the Tenant vault selection, served by `modelGate`. */
   readonly useVaultModel: boolean;
+  /** Serves vault-backed model calls (blueprint §15): in this process, or the gates service. */
+  readonly modelGate: ModelGate;
   /** Set by drain/close; reset clears it again. Stops new advances. */
   closing: boolean;
   /** Set once close has finished releasing resources. */
