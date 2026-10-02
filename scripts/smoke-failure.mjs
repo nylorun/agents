@@ -239,7 +239,12 @@ try {
       const seqs = final.items.map((item) =>
         Number(Buffer.from(item.cursor, "base64url").toString("utf8").split(":").at(-1)),
       );
-      assert.deepEqual(seqs, seqs.map((_, i) => i), "the history has no gap or duplicate");
+      // Served history skips the seqs of internal events (transcript.updated): seqs only increase.
+      assert.equal(seqs[0], 0, "the history starts at the first event");
+      assert.ok(
+        seqs.every((seq, i) => i === 0 || seq > seqs[i - 1]),
+        "the history has no duplicate and nothing out of order",
+      );
       assert.equal((await stub()).calls, 2, "one call per turn");
       console.log(`[failure] next turn completed (${elapsed()})`);
 
