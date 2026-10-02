@@ -249,6 +249,38 @@ describe("createActionHandler: deliveries", () => {
     expect(seen.filter((s) => s.input === "cats")).toHaveLength(1);
   });
 
+  it("waits for an in-flight JWKS fetch instead of treating the key as unknown", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let fetches = 0;
+    const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/v1/access/jwks")) {
+        fetches += 1;
+        await gate;
+        return Response.json({ keys: [jwk] });
+      }
+      if (url.endsWith("/health"))
+        return Response.json({ status: "ok", protocol: { ...HOST_PROTOCOL } });
+      throw new Error(`unexpected ${url}`);
+    };
+    const actions = createActionHandler({
+      agents: [support],
+      runtime: { url: RUNTIME, tenant: TENANT, fetch },
+      url: ENDPOINT,
+    });
+    const ping = { type: "ping" as const, agentId: "support" };
+    const first = actions.fetch(await delivery(ping));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const second = actions.fetch(await delivery(ping));
+    release();
+    expect((await first).status).toBe(200);
+    expect((await second).status).toBe(200);
+    expect(fetches).toBe(1);
+  });
+
   it("answers an unknown key with a retryable 503, refetching at most once per interval", async () => {
     const { actions, requests } = handler();
     const body = { type: "action", action: action({ q: "cats" }), sandbox: false };

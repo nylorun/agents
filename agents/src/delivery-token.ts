@@ -115,7 +115,7 @@ export async function bodyHash(body: Uint8Array): Promise<string> {
 /**
  * The Tenant's public keys, fetched from `GET /v1/access/jwks` and cached by `kid`. An
  * unknown `kid` refetches once, at most every `refetchMs`, so forged tokens cannot make the
- * endpoint call the Runtime on every request.
+ * endpoint call the Runtime on every request. Concurrent lookups share one in-flight fetch.
  */
 export class JwksCache {
   private readonly keys = new Map<string, CryptoKey>();
@@ -132,14 +132,21 @@ export class JwksCache {
   readonly lookup: KeyLookup = async (kid) => {
     const known = this.keys.get(kid);
     if (known) return known;
+    // Wait for an in-flight fetch: stamping the cooldown at the start of `load` used
+    // to make a concurrent ping (register + smoke, or tsx watch restart) answer
+    // `key_unknown` before the keys arrived.
+    if (this.pending) {
+      await this.pending;
+      return this.keys.get(kid);
+    }
     if (Date.now() - this.lastFetch < this.refetchMs && this.lastFetch > 0) return undefined;
     await (this.pending ??= this.load().finally(() => (this.pending = undefined)));
     return this.keys.get(kid);
   };
 
   private async load(): Promise<void> {
-    this.lastFetch = Date.now();
     const keys = "keys" in this.source ? this.source.keys : await this.fetchKeys(this.source);
+    this.lastFetch = Date.now();
     for (const jwk of keys) {
       const kid = (jwk as { kid?: unknown }).kid;
       if (typeof kid !== "string" || jwk.kty !== "EC" || jwk.crv !== "P-256") continue;
