@@ -164,11 +164,11 @@ services:
       - type: tmpfs
         target: /nylorun/keys
         read_only: true
-        tmpfs: { size: 4096 }
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - type: tmpfs
         target: /nylorun/stack
         read_only: true
-        tmpfs: { size: 4096 }
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
