@@ -1,5 +1,10 @@
 name: Publish reviewed release
 on:
+  # A merged release PR publishes itself: merging is the agent's last step.
+  push:
+    branches: [main]
+    paths: [.release/plan.json]
+  # Reruns and recovery: a later main tip that keeps the plan unchanged.
   workflow_dispatch:
     inputs:
       commit:
@@ -11,11 +16,15 @@ permissions:
 concurrency:
   group: npm-publication
   cancel-in-progress: false
-# Order: validate → approve → images (ghcr.io/nylorun/runtime and studio) →
-# publish (npm). `approve` is the only reviewed step, so nothing becomes public
-# before an administrator approves the validated candidate. nylorun names its
-# image pins (nylorun/package.json nylorun.runtime and nylorun.studio), so both
-# images exist before nylorun reaches npm.
+env:
+  RELEASE_SHA: ${{ inputs.commit || github.sha }}
+# Order: validate → images (ghcr.io/nylorun/runtime and studio) → publish
+# (npm, beta only) → promote (latest plans only). A beta release runs without
+# approval. `promote` is the only reviewed step: it alone holds the npm token
+# that moves `latest`, and it waits for an administrator to approve the
+# `release` environment. nylorun names its image pins (nylorun/package.json
+# nylorun.runtime and nylorun.studio), so both images exist before nylorun
+# reaches npm.
 jobs:
   validate:
     if: github.ref == 'refs/heads/main'
@@ -24,8 +33,9 @@ jobs:
     permissions:
       contents: read
       checks: read
+    outputs:
+      channel: ${{ steps.plan.outputs.channel }}
     env:
-      RELEASE_SHA: ${{ inputs.commit }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Validate commit input
@@ -44,8 +54,12 @@ jobs:
           [[ "$conclusion" == success ]]
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ inputs.commit }}
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
+      # beta or latest; release:check validates the plan below.
+      - name: Read the release channel
+        id: plan
+        run: echo "channel=$(jq -r .channel .release/plan.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -60,7 +74,7 @@ jobs:
       # release:check smokes the packed starter on the Docker stack. Build its
       # Runtime and Studio images once, for this runner only (amd64, loaded,
       # never pushed), with a layer cache; the images job builds the published
-      # multi-arch images after approval.
+      # multi-arch images.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build the Runtime image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -91,22 +105,11 @@ jobs:
           path: .tmp/release-artifacts/
           include-hidden-files: true
           if-no-files-found: error
-  # The single approval. Environment `release` has the required reviewers;
-  # `images` and `publish` wait for this job and need no approval of their own.
-  approve:
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: release
-    permissions: {}
-    steps:
-      - name: Record approval
-        run: echo "Release ${{ inputs.commit }} approved for publication."
   # Multi-arch images, tagged with the package version only. An existing tag
   # is never replaced: its leg skips the build, so reruns are idempotent. A
   # version this release keeps must already have its image.
   images:
-    needs: [validate, approve]
+    needs: validate
     runs-on: ubuntu-latest
     # arm64 builds under QEMU emulation.
     timeout-minutes: 60
@@ -125,11 +128,10 @@ jobs:
             description: The Nylorun Studio dashboard and trusted proxy
     env:
       PACKAGE: ${{ matrix.package }}
-      RELEASE_SHA: ${{ inputs.commit }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ inputs.commit }}
+          ref: ${{ env.RELEASE_SHA }}
       # images.mjs uses only Node built-ins: no install.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -162,14 +164,14 @@ jobs:
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.image.outputs.version }}
-            org.opencontainers.image.revision=${{ inputs.commit }}
+            org.opencontainers.image.revision=${{ env.RELEASE_SHA }}
             org.opencontainers.image.licenses=Apache-2.0
           # GHCR reads a multi-arch image's description from its index.
           annotations: |
             index:org.opencontainers.image.description=${{ matrix.description }}
             index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             index:org.opencontainers.image.version=${{ steps.image.outputs.version }}
-            index:org.opencontainers.image.revision=${{ inputs.commit }}
+            index:org.opencontainers.image.revision=${{ env.RELEASE_SHA }}
             index:org.opencontainers.image.licenses=Apache-2.0
           cache-from: type=gha,scope=release-${{ matrix.package }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.package }}
@@ -184,24 +186,25 @@ jobs:
           grep -qx linux/amd64 <<<"$platforms"
           grep -qx linux/arm64 <<<"$platforms"
   publish:
-    needs: [validate, approve, images]
+    needs: [validate, images]
     runs-on: ubuntu-latest
     # Two registry waits (engines, then creator), each bounded at 10 min, then
     # the public creator smoke, which pulls the published images.
     timeout-minutes: 60
     # Bound to npm trusted publishing and holds NPM_BOOTSTRAP_TOKEN; it has no
-    # reviewers, because `approve` already gated this run.
+    # reviewers. It publishes on beta only (scripts/release/registry.mjs
+    # refuses any other tag); for a latest plan it only verifies that every
+    # version is already on npm, and runs the public smoke.
     environment: npm
     permissions:
       contents: write
       id-token: write
     env:
-      RELEASE_SHA: ${{ inputs.commit }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ inputs.commit }}
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -218,3 +221,30 @@ jobs:
         env:
           # Optional first-publication fallback; npm prefers configured OIDC trust.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+  # The single approval: moving `latest`. Environment `release` has the
+  # required reviewers and holds NPM_LATEST_TOKEN, a granular npm token
+  # (read and write, stage only) that can move dist-tags but cannot publish.
+  # A beta plan skips this job.
+  promote:
+    needs: [validate, publish]
+    if: needs.validate.outputs.channel == 'latest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release/promote.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_LATEST_TOKEN }}

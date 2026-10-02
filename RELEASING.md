@@ -1,6 +1,8 @@
 # Releasing packages and images
 
-Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime and Studio changes advance nylorun, which pins their images. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Nothing publishes on merge or tag push.
+Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio and CLI; Runtime and Studio changes advance nylorun, which pins their images. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it: a beta release with no approval, a promotion to `latest` after one administrator approval. Nothing else publishes on merge or tag push.
+
+Coding agents release by following [the release skill](.claude/skills/release/SKILL.md).
 
 The creator's compatibility combination (`create-agent/compatibility.json`)
 pins exactly what a generated project or the examples install or depend on:
@@ -27,10 +29,17 @@ A release publishes two kinds of artifact:
 - Configure each package's npm trusted publisher for this repository,
   workflow `publish.yml`, and GitHub environment `npm`, allowing publication.
 - Create the `release` environment with administrator reviewers. It is the
-  only approval: the workflow's `approve` job waits on it, and nothing is
-  pushed or published before it passes.
+  only approval, and only a promotion to `latest` waits on it (the workflow's
+  `promote` job). Store `NPM_LATEST_TOKEN` in it: a granular npm access
+  token for the `@nylorun` scope and the `nylorun` package, with
+  **Read and write (stage only)** access and **Bypass 2FA** enabled. Stage
+  only lets it move dist-tags but not publish a version; Bypass 2FA lets CI
+  move them without a one-time password. npm caps its expiry at 90 days:
+  replace it before then. An expired token fails `promote` with the
+  fallback command (see Recovery).
 - Keep the `npm` environment (npm trusted publishing is bound to it, and it
-  holds `NPM_BOOTSTRAP_TOKEN` when needed) without required reviewers.
+  holds `NPM_BOOTSTRAP_TOKEN` when needed) without required reviewers. Beta
+  releases publish through it with no approval.
 - Restrict the deployment branch of both `release` and `npm` to `main`, and
   protect `main` with required CI/review checks.
 - Ensure GitHub Actions can create package tags and GitHub releases.
@@ -65,10 +74,9 @@ publishing for the newly created packages before future releases.
 Start from updated `main`, with the intended changesets already committed:
 
 ```sh
-git switch -c codex/release-next
+git switch -c release/next
 npm run setup
 npm run release:prepare -- --channel beta
-npm run release:check
 ```
 
 Preparation requires a clean branch. It applies Changesets, ensures a creator
@@ -78,17 +86,19 @@ Studio versions of this release, synchronizes examples, refreshes both
 lockfiles, and writes `.release/plan.json`. It does not commit, push, or
 publish.
 
-Review and commit the versions, changelogs, compatibility, generated shell,
-lockfiles and release plan together. Open a normal PR.
+Commit the versions, changelogs, compatibility, generated shell, lockfiles and
+release plan together, and open a PR. Its CI runs `release:check` (see below),
+because it changes the release plan; run it locally only to debug a failure.
+Merging the PR publishes the release.
 Changesets supplies release intent and changelog entries. Version strings and npm
 dist-tags are separate:
 
 - **Pre-1.0 branding:** every release keeps a `-beta` version suffix (`0.12.0-beta`)
   until the package reaches 1.0. That suffix is product naming, not “temporary.”
 - **npm `beta` channel:** stage a candidate build (`npm publish --tag beta`).
-- **npm `latest` channel:** make a version the default install target. Before 1.0,
-  `latest` still points at `*-beta` version strings. After 1.0, `latest` uses plain
-  `major.minor.patch` versions.
+- **npm `latest` channel:** make a version the default install target, by
+  promoting a version already on `beta`. Before 1.0, `latest` points at
+  `*-beta` version strings.
 
 There is no numeric prerelease counter. Packages remain independently versioned.
 Fixes bump patch, features bump minor, and breaking changes bump minor before 1.0
@@ -105,15 +115,15 @@ Typical pre-1.0 flow:
 1. `release:prepare -- --channel beta` — bump `*-beta` versions and publish to the
    `beta` dist-tag for soak testing.
 2. `release:prepare -- --channel latest` with no pending changesets — keep the same
-   `*-beta` versions and move the `latest` dist-tag onto them (tag promotion). An
-   npm administrator moves the tags by hand; see
-   [Promote to latest](#promote-to-latest).
-3. With pending changesets, `--channel latest` bumps the numeric core, keeps the
-   pre-1.0 `-beta` suffix, and publishes directly to `latest`.
+   `*-beta` versions and move the `latest` dist-tag onto them (tag promotion),
+   after an administrator approves; see [Promote to latest](#promote-to-latest).
 
-After 1.0, `--channel latest` with no pending changes strips `-beta`
-(`1.2.0-beta` → `1.2.0`). Creator also releases whenever its compatibility pins
-change. Review the complete resulting stack. The release plan controls publication.
+Every new version reaches npm on `beta` first. `--channel latest` refuses
+pending changesets (release them on beta, then promote), and refuses a package
+past 1.0: stripping `-beta` would publish a new version, which a promotion
+cannot. Decide how stable versions ship before the first 1.0. Creator also
+releases whenever its compatibility pins change. The release plan controls
+publication.
 
 `release:check` validates the exact creator combination, using candidate tarballs
 for changed packages and registry versions for unchanged pins. It also exercises
@@ -125,16 +135,18 @@ package has no tarball there.
 
 ## Publish the reviewed commit
 
-1. Merge the release PR after CI passes.
-2. Open **Actions → Publish reviewed release → Run workflow** on `main`.
-3. Enter the full 40-character SHA of the merge/squash commit that changed the
-   release plan. Prefer that prepare commit. A later main tip is allowed only
-   when `.release/plan.json` is unchanged since prepare (for example a
-   smoke/script fix finishing an interrupted publish).
-4. Review the validated candidate artifacts and approve the `release`
-   environment once. Images and npm publication then run without further
-   approval.
-5. Check the workflow summary, the images on `ghcr.io/nylorun`, npm
+1. Merge the release PR after CI passes. The merge changes
+   `.release/plan.json` on `main`, which starts **Publish reviewed release**
+   for that commit. A beta release runs to the end with no approval.
+2. To rerun or recover, open **Actions → Publish reviewed release → Run
+   workflow** on `main` and enter a full 40-character SHA: the merge commit
+   that changed the release plan, or a later main tip only when
+   `.release/plan.json` is unchanged since then (for example a smoke/script
+   fix finishing an interrupted publish).
+3. For a promotion to `latest`, an administrator approves the `release`
+   environment once, after the public smoke passed; see
+   [Promote to latest](#promote-to-latest).
+4. Check the workflow summary, the images on `ghcr.io/nylorun`, npm
    versions/dist-tags, and package GitHub releases. The Runtime's release carries
    its OpenAPI documents (`openapi.json`, `admin-openapi.json`), taken from the
    tarball npm published; a rerun or a channel promotion uploads only a missing one
@@ -143,19 +155,20 @@ package has no tarball there.
 The jobs run in this order:
 
 1. **validate** verifies that the selected commit belongs to `main` and passed
-   `ci`, runs `release:check` on the checkout, and saves the verified tarballs.
-2. **approve** waits for an administrator to approve the `release` environment.
-   Nothing is public before this step.
-3. **images** builds `runtime/Dockerfile` and `studio/Dockerfile` for
+   `ci`, runs `release:check` on the checkout, saves the verified tarballs, and
+   reads the plan's channel.
+2. **images** builds `runtime/Dockerfile` and `studio/Dockerfile` for
    `linux/amd64` and `linux/arm64` (QEMU and buildx, with a GitHub Actions
    layer cache) and pushes `ghcr.io/nylorun/runtime:<version>` and
    `ghcr.io/nylorun/studio:<version>`, labeled with the source repository,
    version and commit. `scripts/release/images.mjs` decides each push: an
    existing tag is never replaced, so that image is skipped; a version the
    release keeps rather than publishes must already have its image.
-4. **publish** runs only after both images exist, because the nylorun it
-   publishes pins them. It publishes the same tarballs: the engines first, then
-   the creator. Then it smokes the public quickstart on the Docker stack
+3. **publish** runs only after both images exist, because the nylorun it
+   publishes pins them. For a beta plan it publishes the same tarballs on the
+   `beta` tag: the engines first, then the creator. It never publishes on
+   `latest`; for a latest plan it checks that every version is already on npm
+   with the verified integrity. Then it smokes the public quickstart on the Docker stack
    (`scripts/release/smoke.mjs`): with no credentials and an empty npm config,
    `npm exec @nylorun/create-agent@<version>` creates a project; the published
    `nylorun up` pulls its pinned `ghcr.io/nylorun/runtime` and
@@ -164,6 +177,9 @@ The jobs run in this order:
    those images, that the Tenant is created and the starter's Action
    endpoint answers a ping, and that the Studio login works. It
    makes no model calls, and it resets the stack's containers and volumes.
+4. **promote** runs for a latest plan only. It waits for an administrator to
+   approve the `release` environment, then moves each package's `latest` tag
+   with `NPM_LATEST_TOKEN`.
 
 Tags use `@nylorun/<package>@<version>`, Studio's included, and
 `nylorun@<version>` for nylorun. Images carry only
@@ -172,32 +188,18 @@ the version tag; there is no `latest` image.
 ## Promote to latest
 
 A promotion moves the `latest` dist-tag onto versions already published on
-`beta`. npm trusted publishing (OIDC) publishes versions but cannot edit the
-tags of published versions, so this step is manual, done by an npm
-administrator of every public `@nylorun` package and of `nylorun`:
+`beta`. npm trusted publishing (OIDC) publishes versions but cannot edit tags,
+so the `promote` job moves them with `NPM_LATEST_TOKEN`, which only the
+approved `release` environment exposes.
 
-1. Prepare, review and merge the promotion PR
-   (`release:prepare -- --channel latest` with no pending changesets; it
-   changes only `.release/plan.json`), and run **Publish reviewed release** for
-   its commit as above.
-2. **publish** finds every package already published with matching integrity,
-   tries each `latest` tag, and fails once with a single command that moves all
-   of them, for example:
-
-   ```text
-   Published, but the latest tag of 8 package(s) could not be moved (npm trusted
-   publishing cannot edit tags of published versions). An npm administrator runs,
-   after npm login:
-     npm dist-tag add @nylorun/core@0.7.0-beta latest && npm dist-tag add … latest
-   then reruns this job, which skips the tags and finishes the release.
-   ```
-
-3. The administrator runs `npm login`, checks the account with `npm whoami`,
-   and runs that command as printed. npm asks for web or one-time-password
-   authentication for each tag.
-4. **Re-run failed jobs** on the same workflow run. The tags now match, so
-   publish skips them and runs the public quickstart smoke, which the first
-   attempt did not reach.
+1. Prepare and merge the promotion PR (`release:prepare -- --channel latest`
+   with no pending changesets; it changes only `.release/plan.json`). The
+   merge starts the workflow.
+2. **publish** finds every package already on npm with matching integrity and
+   runs the public quickstart smoke. **promote** then waits.
+3. An administrator approves the `release` environment. This is the only
+   human step of any release.
+4. **promote** moves every `latest` tag and lists them in the summary.
 5. Check `npm view <package> dist-tags` for each package, and that a plain
    `npx nylorun up` (no `@beta`) starts the promoted Runtime image.
 
@@ -218,7 +220,9 @@ refuses to, and a newer `latest` means a newer release is needed instead.
 | Partial publication/network failure | Rerun for the same release commit; matching artifact integrity allows completed packages to be skipped |
 | npm accepted publication but is still processing it | Wait for the version and tag to appear in ordinary npm reads before retrying; preparation/publication must not assign a new artifact to that version |
 | Published integrity differs | Stop; investigate the existing release and prepare a new version |
-| Missing/older dist-tag after publication (every promotion) | An npm administrator runs the one `npm dist-tag add … && …` command the publish job printed, then reruns the failed job: [Promote to latest](#promote-to-latest). OIDC alone cannot edit tags |
+| `promote` could not move a `latest` tag | Usually an expired or missing `NPM_LATEST_TOKEN`: replace it in the `release` environment (see Administrator setup) and rerun the failed job. Otherwise an npm administrator runs the one `npm dist-tag add … && …` command the job printed, then reruns it |
+| `publish` could not move a `beta` tag | An npm administrator runs the one `npm dist-tag add … && …` command the job printed, then reruns the failed job. OIDC alone cannot edit tags |
+| `… is not on npm. A latest release only promotes versions already published on beta.` | Release those versions on beta first, then prepare the promotion again |
 | A newer dist-tag exists | Do not move it backward; prepare a newer release |
 | `Tag … points to a different commit` on a channel promotion | Expected when version tags already exist from an earlier publish of the same versions. Publish tooling allows this when the version is already on the registry; fix/rerun on a commit that updates `.release/plan.json` if an older publish script still rejects it |
 | Public creator smoke cannot pull `ghcr.io/nylorun/…` (`denied`, `unauthorized`) | The smoke pulls without logging in, as developers do. Set that image's visibility to **public** (see Administrator setup), then rerun the same workflow |

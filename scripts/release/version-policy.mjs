@@ -136,16 +136,6 @@ function enforceProtocolReleaseRule(bumps, before, options = {}) {
 }
 
 /**
- * Pre-1.0 product branding always uses a `-beta` version suffix.
- * After 1.0, only the npm `beta` channel uses `-beta` (staging before latest).
- * npm channels (`beta` vs `latest`) are independent of that branding.
- */
-const suffixFor = (nextCore, channel) => {
-  if (semver.major(nextCore) === 0) return "-beta";
-  return channel === "beta" ? "-beta" : "";
-};
-
-/**
  * Compute final versions once; Changesets applies this exact plan and writes notes.
  * options.currentProtocol / options.releasedProtocol override filesystem/git reads
  * used by the D1 protocol release rule (WS-H 11).
@@ -186,28 +176,30 @@ export function planVersions(
     }
   }
   enforceProtocolReleaseRule(bumps, before, options);
+  // A latest release only moves the latest tag onto versions already on beta:
+  // every new version reaches npm through the beta channel first.
+  if (channel === "latest" && bumps.size)
+    throw new Error(
+      "A latest release promotes versions already published on beta. Release the pending changesets with --channel beta first, then promote.",
+    );
   const versions = {};
-  const bump = (name, type) => {
-    const next = semver.inc(core(before[name]), type);
-    return next + suffixFor(next, channel);
-  };
+  // Every new version is a beta, so it carries the -beta suffix.
+  const bump = (name, type) =>
+    `${semver.inc(core(before[name]), type)}-beta`;
   for (const name of packages) {
     const type = bumps.get(name);
     if (type) versions[name] = bump(name, type);
-    else if (
-      channel === "latest" &&
-      bumps.size === 0 &&
-      semver.prerelease(before[name])
-    ) {
-      if (semver.major(before[name]) === 0) {
-        // Pre-1.0: promote by pointing `latest` at the same x.y.z-beta version.
-        // Ignore legacy numbered betas (0.1.0-beta.1); those are not the modern line.
-        if (/^\d+\.\d+\.\d+-beta$/.test(before[name]))
-          versions[name] = before[name];
-      } else {
-        // Post-1.0: classic promote strips the prerelease.
-        versions[name] = core(before[name]);
-      }
+    else if (channel === "latest" && semver.prerelease(before[name])) {
+      // Stripping -beta after 1.0 would publish a new version, which a
+      // promotion cannot do.
+      if (semver.major(before[name]) !== 0)
+        throw new Error(
+          `Cannot promote ${fullName(name)}@${before[name]}: a stable version would be a new publication, and latest only moves onto versions already on beta.`,
+        );
+      // Pre-1.0: promote by pointing `latest` at the same x.y.z-beta version.
+      // Ignore legacy numbered betas (0.1.0-beta.1); those are not the modern line.
+      if (/^\d+\.\d+\.\d+-beta$/.test(before[name]))
+        versions[name] = before[name];
     }
   }
   // Release consumers whenever a pinned production dependency changes.
@@ -251,19 +243,16 @@ export function planVersions(
     });
   }
   for (const name of packages) {
-    if (versions[name] && !bumps.has(name)) {
-      const tagOnly =
-        channel === "latest" &&
-        versions[name] === before[name] &&
-        semver.major(before[name]) === 0;
+    if (versions[name] === before[name] && channel === "latest")
       changesets.push({
         id: `release-stable-${name}`,
-        summary: tagOnly
-          ? `Publish the tested ${before[name]} release on the latest dist-tag.`
-          : `Promote the tested ${before[name]} release to stable.`,
+        summary: `Publish the tested ${before[name]} release on the latest dist-tag.`,
         releases: [{ name: fullName(name), type: "patch" }],
       });
-    }
+    else if (channel === "latest" && versions[name])
+      throw new Error(
+        `A latest release must not change versions: ${name} ${before[name]} → ${versions[name]}`,
+      );
   }
   const pinned = { ...compatibility };
   const releases = packages

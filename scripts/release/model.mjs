@@ -203,11 +203,14 @@ export async function releaseNotes(repo, name, version) {
  * packages (artifact `image: true`, e.g. a private Studio) are never
  * published to npm; the release workflow pushed their images before this.
  *
- * A channel tag the registry client cannot move (an error carrying
- * `distTagCommand`: npm trusted publishing publishes versions but cannot edit
- * tags, so every promotion of published versions hits this) does not stop the
- * release: every package is tried, then one error names the single command an
- * npm administrator runs for all of them.
+ * Only a beta plan publishes. A latest plan is a promotion: this checks that
+ * every version is already on npm with the verified integrity, and
+ * promoteCandidates moves the latest tag after an administrator approves.
+ *
+ * A beta tag the registry client cannot move (an error carrying
+ * `distTagCommand`: npm trusted publishing cannot edit tags of published
+ * versions) does not stop the release: every package is tried, then one error
+ * names the single command an npm administrator runs for all of them.
  */
 export async function publishCandidates(
   plan,
@@ -221,14 +224,28 @@ export async function publishCandidates(
   const names = packages.filter(
     (name) => plan.packages[name] && !imageOnly(name),
   );
+  for (const name of names)
+    if (!artifacts[name]?.integrity)
+      throw new Error(`Missing verified artifact for ${name}.`);
+  if (plan.channel === "latest") {
+    for (const name of names) {
+      const version = plan.packages[name];
+      const published = await registry.lookup(name, version);
+      if (!published)
+        throw new Error(
+          `${name}@${version} is not on npm. A latest release only promotes versions already published on beta.`,
+        );
+      if (published.integrity !== artifacts[name].integrity)
+        throw new Error(`Published integrity conflict for ${name}@${version}.`);
+      report(`${name}@${version}: on npm with matching integrity`);
+    }
+    return;
+  }
   await Promise.all(
     names.map((name) =>
       registry.checkTag(name, plan.packages[name], plan.channel),
     ),
   );
-  for (const name of names)
-    if (!artifacts[name]?.integrity)
-      throw new Error(`Missing verified artifact for ${name}.`);
   const engines = names.filter((name) => name !== "create-agent");
   const untagged = await publishWave(engines, plan, artifacts, registry, report);
   if (names.includes("create-agent")) {
@@ -250,6 +267,63 @@ export async function publishCandidates(
         `after npm login:\n  ${untagged.join(" && ")}\nthen reruns this job, which skips the tags ` +
         `and finishes the release.`,
     );
+}
+
+/**
+ * Move the latest tag onto a promotion's versions, which publishCandidates
+ * already found on npm. Only the workflow's `promote` job runs this, after an
+ * administrator approves the `release` environment, which holds the npm token
+ * allowed to move tags. Every package is tried; one error names the command
+ * for the tags that did not move.
+ */
+export async function promoteCandidates(
+  plan,
+  registry,
+  imageOnly,
+  report = () => {},
+) {
+  if (plan.channel !== "latest")
+    throw new Error("Only a latest release moves the latest tag.");
+  const names = packages.filter(
+    (name) => plan.packages[name] && !imageOnly(name),
+  );
+  await Promise.all(
+    names.map((name) =>
+      registry.checkTag(name, plan.packages[name], "latest"),
+    ),
+  );
+  for (const name of names)
+    if (!(await registry.lookup(name, plan.packages[name])))
+      throw new Error(
+        `${name}@${plan.packages[name]} is not on npm. A latest release only promotes versions already published on beta.`,
+      );
+  const results = await Promise.allSettled(
+    names.map((name) =>
+      registry.ensureTag(name, plan.packages[name], "latest"),
+    ),
+  );
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled")
+      report(`${names[index]}@${plan.packages[names[index]]}: on latest`);
+  });
+  const untagged = settleTags(results);
+  if (untagged.length)
+    throw new Error(
+      `The latest tag of ${untagged.length} package(s) could not be moved. Renew the release ` +
+        `environment's NPM_LATEST_TOKEN and rerun this job, or have an npm administrator run, ` +
+        `after npm login:\n  ${untagged.join(" && ")}\nthen rerun this job.`,
+    );
+}
+
+/** The `npm dist-tag add` commands of the tags that did not move. */
+function settleTags(results) {
+  const untagged = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") continue;
+    if (!result.reason?.distTagCommand) throw result.reason;
+    untagged.push(result.reason.distTagCommand);
+  }
+  return untagged;
 }
 
 async function publishWave(names, plan, artifacts, registry, report) {
@@ -276,18 +350,13 @@ async function publishWave(names, plan, artifacts, registry, report) {
       report(`${name}@${version}: published and verified`);
     }),
   );
-  const tagged = await Promise.allSettled(
-    names.map((name) =>
-      registry.ensureTag(name, plan.packages[name], plan.channel),
+  return settleTags(
+    await Promise.allSettled(
+      names.map((name) =>
+        registry.ensureTag(name, plan.packages[name], plan.channel),
+      ),
     ),
   );
-  const untagged = [];
-  for (const result of tagged) {
-    if (result.status === "fulfilled") continue;
-    if (!result.reason?.distTagCommand) throw result.reason;
-    untagged.push(result.reason.distTagCommand);
-  }
-  return untagged;
 }
 
 export async function verifyReleaseCommit(repo, sha) {
