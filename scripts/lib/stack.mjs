@@ -342,7 +342,7 @@ export async function hostTenant(admin) {
   return { id: tenant.id, key: admin.deriveTenantKey(tenant.id, "project") };
 }
 
-const PROTOCOL = "5";
+export const PROTOCOL = "5";
 
 /** Headers for the Tenant API: the Host's one Tenant, so nothing selects it. */
 export function runtimeHeaders(key, extra = {}) {

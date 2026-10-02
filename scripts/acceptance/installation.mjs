@@ -38,6 +38,7 @@ import {
   ensureImages,
   eventually,
   hostTenant,
+  PROTOCOL,
   runtimeGet,
   runtimeHeaders,
   withStack,
@@ -292,13 +293,13 @@ async function i1(url, admin, adminKey) {
   for (const method of ["GET", "POST"]) {
     const routes = await request(admin.adminUrl, "/v1/admin/tenants", {
       method,
-      headers: { authorization: `Bearer ${adminKey}` },
+      headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: PROTOCOL },
       ...(method === "POST" ? { body: { name: "should-not-create", idempotencyKey: randomUUID() } } : {}),
     });
     assert.equal(routes.status, 404, `${method} /v1/admin/tenants on the operator listener`);
   }
   const onRuntimePort = await request(url, "/v1/admin/tenants", {
-    headers: { authorization: `Bearer ${adminKey}` },
+    headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: PROTOCOL },
   });
   assert.equal(onRuntimePort.status, 404, "the Runtime port serves no admin routes");
   assert.equal((await admin.status()).tenant.id, tenant.id, "still the one Tenant");
