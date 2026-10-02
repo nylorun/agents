@@ -9,6 +9,7 @@ import {
   getJson,
   readTenantLog,
   startSecurityHost,
+  untilTenantSettled,
 } from "./support.js";
 
 it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", async () => {
@@ -16,11 +17,12 @@ it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", as
     sandboxBackend: "virtual",
     model: { kind: "scripted", output: "ok" },
   });
-  const [a] = host.tenants;
+  const a = host.tenant;
+  await untilTenantSettled(a);
 
   const logBefore = readTenantLog(a);
-  const definitionsBefore = await countTenantRows(host, a.id, "definitions");
-  const sessionsBefore = await countTenantRows(host, a.id, "sessions");
+  const definitionsBefore = await countTenantRows(host, "definitions");
+  const sessionsBefore = await countTenantRows(host, "sessions");
 
   const missing = await getJson(`${host.url}/v1/agents`, {
     method: "PUT",
@@ -57,8 +59,8 @@ it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", as
   expect(wrong.status).toBe(426);
 
   expect(readTenantLog(a)).toBe(logBefore);
-  expect(await countTenantRows(host, a.id, "definitions")).toBe(
+  expect(await countTenantRows(host, "definitions")).toBe(
     definitionsBefore,
   );
-  expect(await countTenantRows(host, a.id, "sessions")).toBe(sessionsBefore);
+  expect(await countTenantRows(host, "sessions")).toBe(sessionsBefore);
 });

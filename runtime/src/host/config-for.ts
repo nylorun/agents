@@ -4,7 +4,7 @@ import type { Logger, TenantConfig } from "../tenant/types.js";
 import { tenantChildEnvironment } from "./environment.js";
 
 /**
- * Builds a TenantConfig for `openTenantRuntime`.
+ * Builds the TenantConfig of the Host's Tenant for `openTenantRuntime`.
  * The sandbox backend here is the Host default; a Tenant's seeded `sandbox.backend`
  * setting overrides it when the Tenant opens (I1, A18).
  */
@@ -22,7 +22,7 @@ export function configForFactory(options: {
 }): (id: string) => TenantConfig {
   const { baseline } = options;
   return (id: string): TenantConfig => {
-    const tenant = tenantPaths(options.hostRoot, id);
+    const tenant = tenantPaths(options.hostRoot);
     const sandboxBackend: TenantConfig["sandbox"]["backend"] = "auto";
     return {
       tenantId: id,

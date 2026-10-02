@@ -1,12 +1,13 @@
 /**
- * The Postgres Session Store (architecture §12.2): one Tenant schema, one
- * `SessionStore`. See `store/types.ts` for the invariants it keeps.
+ * The Postgres Session Store (architecture §12.2, session-store.md §2): the `SessionStore` of
+ * the one Tenant a database holds, its state in the schema `nylorun` and its record in
+ * `nylorun_streams`. See `store/types.ts` for the invariants it keeps.
  *
  * ## Transactions
  *
  * Every `tx` is one READ COMMITTED transaction on a pooled connection. Tables
- * are addressed by fully qualified, quoted names (`"tenant_<id>"."sessions"`),
- * never through `search_path`, so a statement cannot reach another schema.
+ * are addressed by fully qualified, quoted names (`"nylorun"."sessions"`),
+ * never through `search_path`.
  * Commit listeners and `afterCommit` callbacks run after `COMMIT` returns and
  * never reject the committed `tx`. Nested `tx` calls are detected with
  * `AsyncLocalStorage` and rejected, and a `Tx` rejects every call once its
@@ -91,20 +92,18 @@ import type {
   VaultRow,
 } from "../types.js";
 import { POSTGRES_SCHEMA_VERSION, readSchemaVersion } from "./migrations/index.js";
-import { assertIdentifier, tenantSchemaName } from "./names.js";
+import { TENANT_SCHEMA } from "./names.js";
 import { STREAMS_SCHEMA } from "./migrations/shared/index.js";
 import { createPostgresRecordReader } from "./record.js";
 
-/** The shared record (Durable Streams §6): every Tenant's events and log heads. Only
- * `record/` inserts into them; the store deletes a Tenant's rows on reset. */
+/** The record (Durable Streams §6): the Tenant's events and log heads. Only `record/` inserts
+ * into them; the store deletes the Tenant's rows on reset. */
 const SESSION_EVENTS = `${STREAMS_SCHEMA}.session_events`;
 const LOG_HEADS = `${STREAMS_SCHEMA}.session_log_heads`;
 
 export interface PostgresSessionStoreOptions extends SessionStoreOptions {
-  /** The shared pool. The store never ends it. */
+  /** The pool on the Tenant's database. The store never ends it. */
   sql: Sql;
-  /** The Tenant schema. Defaults to `tenantSchemaName(tenantId)`. */
-  schema?: string;
   /** The version `health()` expects. Defaults to `POSTGRES_SCHEMA_VERSION`. */
   schemaVersion?: number;
 }
@@ -135,8 +134,7 @@ class PostgresSessionStore implements SessionStore {
   constructor(options: PostgresSessionStoreOptions) {
     this.tenantId = options.tenantId;
     this.sql = options.sql;
-    this.schema = options.schema ?? tenantSchemaName(options.tenantId);
-    assertIdentifier(this.schema);
+    this.schema = TENANT_SCHEMA;
     this.schemaVersion = options.schemaVersion ?? POSTGRES_SCHEMA_VERSION;
     this.now = options.now ?? (() => new Date());
     this.onError =
@@ -476,7 +474,6 @@ class PostgresTx implements Tx {
     if (!session) throw new Error(`Session ${sessionId} not found`);
     const { event, generation } = await appendEvent(sql, {
       tenantId: this.tenantId,
-      tenantSchema: this.schema,
       sessionId,
       turnId,
       epoch: Number(session.epoch),
@@ -778,7 +775,7 @@ class PostgresTx implements Tx {
     this.check();
     const [row] = await this.sql`
       SELECT basin_generation, retired_generations FROM ${this.t("tenant")}`;
-    // A schema without its Tenant row (store tests) is at generation 0.
+    // A database whose Tenant row is not written yet is at generation 0.
     if (!row) return { current: 0, retired: [] };
     return {
       current: Number(row.basin_generation),
@@ -1323,8 +1320,8 @@ class PostgresTx implements Tx {
       await sql`DELETE FROM ${this.t("subject_usage")}`;
       // The record goes with the sessions, and the Tenant moves to a new basin: the ids it
       // frees start again in an empty one (Durable Streams §8.1).
-      await sql`DELETE FROM ${sql(SESSION_EVENTS)} WHERE tenant_id = ${this.tenantId}`;
-      await sql`DELETE FROM ${sql(LOG_HEADS)} WHERE tenant_id = ${this.tenantId}`;
+      await sql`DELETE FROM ${sql(SESSION_EVENTS)}`;
+      await sql`DELETE FROM ${sql(LOG_HEADS)}`;
       await sql`
         UPDATE ${this.t("tenant")}
         SET retired_generations = array_append(retired_generations, basin_generation),

@@ -26,8 +26,7 @@ let token: string;
 function appHeaders(runtime: EphemeralRuntime = rt): Record<string, string> {
   return {
     authorization: `Bearer ${runtime.applicationKey}`,
-    "nylorun-tenant": runtime.tenantId,
-    "nylorun-protocol": "4",
+    "nylorun-protocol": "5",
     "content-type": "application/json",
   };
 }
@@ -215,9 +214,11 @@ describe("actual requests", () => {
     expect(response.status).toBe(400);
   });
 
-  it("checks the key against Nylorun-Tenant and its own shape", async () => {
+  it("checks the key's shape, and its Tenant against a Nylorun-Tenant and the Host's", async () => {
     const other = "tn_00000000000000000000000009";
-    expect((await browser("GET", "/v1/sessions", { tenant: other })).status).toBe(400);
+    // A protocol 4 page naming another Tenant reached the wrong installation: the opaque 404.
+    expect((await browser("GET", "/v1/sessions", { tenant: other })).status).toBe(404);
+    expect((await browser("GET", "/v1/sessions", { tenant: rt.tenantId })).status).toBe(200);
     expect((await browser("GET", "/v1/sessions", { key: "nr_pub_nope" })).status).toBe(400);
   });
 

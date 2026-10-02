@@ -12,7 +12,6 @@ import type { NodeBindings } from "../../src/tenant/types.js";
 import {
   createFakeModule,
   getJson,
-  newTenantId,
   startTestHost,
   tenantHeaders,
 } from "./support.js";
@@ -55,45 +54,30 @@ it("close() ends open event streams instead of waiting for their clients", async
 });
 
 it("a Tenant that fails after starting its response gets that response ended, not a second one", async () => {
-  const tenantId = newTenantId();
-  const module = createFakeModule({
-    tenants: [
-      {
-        id: tenantId,
-        name: "a",
-        state: "open",
-        handle: {
-          envelope: {
-            id: tenantId,
-            name: "a",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-            schemaVersion: 1,
-          },
-          async fetch(_request: Request, { outgoing }: NodeBindings) {
-            outgoing.writeHead(200, { "content-type": "application/json" });
-            outgoing.write('{"partial":');
-            throw Object.assign(new Error("store went away"), { status: 503 });
-          },
-          async summary() {
-            return {
-              ready: true,
-              runningSessions: 0,
-              inFlightDeliveries: 0,
-              pendingActions: 0,
-              uncertainEffects: 0,
-            };
-          },
-          async drain() {},
-          async close() {},
-        },
-      },
-    ],
-  });
+  const module = createFakeModule();
+  module.fake.handle = {
+    envelope: module.tenant().envelope!,
+    async fetch(_request: Request, { outgoing }: NodeBindings) {
+      outgoing.writeHead(200, { "content-type": "application/json" });
+      outgoing.write('{"partial":');
+      throw Object.assign(new Error("store went away"), { status: 503 });
+    },
+    async summary() {
+      return {
+        ready: true,
+        runningSessions: 0,
+        inFlightDeliveries: 0,
+        pendingActions: 0,
+        uncertainEffects: 0,
+      };
+    },
+    async drain() {},
+    async close() {},
+  };
   const logLines: string[] = [];
   const { url } = await startTestHost({ module, logLines });
 
-  const failed = await fetch(`${url}/v1/agents`, { headers: tenantHeaders(tenantId, "k") });
+  const failed = await fetch(`${url}/v1/agents`, { headers: tenantHeaders("k") });
   expect(failed.status).toBe(200);
   expect(await failed.text()).toBe('{"partial":');
   // The Host is still serving.

@@ -53,7 +53,8 @@ const CALLERS: readonly Caller[] = [
 ];
 
 function callerHeaders(caller: Caller): Record<string, string> {
-  const base = { "nylorun-protocol": "4", "nylorun-tenant": TENANT };
+  // Protocol 5: nothing names the Tenant.
+  const base = { "nylorun-protocol": "5" };
   const bearer = (key: string) => ({ ...base, authorization: `Bearer ${key}` });
   switch (caller) {
     case "none":
@@ -332,10 +333,10 @@ describe("route matrix", { timeout: 60_000 }, () => {
   });
 
   it("answers the Host and Admin operations on each listener, as recorded", async () => {
-    const admin = (key: string) => ({ "nylorun-protocol": "4", authorization: `Bearer ${key}` });
+    const admin = (key: string) => ({ "nylorun-protocol": "5", authorization: `Bearer ${key}` });
     const callers: Record<string, Record<string, string>> = {
       none: {},
-      "protocol-only": { "nylorun-protocol": "4" },
+      "protocol-only": { "nylorun-protocol": "5" },
       "wrong-admin": admin("matrix-wrong-admin-key-000000000000"),
       admin: admin(ADMIN_KEY),
       application: callerHeaders("application"),
@@ -345,6 +346,7 @@ describe("route matrix", { timeout: 60_000 }, () => {
       { method: "GET", path: "/health" },
       { method: "POST", path: "/health" },
       { method: "GET", path: "/ready" },
+      // The Admin Tenant routes of protocol 4: gone.
       { method: "GET", path: "/v1/admin/tenants" },
       { method: "POST", path: "/v1/admin/tenants", body: INVALID },
       { method: "GET", path: `/v1/admin/tenants/${TENANT}` },

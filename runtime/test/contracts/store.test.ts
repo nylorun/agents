@@ -1,25 +1,23 @@
 import { expect, it } from "vitest";
-import { POSTGRES_SCHEMA_VERSION, migrateSchema } from "../../src/store/postgres/migrations/index.js";
-import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { POSTGRES_SCHEMA_VERSION } from "../../src/store/postgres/migrations/index.js";
+import { TENANT_SCHEMA } from "../../src/store/postgres/names.js";
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
 import { decodeCursor, encodeCursor } from "../../src/record/index.js";
-import { createTestSessionStore, testPool } from "../support/store.js";
+import { createTestSessionStore, isolatedTestDatabase } from "../support/store.js";
 import { storeContract } from "./store.contract.js";
 
+// Each store is the one Tenant of a database of its own, cloned from the migrated template.
 storeContract("postgres", async (options) => {
-  const sql = testPool();
-  const schema = tenantSchemaName(options.tenantId);
-  await migrateSchema(sql, schema);
-  // The Tenant's row, as the catalog writes it when it creates the Tenant.
+  const database = await isolatedTestDatabase();
+  const { sql } = database;
+  // The Tenant's row, as the bootstrap writes it when it creates the Tenant.
   const now = new Date().toISOString();
   await sql`
-    INSERT INTO ${sql(`${schema}.tenant`)} (id, name, created_at, updated_at, schema_version)
+    INSERT INTO ${sql(`${TENANT_SCHEMA}.tenant`)} (id, name, created_at, updated_at, schema_version)
     VALUES (${options.tenantId}, 'Test', ${now}, ${now}, ${POSTGRES_SCHEMA_VERSION})`;
   return {
-    store: createPostgresSessionStore({ ...options, sql, schema }),
-    dispose: async () => {
-      await sql`DROP SCHEMA IF EXISTS ${sql(schema)} CASCADE`;
-    },
+    store: createPostgresSessionStore({ ...options, sql }),
+    dispose: () => database.drop(),
   };
 });
 

@@ -2,7 +2,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { newTenantId } from "@nylorun/core/compatibility";
 import { lockOrder } from "../../src/store/postgres/locking.js";
 import {
   MIGRATIONS,
@@ -11,28 +10,23 @@ import {
 } from "../../src/store/postgres/migrations/index.js";
 import {
   MAX_IDENTIFIER_BYTES,
+  TENANT_SCHEMA,
   quoteIdentifier,
-  tenantIdFromSchema,
-  tenantSchemaName,
 } from "../../src/store/postgres/names.js";
+import { STREAMS_SCHEMA } from "../../src/store/postgres/migrations/shared/index.js";
 
-describe("Postgres Tenant schema names", () => {
-  it("maps a Tenant id to a quoted-safe schema name and back", () => {
-    const id = newTenantId();
-    const schema = tenantSchemaName(id);
-    expect(schema).toBe(`tenant_${id}`);
-    expect(Buffer.byteLength(schema)).toBeLessThanOrEqual(MAX_IDENTIFIER_BYTES);
-    expect(tenantIdFromSchema(schema)).toBe(id);
-    expect(quoteIdentifier(schema)).toBe(`"${schema}"`);
+describe("Postgres schema names", () => {
+  it("are fixed: one Tenant per database", () => {
+    expect(TENANT_SCHEMA).toBe("nylorun");
+    expect(STREAMS_SCHEMA).toBe("nylorun_streams");
+    expect(quoteIdentifier(TENANT_SCHEMA)).toBe(`"nylorun"`);
   });
 
-  it("rejects ids that are not Tenant ids", () => {
-    for (const bad of ["", "tn_", "TN_01K8Z3AAAAAAAAAAAAAAAAAAAA", "tn_x\";drop", "tn_01k8z3aaaaaaaaaaaaaaaaaaaaa"])
-      expect(() => tenantSchemaName(bad)).toThrow("Invalid tenant id");
-    expect(tenantIdFromSchema("public")).toBeUndefined();
-    expect(tenantIdFromSchema("tenant_not_an_id")).toBeUndefined();
+  it("quotes only safe identifiers Postgres would not truncate", () => {
     expect(() => quoteIdentifier(`a"b`)).toThrow();
-    expect(() => quoteIdentifier("x".repeat(64))).toThrow();
+    expect(() => quoteIdentifier("")).toThrow();
+    expect(() => quoteIdentifier("x".repeat(MAX_IDENTIFIER_BYTES + 1))).toThrow();
+    expect(quoteIdentifier("x".repeat(MAX_IDENTIFIER_BYTES))).toBe(`"${"x".repeat(MAX_IDENTIFIER_BYTES)}"`);
   });
 });
 

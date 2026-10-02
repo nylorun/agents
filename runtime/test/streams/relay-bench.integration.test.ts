@@ -9,31 +9,34 @@
 import { randomBytes } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { afterAll, describe, expect, it } from "vitest";
+import { newTenantId } from "@nylorun/core/compatibility";
 import { createPgoutputSource } from "../../src/adapters/replication/pgoutput.js";
 import { createS2Streams } from "../../src/adapters/streams/s2.js";
-import { createPostgresClient } from "../../src/store/postgres/connect.js";
-import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared/index.js";
+import { createPostgresClient, type PostgresClient } from "../../src/store/postgres/connect.js";
 import { createStreamRelay } from "../../src/streams/relay/core.js";
 import type { AppendOptions, AppendResult, DurableStreams } from "../../src/streams/types.js";
 import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+import { tenantTestDatabase } from "../support/database.js";
 import { recordOf, writeRecord } from "../support/record.js";
 
 const BENCH = STACK_ENABLED && process.env.NYLORUN_BENCH === "1";
 const P99_LIMIT_MS = 200;
 
 describe.skipIf(!BENCH)("stream relay latency", () => {
-  const url = stackEndpoints().postgres.url;
-  const sql = createPostgresClient(url, { max: 60 });
   const slot = `nylorun_bench_${randomBytes(4).toString("hex")}`;
+  let sql: PostgresClient | undefined;
   afterAll(async () => {
+    if (!sql) return;
     await sql`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
               WHERE slot_name = ${slot} AND NOT active`.catch(() => undefined);
     await sql.end();
   });
 
   it(`commit to S2 is under ${P99_LIMIT_MS} ms at p99 with 50 sessions`, { timeout: 120_000 }, async () => {
-    await migrateStreamsSchema(sql);
-    const tenantId = `tn_bench_${randomBytes(4).toString("hex")}`;
+    // A database of its own, with a pool as wide as the sessions writing at once.
+    const { url } = await tenantTestDatabase();
+    sql = createPostgresClient(url, { max: 60 });
+    const tenantId = newTenantId();
     const s2 = createS2Streams({
       endpoint: stackEndpoints().s2.endpoint,
       basinPrefix: `bench${randomBytes(3).toString("hex")}-`,
@@ -55,7 +58,7 @@ describe.skipIf(!BENCH)("stream relay latency", () => {
       },
     });
     const relay = createStreamRelay({
-      source: createPgoutputSource({ connectionString: url, slot, retryMs: 200 }),
+      source: createPgoutputSource({ connectionString: url, tenantId, slot, retryMs: 200 }),
       record: recordOf(sql, tenantId),
       streams: timed,
     });
@@ -68,7 +71,7 @@ describe.skipIf(!BENCH)("stream relay latency", () => {
         sessions.map(async (sessionId) => {
           for (let i = 0; i < perSession; i += 1) {
             const key = `${sessionId}:${i}`;
-            await writeRecord(sql, tenantId, sessionId, 1, () => ({ key, text: "x".repeat(300) }));
+            await writeRecord(sql!, sessionId, 1, () => ({ key, text: "x".repeat(300) }));
             committedAt.set(key, performance.now());
             await new Promise((resolve) => setTimeout(resolve, 5));
           }

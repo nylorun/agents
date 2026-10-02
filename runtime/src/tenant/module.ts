@@ -1,415 +1,224 @@
-import { isTenantId } from "@nylorun/core/compatibility";
 import type {
-  AdminTenant,
-  AdminTenantStatus,
   HostAggregate,
-  TenantEnvelope,
+  HostTenant,
   StreamRelayStatus,
+  TenantEnvelope,
 } from "@nylorun/core/contracts";
-import { POSTGRES_SCHEMA_VERSION } from "../store/postgres/migrations/index.js";
-import { envelopeNow } from "./envelope.js";
+import { openError, TenantOpenError, type TenantCause } from "./cause.js";
 import { TimeoutError, withTimeout } from "./pool.js";
 import {
-  asQuarantine,
-  isQuarantineError,
-  quarantine,
-  TenantBusyError,
-  TenantConflictError,
-} from "./quarantine.js";
-import {
-  TenantNotFoundError,
   TenantUnavailableError,
-  type BootstrapPrincipal,
   type Logger,
-  type OpenTenantRuntime,
-  type Quarantine,
-  type TenantConfig,
   type TenantHandle,
   type TenantModule,
+  type TenantOpener,
   type TenantResolution,
-  type TenantStore,
-  type TenantSummary,
 } from "./types.js";
 
 const OPEN_TIMEOUT_MS = 30_000;
+/** Retries of an open that failed outside the Tenant: from 1 s, doubling, at most 30 s apart. */
+const RETRY_FIRST_MS = 1_000;
+const RETRY_MAX_MS = 30_000;
 
 export interface CreateTenantModuleOptions {
-  store: TenantStore;
-  /** Unused: the store derives paths. Accepted so callers can pass the store's options. */
-  hostRoot?: string;
-  /** Unused: the store opens Tenants. Accepted so callers can pass the store's options. */
-  openRuntime?: OpenTenantRuntime;
-  /** Unused; see `openRuntime`. */
-  configFor?: (tenantId: string) => TenantConfig;
+  /** Opens the Host's Tenant (`store-pg.ts`). */
+  open: TenantOpener;
   logger: Logger;
-  /** Bound on one Tenant open; a slower open quarantines it with `open-timeout`. */
+  /** Bound on opening the Tenant; a slower open fails with `open-timeout`. */
   openTimeoutMs?: number;
   /**
-   * Runs after a Tenant is created in the store, before it opens: creates what lives outside
-   * it (its Durable Streams basin). A failure is logged; opening the Tenant repairs it.
+   * Runs once the Tenant is open, at start or on a later retry: the Host starts what needs the
+   * Tenant's id (its stream relay). A failure is logged; the Tenant stays open.
    */
-  onCreated?: (tenantId: string) => Promise<void>;
-  /**
-   * Runs after a Tenant is removed from the store: removes what lives outside it (its
-   * Durable Streams basin, its armed sweep). A failure is logged; the Tenant stays deleted.
-   */
-  onDeleted?: (tenantId: string) => Promise<void>;
+  onOpen?: (handle: TenantHandle) => void | Promise<void>;
   /** This process's stream relay, for the Host aggregate (a Host with S2 runs one). */
   relayStatus?: () => Promise<StreamRelayStatus>;
 }
 
-type OpenEntry = { kind: "open"; handle: TenantHandle };
-type Entry = OpenEntry | { kind: "quarantined"; quarantine: Quarantine };
-
-function hasLiveWork(summary: TenantSummary): boolean {
-  return (
-    summary.runningSessions > 0 ||
-    summary.inFlightDeliveries > 0 ||
-    summary.pendingActions > 0
-  );
-}
-
-function toAdmin(
-  id: string,
-  entry: Entry | undefined,
-  envelope: TenantEnvelope | null,
-): AdminTenant {
-  if (entry?.kind === "open") {
-    return {
-      id,
-      name: entry.handle.envelope.name,
-      state: "open",
-      envelope: entry.handle.envelope,
-    };
-  }
-  return {
-    id,
-    name: envelope?.name ?? null,
-    state: entry ? "quarantined" : "open",
-    envelope,
-  };
-}
-
-/** The quarantine an open failure carries, from either quarantine error type. */
-function quarantineOf(error: unknown): Quarantine | undefined {
-  const carried = (error as { quarantine?: unknown } | null)?.quarantine;
-  if (carried && typeof carried === "object" && "code" in carried)
-    return carried as Quarantine;
-  return asQuarantine(error);
-}
+type State =
+  | { kind: "idle" }
+  | { kind: "open"; handle: TenantHandle }
+  /** Opening failed for a reason in the Tenant: reported until the Host restarts. */
+  | { kind: "failed"; cause: TenantCause; envelope: TenantEnvelope | null }
+  /** Opening failed outside the Tenant: retried. */
+  | { kind: "unavailable"; error: TenantUnavailableError }
+  | { kind: "closed" };
 
 /**
- * Deep Tenant module (§8): discovery, create, resolve, list, delete and summarize over an
- * injected `TenantStore`.
+ * Deep Tenant module (§8): the Host's one Tenant over an injected opener (tenancy.md §5).
  *
- * Handles open on demand and are cached (architecture §8.2). The first call that needs a
- * Tenant (`resolve`, `status`, `worker`, `delete`) opens it once, even when several ask at
- * the same time; a failed open is cached as a quarantine, and a missing Tenant is not
- * cached. A failure outside the Tenant (`TenantUnavailableError`: the database is down, its
- * sweep could not be armed) is thrown to the caller and not cached either, so the next use
- * tries again. A Tenant being deleted resolves as not found, so a late request or Worker
- * call cannot reopen it while its storage is removed.
+ * `start` opens it once, even when requests or Worker calls ask at the same time. An open that
+ * fails for a reason in the Tenant (a `TenantOpenError`, or a timeout) is kept as the Tenant's
+ * cause: the Host is not ready, `/v1/admin/status` names it, requests get the opaque 404.
+ * One that fails outside the Tenant (`TenantUnavailableError`) is retried in the background
+ * with backoff, and by the next request, which gets 503 meanwhile.
  */
-export function createTenantModule(
-  options: CreateTenantModuleOptions,
-): TenantModule {
-  const { store, logger, openTimeoutMs = OPEN_TIMEOUT_MS } = options;
+export function createTenantModule(options: CreateTenantModuleOptions): TenantModule {
+  const { logger, openTimeoutMs = OPEN_TIMEOUT_MS } = options;
+  let state: State = { kind: "idle" };
+  let opening: Promise<void> | undefined;
+  let retry: NodeJS.Timeout | undefined;
+  let nextDelayMs = RETRY_FIRST_MS;
+  const current = (): State => state;
 
-  const entries = new Map<string, Entry>();
-  const opening = new Map<string, Promise<Entry | undefined>>();
-  const deleting = new Set<string>();
-  let started = false;
-  let closed = false;
-
-  function rememberQuarantine(id: string, q: Quarantine): Entry {
-    const entry: Entry = { kind: "quarantined", quarantine: q };
-    entries.set(id, entry);
-    logger.warn("tenant quarantined", {
-      tenantId: id,
-      code: q.code,
-      repair: q.repair,
-    });
-    return entry;
-  }
-
-  async function openEntry(id: string): Promise<Entry | undefined> {
+  async function openOnce(): Promise<void> {
     let handle: TenantHandle;
     try {
-      handle = await withTimeout(store.open(id), openTimeoutMs, (late) => {
+      handle = await withTimeout(options.open(), openTimeoutMs, (late) => {
         void late.then((h) => h.close()).catch(() => undefined);
       });
     } catch (error) {
-      if (error instanceof TenantNotFoundError) return undefined;
-      if (closed || deleting.has(id)) return undefined;
+      if (current().kind === "closed") return;
       if (error instanceof TenantUnavailableError) {
-        // Not the Tenant's fault: not cached, so the next use opens it again.
+        state = { kind: "unavailable", error };
         logger.warn("tenant unavailable", {
-          tenantId: id,
-          message:
-            error.cause instanceof Error ? error.cause.message : String(error.cause),
+          message: error.cause instanceof Error ? error.cause.message : String(error.cause),
+          retryMs: nextDelayMs,
         });
-        throw error;
+        scheduleRetry();
+        return;
       }
-      if (error instanceof TimeoutError)
-        return rememberQuarantine(
-          id,
-          quarantine("open-timeout", `open timed out after ${openTimeoutMs}ms`, {
-            tenantId: id,
-          }).toQuarantine(),
-        );
-      return rememberQuarantine(
-        id,
-        quarantineOf(error) ??
-          quarantine(
-            "open-failed",
-            error instanceof Error ? error.message : "open failed",
-            { tenantId: id },
-          ).toQuarantine(),
-      );
+      const failure =
+        error instanceof TenantOpenError
+          ? error
+          : error instanceof TimeoutError
+            ? openError("open-timeout", `Opening the Tenant timed out after ${openTimeoutMs}ms`)
+            : openError(
+                "open-failed",
+                error instanceof Error ? error.message : "Opening the Tenant failed",
+              );
+      const failed = {
+        kind: "failed" as const,
+        cause: failure.toCause(),
+        envelope: failure.envelope ?? null,
+      };
+      state = failed;
+      logger.error("tenant not opened", {
+        ...(failed.envelope ? { tenantId: failed.envelope.id } : {}),
+        code: failed.cause.code,
+        message: failed.cause.message,
+        repair: failed.cause.repair,
+      });
+      return;
     }
-    if (closed || deleting.has(id)) {
+    if (current().kind === "closed") {
       await handle.close().catch(() => undefined);
-      return undefined;
+      return;
     }
-    const entry: Entry = { kind: "open", handle };
-    entries.set(id, entry);
-    return entry;
+    state = { kind: "open", handle };
+    nextDelayMs = RETRY_FIRST_MS;
+    logger.info("tenant opened", { tenantId: handle.envelope.id });
+    try {
+      await options.onOpen?.(handle);
+    } catch (error) {
+      logger.warn("tenant open step failed", {
+        tenantId: handle.envelope.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  /** The cached entry, or the result of opening the Tenant once. */
-  async function load(id: string): Promise<Entry | undefined> {
-    if (deleting.has(id)) return undefined;
-    const cached = entries.get(id);
-    if (cached) return cached;
-    if (closed) return undefined;
-    let pending = opening.get(id);
-    if (!pending) {
-      pending = openEntry(id).finally(() => opening.delete(id));
-      opening.set(id, pending);
-    }
-    return pending;
+  /** Opens the Tenant unless it is open, failed or closed; one open at a time. */
+  function load(): Promise<void> {
+    const { kind } = current();
+    if (kind !== "idle" && kind !== "unavailable") return Promise.resolve();
+    clearTimeout(retry);
+    retry = undefined;
+    opening ??= openOnce().finally(() => {
+      opening = undefined;
+    });
+    return opening;
   }
 
-  const openEntries = (): OpenEntry[] =>
-    [...entries.values()].filter((e): e is OpenEntry => e.kind === "open");
+  function scheduleRetry(): void {
+    if (retry) return;
+    const delayMs = nextDelayMs;
+    nextDelayMs = Math.min(delayMs * 2, RETRY_MAX_MS);
+    retry = setTimeout(() => {
+      retry = undefined;
+      void load();
+    }, delayMs);
+    retry.unref();
+  }
 
   const module: TenantModule = {
-    get started() {
-      return started;
+    get ready() {
+      return current().kind === "open";
     },
 
     async start() {
-      if (closed) throw new Error("Tenant module is closed");
-      const ids = await store.enumerate();
-      started = true;
-      logger.info("tenant module started", { tenants: ids.length });
+      if (current().kind === "closed") throw new Error("Tenant module is closed");
+      await load();
     },
 
-    async resolve(id: string): Promise<TenantResolution> {
-      if (!isTenantId(id)) return { kind: "not-found" };
-      const entry = await load(id);
-      if (!entry) return { kind: "not-found" };
-      if (entry.kind === "open") return { kind: "open", handle: entry.handle };
-      return { kind: "quarantined", quarantine: entry.quarantine };
+    async resolve(): Promise<TenantResolution> {
+      await load();
+      const now = current();
+      switch (now.kind) {
+        case "open":
+          return { kind: "open", handle: now.handle };
+        case "failed":
+          return { kind: "unavailable", cause: now.cause };
+        case "unavailable":
+          throw now.error;
+        default:
+          return { kind: "unavailable" };
+      }
     },
 
-    async worker(id: string) {
-      if (!isTenantId(id)) return undefined;
-      const entry = await load(id);
-      return entry?.kind === "open" ? entry.handle.worker : undefined;
+    async worker(id) {
+      await load();
+      const now = current();
+      return now.kind === "open" && now.handle.envelope.id === id
+        ? now.handle.worker
+        : undefined;
     },
 
-    async create(input) {
-      if (!isTenantId(input.tenantId)) {
-        throw new Error(`Invalid tenant id: ${input.tenantId}`);
-      }
-      const bootstrap: BootstrapPrincipal = {
-        principalId: input.principalId,
-        credentialHash: input.credentialHash,
-        idempotencyKey: input.idempotencyKey,
-        ...(input.studioCredentialHash
-          ? { studioCredentialHash: input.studioCredentialHash }
-          : {}),
-        ...(input.derivedPrincipals?.length
-          ? { derivedPrincipals: input.derivedPrincipals }
-          : {}),
-      };
-      // The store records its own schema version.
-      const envelope = envelopeNow({
-        id: input.tenantId,
-        name: input.name,
-        schemaVersion: POSTGRES_SCHEMA_VERSION,
-      });
-
-      let outcome: "created" | "exists";
-      try {
-        outcome = await store.create(envelope, bootstrap);
-      } catch (error) {
-        await store.removePartial(input.tenantId).catch(() => undefined);
-        throw error;
-      }
-
-      if (outcome === "exists") {
-        const matches = await store.bootstrapMatches(
-          input.tenantId,
-          bootstrap,
-        );
-        if (!matches) throw new TenantConflictError();
-        const existing = await store.readEnvelope(input.tenantId);
-        await load(input.tenantId).catch(() => undefined);
-        return { envelope: existing, created: false };
-      }
-
-      await options.onCreated?.(input.tenantId).catch((error: unknown) =>
-        logger.warn("tenant create step failed; open repairs it", {
-          tenantId: input.tenantId,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      const opened = await load(input.tenantId).catch(() => undefined);
-      if (opened?.kind === "open") {
-        return { envelope: opened.handle.envelope, created: true };
-      }
-      // Created but failed to open: report the stored envelope.
-      return {
-        envelope: await store
-          .readEnvelope(input.tenantId)
-          .catch(() => envelope),
-        created: true,
-      };
-    },
-
-    async list() {
-      const ids = new Set<string>(await store.enumerate());
-      for (const id of entries.keys()) ids.add(id);
-
-      const result: AdminTenant[] = [];
-      for (const id of [...ids].sort()) {
-        if (!isTenantId(id) || deleting.has(id)) continue;
-        let entry = entries.get(id);
-        if (entry?.kind === "open") {
-          result.push(toAdmin(id, entry, null));
-          continue;
+    tenant(): HostTenant {
+      const now = current();
+      switch (now.kind) {
+        case "open": {
+          const { envelope } = now.handle;
+          return { id: envelope.id, name: envelope.name, state: "open", envelope };
         }
-        let envelope: TenantEnvelope | null = null;
-        try {
-          envelope = await store.readEnvelope(id);
-          if (envelope.id !== id) {
-            entry = {
-              kind: "quarantined",
-              quarantine: quarantine(
-                "envelope-invalid",
-                `Tenant envelope id ${envelope.id} does not match ${id}`,
-                { tenantId: id },
-              ).toQuarantine(),
-            };
-            envelope = null;
-          }
-        } catch (error) {
-          // Deleted since it was enumerated.
-          if (error instanceof TenantNotFoundError) continue;
-          if (error instanceof TenantUnavailableError) throw error;
-          // Listed as quarantined; only opening it caches a quarantine.
-          entry ??= {
-            kind: "quarantined",
-            quarantine:
-              quarantineOf(error) ??
-              quarantine("envelope-invalid", "Tenant envelope is unreadable", {
-                tenantId: id,
-              }).toQuarantine(),
+        case "failed":
+          return {
+            id: now.envelope?.id ?? null,
+            name: now.envelope?.name ?? null,
+            state: "unavailable",
+            envelope: now.envelope,
+            cause: now.cause,
           };
-        }
-        result.push(toAdmin(id, entry, envelope));
+        default:
+          return { id: null, name: null, state: "unavailable", envelope: null };
       }
-      return result;
-    },
-
-    async status(id: string): Promise<AdminTenantStatus | undefined> {
-      if (!isTenantId(id)) return undefined;
-      const entry = await load(id);
-      if (!entry) return undefined;
-      if (entry.kind === "open") return toAdmin(id, entry, null);
-      const envelope = await store.readEnvelope(id).catch(() => null);
-      return { ...toAdmin(id, entry, envelope), quarantine: entry.quarantine };
-    },
-
-    async delete(id, activeWork) {
-      if (!isTenantId(id)) throw new Error(`Invalid tenant id: ${id}`);
-      if (deleting.has(id)) throw new TenantBusyError("Tenant is being deleted");
-      const entry = await load(id);
-      if (!entry) throw new TenantNotFoundError(id);
-
-      if (entry.kind === "open") {
-        const summary = await entry.handle.summary();
-        if (activeWork === "refuse" && hasLiveWork(summary)) {
-          throw new TenantBusyError();
-        }
-        if (activeWork === "drain" || activeWork === "cancel") {
-          await entry.handle.drain(activeWork);
-        }
-      }
-
-      deleting.add(id);
-      try {
-        entries.delete(id);
-        // Sandbox prefix cleanup is owned by TenantHandle.close().
-        if (entry.kind === "open") await entry.handle.close();
-        await store.trash(id, new Date());
-      } finally {
-        deleting.delete(id);
-      }
-      logger.info("tenant deleted", { tenantId: id, activeWork });
-      await options.onDeleted?.(id).catch((error: unknown) =>
-        logger.warn("tenant delete cleanup failed", {
-          tenantId: id,
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
     },
 
     async summarize(): Promise<HostAggregate> {
-      let runningSessions = 0;
-      let inFlightDeliveries = 0;
-      let pendingActions = 0;
-      let uncertainEffects = 0;
-      for (const s of await Promise.all(
-        openEntries().map((e) => e.handle.summary()),
-      )) {
-        runningSessions += s.runningSessions;
-        inFlightDeliveries += s.inFlightDeliveries;
-        pendingActions += s.pendingActions;
-        uncertainEffects += s.uncertainEffects;
-      }
+      const now = current();
+      const summary = now.kind === "open" ? await now.handle.summary() : undefined;
       const relay = await options.relayStatus?.().catch(() => undefined);
       return {
-        runningSessions,
-        inFlightDeliveries,
-        pendingActions,
-        uncertainEffects,
+        runningSessions: summary?.runningSessions ?? 0,
+        inFlightDeliveries: summary?.inFlightDeliveries ?? 0,
+        pendingActions: summary?.pendingActions ?? 0,
+        uncertainEffects: summary?.uncertainEffects ?? 0,
         ...(relay ? { relay } : {}),
       };
     },
 
     async close() {
-      closed = true;
-      started = false;
-      await Promise.allSettled([...opening.values()]);
-      const open = openEntries();
-      entries.clear();
-      await Promise.all(
-        open.map((e) => e.handle.close().catch(() => undefined)),
-      );
+      const previous = current();
+      state = { kind: "closed" };
+      clearTimeout(retry);
+      retry = undefined;
+      // An open in progress sees `closed` and closes what it opened.
+      await opening?.catch(() => undefined);
+      if (previous.kind === "open") await previous.handle.close().catch(() => undefined);
     },
   };
 
   return module;
 }
 
-export {
-  TenantBusyError,
-  TenantConflictError,
-  TenantNotFoundError,
-  TenantUnavailableError,
-  isQuarantineError,
-  quarantine,
-};
+export { TenantUnavailableError };

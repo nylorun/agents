@@ -24,19 +24,17 @@ export interface PostgresClientOptions {
 }
 
 /**
- * Opens a connection pool for Session Stores and the Tenant catalog. One pool
- * serves every Tenant schema of a Host; stores never end it, so the caller
- * calls `client.end()` at shutdown. This module and its siblings are the only
- * code that imports the Postgres driver (seam rule 3).
+ * Opens a connection pool on the Tenant's database, for its Session Store and the Tenant
+ * bootstrap (`tenant.ts`). Stores never end it, so the caller calls `client.end()` at
+ * shutdown. This module and its siblings are the only code that imports the Postgres driver
+ * (seam rule 3).
  *
- * Statements are not prepared (`prepare: false`). Every statement names its
- * Tenant's schema, so the same query is a different statement per Tenant, and
- * named prepared statements would pile up on every pooled connection with the
- * number of Tenants a Host serves. Unnamed statements still go in one round
- * trip; the queries are simple enough that re-planning them costs little.
+ * Statements are not prepared (`prepare: false`), as when each Tenant was a schema of a
+ * shared database. With one Tenant per database every statement is the same for the whole
+ * pool, so prepared statements come back with the Drizzle port (session-store.md §2, F3).
  *
- * The pool is shared by every Tenant, so a statement or transaction that hangs must not hold
- * a connection forever: both are bounded by default.
+ * The pool serves every request of the Host, so a statement or transaction that hangs must
+ * not hold a connection forever: both are bounded by default.
  */
 export function createPostgresClient(
   url: string,

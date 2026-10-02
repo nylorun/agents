@@ -6,7 +6,6 @@ import {
   adminHeaders,
   createFakeModule,
   getJson,
-  newTenantId,
   startTestHost,
   tenantHeaders,
 } from "./support.js";
@@ -88,10 +87,7 @@ it("A3: Host 127.0.0.1 / localhost / [::1] with listening port are accepted", as
 });
 
 it("A3: foreign Host is 421 host_rejected on every route including /health", async () => {
-  const tenantId = newTenantId();
-  const module = createFakeModule({
-    tenants: [{ id: tenantId, name: "a", state: "open" }],
-  });
+  const module = createFakeModule();
   const { url } = await startTestHost({ module });
   const port = new URL(url).port;
   const routes = [
@@ -108,7 +104,7 @@ it("A3: foreign Host is 421 host_rejected on every route including /health", asy
       Object.assign(headers, adminHeaders());
       headers.host = `evil.example:${port}`;
     } else if (path.startsWith("/v1/")) {
-      Object.assign(headers, tenantHeaders(tenantId));
+      Object.assign(headers, tenantHeaders());
       headers.host = `evil.example:${port}`;
     }
     const res = await rawRequest(`${url}${path}`, { headers });
@@ -167,33 +163,27 @@ it("A4: any Origin header yields 403 origin_rejected; no Access-Control-* header
 it("A5: body with non-application/json content type is 415", async () => {
   const { url } = await startTestHost();
   const port = new URL(url).port;
-  const res = await rawRequest(`${url}/v1/admin/tenants`, {
+  const res = await rawRequest(`${url}/v1/agents`, {
     method: "POST",
     headers: {
-      ...adminHeaders(),
+      ...tenantHeaders(),
       host: `127.0.0.1:${port}`,
       "content-type": "text/plain",
     },
-    body: '{"tenantId":"x"}',
+    body: '{"name":"x"}',
   });
   assertRejected(res.status, res.body, "unsupported_media_type", 415);
 
-  const charset = await rawRequest(`${url}/v1/admin/tenants`, {
+  const charset = await rawRequest(`${url}/v1/agents`, {
     method: "POST",
     headers: {
-      ...adminHeaders(),
+      ...tenantHeaders(),
       host: `127.0.0.1:${port}`,
       "content-type": "application/json; charset=utf-8",
     },
-    body: JSON.stringify({
-      tenantId: newTenantId(),
-      name: "n",
-      principalId: "pr_0123456789abcdefghjkmnpqrs",
-      credentialHash: "ab".repeat(32),
-      idempotencyKey: "idem-charset",
-    }),
+    body: JSON.stringify({ name: "n" }),
   });
-  expect(charset.status).not.toBe(415);
+  expect(charset.status).toBe(200);
 });
 
 it("A6: security rejections match RejectedResponseSchema and ERROR_CODES", async () => {
@@ -232,35 +222,11 @@ it("A6: security rejections match RejectedResponseSchema and ERROR_CODES", async
     },
   ];
   for (const c of cases) {
-    const res = await rawRequest(`${url}/v1/admin/tenants`, {
+    const res = await rawRequest(`${url}/v1/admin/status`, {
       method: c.method ?? "GET",
       headers: c.headers,
       body: c.body,
     });
     assertRejected(res.status, res.body, c.code, c.status);
   }
-});
-
-it("A6: admin tenant_conflict uses ERROR_CODES", async () => {
-  const module = createFakeModule();
-  const { url } = await startTestHost({ module });
-  const tenantId = newTenantId();
-  const body = {
-    tenantId,
-    name: "one",
-    principalId: "pr_0123456789abcdefghjkmnpqrs",
-    credentialHash: "cd".repeat(32),
-    idempotencyKey: "idem-a",
-  };
-  await getJson(`${url}/v1/admin/tenants`, {
-    method: "POST",
-    headers: { ...adminHeaders(), "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const conflict = await getJson(`${url}/v1/admin/tenants`, {
-    method: "POST",
-    headers: { ...adminHeaders(), "content-type": "application/json" },
-    body: JSON.stringify({ ...body, idempotencyKey: "idem-b" }),
-  });
-  assertRejected(conflict.status, conflict.body, "tenant_conflict", 409);
 });

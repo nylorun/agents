@@ -24,8 +24,10 @@
  *   probes from inside the container.
  *
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
- * `infra/*` builds the clients from them.
+ * `infra/*` builds the clients from them. So is who the Host's Tenant is when its database
+ * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
  */
+import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
 
 /** A Runtime service this release has. */
 export type RuntimeService = "core" | "loop" | "gates";
@@ -170,6 +172,24 @@ export interface StackConfig {
     privateAddresses?: "allow" | "refuse";
     allowHttp?: boolean;
   };
+  /** Present when the process runs core or loop: who its Tenant is on first start. */
+  tenant?: TenantSettings;
+}
+
+/**
+ * The Tenant a Host creates when its database holds none (tenancy.md §4). Later starts open the
+ * Tenant the database holds; only principals missing from it are added.
+ */
+export interface TenantSettings {
+  /** `NYLORUN_TENANT_ID`: the new Tenant's id. Default: a new id. */
+  id?: string;
+  /** `NYLORUN_TENANT_NAME`. Default `default`. */
+  name: string;
+  /**
+   * `NYLORUN_DERIVED_PRINCIPALS`: comma-separated application principals whose keys the admin
+   * key derives (`deriveTenantKey`). Default `project`.
+   */
+  derivedPrincipals: readonly string[];
 }
 
 export class StackConfigError extends Error {
@@ -452,6 +472,7 @@ export function parseStackConfig(
       `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
     );
   const delivery = parseDelivery(env);
+  const tenant = servesApi ? parseTenant(env) : undefined;
   return {
     services,
     ...(deprecatedRole ? { deprecatedRole } : {}),
@@ -464,6 +485,27 @@ export function parseStackConfig(
     ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
+    ...(tenant ? { tenant } : {}),
+  };
+}
+
+function parseTenant(env: EnvSnapshot): TenantSettings {
+  const id = read(env, "NYLORUN_TENANT_ID");
+  if (id !== undefined && !isTenantId(id))
+    throw new StackConfigError(
+      `NYLORUN_TENANT_ID must be a Tenant id (tn_ and 26 Crockford characters), not ${id}`,
+    );
+  const raw = read(env, "NYLORUN_DERIVED_PRINCIPALS");
+  const derivedPrincipals = raw === undefined ? ["project"] : raw.split(",").map((entry) => entry.trim());
+  for (const principal of derivedPrincipals)
+    if (!DERIVED_PRINCIPAL_ID_PATTERN.test(principal) || principal === "studio")
+      throw new StackConfigError(
+        `NYLORUN_DERIVED_PRINCIPALS has '${principal}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio`,
+      );
+  return {
+    ...(id ? { id } : {}),
+    name: read(env, "NYLORUN_TENANT_NAME") ?? "default",
+    derivedPrincipals: [...new Set(derivedPrincipals)],
   };
 }
 

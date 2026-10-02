@@ -16,8 +16,9 @@ import {
   TENANT_HEADER,
   type GateErrorBody,
 } from "../../gates/contract.js";
+import type { ModelCallHandler } from "../../gates/handler.js";
 import { InflightConflict, type InflightCalls } from "../../gates/inflight.js";
-import type { ModelGate, ModelGateOutcome } from "../../gates/model-gate.js";
+import type { ModelGateOutcome } from "../../gates/model-gate.js";
 import { adminKeyMatches } from "../../host/http.js";
 import { canonical } from "../../store/canonical.js";
 
@@ -25,7 +26,7 @@ export interface GatesAppOptions {
   /** The bearer every model call must present (`NYLORUN_GATES_TOKEN`). */
   readonly token: string;
   /** Serves an authenticated, well-formed call. */
-  readonly modelGate: ModelGate;
+  readonly modelGate: ModelCallHandler;
   /** Keyed calls, which outlive their client (P1.2). */
   readonly inflight: InflightCalls;
   /** Whether the gate's dependencies answer (Postgres). */
@@ -62,10 +63,11 @@ export function createGatesApp(options: GatesAppOptions): Hono {
   };
 
   app.post(`${MODEL_CALLS_PATH}/:key/cancel`, authorized, (c) => {
+    // Optional, as on a call: the gate serves one Tenant, so the key alone names the call.
     const tenantId = c.req.header(TENANT_HEADER);
-    if (!isTenantId(tenantId))
+    if (tenantId !== undefined && !isTenantId(tenantId))
       return c.json(invalid(`The ${TENANT_HEADER} header must name a Tenant`), 400);
-    options.inflight.cancel(`${tenantId}:${c.req.param("key")}`);
+    options.inflight.cancel(c.req.param("key"));
     return c.body(null, 204);
   });
 
@@ -78,8 +80,9 @@ export function createGatesApp(options: GatesAppOptions): Hono {
         c.json(invalid(`A model call body may be at most ${maxSize} bytes`), 400),
     }),
     async (c) => {
+      // Optional: the gate serves its database's one Tenant, and refuses a call naming another.
       const tenantId = c.req.header(TENANT_HEADER);
-      if (!isTenantId(tenantId))
+      if (tenantId !== undefined && !isTenantId(tenantId))
         return c.json(invalid(`The ${TENANT_HEADER} header must name a Tenant`), 400);
       let raw: unknown;
       try {
@@ -91,18 +94,21 @@ export function createGatesApp(options: GatesAppOptions): Hono {
       if (!parsed.success)
         return c.json(invalid(`Invalid model call: ${parsed.error.issues[0]?.message ?? "malformed"}`), 400);
       const { call, ...ids } = parsed.data;
-      const request = { tenantId, ...ids, call: call as unknown as RuntimeModelCall };
+      const request = {
+        ...(tenantId === undefined ? {} : { tenantId }),
+        ...ids,
+        call: call as unknown as RuntimeModelCall,
+      };
       const signal = c.req.raw.signal;
       const key = c.req.header("idempotency-key");
       try {
         let outcome: ModelGateOutcome;
         if (key) {
-          // Keyed: the call runs under its own signal and outlives this request (P1.2).
+          // Keyed: the call runs under its own signal and outlives this request (P1.2). The
+          // gate serves one Tenant, so the effect id alone is the key.
           const hash = createHash("sha256").update(canonical(parsed.data)).digest("hex");
           outcome = await untilAborted(
-            options.inflight.run(`${tenantId}:${key}`, hash, (own) =>
-              options.modelGate.call(request, own),
-            ),
+            options.inflight.run(key, hash, (own) => options.modelGate.call(request, own)),
             signal,
           );
         } else outcome = await options.modelGate.call(request, signal);

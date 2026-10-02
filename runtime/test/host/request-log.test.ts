@@ -25,8 +25,7 @@ let rt: EphemeralRuntime;
 const lines: string[] = [];
 
 const app = {
-  "nylorun-protocol": "4",
-  "nylorun-tenant": TENANT,
+  "nylorun-protocol": "5",
   authorization: `Bearer ${APPLICATION_KEY}`,
 };
 
@@ -94,9 +93,10 @@ it("logs each request's outcome as recorded", async () => {
     body: "x",
   });
   await fetch(`${rt.url}/v1/agents`, { headers: { ...app, "nylorun-protocol": "1" } });
-  await fetch(`${rt.url}/v1/agents`, { headers: { "nylorun-protocol": "4" } });
+  await fetch(`${rt.url}/v1/agents`, { headers: { "nylorun-protocol": "5" } });
+  // A protocol 4 client naming another Tenant: the opaque 404, without the id it named.
   await fetch(`${rt.url}/v1/agents`, {
-    headers: { ...app, "nylorun-tenant": `tn_${"0".repeat(22)}dead` },
+    headers: { ...app, "nylorun-protocol": "4", "nylorun-tenant": `tn_${"0".repeat(22)}dead` },
   });
   await fetch(`${rt.url}/v1/agents`, { headers: app });
   await fetch(`${rt.url}/v1/sessions/s1?cursor=secret-query`, { headers: app });

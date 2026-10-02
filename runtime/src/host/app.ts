@@ -1,8 +1,10 @@
 /**
  * The Host's request pipeline as a Hono app, in the order clients depend on: the request log
  * around everything, then Origin (and browser preflights), Content-Type, `/health`, `/ready`,
- * the Admin API, and Tenant routes, which go to the Tenant named by the request once its
- * headers and protocol check out.
+ * the Admin API, and Tenant routes, which go to the Host's one Tenant once the request's
+ * headers and protocol check out. Nothing in a request selects the Tenant (protocol 5); a
+ * protocol 4 client's `Nylorun-Tenant`, or a publishable key, naming another Tenant gets the
+ * opaque 404, so a client pointed at the wrong installation fails loudly.
  *
  * The `Host` header is checked before this, in the Node listener (`create-host.ts`):
  * `@hono/node-server` builds the request URL from it, and refuses a malformed one itself.
@@ -14,7 +16,6 @@ import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import {
   checkCompatibility,
   HOST_PROTOCOL,
-  isTenantId,
   PROTOCOL_HEADER,
   PUBLISHABLE_KEY_HEADER,
   TENANT_HEADER,
@@ -45,7 +46,7 @@ export type HostBindings = NodeBindings & { readonly role: ListenerRole };
 export type HostEnv = {
   Bindings: HostBindings;
   Variables: {
-    /** The Tenant a request named, for the request log. */
+    /** The Tenant a request reached, for the request log. */
     tenantId?: string;
     /** The status to log when it is not the answer's (a rejection after a stream started). */
     status?: number;
@@ -144,13 +145,13 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
 
     if (pathname === "/ready") {
       const listener = options.listening();
-      const discovery = module.started;
+      const tenant = module.ready;
       const infra = await options.readiness?.();
-      const ready = listener && discovery && !options.closing() && (infra?.ok ?? true);
+      const ready = listener && tenant && !options.closing() && (infra?.ok ?? true);
       return jsonResponse(ready ? 200 : 503, {
         status: ready ? "ready" : "not_ready",
         service: "nylorun-runtime",
-        checks: { listener, discovery, ...infra?.checks },
+        checks: { listener, tenant, ...infra?.checks },
       });
     }
 
@@ -169,40 +170,40 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
       return await options.admin(c.req.raw, { incoming, outgoing });
     }
 
-    // Tenant routes: header pattern → protocol → resolve → the Tenant. The Tenant is named by
-    // `Nylorun-Tenant`, by the publishable key in `Nylorun-Key`, or by both when they agree.
-    const invalid = (message: string) => rejectedResponse(400, "invalid_request", message);
+    // Tenant routes: key pattern → protocol → the Tenant → selection → the Tenant's routes.
     const keyHeader = headerValue(incoming, PUBLISHABLE_KEY_HEADER);
     const keyTenant =
       keyHeader === undefined ? undefined : tenantOfPublishableKey(keyHeader);
     if (keyHeader !== undefined && keyTenant === undefined)
-      return invalid(`${PUBLISHABLE_KEY_HEADER} header is malformed`);
+      return rejectedResponse(
+        400,
+        "invalid_request",
+        `${PUBLISHABLE_KEY_HEADER} header is malformed`,
+      );
     const tenantHeader = headerValue(incoming, TENANT_HEADER);
     const named =
-      tenantHeader === undefined || tenantHeader.trim() === "" ? undefined : tenantHeader;
-    if (named === undefined && keyTenant === undefined)
-      return invalid(`${TENANT_HEADER} header is required`);
-    if (named !== undefined && !isTenantId(named))
-      return invalid(`${TENANT_HEADER} header is malformed`);
-    if (named !== undefined && keyTenant !== undefined && named !== keyTenant)
-      return invalid(`${PUBLISHABLE_KEY_HEADER} and ${TENANT_HEADER} name different Tenants`);
-    const tenantId = (named ?? keyTenant)!;
-    c.set("tenantId", tenantId);
+      tenantHeader === undefined || tenantHeader.trim() === "" ? undefined : tenantHeader.trim();
 
     if (!protocolAccepted(headerValue(incoming, PROTOCOL_HEADER)))
       return protocolRejectedResponse();
 
-    const resolution = await module.resolve(tenantId);
+    const resolution = await module.resolve();
     if (resolution.kind !== "open") {
-      if (resolution.kind === "quarantined")
-        logger.warn("tenant_quarantined", {
-          tenantId,
-          code: resolution.quarantine.code,
-          repair: resolution.quarantine.repair,
+      if (resolution.cause)
+        logger.warn("tenant_unavailable", {
+          code: resolution.cause.code,
+          repair: resolution.cause.repair,
         });
       return opaqueNotFoundResponse();
     }
-    return await resolution.handle.fetch(c.req.raw, { incoming, outgoing });
+    const { handle } = resolution;
+    const tenantId = handle.envelope.id;
+    // A protocol 4 client names the Tenant; a publishable key carries one. Either naming
+    // another Tenant (or a malformed header) reached the wrong installation.
+    if ((named !== undefined && named !== tenantId) || (keyTenant !== undefined && keyTenant !== tenantId))
+      return opaqueNotFoundResponse();
+    c.set("tenantId", tenantId);
+    return await handle.fetch(c.req.raw, { incoming, outgoing });
   });
 
   app.onError((error, c) => {

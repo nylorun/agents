@@ -1,7 +1,7 @@
 import type { Migration } from "./index.js";
 
 /**
- * The first Postgres Tenant schema.
+ * The first migration of the Postgres Tenant schema (`nylorun` since one Tenant per database).
  *
  * - `tenant` holds the Tenant envelope (one row).
  * - Document tables keep `id text primary key, body json`. The fields typed

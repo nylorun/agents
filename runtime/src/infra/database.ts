@@ -1,7 +1,7 @@
 /**
  * Builds the Host's Postgres connection pool from the stack configuration
- * (architecture §12.2, §14.5). One pool serves the Tenant catalog and every
- * Tenant schema; the Host ends it at shutdown. The driver stays behind
+ * (architecture §12.2, §14.5): the pool on the Tenant's database, for its bootstrap and its
+ * Session Store; the Host ends it at shutdown. The driver stays behind
  * `store/postgres/connect.ts`.
  */
 import type { StackConfig } from "../host/stack-config.js";

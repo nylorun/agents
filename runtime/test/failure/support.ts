@@ -172,7 +172,7 @@ export class FailureTenant {
     return worker;
   }
 
-  /** Opens the Tenant on a new node. The first node creates the schema and the basin. */
+  /** Opens the Tenant on a new node. The first node creates the Tenant and the basin. */
   async node(options: NodeOptions): Promise<Node> {
     if (!this.root) {
       this.root = await mkdtemp(join(tmpdir(), "nylorun-failure-"));

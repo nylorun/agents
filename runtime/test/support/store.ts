@@ -1,25 +1,70 @@
 /**
- * Test Tenants on Postgres: each is a schema `tenant_<id>` in the test file's own database
- * (`./database.ts`), created and opened through the Tenant catalog as a Host would.
+ * Test Tenants on Postgres: each is the one Tenant of a database of its own (`./database.ts`),
+ * created and opened through the Tenant bootstrap (`store/postgres/tenant.ts`) as a Host
+ * would. The databases go with the test file's.
  */
 import { newTenantId } from "@nylorun/core/compatibility";
-import type { TenantEnvelope } from "@nylorun/core/contracts";
+import type { PostgresClient } from "../../src/store/postgres/connect.js";
 import {
-  createPostgresTenantCatalog,
-  type PostgresTenantCatalog,
-} from "../../src/store/postgres/tenants.js";
+  openTenantDatabase,
+  type InitialPrincipal,
+  type OpenedTenantDatabase,
+} from "../../src/store/postgres/tenant.js";
 import type { SessionStore } from "../../src/store/types.js";
-import { testPool } from "./database.js";
+import { tenantTestDatabase } from "./database.js";
 
-export { isolatedTestDatabase, testPool } from "./database.js";
+export { isolatedTestDatabase, tenantTestDatabase, testPool } from "./database.js";
 
-export function testCatalog(): PostgresTenantCatalog {
-  return createPostgresTenantCatalog({ sql: testPool() });
+/** The database of each test Tenant of this file, by Tenant id. */
+const databases = new Map<string, { sql: PostgresClient; drop(): Promise<void> }>();
+
+/** The pool on a test Tenant's database. Throws for a Tenant this file did not create. */
+export function testTenantPool(tenantId: string): PostgresClient {
+  const database = databases.get(tenantId);
+  if (!database) throw new Error(`Test Tenant ${tenantId} has no database in this file`);
+  return database.sql;
 }
 
-/** Drops a test Tenant's schema. */
+/**
+ * The database of test Tenant `tenantId`: the one it was created in, or a new one (its
+ * Tenant is created when it is first opened).
+ */
+export async function testTenantDatabase(tenantId: string): Promise<PostgresClient> {
+  const existing = databases.get(tenantId);
+  if (existing) return existing.sql;
+  const created = await tenantTestDatabase();
+  databases.set(tenantId, created);
+  return created.sql;
+}
+
+/** Drops a test Tenant's database. */
 export async function dropTestTenant(tenantId: string): Promise<void> {
-  await testCatalog().deleteTenant(tenantId);
+  const database = databases.get(tenantId);
+  databases.delete(tenantId);
+  await database?.drop();
+}
+
+/**
+ * Opens test Tenant `tenantId` as a Host would: migrates its database, creates the Tenant on
+ * first use (with `principals`), and opens its Session Store.
+ */
+export async function openTestTenant(
+  tenantId: string,
+  options: {
+    principals?: readonly InitialPrincipal[];
+    name?: string;
+    onError?: (error: unknown) => void;
+  } = {},
+): Promise<OpenedTenantDatabase> {
+  return openTenantDatabase({
+    sql: await testTenantDatabase(tenantId),
+    create: {
+      tenantId,
+      name: options.name ?? "test",
+      principals: () => options.principals ?? [],
+    },
+    ...(options.onError ? { onError: options.onError } : {}),
+  });
 }
 
 /**
@@ -30,13 +75,12 @@ export async function openTestSessionStore(input: {
   root: string;
   tenantId: string;
 }): Promise<SessionStore> {
-  const opened = await testCatalog().openTenant(input.tenantId);
-  if (opened.status !== "ok")
-    throw new Error(`Test Tenant ${input.tenantId} is ${opened.status}`);
-  return opened.store;
+  if (!databases.has(input.tenantId))
+    throw new Error(`Test Tenant ${input.tenantId} has no database in this file`);
+  return (await openTestTenant(input.tenantId)).store;
 }
 
-/** Runs `fn` in one transaction on a test Tenant's store and closes it. */
+/** Runs `fn` on a test Tenant's store and closes it. */
 export async function withTestSessionStore<T>(
   input: { root: string; tenantId: string },
   fn: (store: SessionStore) => Promise<T>,
@@ -50,25 +94,14 @@ export async function withTestSessionStore<T>(
 }
 
 /**
- * A new test Tenant and a Session Store on it, for tests that drive the store without a
- * Tenant Runtime. Its schema goes with the file's database.
+ * A new test Tenant, in a database of its own, and a Session Store on it, for tests that drive
+ * the store without a Tenant Runtime.
  */
 export async function createTestSessionStore(
   tenantId = newTenantId(),
 ): Promise<SessionStore> {
-  await testCatalog().createTenant({
-    envelope: testEnvelope(tenantId),
-    principals: {
-      principalId: "principal_test",
-      credentialHash: "ab".repeat(32),
-      idempotencyKey: `boot-${tenantId}`,
-    },
+  const opened = await openTestTenant(tenantId, {
+    principals: [{ id: "principal_test", credentialHash: "ab".repeat(32) }],
   });
-  return openTestSessionStore({ root: "", tenantId });
-}
-
-/** The envelope a test Tenant is created with. */
-export function testEnvelope(tenantId: string, name = "test"): TenantEnvelope {
-  const now = new Date().toISOString();
-  return { id: tenantId, name, createdAt: now, updatedAt: now, schemaVersion: 1 };
+  return opened.store;
 }

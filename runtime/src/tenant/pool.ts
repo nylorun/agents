@@ -7,7 +7,7 @@ export class TimeoutError extends Error {
 
 /**
  * Race a promise against a timeout. On timeout the late result is handed to
- * `onLate` (Risk R6: mark quarantined and close a late handle).
+ * `onLate` (Risk R6: the module closes a handle that opened too late).
  */
 export async function withTimeout<T>(
   promise: Promise<T>,

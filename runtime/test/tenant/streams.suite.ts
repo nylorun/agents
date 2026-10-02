@@ -14,8 +14,6 @@ import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../../src/record/index.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import {
-  createTenantStreams,
-  deleteTenantStreams,
   streamsStatus,
 } from "../../src/tenant/streams.js";
 import { currentBasin } from "../../src/tenant/session-streams.js";
@@ -854,19 +852,8 @@ export function tenantStreamsSuite(
       expect(contextOf(a.handle).sessionStreams.wiring!.basin().ready).toBe(true);
     });
 
-    it("creates the basin with the Tenant and deletes it only with the Tenant", async () => {
+    it("moves to a new basin on reset and deletes the old one", async () => {
       const t = await setup();
-      const other = newTenantId();
-      await createTenantStreams(t.streams, other);
-      await t.streams.append(other, CONTROL_STREAM, [{ type: "sessions.reset" }]);
-      expect(await t.streams.tail(other, CONTROL_STREAM)).toBe(1);
-      await deleteTenantStreams(t.streams, other);
-      await deleteTenantStreams(t.streams, other);
-      // s2-lite lists a basin being deleted with its streams, but refuses appends to it.
-      await expect(
-        t.streams.append(other, CONTROL_STREAM, [{ type: "sessions.reset" }])
-      ).rejects.toThrow();
-
       // A reset signals the old basin, moves to a new one, and deletes the old one.
       const a = await t.node();
       await t.createSession(a);

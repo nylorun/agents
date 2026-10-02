@@ -25,7 +25,7 @@ it("G3: ambient/env changes after seed do not overwrite Tenant config", async ()
   });
 
   try {
-    const [a] = host.tenants;
+    const a = host.tenant;
     const seed = await getJson(`${host.url}/v1/tenant/config/seed`, {
       method: "PUT",
       headers: a.headers(),

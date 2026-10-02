@@ -1,19 +1,19 @@
 /**
- * Forward-only, numbered migrations of one Tenant schema (architecture §14.6).
+ * Forward-only, numbered migrations of the Tenant schema `nylorun` (architecture §14.6,
+ * session-store.md §2).
  *
- * Each schema records what it has applied in `<schema>.schema_version`, one
- * row per migration; its version is the highest row. Migrating runs every
- * missing step in order, in the caller's transaction, under a transaction-level
- * advisory lock on the schema so two processes never migrate the same schema
- * at once. A schema newer than the Runtime is never touched: migrating it
- * throws a `schema-too-new` quarantine and the Tenant is quarantined.
+ * The schema records what it has applied in `nylorun.schema_version`, one row per
+ * migration; its version is the highest row. Migrating runs every missing step in order, in
+ * the caller's transaction, under a transaction-level advisory lock on the schema so two
+ * processes never migrate it at once. A schema newer than the Runtime is never touched:
+ * migrating it throws `schema-too-new`, and the Host fails readiness with that cause.
  *
  * Adding a migration: append `NNN_name.ts` with the next version to
  * `MIGRATIONS`. Never edit or reorder an applied migration.
  */
 import type { Sql, TransactionSql } from "postgres";
-import { quarantine } from "../../../tenant/quarantine.js";
-import { quoteIdentifier, tenantIdFromSchema } from "../names.js";
+import { openError } from "../../../tenant/cause.js";
+import { quoteIdentifier } from "../names.js";
 import { initial } from "./001_initial.js";
 import { sessionOwner } from "./002_session_owner.js";
 import { subjectTokens } from "./003_subject_tokens.js";
@@ -30,7 +30,7 @@ export interface Migration {
   /** 1, 2, 3, … without gaps. */
   version: number;
   name: string;
-  /** DDL for the quoted schema name `s` (for example `"tenant_tn_…"`). */
+  /** DDL for the quoted schema name `s` (`"nylorun"`). */
   up(s: string): string;
 }
 
@@ -63,8 +63,8 @@ export function assertMigrations(migrations: readonly Migration[]): void {
 
 /**
  * Takes the schema's migration lock until the transaction ends. Waiting for it, and the
- * migrations or deletion done under it, may outlast the pool's statement timeout: it is lifted
- * for the transaction, since a migration that times out would quarantine the Tenant.
+ * migrations done under it, may outlast the pool's statement timeout: it is lifted for the
+ * transaction, since a migration that times out would fail the Host's readiness.
  */
 export async function lockSchema(
   tx: TransactionSql,
@@ -105,7 +105,7 @@ export async function readSchemaVersion(
 /**
  * Creates the schema when missing and applies every missing migration, inside
  * `tx`. Call `lockSchema` first when other processes may migrate concurrently
- * (`migrateSchema` does). Throws a `schema-too-new` `QuarantineError` when the
+ * (`migrateSchema` does). Throws a `schema-too-new` `TenantOpenError` when the
  * schema is ahead of `migrations`.
  */
 export async function migrateSchemaInTx(
@@ -125,10 +125,9 @@ export async function migrateSchemaInTx(
     );`);
   const from = (await readSchemaVersion(tx, schema)) ?? 0;
   if (from > latest)
-    throw quarantine(
+    throw openError(
       "schema-too-new",
-      `Tenant schema version ${from} is newer than this Runtime's ${latest}`,
-      { tenantId: tenantIdFromSchema(schema) ?? schema },
+      `The ${schema} schema is at version ${from}, newer than this Runtime's ${latest}`,
     );
   for (const migration of migrations.slice(from)) {
     await tx.unsafe(migration.up(s));

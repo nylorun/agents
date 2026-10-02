@@ -44,8 +44,7 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
     expect(process.env.NYLORUN_SANDBOX).toBe(HOSTILE_SANDBOX);
     expect(process.env.NODE_OPTIONS).toContain("evil.js");
 
-    const [a, b] = host.tenants;
-    expect(host.tenants).toHaveLength(2);
+    const a = host.tenant;
 
     const kekFile = readFileSync(a.paths.kek, "utf8").trim();
     expect(kekFile).not.toBe(HOSTILE_VAULT_KEK);
@@ -99,11 +98,7 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
       true,
     );
 
-    const bStatus = await getJson(`${host.url}/v1/tenant`, {
-      headers: b.headers(),
-    });
-    expect(bStatus.status).toBe(200);
-    expect(b.paths.home).not.toBe(a.paths.home);
+    expect(a.paths.home).not.toBe(join(host.hostRoot, "home"));
     expect(existsSync(evil.markerPath)).toBe(false);
   } finally {
     restore();
@@ -147,7 +142,7 @@ it("G2: stdio MCP child env excludes hostile values and uses Tenant HOME", async
   });
 
   try {
-    const [a] = host.tenants;
+    const a = host.tenant;
     const agent = Agent({ id: "bot", name: "Bot" })
       .use({
         id: "envdump",

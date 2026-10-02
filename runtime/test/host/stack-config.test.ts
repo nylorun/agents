@@ -76,7 +76,11 @@ describe("parseStackConfig", () => {
       { NYLORUN_HOME: "/home/u/.nylorun", PATH: "/usr/bin" },
       [],
     );
-    expect(config).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
+    expect(config).toEqual({
+      services: new Set(["core", "loop"]),
+      endpoints: {},
+      tenant: { name: "default", derivedPrincipals: ["project"] },
+    });
   });
 
   it("parses the Compose runtime service environment", () => {
@@ -125,6 +129,7 @@ describe("parseStackConfig", () => {
         s2Token: "ignored",
         workspaceStoreUrl: "file:///workspaces",
       },
+      tenant: { name: "default", derivedPrincipals: ["project"] },
     });
   });
 
@@ -229,7 +234,11 @@ describe("parseStackConfig", () => {
         },
         [],
       ),
-    ).toEqual({ services: new Set(["core", "loop"]), endpoints: {} });
+    ).toEqual({
+      services: new Set(["core", "loop"]),
+      endpoints: {},
+      tenant: { name: "default", derivedPrincipals: ["project"] },
+    });
   });
 });
 
@@ -446,5 +455,44 @@ describe("NYLORUN_ENDPOINT_*", () => {
     expect(() => parseStackConfig({ NYLORUN_ENDPOINT_LOOPBACK: "host" }, [])).toThrow(/NYLORUN_ENDPOINT_LOOPBACK/);
     expect(() => parseStackConfig({ NYLORUN_ENDPOINT_PRIVATE: "no" }, [])).toThrow(/NYLORUN_ENDPOINT_PRIVATE/);
     expect(() => parseStackConfig({ NYLORUN_ENDPOINT_HTTP: "no" }, [])).toThrow(StackConfigError);
+  });
+});
+
+describe("the Host's Tenant", () => {
+  it("defaults to a new id, the name default and the project derived principal", () => {
+    expect(parseStackConfig({}, []).tenant).toEqual({
+      name: "default",
+      derivedPrincipals: ["project"],
+    });
+    // The gates service creates no Tenant.
+    const gates = { NYLORUN_GATES_TOKEN: "ab".repeat(32), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
+    expect(parseStackConfig(gates, ["--service", "gates"]).tenant).toBeUndefined();
+  });
+
+  it("reads NYLORUN_TENANT_ID, NYLORUN_TENANT_NAME and NYLORUN_DERIVED_PRINCIPALS", () => {
+    expect(
+      parseStackConfig(
+        {
+          NYLORUN_TENANT_ID: "tn_0123456789abcdefghjkmnpqrs",
+          NYLORUN_TENANT_NAME: "my-app",
+          NYLORUN_DERIVED_PRINCIPALS: "project, babai,project",
+        },
+        [],
+      ).tenant,
+    ).toEqual({
+      id: "tn_0123456789abcdefghjkmnpqrs",
+      name: "my-app",
+      derivedPrincipals: ["project", "babai"],
+    });
+  });
+
+  it("rejects a malformed Tenant id and reserved or malformed principal ids, naming the variable", () => {
+    expect(() => parseStackConfig({ NYLORUN_TENANT_ID: "tn_nope" }, [])).toThrow(/NYLORUN_TENANT_ID/);
+    expect(() => parseStackConfig({ NYLORUN_DERIVED_PRINCIPALS: "studio" }, [])).toThrow(
+      /NYLORUN_DERIVED_PRINCIPALS/,
+    );
+    expect(() => parseStackConfig({ NYLORUN_DERIVED_PRINCIPALS: "Bad_Id" }, [])).toThrow(
+      /NYLORUN_DERIVED_PRINCIPALS/,
+    );
   });
 });

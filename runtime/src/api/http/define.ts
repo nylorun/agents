@@ -136,14 +136,6 @@ export function tenantRoute(
   const schemes = [...new Set(access.credentials.map((credential) => SCHEMES[credential]))];
   const headers = z.object({
     "Nylorun-Protocol": z.string().meta({ description: `The protocol version, \`${PROTOCOL_VERSION}\`` }),
-    ...(access.browser || takes("publishable")
-      ? {
-          "Nylorun-Tenant": z
-            .string()
-            .optional()
-            .meta({ description: "The Tenant; optional with a publishable key, which names it" }),
-        }
-      : { "Nylorun-Tenant": z.string().meta({ description: "The Tenant" }) }),
     ...(takes("subject")
       ? {
           "Nylorun-Subject": z

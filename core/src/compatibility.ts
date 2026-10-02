@@ -1,8 +1,12 @@
 export { hashManifest } from "./utils/hash.js";
 
-export const PROTOCOL_VERSION = 4;
+/**
+ * Protocol 5: a Host serves one Tenant, and nothing in a request selects it. Clients send no
+ * `Nylorun-Tenant`; the Host still accepts protocol 4 (and the header) for one release.
+ */
+export const PROTOCOL_VERSION = 5;
+/** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
-  "runtime-tenants",
   "admin-status",
   "studio-principal",
   "action-endpoints",
@@ -13,8 +17,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
  * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
  * `transcript-events`: the log carries `message.assistant` and `tool.completed`, and
- * tool `action.*` events carry `callId` and `invocationId`. `derived-principals`:
- * `POST /v1/admin/tenants` accepts `derivedPrincipals`. `subject-headers`: an application
+ * tool `action.*` events carry `callId` and `invocationId`. `derived-principals`: the Host
+ * registers the derived principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`,
+ * default `project`) on its Tenant, whose keys the admin key derives. `subject-headers`: an application
  * principal may act for a subject with `Nylorun-Subject` and `Nylorun-Scopes`, and the Runtime
  * enforces the scopes and the subject's ownership of sessions and vaults.
  * `subject-tokens`: `POST /v1/tokens` mints ES256 subject tokens for the roles of the Tenant's
@@ -47,20 +52,28 @@ export interface ProtocolRange {
   max: number;
   features: readonly string[];
 }
+/**
+ * What this Host serves. `runtime-tenants` (protocol 4 clients require it) is still advertised
+ * for the compatibility window; protocol 5 clients no longer require it.
+ */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
-  max: 4,
-  features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
+  max: 5,
+  features: ["runtime-tenants", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
 
+/**
+ * The Tenant a protocol 4 client names on every request. Protocol 5 clients send none: the
+ * Host serves one Tenant, and answers a header naming another with the opaque 404.
+ */
 export const TENANT_HEADER = "Nylorun-Tenant";
 export const PROTOCOL_HEADER = "Nylorun-Protocol";
 /** The subject an application principal acts for (Host feature `subject-headers`). */
 export const SUBJECT_HEADER = "Nylorun-Subject";
 /** The space-separated scopes of that subject; required with `Nylorun-Subject`. */
 export const SCOPES_HEADER = "Nylorun-Scopes";
-/** A publishable key: names the Tenant and the client app (Host feature `browser-access`). */
+/** A publishable key: names the client app, and its Tenant (Host feature `browser-access`). */
 export const PUBLISHABLE_KEY_HEADER = "Nylorun-Key";
 /** The delivery token on a request the Runtime sends to an Action endpoint. */
 export const SIGNATURE_HEADER = "Nylorun-Signature";

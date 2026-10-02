@@ -5,11 +5,9 @@
 import { OpenApiGeneratorV32 } from "@asteasolutions/zod-to-openapi";
 import { expect, it } from "vitest";
 import { createAdminApi } from "../../src/host/admin-api.js";
-import { createFakeModule } from "./support.js";
 
 function adminDocument() {
   const api = createAdminApi({
-    module: createFakeModule(),
     status: async () => {
       throw new Error("not called");
     },
@@ -21,7 +19,7 @@ function adminDocument() {
   });
 }
 
-it("documents every Admin operation once, under the admin key", () => {
+it("documents every Admin operation once, under the admin key: no Tenant routes", () => {
   const document = adminDocument();
   const operations = Object.entries(document.paths ?? {}).flatMap(([path, item]) =>
     Object.keys(item as object)
@@ -29,14 +27,10 @@ it("documents every Admin operation once, under the admin key", () => {
       .map((method) => `${method.toUpperCase()} ${path}`),
   );
   expect(operations.sort()).toEqual([
-    "DELETE /v1/admin/tenants/{tenantId}",
     "GET /v1/admin/host",
     "GET /v1/admin/openapi.json",
     "GET /v1/admin/status",
-    "GET /v1/admin/tenants",
-    "GET /v1/admin/tenants/{tenantId}",
     "POST /v1/admin/host/shutdown",
-    "POST /v1/admin/tenants",
   ]);
   for (const item of Object.values(document.paths ?? {}))
     for (const operation of Object.values(item as Record<string, { security?: unknown }>))
@@ -45,29 +39,17 @@ it("documents every Admin operation once, under the admin key", () => {
 
 it("names the contracts' schemas as components and refers to them", () => {
   const document = adminDocument();
-  expect(Object.keys(document.components?.schemas ?? {})).toEqual(
-    expect.arrayContaining([
-      "AdminStatus",
-      "AdminTenantList",
-      "AdminTenantStatus",
-      "CreateTenantRequest",
-      "ProtocolRejected",
-      "Rejected",
-      "TenantEnvelope",
-    ]),
+  const schemas = document.components?.schemas ?? {};
+  expect(Object.keys(schemas)).toEqual(
+    expect.arrayContaining(["AdminStatus", "HostShutdownResponse", "ProtocolRejected", "Rejected"]),
   );
-  const create = (document.paths?.["/v1/admin/tenants"] as any).post;
-  expect(create.requestBody.content["application/json"].schema).toEqual({
-    $ref: "#/components/schemas/CreateTenantRequest",
+  for (const removed of ["AdminTenantList", "AdminTenantStatus", "CreateTenantRequest"])
+    expect(schemas).not.toHaveProperty(removed);
+  const status = (document.paths?.["/v1/admin/status"] as any).get;
+  expect(status.responses["200"].content["application/json"].schema).toEqual({
+    $ref: "#/components/schemas/AdminStatus",
   });
-  expect(create.responses["201"].content["application/json"].schema).toEqual({
-    $ref: "#/components/schemas/TenantEnvelope",
-  });
-  const remove = (document.paths?.["/v1/admin/tenants/{tenantId}"] as any).delete;
-  expect(remove.parameters).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ name: "tenantId", in: "path", required: true }),
-      expect.objectContaining({ name: "activeWork", in: "query", required: false }),
-    ]),
-  );
+  const statusSchema = schemas.AdminStatus as { properties: Record<string, unknown> };
+  expect(statusSchema.properties).toHaveProperty("tenant");
+  expect(statusSchema.properties).not.toHaveProperty("tenants");
 });

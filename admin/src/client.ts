@@ -4,13 +4,9 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   AdminStatusSchema,
-  AdminTenantSchema,
-  AdminTenantStatusSchema,
   RejectedResponseSchema,
   TenantEnvelopeSchema,
   type AdminStatus,
-  type AdminTenant,
-  type AdminTenantStatus,
   type TenantEnvelope,
 } from "@nylorun/core/contracts";
 import {
@@ -25,6 +21,12 @@ import {
 } from "@nylorun/core/compatibility";
 import { deriveStudioToken, deriveTenantKey } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
+import {
+  AdminTenantSchema,
+  AdminTenantStatusSchema,
+  type AdminTenant,
+  type AdminTenantStatus,
+} from "./legacy-tenants.js";
 
 export type AdminSource = "options" | "environment" | "local-host";
 

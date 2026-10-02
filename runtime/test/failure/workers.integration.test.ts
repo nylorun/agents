@@ -10,10 +10,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { tenantSchemaName } from "../../src/store/postgres/names.js";
 import { CONTROL_STREAM } from "../../src/streams/types.js";
 import { stackEndpoints } from "../stack/endpoints.js";
-import { openTestSessionStore, testPool } from "../support/store.js";
+import { openTestSessionStore, testTenantPool } from "../support/store.js";
 import {
   cancel,
   controlledModel,
@@ -170,8 +169,8 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(await sessionRow(nodeB)).toMatchObject({ owner: "worker-a", epoch });
 
     // worker-a stalls past its lease (presumed dead, still running): worker-b takes over.
-    await testPool().unsafe(
-      `UPDATE "${tenantSchemaName(t.tenantId)}".sessions
+    await testTenantPool(t.tenantId).unsafe(
+      `UPDATE nylorun.sessions
          SET owner_expires_at = now() - interval '1 second' WHERE id = 's1'`
     );
     expect(await workerOf(nodeB).advance("s1", signal)).toEqual({ status: "done" });

@@ -39,7 +39,8 @@ async function runtime() {
           service: "nylorun-runtime",
           version: "0.10.0-beta",
           protocol,
-          tenants: [],
+          // TODO(F2b): the Tenant commands this stub serves go with one Tenant per installation.
+          tenant: { id: "tn_00000000000000000000000000", name: "default", state: "open", envelope: null },
           aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
           host: { hostId: HOST_ID, url: "http://localhost", pid: 1 },
         }),

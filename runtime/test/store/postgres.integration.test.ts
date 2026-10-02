@@ -6,26 +6,20 @@ import {
   type PostgresClient,
 } from "../../src/store/postgres/connect.js";
 import { lockSessions } from "../../src/store/postgres/locking.js";
-import {
-  POSTGRES_SCHEMA_VERSION,
-  migrateSchema,
-} from "../../src/store/postgres/migrations/index.js";
-import { tenantSchemaName } from "../../src/store/postgres/names.js";
-import { migrateStreamsSchema } from "../../src/store/postgres/migrations/shared/index.js";
+import { POSTGRES_SCHEMA_VERSION } from "../../src/store/postgres/migrations/index.js";
+import { TENANT_SCHEMA } from "../../src/store/postgres/names.js";
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { SessionStore } from "../../src/store/types.js";
-import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+import { STACK_ENABLED } from "../stack/endpoints.js";
+import { tenantTestDatabase } from "../support/database.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-let client: PostgresClient | undefined;
 const pools: PostgresClient[] = [];
-function pool(): PostgresClient {
-  return (client ??= newPool());
-}
-function newPool(max = 10): PostgresClient {
-  const sql = createPostgresClient(stackEndpoints().postgres.url, { max });
+/** Another pool on a Tenant's database, as another process would hold. */
+function newPool(url: string, max = 10): PostgresClient {
+  const sql = createPostgresClient(url, { max });
   pools.push(sql);
   return sql;
 }
@@ -34,28 +28,16 @@ afterAll(async () => {
   await Promise.all(pools.map((sql) => sql.end({ timeout: 5 })));
 });
 
-/** A fresh, migrated Tenant schema and its store; dropped by `drop`. */
-async function freshSchema(): Promise<{ tenantId: string; schema: string }> {
+/** A fresh Tenant: the one Tenant of a database of its own, cloned from the migrated template. */
+async function freshTenant(): Promise<{ tenantId: string; sql: PostgresClient; url: string }> {
   const tenantId = newTenantId();
-  const schema = tenantSchemaName(tenantId);
-  await migrateStreamsSchema(pool());
-  await migrateSchema(pool(), schema);
-  await insertTenantRow(schema, tenantId);
-  return { tenantId, schema };
-}
-
-/** The Tenant's row, as the catalog writes it when it creates the Tenant. */
-async function insertTenantRow(schema: string, tenantId: string): Promise<void> {
-  const sql = pool();
+  const { sql, url } = await tenantTestDatabase();
+  // The Tenant's row, as the bootstrap writes it when it creates the Tenant.
   const now = new Date().toISOString();
   await sql`
-    INSERT INTO ${sql(`${schema}.tenant`)} (id, name, created_at, updated_at, schema_version)
+    INSERT INTO ${sql(`${TENANT_SCHEMA}.tenant`)} (id, name, created_at, updated_at, schema_version)
     VALUES (${tenantId}, 'Test', ${now}, ${now}, ${POSTGRES_SCHEMA_VERSION})`;
-}
-
-async function drop(schema: string): Promise<void> {
-  const sql = pool();
-  await sql`DROP SCHEMA IF EXISTS ${sql(schema)} CASCADE`;
+  return { tenantId, sql, url };
 }
 
 const session = (id: string) => ({
@@ -73,23 +55,23 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       for (const step of cleanup.splice(0).reverse()) await step();
     });
 
-    async function open(sql = pool()): Promise<{
+    async function open(): Promise<{
       store: SessionStore;
       schema: string;
+      sql: PostgresClient;
+      url: string;
     }> {
-      const { tenantId, schema } = await freshSchema();
-      const store = createPostgresSessionStore({ sql, tenantId, schema });
-      cleanup.push(() => drop(schema));
+      const { tenantId, sql, url } = await freshTenant();
+      const store = createPostgresSessionStore({ sql, tenantId });
       cleanup.push(() => store.close());
-      return { store, schema };
+      return { store, schema: TENANT_SCHEMA, sql, url };
     }
 
     it("has no sequence gaps with 20 concurrent writers on two pools", async () => {
-      const { store: first, schema } = await open();
+      const { store: first, url } = await open();
       const second = createPostgresSessionStore({
-        sql: newPool(5),
+        sql: newPool(url, 5),
         tenantId: first.tenantId,
-        schema,
       });
       cleanup.push(() => second.close());
       await first.tx((t) => t.put("sessions", "s1", session("s1")));
@@ -177,7 +159,7 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
       });
     });
 
-    it("keeps Tenant schemas apart", async () => {
+    it("keeps Tenant databases apart", async () => {
       const { store: one } = await open();
       const { store: two } = await open();
       await one.tx((t) => t.put("sessions", "s1", session("s1")));
@@ -186,26 +168,24 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
     });
 
     it("reports health against the schema version", async () => {
-      const { store, schema } = await open();
+      const { store, schema, sql } = await open();
       expect(await store.health()).toEqual({
         ok: true,
         schemaVersion: POSTGRES_SCHEMA_VERSION,
         expectedSchemaVersion: POSTGRES_SCHEMA_VERSION,
       });
-      const sql = pool();
       await sql`INSERT INTO ${sql(`${schema}.schema_version`)} (version, name) VALUES (99, 'future')`;
       expect(await store.health()).toMatchObject({ ok: false, schemaVersion: 99 });
-      await drop(schema);
+      await sql`DROP SCHEMA ${sql(schema)} CASCADE`;
       expect(await store.health()).toMatchObject({ ok: false, schemaVersion: 0 });
     });
 
     it("keeps store-managed columns out of the body", async () => {
-      const { store, schema } = await open();
+      const { store, schema, sql } = await open();
       await store.tx((t) =>
         t.put("sessions", "s1", { ...session("s1"), owner: "x", epoch: 3 }),
       );
       await store.tx((t) => t.event("s1", null, "turn.completed", { tag: "x", output: {} }));
-      const sql = pool();
       const [row] = await sql`
         SELECT body, status, agent_id, epoch
         FROM ${sql(`${schema}.sessions`)} WHERE id = 's1'`;
@@ -214,7 +194,7 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
     });
 
     it("stores bodies verbatim and derives columns through doc(), which jsonb escapes cannot break", async () => {
-      const { store, schema } = await open();
+      const { store, schema, sql } = await open();
       const body = {
         ...session("s1"),
         status: "idle\u0000",
@@ -222,7 +202,6 @@ describe.skipIf(!STACK_ENABLED)("Postgres Session Store", () => {
         text: "a\u0000b\\u0000",
       };
       await store.tx((t) => t.put("sessions", "s1", body));
-      const sql = pool();
       const [row] = await sql`
         SELECT body::text AS text, status, agent_id FROM ${sql(`${schema}.sessions`)} WHERE id = 's1'`;
       expect(row!.text).toBe(JSON.stringify(body));

@@ -3,8 +3,8 @@
  * implementation runs this suite; Postgres runs it in `store.test.ts`:
  *
  *   storeContract("postgres", async (options) => {
- *     const store = await openPostgresStore({ ...options, url });
- *     return { store, dispose: () => dropTenantSchema(options.tenantId) };
+ *     const database = await isolatedTestDatabase();
+ *     return { store: createPostgresSessionStore({ ...options, sql: database.sql }), dispose: () => database.drop() };
  *   });
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ import type { RecordRow } from "../../src/streams/relay/types.js";
 
 export interface StoreHarness {
   store: SessionStore;
-  /** Removes everything the store created (schema, files). Called after `store.close()`. */
+  /** Removes everything the store created (database, files). Called after `store.close()`. */
   dispose?(): Promise<void>;
 }
 

@@ -3,9 +3,8 @@
  * 1, with generation 0 retired; a Tenant without sessions stays at 0. The outbox and the
  * incarnation and sequence columns are gone.
  */
-import { randomBytes } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
-import { createPostgresClient } from "../../src/store/postgres/connect.js";
+import { describe, expect, it } from "vitest";
+import { newTenantId } from "@nylorun/core/compatibility";
 import {
   MIGRATIONS,
   POSTGRES_SCHEMA_VERSION,
@@ -15,23 +14,21 @@ import {
   assertLogicalReplication,
   migrateStreamsSchema,
 } from "../../src/store/postgres/migrations/shared/index.js";
-import { tenantSchemaName } from "../../src/store/postgres/names.js";
+import { TENANT_SCHEMA } from "../../src/store/postgres/names.js";
 import { createPostgresSessionStore } from "../../src/store/postgres/store.js";
-import { STACK_ENABLED, stackEndpoints } from "../stack/endpoints.js";
+import { STACK_ENABLED } from "../stack/endpoints.js";
+import { emptyTestDatabase } from "../support/database.js";
 
 describe.skipIf(!STACK_ENABLED)("migration 8: durable streams", () => {
-  const sql = createPostgresClient(stackEndpoints().postgres.url, { max: 4 });
-  const schemas: string[] = [];
-  afterAll(async () => {
-    for (const schema of schemas) await sql`DROP SCHEMA IF EXISTS ${sql(schema)} CASCADE`;
-    await sql.end();
-  });
-
-  /** A Tenant schema as protocol 3 left it, with `sessions` sessions and their outbox rows. */
+  /**
+   * A Tenant schema at migration 7 (as protocol 3 left one), with `sessions` sessions and their
+   * outbox rows, in a database of its own.
+   */
   async function protocol3Tenant(sessions: number) {
-    const tenantId = `tn_${randomBytes(13).toString("hex").slice(0, 26)}`;
-    const schema = tenantSchemaName(tenantId);
-    schemas.push(schema);
+    const { sql } = await emptyTestDatabase();
+    const tenantId = newTenantId();
+    const schema = TENANT_SCHEMA;
+    await migrateStreamsSchema(sql);
     await migrateSchema(sql, schema, MIGRATIONS.slice(0, 7));
     const now = new Date().toISOString();
     await sql`INSERT INTO ${sql(`${schema}.tenant`)} (id, name, created_at, updated_at, schema_version)
@@ -44,14 +41,13 @@ describe.skipIf(!STACK_ENABLED)("migration 8: durable streams", () => {
                 VALUES (${id}, 0, ${JSON.stringify({ createdAt: now })}::text::json)`;
     }
     await sql`INSERT INTO ${sql(`${schema}.tenant_settings`)} (key, value) VALUES ('kept', 'yes')`;
-    return { tenantId, schema };
+    return { sql, tenantId, schema };
   }
 
   it("starts a Tenant with sessions fresh in generation 1, keeping its settings", async () => {
-    await migrateStreamsSchema(sql);
-    const { tenantId, schema } = await protocol3Tenant(2);
+    const { sql, tenantId, schema } = await protocol3Tenant(2);
     expect(await migrateSchema(sql, schema)).toEqual({ from: 7, to: POSTGRES_SCHEMA_VERSION });
-    const store = createPostgresSessionStore({ sql, tenantId, schema });
+    const store = createPostgresSessionStore({ sql, tenantId });
     try {
       expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 1, retired: [0] });
       expect(await store.tx((t) => t.counts())).toMatchObject({ sessions: 0 });
@@ -76,9 +72,9 @@ describe.skipIf(!STACK_ENABLED)("migration 8: durable streams", () => {
   });
 
   it("leaves a Tenant without sessions at generation 0", async () => {
-    const { tenantId, schema } = await protocol3Tenant(0);
+    const { sql, tenantId, schema } = await protocol3Tenant(0);
     await migrateSchema(sql, schema);
-    const store = createPostgresSessionStore({ sql, tenantId, schema });
+    const store = createPostgresSessionStore({ sql, tenantId });
     try {
       expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 0, retired: [] });
     } finally {
@@ -87,6 +83,7 @@ describe.skipIf(!STACK_ENABLED)("migration 8: durable streams", () => {
   });
 
   it("finds logical replication on the test stack", async () => {
+    const { sql } = await emptyTestDatabase();
     await expect(assertLogicalReplication(sql)).resolves.toBeUndefined();
   });
 });

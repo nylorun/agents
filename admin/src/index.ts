@@ -1,9 +1,5 @@
-import type {
-  AdminStatus,
-  AdminTenant,
-  AdminTenantStatus,
-  TenantEnvelope,
-} from "@nylorun/core/contracts";
+import type { AdminStatus, HostTenant, TenantEnvelope } from "@nylorun/core/contracts";
+import type { AdminTenant, AdminTenantStatus } from "./legacy-tenants.js";
 import {
   ERROR_CODES,
   PROTOCOL_FEATURES,
@@ -30,9 +26,13 @@ export interface Admin {
   /** Where Admin API requests go: the operator listener, or `url` on a single-port Host. */
   readonly adminUrl: string;
   readonly source: "options" | "environment" | "local-host";
+  /** The Host's status, with the one Tenant it serves (`status.tenant`). */
   status(): Promise<AdminStatus>;
+  /** @deprecated A protocol 5 Host serves one Tenant and has no Tenant routes (404). */
   listTenants(): Promise<AdminTenant[]>;
+  /** @deprecated A protocol 5 Host serves one Tenant and has no Tenant routes (404). */
   getTenant(id: string): Promise<AdminTenantStatus>;
+  /** @deprecated A protocol 5 Host serves one Tenant and has no Tenant routes (404). */
   deleteTenant(
     id: string,
     options?: { activeWork?: "refuse" | "drain" | "cancel" },
@@ -41,6 +41,9 @@ export interface Admin {
    * Creates a Tenant. `principals` names derived principals (e.g. `["babai"]`): their keys
    * come from `deriveTenantKey`, so their clients store none. Needs Host feature
    * `derived-principals`.
+   *
+   * @deprecated A protocol 5 Host creates its one Tenant itself on first start (with the
+   * derived principals it is configured with) and has no Tenant routes (404).
    */
   createTenant(options: {
     name: string;
@@ -58,4 +61,4 @@ export function createAdmin(options?: {
   return new AdminClient(resolveAdminConnection(options));
 }
 
-export type { AdminStatus, AdminTenant, AdminTenantStatus, TenantEnvelope };
+export type { AdminStatus, AdminTenant, AdminTenantStatus, HostTenant, TenantEnvelope };

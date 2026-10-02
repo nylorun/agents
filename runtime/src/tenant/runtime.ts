@@ -9,9 +9,8 @@
  * `DurableExecution`, whose handlers (`worker.ts`) call `advance` and `sweep`; `abortLocal`
  * aborts an advance running on this process.
  *
- * Execution: the Host passes one `TenantExecution` for every Tenant it opens
- * (`TenantOpenHooks.execution`); without one, the Tenant runs its own in-process
- * `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
+ * Execution: the Host passes its `TenantExecution` (`TenantOpenHooks.execution`); without
+ * one, the Tenant runs its own in-process `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
  * session (§10.6) keeps its advances apart.
  */
 import type { ServerResponse, IncomingMessage } from "node:http";
@@ -33,7 +32,7 @@ import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
-import { QuarantineError } from "./quarantine-error.js";
+import { openError } from "./cause.js";
 import { MemoryStreams } from "../streams/memory.js";
 import type { DurableStreams } from "../streams/types.js";
 import type {
@@ -100,7 +99,7 @@ export type TenantOpenHooks = {
    */
   streams?: DurableStreams;
   /**
-   * The Host's stream relay feeds `streams` from the record for every Tenant. Without it the
+   * The Host's stream relay feeds `streams` from the record. Without it the
    * Tenant relays its own commits.
    */
   hostRelay?: boolean;
@@ -167,21 +166,16 @@ export class TenantRuntime implements TenantHandle {
         async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
       );
       if (sealed > 0 && !kek) {
-        throw new QuarantineError(
+        throw openError(
           "kek-missing",
           "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant",
-          "restore the vault-kek file in the Tenant directory"
         );
       }
       const createKekIfMissing = hooks.createKekIfMissing !== false;
       const ensureKek = (): Buffer => {
         if (kek) return kek;
         if (!createKekIfMissing)
-          throw new QuarantineError(
-            "kek-missing",
-            "Vault key-encryption key is required",
-            "restore the vault-kek file in the Tenant directory"
-          );
+          throw openError("kek-missing", "Vault key-encryption key is required");
         kek = createKekFile(paths.kek);
         return kek;
       };

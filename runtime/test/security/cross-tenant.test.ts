@@ -1,5 +1,7 @@
 /**
- * G4 — Cross-Tenant fuzz for every §5.3 Tenant route family.
+ * G4 — Cross-Tenant fuzz for every §5.3 Tenant route family. A Host serves one Tenant, so
+ * two Tenants are two installations (two Hosts, two databases): a credential or a Tenant
+ * named for the other one reaches nothing.
  */
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
@@ -15,20 +17,23 @@ const agentA = Agent({ id: "agent-a", name: "A" }).build();
 const agentB = Agent({ id: "agent-b", name: "B" }).build();
 
 it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant", async () => {
-  const host = await startSecurityHost({
-    sandboxBackend: "virtual",
-    model: { kind: "scripted", output: "ok" },
-  });
-  const [a, b] = host.tenants;
+  const options = {
+    sandboxBackend: "virtual" as const,
+    model: { kind: "scripted" as const, output: "ok" },
+  };
+  const host = await startSecurityHost({ ...options, tenantName: "alpha" });
+  const other = await startSecurityHost({ ...options, tenantName: "beta" });
+  const a = host.tenant;
+  const b = other.tenant;
 
   // Seed distinct resources in each Tenant.
-  for (const [tenant, agent, sessionId] of [
-    [a, agentA, "sess-a"] as const,
-    [b, agentB, "sess-b"] as const,
+  for (const [url, tenant, agent, sessionId] of [
+    [host.url, a, agentA, "sess-a"] as const,
+    [other.url, b, agentB, "sess-b"] as const,
   ]) {
     expect(
       (
-        await getJson(`${host.url}/v1/agents/${agent.manifest.id}`, {
+        await getJson(`${url}/v1/agents/${agent.manifest.id}`, {
           method: "PUT",
           headers: tenant.headers(),
           body: JSON.stringify({
@@ -41,7 +46,7 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
     ).toBe(200);
     expect(
       (
-        await getJson(`${host.url}/v1/sessions/${sessionId}`, {
+        await getJson(`${url}/v1/sessions/${sessionId}`, {
           method: "PUT",
           headers: tenant.headers(),
           body: JSON.stringify({
@@ -52,7 +57,7 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
         })
       ).status,
     ).toBe(200);
-    const vault = await getJson(`${host.url}/v1/vaults`, {
+    const vault = await getJson(`${url}/v1/vaults`, {
       method: "POST",
       headers: tenant.headers(),
       body: JSON.stringify({
@@ -78,18 +83,26 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
     expectAScoped?: boolean;
   }> = [
     {
-      label: "A header + B token → opaque",
+      label: "B token → opaque",
       init: {
         path: "/v1/agents",
-        headers: tenantHeaders(a.id, b.applicationKey),
+        headers: tenantHeaders(b.applicationKey),
       },
       expectOpaque: true,
     },
     {
-      label: "B header + A token → opaque",
+      label: "A header + B token → opaque",
       init: {
         path: "/v1/agents",
-        headers: tenantHeaders(b.id, a.applicationKey),
+        headers: tenantHeaders(b.applicationKey, a.id),
+      },
+      expectOpaque: true,
+    },
+    {
+      label: "B header + A token → opaque (names the other Tenant)",
+      init: {
+        path: "/v1/agents",
+        headers: tenantHeaders(a.applicationKey, b.id),
       },
       expectOpaque: true,
     },
@@ -150,10 +163,10 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       expectAScoped: true,
     },
     {
-      label: "B header with A session path → opaque (wrong credential)",
+      label: "B header with A session path → opaque (names the other Tenant)",
       init: {
         path: "/v1/sessions/sess-a",
-        headers: tenantHeaders(b.id, a.applicationKey),
+        headers: tenantHeaders(a.applicationKey, b.id),
       },
       expectOpaque: true,
     },
@@ -201,9 +214,14 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
   });
   expect(ownVault.status).toBe(200);
 
-  // B still has its own session after the fuzz.
-  const bSession = await getJson(`${host.url}/v1/sessions/sess-b`, {
+  // B still has its own session after the fuzz, on its own Host; A's key reaches nothing there.
+  const bSession = await getJson(`${other.url}/v1/sessions/sess-b`, {
     headers: b.headers(),
   });
   expect(bSession.status).toBe(200);
+  const crossed = await getJson(`${other.url}/v1/sessions/sess-b`, {
+    headers: a.headers(),
+  });
+  expect(crossed.status).toBe(404);
+  expect(crossed.body).toEqual(OPAQUE_NOT_FOUND);
 });

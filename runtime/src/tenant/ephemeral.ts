@@ -1,9 +1,10 @@
 /**
- * `startEphemeralRuntime`: a private, in-process Host on port 0 with one Tenant, for tests and
- * embeds that need the Runtime's HTTP API without Restate and S2. Its Tenants are schemas
- * in the Postgres database the caller passes (`store-pg.ts`); there is no in-memory Session
- * Store. The rest is not durable: Durable Streams are in memory and gone after `close()`, and
- * scheduling is the in-process execution each Tenant starts for itself.
+ * `startEphemeralRuntime`: a private, in-process Host on port 0 serving one Tenant, for tests
+ * and embeds that need the Runtime's HTTP API without Restate and S2. Its Tenant is the one
+ * the Postgres database the caller passes holds (`store/postgres/tenant.ts`), created there on
+ * first start through the same path as a Host's; there is no in-memory Session Store. The rest
+ * is not durable: Durable Streams are in memory and gone after `close()`, and scheduling is
+ * the in-process execution the Tenant starts for itself.
  *
  * It is not the temporary Tenant the smoke checks use (scripts/lib/temporary-tenant.mjs):
  * that one is created on the running stack, with the Tenant-level fixture model
@@ -13,12 +14,12 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { hashToken, mintBearerToken } from "../core/bearer.js";
+import { mintBearerToken } from "../core/bearer.js";
 import { createHost } from "../host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../host/config.js";
 import { createKekFile } from "../vault/kek.js";
 import { createTenantModule } from "./module.js";
-import { createPostgresTenantStore } from "./store-pg.js";
+import { createPostgresTenantOpener } from "./store-pg.js";
 import {
   createPostgresClient,
   type PostgresClient,
@@ -26,6 +27,7 @@ import {
 import { MemoryStreams } from "../streams/memory.js";
 import { createTenantLogger } from "./logger.js";
 import { hostPaths, tenantPaths } from "./paths.js";
+import { hostPrincipals } from "./principals.js";
 import { openTenantRuntime } from "./runtime.js";
 import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
 
@@ -45,16 +47,22 @@ function newHostId(): string {
 
 export interface StartEphemeralRuntimeOptions {
   /**
-   * Absolute Host root for `host.json`, the admin key and each Tenant's files (vault key,
+   * Absolute Host root for `host.json`, the admin key and the Tenant's files (vault key,
    * home, sandboxes). Caller creates any temporary directory. Session data never lands here.
    */
   hostRoot: string;
+  /** The Tenant's id when the database holds no Tenant yet. Default: a new id. */
   tenantId?: string;
+  /** The Tenant's name when the database holds no Tenant yet. Default `ephemeral`. */
   name?: string;
+  /** An application key for an application principal of the Tenant. Default: a new key. */
   applicationKey?: string;
   adminKey?: string;
   principalId?: string;
-  /** SHA-256 of a derived Studio key; registers principal `studio`. */
+  /**
+   * SHA-256 of the Studio key; registers principal `studio` with it. Default: the key the
+   * admin key derives (`deriveStudioToken` in `@nylorun/admin`).
+   */
   studioCredentialHash?: string;
   /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
   baseline?: Readonly<Record<string, string>>;
@@ -68,9 +76,10 @@ export interface StartEphemeralRuntimeOptions {
   operatorListener?: boolean;
   logger?: Logger;
   /**
-   * The Postgres database the Tenants live in, as schemas (`store-pg.ts`): a pool, which the
-   * caller ends, or a URL, for which the Runtime opens a pool and ends it on `close()`. The
-   * schemas stay after `close()`; a test drops its database.
+   * The Postgres database of the Tenant (one Tenant per database): a pool, which the caller
+   * ends, or a URL, for which the Runtime opens a pool and ends it on `close()`. A database
+   * that already holds a Tenant serves that one. The data stays after `close()`; a test drops
+   * its database.
    */
   database: PostgresClient | string;
 }
@@ -88,7 +97,7 @@ export interface EphemeralRuntime {
 }
 
 /**
- * Private Host on port 0 with one Tenant (D9 / A19). Durable only in its database (see the
+ * Private Host on port 0 serving one Tenant (D9 / A19). Durable only in its database (see the
  * module comment).
  * Exported from `@nylorun/runtime` and `@nylorun/runtime/core`.
  */
@@ -99,8 +108,6 @@ export async function startEphemeralRuntime(
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
   mkdirSync(paths.tmp, { recursive: true });
-  mkdirSync(paths.tenants, { recursive: true });
-  mkdirSync(paths.trash, { recursive: true });
 
   const hostId = newHostId();
   const adminKey = options.adminKey ?? randomBytes(32).toString("hex");
@@ -132,7 +139,7 @@ export async function startEphemeralRuntime(
     options.model ?? ({ kind: "scripted", output: "ok" } as const);
 
   const configFor = (tenantId: string): TenantConfig => {
-    const tenant = tenantPaths(hostRoot, tenantId);
+    const tenant = tenantPaths(hostRoot);
     // A seeded `sandbox.backend` setting overrides this when the Tenant opens.
     const sandboxBackend = options.sandboxBackend ?? ("virtual" as const);
     return {
@@ -158,23 +165,34 @@ export async function startEphemeralRuntime(
     typeof options.database === "string"
       ? createPostgresClient(options.database)
       : undefined;
-  const store = createPostgresTenantStore({
-    hostRoot,
-    sql: ownPool ?? (options.database as PostgresClient),
-    configFor,
-    logger,
-    openRuntime: (config, opened) =>
-      openTenantRuntime(config, {
-        createKekIfMissing: true,
-        streams,
-        ...opened,
-      }),
-  });
-
+  const applicationKey = options.applicationKey ?? mintBearerToken();
+  const principalId =
+    options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
   const module = createTenantModule({
-    store,
+    open: createPostgresTenantOpener({
+      hostRoot,
+      sql: ownPool ?? (options.database as PostgresClient),
+      create: {
+        tenantId: options.tenantId ?? newTenantId(),
+        name: options.name ?? "ephemeral",
+        principals: hostPrincipals({
+          adminKey,
+          application: { principalId, key: applicationKey },
+          ...(options.studioCredentialHash
+            ? { studioCredentialHash: options.studioCredentialHash }
+            : {}),
+        }),
+      },
+      configFor,
+      logger,
+      openRuntime: (config, opened) =>
+        openTenantRuntime(config, {
+          createKekIfMissing: true,
+          streams,
+          ...opened,
+        }),
+    }),
     logger,
-    onDeleted: (tenantId: string) => streams.deleteTenant(tenantId),
   });
 
   let host: ReturnType<typeof createHost> | undefined;
@@ -188,30 +206,10 @@ export async function startEphemeralRuntime(
   };
 
   let tenantId: string;
-  let applicationKey: string;
-  let principalId: string;
   try {
-    await module.start();
-
-    tenantId = options.tenantId ?? newTenantId();
-    applicationKey = options.applicationKey ?? mintBearerToken();
-    principalId =
-      options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
-    const credentialHash = hashToken(applicationKey);
-
-    await module.create({
-      tenantId,
-      name: options.name ?? "ephemeral",
-      principalId,
-      credentialHash,
-      idempotencyKey: `ephemeral-${tenantId}`,
-      ...(options.studioCredentialHash
-        ? { studioCredentialHash: options.studioCredentialHash }
-        : {}),
-    });
-
     // KEK for first vault write; openTenantRuntime also creates when hooks allow.
-    const kekPath = tenantPaths(hostRoot, tenantId).kek;
+    const kekPath = tenantPaths(hostRoot).kek;
+    mkdirSync(tenantPaths(hostRoot).root, { recursive: true, mode: 0o700 });
     if (!existsSync(kekPath)) createKekFile(kekPath);
     host = createHost({
       hostRoot,
@@ -225,7 +223,16 @@ export async function startEphemeralRuntime(
         ? { operator: { host: "127.0.0.1", port: 0 } }
         : {}),
     });
+    // Opens the Tenant: creates it in the database first when it holds none.
     await host.listen();
+    const tenant = module.tenant();
+    if (tenant.state !== "open" || !tenant.id)
+      throw new Error(
+        tenant.cause
+          ? `The Tenant could not be opened (${tenant.cause.code}): ${tenant.cause.message}`
+          : "The Tenant could not be opened: its database is unavailable",
+      );
+    tenantId = tenant.id;
   } catch (error) {
     await release().catch((cleanup: unknown) =>
       logger.warn("ephemeral runtime cleanup failed", {
