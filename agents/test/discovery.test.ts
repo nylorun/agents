@@ -7,7 +7,6 @@ import {
 } from "@nylorun/core/compatibility";
 import { createClient } from "../src/client.js";
 
-const TENANT = "tn_00000000000000000000000001";
 
 it("shares authenticated, abortable discovery for Studio and application clients", async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
@@ -15,7 +14,6 @@ it("shares authenticated, abortable discovery for Studio and application clients
   const client = createClient({
     url: "http://localhost:8787",
     key: "test-key",
-    tenant: TENANT,
     fetch: async (url, init) => {
       calls.push({ url: String(url), init });
       if (String(url).endsWith("/health"))
@@ -47,7 +45,7 @@ it("shares authenticated, abortable discovery for Studio and application clients
   for (const call of calls.slice(1)) {
     const headers = new Headers(call.init?.headers);
     expect(headers.get("authorization")).toBe("Bearer test-key");
-    expect(headers.get(TENANT_HEADER)).toBe(TENANT);
+    expect(headers.get(TENANT_HEADER)).toBeNull();
     expect(headers.get(PROTOCOL_HEADER)).toBe(String(PROTOCOL_VERSION));
     expect(call.init?.signal).toBe(controller.signal);
   }

@@ -4,16 +4,15 @@
  *
  * - **Record.** Every event is written to the record in its transaction (`Tx.event`). The
  *   stream relay (`streams/relay/`) feeds the Tenant's basin from it. On a Host with S2, one
- *   process-wide relay reads every Tenant's record over logical replication (`host/main.ts`);
+ *   process-wide relay reads the record over logical replication (`host/main.ts`);
  *   otherwise (tests, a Host without S2) this module runs a relay of the Tenant's own commits,
  *   which reconciles the record with the streams when it starts.
  * - **Basin generations.** The Tenant's session streams live in its current basin generation
  *   (`streams/basin.ts`). A reset moves it to the next one (`tenantReset`): the old basin gets
  *   a `sessions.reset` signal, every process moves its readers, and the old basin is deleted
  *   after a grace period (again when the Tenant opens, until it is gone).
- * - **Basin.** The current basin is created with the Tenant (`createTenantStreams`) and
- *   checked when it opens. A missing basin (S2 down at creation, a crash in between) is
- *   repaired on first use: a failed `ensureTenant` retries in the background with backoff,
+ * - **Basin.** The current basin is created when the Tenant opens. A missing basin (S2 down
+ *   then, or deleted since) is repaired on first use: a failed `ensureTenant` retries in the background with backoff,
  *   and `streamsStatus` reports the basin's state.
  * - **Readers.** History and session SSE read the session's stream
  *   (`tenant/session-streams.ts`). This module runs one `tenant/control` reader per Tenant per
@@ -53,7 +52,7 @@ export interface WireStreamsOptions {
   /** Close `streams` with the wiring (streams created for this Tenant alone). */
   ownsStreams?: boolean;
   /**
-   * The Host runs the stream relay for every Tenant (logical replication). Otherwise the
+   * The Host runs the stream relay for the Tenant (logical replication). Otherwise the
    * Tenant relays its own commits.
    */
   hostRelay?: boolean;
@@ -344,34 +343,6 @@ async function probe(streams: DurableStreams, timeoutMs: number): Promise<boolea
   } catch {
     return false;
   }
-}
-
-/**
- * Creates a new Tenant's basin. Call it when the Tenant is created, after its schema commits;
- * retries transient failures, then throws. A failure need not fail the creation: opening the
- * Tenant repairs a missing basin.
- */
-export async function createTenantStreams(
-  streams: DurableStreams,
-  tenantId: string,
-  options: { attempts?: number } = {}
-): Promise<void> {
-  await withRetries(() => streams.ensureTenant(tenantId), options.attempts ?? 3);
-}
-
-/**
- * Deletes every basin of a Tenant and every stream in them. Call it when the Tenant is
- * deleted. Idempotent; retries transient failures, then throws.
- */
-export async function deleteTenantStreams(
-  streams: DurableStreams,
-  tenantId: string,
-  options: { attempts?: number } = {}
-): Promise<void> {
-  await withRetries(
-    () => streams.deleteTenant(tenantId, { allGenerations: true }),
-    options.attempts ?? 5
-  );
 }
 
 /** Close: stops the readers and relay; the observers were ended by `endAllStreams`. */

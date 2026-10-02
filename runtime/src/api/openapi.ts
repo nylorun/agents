@@ -58,7 +58,7 @@ function hostRoutes(): OpenAPIRegistry {
     path: "/ready",
     tags: ["Host"],
     summary: "Check the Runtime is ready",
-    description: "The listeners, Tenant discovery, Postgres, Restate and S2.",
+    description: "The listeners, the Tenant (open), Postgres, Restate and S2.",
     responses: {
       200: {
         description: "Ready",
@@ -106,7 +106,7 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
     in: "header",
     name: "Nylorun-Key",
     description:
-      "A publishable key, sent by a browser page on one of its origins. Public by design: it names the Tenant and grants the access policy's anonymous scopes.",
+      "A publishable key, sent by a browser page on one of its origins. Public by design: it grants the access policy's anonymous scopes.",
   });
 }
 
@@ -127,7 +127,7 @@ export function tenantDocument(): OpenApiDocument {
       title: "Nylorun Runtime: Tenant API",
       version: RUNTIME_VERSION,
       description:
-        "Agents, sessions and their events, vaults, access and the Tenant's settings, for one Tenant (`Nylorun-Tenant`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
+        "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
       "x-nylorun-protocol": PROTOCOL,
     },
     servers: [
@@ -146,7 +146,6 @@ export function adminDocument(): OpenApiDocument {
   if (admin) return admin;
   // Only the routes' declarations are read: nothing is served from this app.
   const api = createAdminApi({
-    module: undefined as never,
     status: () => Promise.reject(new Error("Not served")),
     shutdown: () => {},
   });
@@ -161,7 +160,7 @@ export function adminDocument(): OpenApiDocument {
       title: "Nylorun Runtime: Admin API",
       version: RUNTIME_VERSION,
       description:
-        "Tenants and the Host's status, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
+        "The Host's status, its Tenant's state and shutdown, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
       "x-nylorun-protocol": PROTOCOL,
     },
     servers: [

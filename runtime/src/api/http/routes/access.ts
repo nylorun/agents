@@ -79,7 +79,7 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
       summary: "Get the public keys subject and delivery tokens are signed with",
       description:
         "A JSON Web Key Set, to verify a subject token or a delivery token without calling the " +
-        "Runtime. No credential is needed: `Nylorun-Tenant` alone names the Tenant.",
+        "Runtime. No credential is needed.",
       responses: { 200: json(Jwks, "The public keys") },
     },
     async (c) => {
@@ -253,7 +253,7 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Access"],
       summary: "Create a publishable key",
       description:
-        "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it names the Tenant and grants the policy's anonymous scopes.",
+        "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it grants the policy's anonymous scopes.",
       request: { body: body(CreatePublishableKeyRequest) },
       responses: {
         200: json(PublishableKey, "The key"),

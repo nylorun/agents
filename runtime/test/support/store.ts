@@ -1,94 +1,70 @@
 /**
- * Which Session Store runtime tests run a Tenant on, from `NYLORUN_TEST_STORE`:
- *
- * - `memory` (default): the in-memory Session Store (`src/store/memory.ts`), whose data this
- *   module keeps per Tenant id so a restarted Tenant (or a second store, as another process
- *   would open it) finds it again. No Docker needed.
- * - `postgres`: a fresh schema `tenant_<id>` in the test stack's Postgres
- *   (`test/stack/endpoints.ts`; bring the stack up first). Tests share one pool per worker.
- *
- *   NYLORUN_TEST_STORE=postgres NYLORUN_TEST_STACK=1 npx vitest run   # in runtime/
+ * Test Tenants on Postgres: each is the one Tenant of a database of its own (`./database.ts`),
+ * created and opened through the Tenant bootstrap (`store/postgres/tenant.ts`) as a Host
+ * would. The databases go with the test file's.
  */
-import { randomBytes } from "node:crypto";
-import type { TenantEnvelope } from "@nylorun/core/contracts";
+import { newTenantId } from "@nylorun/core/compatibility";
+import type { PostgresClient } from "../../src/store/postgres/connect.js";
 import {
-  createPostgresClient,
-  type PostgresClient,
-} from "../../src/store/postgres/connect.js";
-import {
-  createPostgresTenantCatalog,
-  type PostgresTenantCatalog,
-} from "../../src/store/postgres/tenants.js";
-import { MemorySessionStore, MemoryStoreData } from "../../src/store/memory.js";
+  openTenantDatabase,
+  type InitialPrincipal,
+  type OpenedTenantDatabase,
+} from "../../src/store/postgres/tenant.js";
 import type { SessionStore } from "../../src/store/types.js";
-import { stackEndpoints } from "../stack/endpoints.js";
+import { tenantTestDatabase } from "./database.js";
 
-export type TestStore = "memory" | "postgres";
+export { isolatedTestDatabase, tenantTestDatabase, testPool } from "./database.js";
 
-export const TEST_STORE: TestStore =
-  process.env.NYLORUN_TEST_STORE === "postgres" ? "postgres" : "memory";
+/** The database of each test Tenant of this file, by Tenant id. */
+const databases = new Map<string, { sql: PostgresClient; drop(): Promise<void> }>();
 
-/** The data of each memory test Tenant, by Tenant id, until `dropTestTenant`. */
-const memoryTenants = new Map<string, MemoryStoreData>();
-
-/** Whether a memory test Tenant exists. */
-export function memoryTenantExists(tenantId: string): boolean {
-  return memoryTenants.has(tenantId);
-}
-
-/** A memory test Tenant's data, created empty on first use. */
-export function memoryTenantData(tenantId: string): MemoryStoreData {
-  let data = memoryTenants.get(tenantId);
-  if (!data) memoryTenants.set(tenantId, (data = new MemoryStoreData()));
-  return data;
-}
-
-let pool: PostgresClient | undefined;
-
-/** The worker's pool on the test stack. Idle connections close after a second. */
-export function testPool(): PostgresClient {
-  pool ??= createPostgresClient(stackEndpoints().postgres.url, {
-    max: 20,
-    idleTimeoutSeconds: 1,
-    applicationName: "nylorun-runtime-test",
-  });
-  return pool;
+/** The pool on a test Tenant's database. Throws for a Tenant this file did not create. */
+export function testTenantPool(tenantId: string): PostgresClient {
+  const database = databases.get(tenantId);
+  if (!database) throw new Error(`Test Tenant ${tenantId} has no database in this file`);
+  return database.sql;
 }
 
 /**
- * A fresh database on the test stack's server, for a test whose Host must see only its own
- * Tenants (listing, status). `drop` ends its pool and drops it.
+ * The database of test Tenant `tenantId`: the one it was created in, or a new one (its
+ * Tenant is created when it is first opened).
  */
-export async function isolatedTestDatabase(): Promise<{
-  sql: PostgresClient;
-  drop(): Promise<void>;
-}> {
-  const name = `nylorun_test_${randomBytes(8).toString("hex")}`;
-  await testPool().unsafe(`CREATE DATABASE ${name}`);
-  const url = new URL(stackEndpoints().postgres.url);
-  url.pathname = `/${name}`;
-  const sql = createPostgresClient(url.toString(), {
-    max: 10,
-    idleTimeoutSeconds: 1,
-    applicationName: "nylorun-runtime-test",
-  });
-  return {
-    sql,
-    async drop() {
-      await sql.end({ timeout: 5 });
-      await testPool().unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
-    },
-  };
+export async function testTenantDatabase(tenantId: string): Promise<PostgresClient> {
+  const existing = databases.get(tenantId);
+  if (existing) return existing.sql;
+  const created = await tenantTestDatabase();
+  databases.set(tenantId, created);
+  return created.sql;
 }
 
-export function testCatalog(): PostgresTenantCatalog {
-  return createPostgresTenantCatalog({ sql: testPool() });
-}
-
-/** Drops a test Tenant's data: its Postgres schema, or its memory data. */
+/** Drops a test Tenant's database. */
 export async function dropTestTenant(tenantId: string): Promise<void> {
-  if (TEST_STORE === "postgres") await testCatalog().deleteTenant(tenantId);
-  else memoryTenants.delete(tenantId);
+  const database = databases.get(tenantId);
+  databases.delete(tenantId);
+  await database?.drop();
+}
+
+/**
+ * Opens test Tenant `tenantId` as a Host would: migrates its database, creates the Tenant on
+ * first use (with `principals`), and opens its Session Store.
+ */
+export async function openTestTenant(
+  tenantId: string,
+  options: {
+    principals?: readonly InitialPrincipal[];
+    name?: string;
+    onError?: (error: unknown) => void;
+  } = {},
+): Promise<OpenedTenantDatabase> {
+  return openTenantDatabase({
+    sql: await testTenantDatabase(tenantId),
+    create: {
+      tenantId,
+      name: options.name ?? "test",
+      principals: () => options.principals ?? [],
+    },
+    ...(options.onError ? { onError: options.onError } : {}),
+  });
 }
 
 /**
@@ -99,21 +75,12 @@ export async function openTestSessionStore(input: {
   root: string;
   tenantId: string;
 }): Promise<SessionStore> {
-  if (TEST_STORE === "memory") {
-    if (!memoryTenantExists(input.tenantId))
-      throw new Error(`Test Tenant ${input.tenantId} does not exist`);
-    return new MemorySessionStore(
-      { tenantId: input.tenantId },
-      memoryTenantData(input.tenantId),
-    );
-  }
-  const opened = await testCatalog().openTenant(input.tenantId);
-  if (opened.status !== "ok")
-    throw new Error(`Test Tenant ${input.tenantId} is ${opened.status}`);
-  return opened.store;
+  if (!databases.has(input.tenantId))
+    throw new Error(`Test Tenant ${input.tenantId} has no database in this file`);
+  return (await openTestTenant(input.tenantId)).store;
 }
 
-/** Runs `fn` in one transaction on a test Tenant's store and closes it. */
+/** Runs `fn` on a test Tenant's store and closes it. */
 export async function withTestSessionStore<T>(
   input: { root: string; tenantId: string },
   fn: (store: SessionStore) => Promise<T>,
@@ -126,8 +93,15 @@ export async function withTestSessionStore<T>(
   }
 }
 
-/** The envelope a test Tenant is created with. */
-export function testEnvelope(tenantId: string, name = "test"): TenantEnvelope {
-  const now = new Date().toISOString();
-  return { id: tenantId, name, createdAt: now, updatedAt: now, schemaVersion: 1 };
+/**
+ * A new test Tenant, in a database of its own, and a Session Store on it, for tests that drive
+ * the store without a Tenant Runtime.
+ */
+export async function createTestSessionStore(
+  tenantId = newTenantId(),
+): Promise<SessionStore> {
+  const opened = await openTestTenant(tenantId, {
+    principals: [{ id: "principal_test", credentialHash: "ab".repeat(32) }],
+  });
+  return opened.store;
 }

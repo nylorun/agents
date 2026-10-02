@@ -11,7 +11,7 @@ import {
 import { DELIVERY_TOKEN_TYPE, subjectTokenIssuer } from "@nylorun/core/contracts";
 import { createActionHandler } from "../src/action-handler.js";
 import { AgentsClient } from "../src/client.js";
-import { bodyHash } from "../src/delivery-token.js";
+import { bodyHash, verifyDeliveryToken } from "../src/delivery-token.js";
 import { IncompatibleRuntimeError } from "../src/http.js";
 
 const TENANT = "tn_00000000000000000000000001";
@@ -127,7 +127,7 @@ async function delivery(
   });
 }
 
-/** A handler that reads the Tenant's keys with the Tenant header only, recording each request. */
+/** A handler that reads the Tenant's keys with no credential, recording each request. */
 function handler(extra: Record<string, unknown> = {}) {
   const requests: { url: string; headers: Headers; body?: unknown }[] = [];
   const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -143,7 +143,7 @@ function handler(extra: Record<string, unknown> = {}) {
   };
   const actions = createActionHandler({
     agents: [support],
-    runtime: { url: RUNTIME, tenant: TENANT, fetch },
+    runtime: { url: RUNTIME, fetch },
     url: ENDPOINT,
     ...extra,
   });
@@ -162,9 +162,9 @@ describe("createActionHandler: deliveries", () => {
       value: { kind: "completed", output: "found cats" },
       statePatch: {},
     });
-    // The keys were read with the Tenant header and no credential.
+    // The keys were read with no Tenant header and no credential.
     const jwks = requests.find((r) => r.url.endsWith("/v1/access/jwks"))!;
-    expect(jwks.headers.get(TENANT_HEADER)).toBe(TENANT);
+    expect(jwks.headers.get(TENANT_HEADER)).toBeNull();
     expect(jwks.headers.has("authorization")).toBe(false);
   });
 
@@ -232,7 +232,8 @@ describe("createActionHandler: deliveries", () => {
       ["another key", delivery(body, { key: other.privateKey }), "signature_invalid"],
       ["another type", delivery(body, { header: { typ: "nylorun-subject+jwt" } }), "signature_invalid"],
       ["embedded key", delivery(body, { header: { jwk } }), "signature_invalid"],
-      ["another Tenant", delivery(body, { claims: { iss: subjectTokenIssuer("tn_x") } }), "signature_invalid"],
+      ["an issuer that is not a Tenant", delivery(body, { claims: { iss: subjectTokenIssuer("tn_x") } }), "signature_invalid"],
+      ["another issuer", delivery(body, { claims: { iss: "https://evil.example" } }), "signature_invalid"],
       ["another URL", delivery(body, { claims: { aud: "https://evil.example/actions" } }), "signature_invalid"],
       ["another Action", delivery(body, { claims: { sub: "a2" } }), "signature_invalid"],
       ["another generation", delivery(body, { claims: { gen: 2 } }), "signature_invalid"],
@@ -268,7 +269,7 @@ describe("createActionHandler: deliveries", () => {
     };
     const actions = createActionHandler({
       agents: [support],
-      runtime: { url: RUNTIME, tenant: TENANT, fetch },
+      runtime: { url: RUNTIME, fetch },
       url: ENDPOINT,
     });
     const ping = { type: "ping" as const, agentId: "support" };
@@ -379,7 +380,6 @@ describe("createActionHandler: register", () => {
     const calls: { method: string; path: string; body?: any }[] = [];
     const client = new AgentsClient({
       url: RUNTIME,
-      tenant: TENANT,
       key: "a".repeat(64),
       fetch: async (input, init) => {
         const path = String(input).slice(RUNTIME.length);
@@ -449,7 +449,7 @@ describe("createActionHandler: register", () => {
     const actions = createActionHandler({
       agents: [support],
       client,
-      runtime: { url: RUNTIME, tenant: TENANT, fetch: jwksFetch },
+      runtime: { url: RUNTIME, fetch: jwksFetch },
     });
     const body = { type: "action", action: action({ q: "url" }), sandbox: false };
     const elsewhere = { claims: { aud: "https://other.example/actions" } };
@@ -507,7 +507,7 @@ describe("createActionHandler: background tools", () => {
     const works: Promise<unknown>[] = [];
     const actions = createActionHandler({
       agents: [worker],
-      runtime: { url: RUNTIME, tenant: TENANT, fetch },
+      runtime: { url: RUNTIME, fetch },
       url: ENDPOINT,
       waitUntil: (work) => works.push(work),
     });
@@ -549,5 +549,25 @@ describe("createActionHandler: background tools", () => {
     await t.works[0];
     expect(t.seen).toEqual({ aborted: true, finished: true });
     expect(t.calls.map((c) => c.path)).toEqual(["/v1/actions/a1/heartbeat"]);
+  });
+});
+
+describe("verifyDeliveryToken", () => {
+  const keys = async (kid: string) => (kid === "key_1" ? pair.publicKey : undefined);
+
+  it("accepts the issuer of whichever Tenant the installation's keys signed for, unless one is named", async () => {
+    const body = { type: "ping", agentId: "support" };
+    const request = await delivery(body);
+    const token = request.headers.get(SIGNATURE_HEADER);
+    const bytes = new TextEncoder().encode(JSON.stringify(body));
+    await expect(verifyDeliveryToken(token, { keys, body: bytes })).resolves.toMatchObject({
+      iss: subjectTokenIssuer(TENANT),
+    });
+    await expect(
+      verifyDeliveryToken(token, { keys, body: bytes, tenantId: TENANT }),
+    ).resolves.toMatchObject({ iss: subjectTokenIssuer(TENANT) });
+    await expect(
+      verifyDeliveryToken(token, { keys, body: bytes, tenantId: "tn_00000000000000000000000002" }),
+    ).rejects.toMatchObject({ code: "signature_invalid" });
   });
 });

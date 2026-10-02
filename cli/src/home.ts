@@ -2,9 +2,9 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
- * The Host root: an explicit home, `NYLORUN_HOME`, or `~/.nylorun`. The stack
- * bind-mounts it into the Runtime and Studio containers, and `@nylorun/admin`
- * reads `host.json` and the admin key from it.
+ * Where `nylo` keeps its own files (the installation id): an explicit home,
+ * `NYLORUN_HOME`, or `~/.nylorun`, which holds the local stacks' Host roots
+ * (`stacks/<name>/`). `@nylorun/admin` resolves a stack's Host root itself.
  */
 export function resolveHome(
   home?: string,

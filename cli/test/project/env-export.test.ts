@@ -1,11 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
-import { newTenantId } from "@nylorun/agents";
 import { printLinkedEnvExports } from "../../src/project/env.js";
-import { writeLink } from "../../src/project/link.js";
-import { writeCredentials } from "../../src/project/credentials.js";
+import { APPLICATION_KEY, link2, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -14,33 +10,37 @@ afterEach(async () => {
   );
 });
 
-it("F2-7: prints three export lines for a linked Project", async () => {
-  const root = await mkdtemp(join(tmpdir(), "nylorun-env-export-"));
-  roots.push(root);
-  await writeFile(join(root, "package.json"), "{}");
-  const tenantId = newTenantId();
-  await writeLink(root, {
-    hostUrl: "http://127.0.0.1:8787",
-    hostId: "host_01habcdefghijklmnopqrstuvw",
-    tenantId,
-  });
-  await writeCredentials(root, {
-    applicationKey: "ab".repeat(32),
-    principalId: "principal_x",
-  });
+async function capture(run: () => Promise<void>): Promise<string[]> {
   const lines: string[] = [];
   const original = console.log;
   console.log = (...args: unknown[]) => {
     lines.push(args.map(String).join(" "));
   };
   try {
-    await printLinkedEnvExports(root);
+    await run();
   } finally {
     console.log = original;
   }
+  return lines;
+}
+
+it("F2-7: prints the Runtime URL and the server key, and no Tenant", async () => {
+  const root = await project("nylorun-env-export-");
+  roots.push(root);
+  await writeProjectLink(root, link2("http://127.0.0.1:8787"));
+  const lines = await capture(() => printLinkedEnvExports(root));
   expect(lines).toEqual([
     "export NYLORUN_RUNTIME_URL=http://127.0.0.1:8787",
-    `export NYLORUN_SERVER_KEY=${"ab".repeat(32)}`,
-    `export NYLORUN_TENANT=${tenantId}`,
+    `export NYLORUN_SERVER_KEY=${APPLICATION_KEY}`,
   ]);
+  expect(lines.join("\n")).not.toContain("NYLORUN_TENANT");
+});
+
+it("without a link it says to run nylorun start", async () => {
+  const root = await project("nylorun-env-export-");
+  roots.push(root);
+  const lines = await capture(() => printLinkedEnvExports(root));
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toMatch(/^# No Project link/);
+  expect(lines[0]).toContain("npx nylorun start");
 });

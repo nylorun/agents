@@ -1,21 +1,19 @@
 /**
- * What the gates service opens of a Tenant: its vault's host model, and nothing else. The
- * full Tenant (`TenantRuntime.open`) migrates its schema, creates its key file and starts its
- * services; the gate does none of that. It refuses a Tenant whose schema isn't at this build's
- * version (the Runtime migrates it when it opens the Tenant), and never creates a vault key.
- *
- * Handles are cached per Tenant, at most `max`, least recently used first out.
+ * What the gates service opens of the Tenant: its vault's host model, and nothing else. The
+ * full Tenant (`TenantRuntime.open`) migrates its database, creates its key file and starts
+ * its services; the gate does none of that. The database holds one Tenant (tenancy.md §1):
+ * the gate reads which one from it, refuses a database whose Tenant schema isn't at this
+ * build's version (the Runtime migrates it when it opens the Tenant) and never creates a vault
+ * key. The vault is opened once and kept.
  */
 import type { Credential } from "@earendil-works/pi-ai";
 import type { ModelFailureOutcome } from "@nylorun/core/define";
 import { isTenantId } from "@nylorun/core/compatibility";
 import { failure } from "../model/classify.js";
 import type { PostgresClient } from "../store/postgres/connect.js";
-import {
-  POSTGRES_SCHEMA_VERSION,
-  readSchemaVersion,
-} from "../store/postgres/migrations/index.js";
-import { tenantSchemaName } from "../store/postgres/names.js";
+import { database } from "../store/postgres/db.js";
+import { expectedSchemaVersion, readSchemaVersion } from "../store/postgres/migrate.js";
+import { readTenantEnvelope } from "../store/postgres/tenant.js";
 import { createPostgresSessionStore } from "../store/postgres/store.js";
 import { tenantPaths } from "../tenant/paths.js";
 import { readVaultKek } from "../vault/kek.js";
@@ -23,8 +21,9 @@ import { HostModelVault } from "../vault/host-model.js";
 import type { HostModelSecret } from "../vault/service.js";
 import type { SessionStore } from "../store/types.js";
 
-/** One Tenant, as a model call needs it. */
+/** The Tenant, as a model call needs it. */
 export interface TenantVault {
+  readonly tenantId: string;
   /** The Tenant's store, for the usage ledger (P1.3). */
   readonly store: SessionStore;
   /** The Tenant's home: secrets found there are redacted from failure messages. */
@@ -35,8 +34,11 @@ export interface TenantVault {
 }
 
 export interface TenantVaults {
-  /** Opens a Tenant's vault, or rejects with a `GateRefusal`. */
-  open(tenantId: string): Promise<TenantVault>;
+  /**
+   * Opens the Tenant's vault, or rejects with a `GateRefusal`. `tenantId`, when the caller
+   * names one, must be the database's Tenant.
+   */
+  open(tenantId?: string): Promise<TenantVault>;
 }
 
 /** A call the gate refuses before the provider is called; it answers with `outcome`. */
@@ -49,19 +51,16 @@ export class GateRefusal extends Error {
 
 export interface TenantVaultsOptions {
   readonly sql: PostgresClient;
-  /** The Host root; the gate reads `tenants/<id>/vault-kek` and `tenants/<id>/home` under it. */
+  /** The Host root; the gate reads `tenant/vault-kek` and `tenant/home` under it. */
   readonly hostRoot: string;
-  /** Most Tenants kept open. Default 256. */
-  readonly max?: number;
 }
 
 export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
   const { sql, hostRoot } = options;
-  const max = options.max ?? 256;
-  const open = new Map<string, TenantVault>();
+  let opened: TenantVault | undefined;
 
   function build(tenantId: string): TenantVault {
-    const paths = tenantPaths(hostRoot, tenantId);
+    const paths = tenantPaths(hostRoot);
     const store = createPostgresSessionStore({ sql, tenantId });
     let kek: Buffer | undefined;
     const vault = new HostModelVault({
@@ -72,7 +71,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
           throw new GateRefusal(
             failure(
               "auth",
-              "The Tenant's vault key is missing on the gateway container; check that it mounts the Host's tenants directory",
+              "The Tenant's vault key is missing on the gateway container; check that it mounts the Host's tenant directory",
               false,
             ),
           );
@@ -80,6 +79,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       },
     });
     return {
+      tenantId,
       store,
       root: paths.home,
       readHostModel: () => vault.readHostModel(),
@@ -87,31 +87,40 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
     };
   }
 
+  /** The database's Tenant, once its schema is at this build's version. */
+  async function load(): Promise<TenantVault> {
+    const version = await readSchemaVersion(database(sql));
+    const expected = expectedSchemaVersion();
+    if (version === undefined || version === 0)
+      throw new GateRefusal(
+        failure("transient", "The Tenant's database is not migrated yet; the Runtime does that when it starts", true),
+      );
+    if (version !== expected)
+      throw new GateRefusal(
+        failure(
+          "transient",
+          `The Tenant is at schema version ${version}; the gateway serves version ${expected}`,
+          version < expected,
+        ),
+      );
+    const envelope = await readTenantEnvelope(sql).catch(() => undefined);
+    if (!envelope)
+      throw new GateRefusal(
+        failure("transient", "The database holds no Tenant yet; the Runtime creates it when it starts", true),
+      );
+    return build(envelope.id);
+  }
+
   return {
     async open(tenantId) {
-      if (!isTenantId(tenantId))
+      if (tenantId !== undefined && !isTenantId(tenantId))
         throw new GateRefusal(failure("invalid_request", "Not a Tenant id", false));
-      const cached = open.get(tenantId);
-      if (cached) {
-        open.delete(tenantId);
-        open.set(tenantId, cached);
-        return cached;
-      }
-      const version = await readSchemaVersion(sql, tenantSchemaName(tenantId));
-      if (version === undefined)
-        throw new GateRefusal(failure("invalid_request", `Tenant ${tenantId} does not exist`, false));
-      if (version !== POSTGRES_SCHEMA_VERSION)
+      opened ??= await load();
+      if (tenantId !== undefined && tenantId !== opened.tenantId)
         throw new GateRefusal(
-          failure(
-            "transient",
-            `Tenant ${tenantId} is at schema version ${version}; the gateway serves version ${POSTGRES_SCHEMA_VERSION}`,
-            version < POSTGRES_SCHEMA_VERSION,
-          ),
+          failure("invalid_request", `Tenant ${tenantId} is not this installation's Tenant`, false),
         );
-      const vault = build(tenantId);
-      open.set(tenantId, vault);
-      if (open.size > max) open.delete(open.keys().next().value!);
-      return vault;
+      return opened;
     },
   };
 }

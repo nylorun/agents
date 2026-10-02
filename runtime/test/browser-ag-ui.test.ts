@@ -12,6 +12,7 @@ import { Agent } from "@nylorun/core/define";
 import { createClient } from "@nylorun/agents";
 import { createBrowserClient } from "@nylorun/agents/browser";
 import { startEphemeralRuntime } from "../src/tenant/ephemeral.js";
+import { testPool } from "./support/store.js";
 
 const ORIGIN = "http://localhost:5173";
 const withOrigin: typeof fetch = (input, init) => {
@@ -30,6 +31,7 @@ async function setup() {
   const root = await mkdtemp(join(tmpdir(), "nylorun-browser-ag-ui-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     browserAccess: true,
     model: { kind: "scripted", output: "hello from the agent" },

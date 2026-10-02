@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 
 /** Files under the Host root that the stack commands read and write. */
 export interface StackPaths {
-  /** The Host root (`~/.nylorun` or `NYLORUN_HOME`), bind-mounted at /nylorun. */
+  /** The Host root (`~/.nylorun/stacks/<name>` or `NYLORUN_HOME`), bind-mounted at /nylorun. */
   root: string;
   /** host.json: client-facing host and published port, no secrets. */
   config: string;
@@ -10,7 +10,10 @@ export interface StackPaths {
   credentials: string;
   /** host-state.json: written only by a launcher-managed Runtime. */
   state: string;
-  tenants: string;
+  /** stack.json: the stack's name and the project it was created for. */
+  record: string;
+  /** The Tenant directory: vault key (KEK), homes, sandboxes, logs. */
+  tenant: string;
   home: string;
   tmp: string;
   stack: string;
@@ -28,7 +31,8 @@ export function stackPaths(hostRoot: string): StackPaths {
     config: join(root, "host.json"),
     credentials: join(root, "host-credentials.json"),
     state: join(root, "host-state.json"),
-    tenants: join(root, "tenants"),
+    record: join(root, "stack.json"),
+    tenant: join(root, "tenant"),
     home: join(root, "home"),
     tmp: join(root, "tmp"),
     stack,

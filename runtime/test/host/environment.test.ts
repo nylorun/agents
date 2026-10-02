@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -64,10 +64,8 @@ it("C7: hostProcessEnvironment sets Host HOME/TMPDIR and proxy, never NODE_OPTIO
 
 it("C7: tenantChildEnvironment uses Tenant HOME/TMPDIR", () => {
   const realRoot = mkdtempSync(join(tmpdir(), "tenant-env-"));
-  mkdirSync(join(realRoot, "tenants"), { recursive: true });
   try {
-    const id = newTenantId();
-    const paths = tenantPaths(realRoot, id);
+    const paths = tenantPaths(realRoot);
     const config: HostConfigFile = {
       hostId: "host_0123456789abcdefghjkmnpq",
       host: "127.0.0.1",
@@ -84,7 +82,6 @@ it("C7: tenantChildEnvironment uses Tenant HOME/TMPDIR", () => {
 
 it("C8: configFor stub returns defaults with tenant child env", () => {
   const realRoot = mkdtempSync(join(tmpdir(), "cfg-"));
-  mkdirSync(join(realRoot, "tenants"), { recursive: true });
   try {
     const id = newTenantId();
     const config: HostConfigFile = {
@@ -103,7 +100,7 @@ it("C8: configFor stub returns defaults with tenant child env", () => {
     expect(tenantConfig.mode).toBe("shared");
     expect(tenantConfig.model).toEqual({ kind: "vault" });
     expect(tenantConfig.sandbox.backend).toBe("auto");
-    expect(tenantConfig.childEnv.HOME).toBe(tenantPaths(realRoot, id).home);
+    expect(tenantConfig.childEnv.HOME).toBe(tenantPaths(realRoot).home);
   } finally {
     rmSync(realRoot, { recursive: true, force: true });
   }

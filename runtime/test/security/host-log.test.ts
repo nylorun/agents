@@ -19,7 +19,7 @@ it("G8: Host log omits Tenant records, bearer, API keys, and KEK material", asyn
     sandboxBackend: "virtual",
     model: { kind: "scripted", output: "ok" },
   });
-  const [a] = host.tenants;
+  const a = host.tenant;
   const bearer = a.applicationKey;
   const kek = readFileSync(a.paths.kek, "utf8").trim();
 

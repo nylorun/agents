@@ -32,7 +32,7 @@
     "test:dev": "node scripts/smoke-development.mjs",
     "test:setup": "node scripts/smoke-setup.mjs",
     "test:starter": "node create-agent/scripts/smoke-starter.mjs",
-    "test:acceptance": "node scripts/acceptance/tenants.mjs",
+    "test:acceptance": "node scripts/acceptance/installation.mjs",
     "test:acceptance:access": "node scripts/acceptance/access.mjs",
     "test:acceptance:direct": "node scripts/acceptance/direct.mjs",
     "test:remote": "node scripts/acceptance/remote.mjs",

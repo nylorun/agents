@@ -158,10 +158,10 @@ The jobs run in this order:
    public quickstart on the Docker stack
    (`scripts/release/smoke.mjs`): with no credentials and an empty npm config,
    `npm exec @nylorun/create-agent@<version>` creates a project; the published
-   `nylorun up` pulls its pinned `ghcr.io/nylorun/runtime` and
-   `ghcr.io/nylorun/studio` images, `nylo tenant create` links the project, and
-   its `npm run dev` connects. The smoke checks that the stack runs exactly
-   those images, that the Tenant is created and the starter's Action
+   `nylorun start` in the project pulls its pinned `ghcr.io/nylorun/runtime` and
+   `ghcr.io/nylorun/studio` images, creates the project's stack and Tenant and
+   links the project, and its `npm run dev` connects. The smoke checks that the
+   stack runs exactly those images, that the Tenant is created and the starter's Action
    endpoint answers a ping, and that the Studio login works. It
    makes no model calls, and it resets the stack's containers and volumes.
 

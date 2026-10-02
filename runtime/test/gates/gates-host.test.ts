@@ -1,16 +1,17 @@
 /**
  * The gates service's listener (`host/gates.ts`, `api/gate/routes.ts`) on 127.0.0.1:0, with
- * in-memory Tenant vaults and the provider stubbed as the global `fetch`. Requests to the gate
+ * stub Tenant vaults (the ledger on the file's database) and the provider stubbed as the global `fetch`. Requests to the gate
  * use the real `fetch`, captured before any stub.
  */
 import { request } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { MODEL_CALLS_PATH } from "../../src/gates/contract.js";
 import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { failure } from "../../src/model/classify.js";
 import { GATES_REQUEST_TIMEOUT_MS, startGates, type GatesServer } from "../../src/host/gates.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
+import type { SessionStore } from "../../src/store/types.js";
+import { createTestSessionStore } from "../support/store.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 
 const realFetch = globalThis.fetch;
@@ -36,12 +37,19 @@ const body = {
   },
 };
 
-const ledger = new MemorySessionStore({ tenantId });
+// The usage ledger: a Session Store on the test file's database.
+let ledger: SessionStore;
+beforeAll(async () => {
+  ledger = await createTestSessionStore(tenantId);
+});
 const vaults: TenantVaults = {
   async open(id) {
-    if (id !== tenantId)
-      throw new GateRefusal(failure("transient", `Tenant ${id} is at schema version 1`, true));
+    if (id !== undefined && id !== tenantId)
+      throw new GateRefusal(
+        failure("invalid_request", `Tenant ${id} is not this installation's Tenant`, false),
+      );
     return {
+      tenantId,
       store: ledger,
       root: "/nonexistent-tenant-home",
       readHostModel: async () => secret,
@@ -130,6 +138,28 @@ describe("the gates service", () => {
     expect(JSON.stringify(logs)).not.toContain("from the gate");
   });
 
+  it("serves a call that names no Tenant: the gate's database holds one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => completion("unnamed")));
+    const server = await gate();
+    const response = await realFetch(`${server.url}${MODEL_CALLS_PATH}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "idempotency-key": body.effectId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      outcome: { output: [{ type: "text", text: "unnamed" }] },
+    });
+    expect(logs).toContainEqual({
+      message: "model_call",
+      fields: expect.objectContaining({ tenant: tenantId, outcome: "ok" }),
+    });
+  });
+
   it("refuses a missing or wrong token with 401 gate_unauthorized", async () => {
     const server = await gate();
     for (const authorization of ["", `Bearer ${"ef".repeat(32)}`]) {
@@ -169,14 +199,14 @@ describe("the gates service", () => {
     }
   });
 
-  it("answers a refused Tenant with its failure outcome, without calling the provider", async () => {
+  it("refuses a call naming another Tenant with its failure outcome, without calling the provider", async () => {
     const provider = vi.fn();
     vi.stubGlobal("fetch", provider);
     const server = await gate();
     const response = await post(server, { headers: { "nylorun-tenant": newTenantId() } });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      outcome: { kind: "failed", code: "transient", retryable: true },
+      outcome: { kind: "failed", code: "invalid_request", retryable: false },
     });
     expect(provider).not.toHaveBeenCalled();
   });

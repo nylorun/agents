@@ -2,6 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { renderComposeFile } from "../../src/stack/compose-file.js";
 import {
+  parseDerivedPrincipals,
   parseEnvLines,
   parsePersisted,
   renderEnvFile,
@@ -24,10 +25,12 @@ const env: StackEnv = {
   restateIdentityKey: "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv",
   uid: 501,
   gid: 20,
-  hostRoot: "/Users/dev/.nylorun",
+  hostRoot: "/Users/dev/.nylorun/stacks/shop",
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
   studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
+  stackName: "shop",
+  derivedPrincipals: "project,babai",
 };
 
 /** Fixed vector: Restate 1.7.12 logs `kid: <FIXED_KEY>` when it loads this PEM. */
@@ -44,10 +47,22 @@ async function mode(path: string): Promise<number> {
 }
 
 describe("compose.yaml", () => {
-  const compose = renderComposeFile();
+  const compose = renderComposeFile("nylorun-shop");
 
   it("matches the committed file", () => {
     expect(compose).toMatchSnapshot();
+  });
+
+  it("is the stack's own Compose project, whose Runtime creates the stack's Tenant", () => {
+    expect(compose).toMatch(/^name: nylorun-shop$/m);
+    const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
+    expect(runtime).toContain("NYLORUN_TENANT_NAME: ${NYLORUN_STACK_NAME:?run nylorun start}");
+    expect(runtime).toContain("NYLORUN_DERIVED_PRINCIPALS: ${NYLORUN_DERIVED_PRINCIPALS:-project}");
+    expect(runtime).not.toContain("NYLORUN_TENANT_ID");
+  });
+
+  it("initialises Postgres with C collation", () => {
+    expect(compose).toContain('POSTGRES_INITDB_ARGS: "--locale=C"');
   });
 
   it("publishes only the Runtime, its operator port, Studio and Restate UI, all on loopback", () => {
@@ -103,9 +118,9 @@ describe("compose.yaml", () => {
     expect(compose.match(/NYLORUN_PACKING: combined/g)).toHaveLength(2);
   });
 
-  it("mounts only the tenants directory into the gateway, read-only, and never the admin key", () => {
+  it("mounts only the Tenant directory into the gateway, read-only, and never the admin key", () => {
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
-    expect(gateway).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}/tenants:/nylorun/tenants:ro");
+    expect(gateway).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro");
     expect(gateway).not.toContain("host-credentials");
     expect(gateway).not.toMatch(/^\s+ports:/m);
     // The runtime does not wait for the gateway: a gate outage fails model calls, nothing else.
@@ -148,6 +163,7 @@ describe(".env", () => {
       postgresPassword: env.postgresPassword,
       gatesToken: env.gatesToken,
       studioFrameAncestors: ["nylorun://localhost", "http://nylorun.localhost"],
+      derivedPrincipals: ["project", "babai"],
     });
     expect(renderEnvFile(env)).toContain(
       "NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'",
@@ -162,10 +178,16 @@ describe(".env", () => {
   });
 
   it("quotes paths with spaces and refuses single quotes", () => {
-    const text = renderEnvFile({ ...env, hostRoot: "/Users/A Dev/.nylorun" });
-    expect(text).toContain("NYLORUN_HOST_ROOT='/Users/A Dev/.nylorun'");
-    expect(parseEnvLines(text).get("NYLORUN_HOST_ROOT")).toBe("/Users/A Dev/.nylorun");
+    const text = renderEnvFile({ ...env, hostRoot: "/Users/A Dev/.nylorun/stacks/shop" });
+    expect(text).toContain("NYLORUN_HOST_ROOT='/Users/A Dev/.nylorun/stacks/shop'");
+    expect(parseEnvLines(text).get("NYLORUN_HOST_ROOT")).toBe("/Users/A Dev/.nylorun/stacks/shop");
     expect(() => renderEnvFile({ ...env, hostRoot: "/it's" })).toThrow(/single quote/);
+  });
+
+  it("keeps `project` first among the derived principals and refuses studio", () => {
+    expect(parseDerivedPrincipals("babai, project ,", "X")).toEqual(["project", "babai"]);
+    expect(() => parseDerivedPrincipals("studio", "X")).toThrow(/X has 'studio'/);
+    expect(() => parseDerivedPrincipals("Bad", "X")).toThrow(/X has 'Bad'/);
   });
 
   it("ignores malformed persisted values", () => {
@@ -206,10 +228,16 @@ describe("prepareStack", () => {
       uid?: number;
       runtimeImage?: string;
       studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
+      reserved?: number[];
+      derivedPrincipals?: string;
     } = {},
   ) =>
     prepareStack({
       paths: stackPaths(home),
+      name: "shop",
+      project: "nylorun-shop",
+      ...(overrides.reserved ? { reserved: new Set(overrides.reserved) } : {}),
+      ...(overrides.derivedPrincipals ? { derivedPrincipals: overrides.derivedPrincipals } : {}),
       images: { ...images, ...(overrides.runtimeImage ? { runtime: overrides.runtimeImage } : {}) },
       uid: overrides.uid ?? 501,
       gid: 20,
@@ -272,7 +300,24 @@ describe("prepareStack", () => {
     expect(await mode(paths.config)).toBe(0o600);
     expect(await mode(paths.root)).toBe(0o700);
     expect(await mode(paths.stack)).toBe(0o700);
-    expect(await readFile(paths.compose, "utf8")).toBe(renderComposeFile());
+    expect(await readFile(paths.compose, "utf8")).toBe(renderComposeFile("nylorun-shop"));
+    expect(await mode(paths.tenant)).toBe(0o700);
+    const written = parseEnvLines(await readFile(paths.env, "utf8"));
+    expect(written.get("NYLORUN_STACK_NAME")).toBe("shop");
+    expect(written.get("NYLORUN_DERIVED_PRINCIPALS")).toBe("project");
+  });
+
+  it("avoids ports other stacks keep for new ports only, and keeps derived principals", async () => {
+    const home = await temporaryHome();
+    const first = await prepare(home, fakePorts(), {
+      reserved: [8787, 4161],
+      derivedPrincipals: "babai",
+    });
+    expect(first.env).toMatchObject({ runtimePort: 50000, adminPort: 8788, studioPort: 50001 });
+    expect(first.env.derivedPrincipals).toBe("project,babai");
+    const second = await prepare(home, fakePorts(), { reserved: [50000, 8788] });
+    expect(second.env).toMatchObject({ runtimePort: 50000, adminPort: 8788, studioPort: 50001 });
+    expect(second.env.derivedPrincipals).toBe("project,babai");
   });
 
   it("persists ports and the password; refreshes images and UID", async () => {

@@ -11,7 +11,7 @@
 //
 // 1. A stub OpenAI-compatible model runs in a container on the stack network,
 //    from the Runtime image. It counts calls, and holds every call open until
-//    it is released. A Tenant's model is pointed at it (`PUT /v1/tenant/model`,
+//    it is released. The stack's Tenant's model is pointed at it (`PUT /v1/tenant/model`,
 //    provider `custom`), so no test hook is needed in the Runtime.
 // 2. A turn starts; its model effect is committed as `invoking` and the call
 //    reaches the stub, which holds it.
@@ -39,8 +39,9 @@ import { randomUUID } from "node:crypto";
 import {
   ensureImages,
   eventually,
-  tenantGet,
-  tenantHeaders,
+  hostTenant,
+  runtimeGet,
+  runtimeHeaders,
   withStack,
 } from "./lib/stack.mjs";
 import { run } from "./lib/repo.mjs";
@@ -100,7 +101,7 @@ const docker = (args, options = {}) => run("docker", args, { capture: true, time
 async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) {
   const response = await fetch(`${runtimeUrl}${path}`, {
     method,
-    headers: tenantHeaders(tenant.id, tenant.key, body ? { "content-type": "application/json" } : {}),
+    headers: runtimeHeaders(tenant.key, body ? { "content-type": "application/json" } : {}),
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(15_000),
   });
@@ -137,10 +138,9 @@ try {
       const stub = async () => (await fetch(`${stubUrl}/calls`)).json();
       await eventually(() => stub().then(() => true), { timeout: 30_000, message: "the stub model" });
 
-      const admin = await stack.admin();
-      const { tenant: created, applicationKey } = await admin.createTenant({ name: "failure-smoke" });
-      const tenant = { id: created.id, key: applicationKey };
-      const schema = `"tenant_${tenant.id}"`;
+      // The stack's one Tenant; its state is in schema `nylorun`.
+      const tenant = await hostTenant(await stack.admin());
+      const schema = "nylorun";
 
       await request(runtimeUrl, tenant, "/v1/tenant/model", {
         method: "PUT",
@@ -171,8 +171,8 @@ try {
           method: "POST",
           body: { type: "message", requestId: `m${n}`, idempotencyKey: `m${n}`, content: "hello" },
         });
-      const session = () => tenantGet(runtimeUrl, tenant.id, tenant.key, "/v1/sessions/s1");
-      const history = () => tenantGet(runtimeUrl, tenant.id, tenant.key, "/v1/sessions/s1/items");
+      const session = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s1");
+      const history = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s1/items");
 
       // The turn's model call is in flight: its intent is committed and the stub holds it.
       await message(1);

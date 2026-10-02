@@ -5,9 +5,9 @@
  *   npm run test:dev
  *
  * Runs scripts/lib/development.mjs against a temporary NYLORUN_HOME and a
- * unique stack project, with the images from scripts/lib/stack.mjs. Checks
- * that the stack starts on those images, the examples Project gets a Tenant,
- * its Action endpoints answer, the printed Studio login works, and that an edit to
+ * unique stack (NYLORUN_STACK), with the images from scripts/lib/stack.mjs.
+ * Checks that the stack starts on those images, `nylorun start` links the
+ * examples Project to the stack's Tenant, its Action endpoints answer, the printed Studio login works, and that an edit to
  * a host package rebuilds it and restarts the examples runner. The stack is
  * reset afterwards.
  *
@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { develop, workspaceCommands } from "./lib/development.mjs";
 import { root, run } from "./lib/repo.mjs";
-import { ensureImages, eventually, studioSession, tenantHeaders, withStack } from "./lib/stack.mjs";
+import { ensureImages, eventually, runtimeHeaders, studioSession, withStack } from "./lib/stack.mjs";
 
 const scratch = await mkdtemp(join(tmpdir(), "nylorun-dev-smoke-"));
 const examples = join(scratch, "examples");
@@ -73,7 +73,7 @@ try {
     ended.catch(() => {});
     const until = (check, options) => Promise.race([eventually(check, options), ended]);
     try {
-      // `nylo tenant create` linked examples/ before the runner started.
+      // `nylorun start` in examples/ linked it before the runner started.
       await until(() => existsSync(join(link, "link.json")), {
         timeout: 300_000,
         message: "the examples Project link",
@@ -91,16 +91,18 @@ try {
       ).trim();
       assert.equal(gatewayImage, images.runtime, "the gateway runs the same Runtime image");
 
-      const { tenantId, hostUrl } = JSON.parse(await readFile(join(link, "link.json"), "utf8"));
+      const { tenantId, hostUrl, stack: linked } = JSON.parse(await readFile(join(link, "link.json"), "utf8"));
       const { applicationKey } = JSON.parse(await readFile(join(link, "credentials.json"), "utf8"));
       assert.equal(hostUrl, status.runtime.url);
+      assert.equal(linked, stack.env.NYLORUN_STACK, "examples/ is linked to the test stack");
+      assert.equal(tenantId, (await stack.tenant()).id, "the link names the stack's Tenant");
       // The examples serve their agents as Action endpoints; the Runtime (in Docker) reaches
       // them when a ping through it answers 200.
       const connected = async () => {
         for (const id of ["assistant", "analyst"]) {
           const response = await fetch(`${hostUrl}/v1/endpoints/${id}/ping`, {
             method: "POST",
-            headers: tenantHeaders(tenantId, applicationKey),
+            headers: runtimeHeaders(applicationKey),
             signal: AbortSignal.timeout(15_000),
           });
           if (response.status !== 200) return false;
@@ -114,8 +116,8 @@ try {
       assert.ok(loginUrl, "nylorun studio prints a Studio login URL");
       const studio = await studioSession(loginUrl);
       assert.equal(studio.location, `/tenants/${tenantId}`);
-      const listed = await (await studio.get("/_studio/tenants")).json();
-      assert.ok(listed.tenants.some((t) => t.id === tenantId));
+      const hello = await (await studio.get("/_studio/hello")).json();
+      assert.equal(hello.tenant?.id, tenantId);
 
       // An edit to a host package rebuilds it and restarts the runner.
       const restarts = () => lines.filter((l) => l.includes("Restarting the examples runner")).length;
@@ -129,7 +131,7 @@ try {
     }
   });
   console.log(
-    "Development smoke passed: npm run dev on the stack (local images), examples Tenant and Action endpoints, Studio login, package rebuild and runner restart.",
+    "Development smoke passed: npm run dev on the stack (local images), examples linked to its Tenant, Action endpoints, Studio login, package rebuild and runner restart.",
   );
 } catch (error) {
   console.error(error);

@@ -65,18 +65,17 @@ test("the publication smoke creates a project without a terminal and starts noth
     },
   );
   assert.ok(!args.includes("--no-open"));
-  // The creator only installs; the smoke runs nylorun up, nylo tenant create and npm run dev.
+  // The creator only installs; the smoke runs nylorun start and npm run dev.
   assert.deepEqual(commands, [["install", "--yes"]]);
 });
 
 test("the smoke reads the dev banner and the stack's services", () => {
   const banner = [
     "Runtime       http://localhost:4123  (started; stays running)",
-    "Tenant        application  ten_0123456789…  (created)",
-    "Studio        http://localhost:4124/login?token=abc&next=%2Ftenants%2Ften_1",
+    "Studio        http://localhost:4124/login?token=abc&next=%2Ftenants%2Ftn_1",
   ];
   assert.equal(bannerField(banner, "Runtime"), "http://localhost:4123");
-  assert.equal(bannerField(banner, "Studio"), "http://localhost:4124/login?token=abc&next=%2Ftenants%2Ften_1");
+  assert.equal(bannerField(banner, "Studio"), "http://localhost:4124/login?token=abc&next=%2Ftenants%2Ftn_1");
   assert.equal(bannerField(banner, "Entry"), undefined);
   const services = [
     { Service: "runtime", Image: "ghcr.io/nylorun/runtime:1.0.0" },

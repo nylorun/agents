@@ -15,8 +15,6 @@ import {
   ActionResultReceiptSchema,
   AccessPolicyResponseSchema,
   AdminStatusSchema,
-  AdminTenantListSchema,
-  AdminTenantStatusSchema,
   CreateTokenResponseSchema,
   CredentialInfoSchema,
   DeleteEndpointResponseSchema,
@@ -57,6 +55,7 @@ import {
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
 import { startEndpoint, type TestEndpoint } from "../support/endpoint.js";
+import { testPool } from "../support/store.js";
 const ORIGIN = "https://app.example.com";
 let root: string;
 let rt: EphemeralRuntime;
@@ -64,8 +63,7 @@ let endpoint: TestEndpoint | undefined;
 
 function app(extra: Record<string, string> = {}): Record<string, string> {
   return {
-    "nylorun-protocol": "4",
-    "nylorun-tenant": rt.tenantId,
+    "nylorun-protocol": "5",
     authorization: `Bearer ${rt.applicationKey}`,
     ...extra,
   };
@@ -99,6 +97,7 @@ async function answer(
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-responses-"));
   rt = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot: root,
     operatorListener: true,
     browserAccess: true,
@@ -113,18 +112,14 @@ afterAll(async () => {
 });
 
 it("Host and Admin answers", async () => {
-  const admin = { "nylorun-protocol": "4", authorization: `Bearer ${rt.adminKey}` };
+  const admin = { "nylorun-protocol": "5", authorization: `Bearer ${rt.adminKey}` };
   await answer(HealthResponseSchema, "GET", "/health", { headers: {} });
   await answer(ReadyResponseSchema, "GET", "/ready", { headers: {} });
-  await answer(AdminTenantListSchema, "GET", "/v1/admin/tenants", {
+  const status = await answer(AdminStatusSchema, "GET", "/v1/admin/status", {
     headers: admin,
     base: rt.adminUrl,
   });
-  await answer(AdminTenantStatusSchema, "GET", `/v1/admin/tenants/${rt.tenantId}`, {
-    headers: admin,
-    base: rt.adminUrl,
-  });
-  await answer(AdminStatusSchema, "GET", "/v1/admin/status", { headers: admin, base: rt.adminUrl });
+  expect(status.tenant).toMatchObject({ id: rt.tenantId, state: "open" });
   await answer(AdminStatusSchema, "GET", "/v1/admin/host", { headers: admin, base: rt.adminUrl });
 });
 

@@ -153,11 +153,10 @@ function modelsFor(
 export async function fetchModelCatalog(options: {
   url: string;
   key: string;
-  tenantId: string;
   fetchImpl?: typeof fetch;
 }): Promise<ModelCatalog> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const { PROTOCOL_HEADER, PROTOCOL_VERSION, TENANT_HEADER } = await import(
+  const { PROTOCOL_HEADER, PROTOCOL_VERSION } = await import(
     "@nylorun/agents"
   );
   const response = await fetchImpl(
@@ -165,7 +164,6 @@ export async function fetchModelCatalog(options: {
     {
       headers: {
         authorization: `Bearer ${options.key}`,
-        [TENANT_HEADER]: options.tenantId,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
         Accept: "application/json",
       },

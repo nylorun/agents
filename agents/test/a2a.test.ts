@@ -3,7 +3,6 @@ import { HOST_PROTOCOL, PROTOCOL_FEATURES } from "@nylorun/core/compatibility";
 import { AgentsClient } from "../src/client.js";
 import { createA2aHandler, type A2aHandlerOptions } from "../src/a2a/index.js";
 
-const TENANT = "tn_00000000000000000000000001";
 const KEY = "a".repeat(64);
 const RUNTIME = "http://127.0.0.1:8787";
 
@@ -33,7 +32,6 @@ function fakeRuntime(
   const client = new AgentsClient({
     url: RUNTIME,
     key: KEY,
-    tenant: TENANT,
     fetch: async (input, init) => {
       const url = new URL(String(input));
       if (url.pathname === "/health") return health(options.features ?? HOST_PROTOCOL.features);
@@ -101,7 +99,7 @@ describe("createA2aHandler", () => {
     expect(request!.body).toBe('{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"t"}}');
     expect(request!.headers.get("nylorun-subject")).toBe("a2a:acme");
     expect(request!.headers.get("nylorun-scopes")).toBe("sessions:own");
-    expect(request!.headers.get("nylorun-tenant")).toBe(TENANT);
+    expect(request!.headers.get("nylorun-tenant")).toBeNull();
     expect(request!.headers.get("authorization")).toBe(`Bearer ${KEY}`);
     expect(request!.headers.get("a2a-version")).toBe("1.0");
     expect(request!.headers.get("a2a-extensions")).toBe("https://example.com/ext/v1");

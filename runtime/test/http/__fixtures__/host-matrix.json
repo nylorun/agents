@@ -646,7 +646,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -677,8 +677,10 @@
       "message": "Not found"
     },
     "admin": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -700,7 +702,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -731,10 +733,10 @@
       "message": "Not found"
     },
     "admin": {
-      "status": 400,
+      "status": 404,
       "contentType": "application/json",
-      "code": "invalid_request",
-      "message": "Invalid request body"
+      "code": "not_found",
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -756,7 +758,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -787,8 +789,10 @@
       "message": "Not found"
     },
     "admin": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -810,7 +814,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -844,7 +848,7 @@
       "status": 404,
       "contentType": "application/json",
       "code": "not_found",
-      "message": "Not found"
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -866,7 +870,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -900,7 +904,7 @@
       "status": 404,
       "contentType": "application/json",
       "code": "not_found",
-      "message": "Not found"
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -922,7 +926,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -956,7 +960,7 @@
       "status": 404,
       "contentType": "application/json",
       "code": "not_found",
-      "message": "Not found"
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -978,7 +982,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1009,10 +1013,10 @@
       "message": "Not found"
     },
     "admin": {
-      "status": 400,
+      "status": 404,
       "contentType": "application/json",
-      "code": "invalid_request",
-      "message": "activeWork must be refuse, drain, or cancel"
+      "code": "not_found",
+      "message": "Route not found"
     },
     "application": {
       "status": 404,
@@ -1034,7 +1038,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1088,7 +1092,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1142,7 +1146,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1198,7 +1202,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1254,7 +1258,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1336,7 +1340,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 4,
+        "max": 5,
         "features": [
           "runtime-tenants",
           "admin-status",

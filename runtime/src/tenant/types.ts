@@ -1,21 +1,21 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
-  AdminTenant,
-  AdminTenantStatus,
   HostAggregate,
+  HostTenant,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
 import type { FlowLimits } from "../core/limits.js";
 import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
+import type { TenantCause } from "./cause.js";
 import type { OutboundPolicy } from "./outbound.js";
 import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
 
 /**
- * The Tenant directory on the Host root. The Tenant's data lives in its store (a Postgres
- * schema); this holds what stays on the Host: the vault key, plugin data, logs, and the
+ * The Tenant directory on the Host root (`<Host root>/tenant/`). The Tenant's data lives in
+ * its database; this holds what stays on the Host: the vault key, plugin data, logs, and the
  * private home, tmp and sandbox directories.
  */
 export interface TenantPaths {
@@ -117,135 +117,68 @@ export interface TenantHandle {
   close(): Promise<void>; // ends every stream this Tenant holds
 }
 
+/**
+ * The Host's Tenant for a request: open, or unavailable. `cause` says why when opening it
+ * failed; without one the Host is starting or closing. Either way the request gets the opaque
+ * 404.
+ */
 export type TenantResolution =
   | { kind: "open"; handle: TenantHandle }
-  | { kind: "not-found" }
-  | { kind: "quarantined"; quarantine: Quarantine };
-
-export interface Quarantine {
-  code:
-    | "kek-missing"
-    | "corrupt"
-    | "schema-too-new"
-    | "migration-failed"
-    | "envelope-invalid"
-    | "open-timeout"
-    | "open-failed";
-  message: string; // redacted, no secrets
-  repair: string; // CLI command or instruction
-}
-
-export interface BootstrapPrincipal {
-  principalId: string;
-  credentialHash: string;
-  idempotencyKey: string;
-  /** When set, also registers application principal `studio` with this hash. */
-  studioCredentialHash?: string;
-  /** Application principals whose keys the admin key derives (feature `derived-principals`). */
-  derivedPrincipals?: readonly DerivedPrincipal[];
-}
-
-export interface DerivedPrincipal {
-  id: string;
-  credentialHash: string;
-}
+  | { kind: "unavailable"; cause?: TenantCause };
 
 /**
- * The deep module (§8). HTTP, CLI and tests use only this.
+ * The deep module (§8): the one Tenant a Host serves (tenancy.md §5). HTTP, the Worker and
+ * tests use only this.
  *
- * Tenants open on demand (architecture §8.2): the first `resolve`, `status`, `worker` or
- * `delete` naming a Tenant opens it (bounded by the open timeout) and caches the handle or
- * the quarantine; `start` only marks discovery done, so a Host with many Tenants opens none
- * at startup.
+ * `start` opens the Tenant; the Host has it open from readiness to shutdown. There is no
+ * Tenant list, no opening on demand of other Tenants and no quarantine cache: when opening
+ * fails for a reason in the Tenant (a `TenantCause`), the Host fails readiness and reports
+ * the cause until it is restarted. A failure outside the Tenant (`TenantUnavailableError`:
+ * Postgres unreachable) is retried in the background and by the next request.
  */
 export interface TenantModule {
-  /** Marks discovery done (`/ready`). Opens nothing. */
+  /** Opens the Tenant. Never rejects: a failure is recorded and reported by `tenant()`. */
   start(): Promise<void>;
-  readonly started: boolean;
-  /** Opens the Tenant on first use; a missing Tenant is `not-found`. */
-  resolve(id: string): Promise<TenantResolution>;
+  /** The Tenant is open (`/ready`). */
+  readonly ready: boolean;
   /**
-   * The Tenant's Worker handlers, opening it on demand, for `TenantWorkers.resolve`.
-   * Undefined when the Tenant does not exist, is quarantined or is being deleted, or the
-   * module is closed.
+   * The open Tenant, waiting for an open in progress. Rejects with `TenantUnavailableError`
+   * when it cannot be reached for a reason outside it.
+   */
+  resolve(): Promise<TenantResolution>;
+  /**
+   * The Tenant's Worker handlers when `id` is the open Tenant's, for `TenantWorkers.resolve`.
+   * Undefined otherwise, or once the module is closed.
    */
   worker(id: string): Promise<TenantWorker | undefined>;
-  create(
-    input: { tenantId: string; name: string } & BootstrapPrincipal,
-  ): Promise<{ envelope: TenantEnvelope; created: boolean }>;
-  /**
-   * Every Tenant the store holds, without opening any. A Tenant not opened yet is listed
-   * `open` when its envelope reads; opening it may still quarantine it.
-   */
-  list(): Promise<readonly AdminTenant[]>;
-  status(id: string): Promise<AdminTenantStatus | undefined>;
-  delete(
-    id: string,
-    activeWork: "refuse" | "drain" | "cancel",
-  ): Promise<void>;
+  /** The Tenant as `/v1/admin/status` reports it. */
+  tenant(): HostTenant;
   summarize(): Promise<HostAggregate>;
   close(): Promise<void>;
 }
 
 /**
- * Storage adapter behind the module (§8): a Postgres schema per Tenant (`store-pg.ts`), and
- * in-memory for tests (`store-memory.ts`).
+ * Opens the Host's Tenant (`store-pg.ts`): migrates its database, creates the Tenant when it
+ * has none, and opens the Tenant Runtime. Rejects with a `TenantOpenError` (`cause.ts`) when
+ * the Tenant itself cannot be opened, and with `TenantUnavailableError` when something
+ * outside it failed.
  */
-export interface TenantStore {
-  /** Ids of every Tenant the store holds. */
-  enumerate(): Promise<readonly string[]>;
-  /** Throws a quarantine error when unreadable, `TenantNotFoundError` when gone. */
-  readEnvelope(id: string): Promise<TenantEnvelope>;
-  /**
-   * Creates the Tenant, or returns `exists` when it already exists (whatever its bootstrap
-   * material; the module compares it with `bootstrapMatches`). The stored envelope's
-   * `schemaVersion` is the store's own; read it back with `readEnvelope`.
-   */
-  create(
-    envelope: TenantEnvelope,
-    bootstrap: BootstrapPrincipal,
-  ): Promise<"created" | "exists">;
-  bootstrapMatches(
-    id: string,
-    bootstrap: BootstrapPrincipal,
-  ): Promise<boolean>;
-  /**
-   * Opens the Tenant Runtime; runs migration. Throws `TenantNotFoundError` when the Tenant
-   * does not exist, `TenantUnavailableError` when something outside the Tenant failed, and
-   * any other error (a quarantine error, ideally) when the Tenant itself cannot be opened.
-   */
-  open(id: string): Promise<TenantHandle>;
-  /** Removes the Tenant: its data and its Tenant directory. */
-  trash(id: string, now: Date): Promise<void>;
-  /** Removes what a failed `create` left, never an existing Tenant. */
-  removePartial(id: string): Promise<void>;
-}
+export type TenantOpener = () => Promise<TenantHandle>;
 
 /**
- * Thrown by a store when a Tenant cannot be reached for a reason outside it (the database
- * or Durable Session Execution is unavailable). The module does not quarantine it: the next
- * use tries again. The Host answers 503.
+ * Thrown when the Tenant cannot be reached for a reason outside it (the database or Durable
+ * Session Execution is unavailable). Not a cause: the next use tries again. The Host answers
+ * 503.
  */
 export class TenantUnavailableError extends Error {
   readonly status = 503;
-  constructor(
-    readonly tenantId: string,
-    options?: { cause?: unknown },
-  ) {
+  constructor(options?: { cause?: unknown }) {
     super("Tenant is temporarily unavailable", options);
     this.name = "TenantUnavailableError";
   }
 }
 
-/** Thrown by `TenantStore.open` for a Tenant that does not exist. */
-export class TenantNotFoundError extends Error {
-  constructor(readonly tenantId: string) {
-    super(`Tenant ${tenantId} not found`);
-    this.name = "TenantNotFoundError";
-  }
-}
-
-/** What a Tenant store hands the Tenant Runtime it opens. */
+/** What the Tenant opener hands the Tenant Runtime it opens. */
 export interface OpenedTenant {
   /**
    * The Tenant's opened Session Store. The Tenant Runtime owns it from here on and closes it
@@ -256,7 +189,7 @@ export interface OpenedTenant {
   envelope: TenantEnvelope;
 }
 
-/** Opens the Tenant Runtime on a store the Tenant store opened (injected, so tests can fake it). */
+/** Opens the Tenant Runtime on an opened store (injected, so tests can fake it). */
 export type OpenTenantRuntime = (
   config: TenantConfig,
   opened: OpenedTenant,

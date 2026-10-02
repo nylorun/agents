@@ -11,9 +11,8 @@ import {
   newTenantId,
 } from "@nylorun/core/compatibility";
 import type {
-  AdminTenant,
-  AdminTenantStatus,
   HostAggregate,
+  HostTenant,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
 import {
@@ -23,9 +22,8 @@ import {
 } from "../../src/host/create-host.js";
 import type { HostConfigFile, HostCredentialsFile } from "../../src/host/config.js";
 import { createHostLogger } from "../../src/host/logger.js";
+import type { TenantCause } from "../../src/tenant/cause.js";
 import type {
-  BootstrapPrincipal,
-  Quarantine,
   TenantHandle,
   TenantModule,
   TenantResolution,
@@ -73,40 +71,46 @@ export function adminHeaders(
   });
 }
 
+/**
+ * A Tenant request's headers: protocol 5 names no Tenant. `tenant` adds `Nylorun-Tenant`, as
+ * a protocol 4 client sends it.
+ */
 export function tenantHeaders(
-  tenantId: string,
   key = "application-key-value-16",
+  tenant?: string,
 ): Record<string, string> {
   return protocolHeaders({
-    [TENANT_HEADER]: tenantId,
+    ...(tenant === undefined ? {} : { [TENANT_HEADER]: tenant }),
     authorization: `Bearer ${key}`,
   });
 }
 
+/** The id of the fake module's Tenant. */
+export const FAKE_TENANT_ID = "tn_0123456789abcdefghjkmnpqrs";
+
 export interface FakeTenant {
   id: string;
   name: string;
-  state: "open" | "quarantined";
-  quarantine?: Quarantine;
+  state: "open" | "unavailable";
+  cause?: TenantCause;
   handle?: TenantHandle;
   summary?: TenantSummary;
 }
 
+/** A Tenant module serving one fake Tenant (open by default). */
 export function createFakeModule(options?: {
-  tenants?: FakeTenant[];
+  tenant?: Partial<FakeTenant>;
   startDelayMs?: number;
   onStart?: () => void | Promise<void>;
-}): TenantModule & {
-  tenants: Map<string, FakeTenant>;
-  createCalls: unknown[];
-  deleteCalls: { id: string; activeWork: string }[];
-} {
-  const tenants = new Map<string, FakeTenant>(
-    (options?.tenants ?? []).map((t) => [t.id, t]),
-  );
-  let started = false;
-  const createCalls: unknown[] = [];
-  const deleteCalls: { id: string; activeWork: string }[] = [];
+}): TenantModule & { fake: FakeTenant } {
+  const fake: FakeTenant = {
+    id: FAKE_TENANT_ID,
+    name: "t",
+    state: "open",
+    ...options?.tenant,
+  };
+  let ready = false;
+  let closed = false;
 
   const envelopeOf = (t: FakeTenant): TenantEnvelope => ({
     id: t.id,
@@ -116,14 +120,10 @@ export function createFakeModule(options?: {
     schemaVersion: 1,
   });
 
-  const defaultHandle = (tenantId: string): TenantHandle => ({
-    envelope: envelopeOf({
-      id: tenantId,
-      name: "t",
-      state: "open",
-    }),
+  const defaultHandle = (): TenantHandle => ({
+    envelope: envelopeOf(fake),
     async fetch() {
-      return new Response(JSON.stringify({ ok: true, tenantId }), {
+      return new Response(JSON.stringify({ ok: true, tenantId: fake.id }), {
         headers: { "content-type": "application/json" },
       });
     },
@@ -141,110 +141,48 @@ export function createFakeModule(options?: {
   });
 
   return {
-    tenants,
-    createCalls,
-    deleteCalls,
+    fake,
     async start() {
       if (options?.startDelayMs) {
         await new Promise((r) => setTimeout(r, options.startDelayMs));
       }
       await options?.onStart?.();
-      started = true;
+      ready = fake.state === "open";
     },
-    get started() {
-      return started;
+    get ready() {
+      return ready && !closed;
     },
-    async resolve(id: string): Promise<TenantResolution> {
-      const t = tenants.get(id);
-      if (!t) return { kind: "not-found" };
-      if (t.state === "quarantined") {
-        return {
-          kind: "quarantined",
-          quarantine: t.quarantine ?? {
-            code: "open-failed",
-            message: "quarantined",
-            repair: "nylo tenant status",
-          },
-        };
-      }
-      return {
-        kind: "open",
-        handle: t.handle ?? defaultHandle(id),
-      };
+    async resolve(): Promise<TenantResolution> {
+      if (closed) return { kind: "unavailable" };
+      if (fake.state === "unavailable")
+        return { kind: "unavailable", ...(fake.cause ? { cause: fake.cause } : {}) };
+      return { kind: "open", handle: fake.handle ?? defaultHandle() };
     },
     async worker(id: string) {
-      const t = tenants.get(id);
-      return t?.state === "open" ? t.handle?.worker : undefined;
+      return fake.state === "open" && id === fake.id ? fake.handle?.worker : undefined;
     },
-    async create(
-      input: { tenantId: string; name: string } & BootstrapPrincipal,
-    ) {
-      createCalls.push(input);
-      const existing = tenants.get(input.tenantId);
-      if (existing) {
-        throw Object.assign(new Error("Tenant already exists"), {
-          code: "conflict",
-        });
-      }
-      const fake: FakeTenant = {
-        id: input.tenantId,
-        name: input.name,
-        state: "open",
-      };
-      tenants.set(input.tenantId, fake);
-      return { envelope: envelopeOf(fake), created: true };
-    },
-    async list(): Promise<readonly AdminTenant[]> {
-      return [...tenants.values()].map((t) => ({
-        id: t.id,
-        name: t.name,
-        state: t.state,
-        envelope: t.state === "open" ? envelopeOf(t) : null,
-      }));
-    },
-    async status(id: string): Promise<AdminTenantStatus | undefined> {
-      const t = tenants.get(id);
-      if (!t) return undefined;
+    tenant(): HostTenant {
+      if (fake.state === "open")
+        return { id: fake.id, name: fake.name, state: "open", envelope: envelopeOf(fake) };
       return {
-        id: t.id,
-        name: t.name,
-        state: t.state,
-        envelope: t.state === "open" ? envelopeOf(t) : null,
-        quarantine: t.quarantine,
+        id: fake.id,
+        name: fake.name,
+        state: "unavailable",
+        envelope: envelopeOf(fake),
+        ...(fake.cause ? { cause: fake.cause } : {}),
       };
-    },
-    async delete(id: string, activeWork: "refuse" | "drain" | "cancel") {
-      deleteCalls.push({ id, activeWork });
-      const t = tenants.get(id);
-      if (!t) return;
-      const work = t.summary?.runningSessions ?? 0;
-      if (work > 0 && activeWork === "refuse") {
-        throw Object.assign(new Error("Active work"), { code: "active_work" });
-      }
-      tenants.delete(id);
     },
     async summarize(): Promise<HostAggregate> {
-      let runningSessions = 0;
-      let inFlightDeliveries = 0;
-      let pendingActions = 0;
-      let uncertainEffects = 0;
-      for (const t of tenants.values()) {
-        const s = t.summary ?? (await t.handle?.summary());
-        if (!s) continue;
-        runningSessions += s.runningSessions;
-        inFlightDeliveries += s.inFlightDeliveries;
-        pendingActions += s.pendingActions;
-        uncertainEffects += s.uncertainEffects;
-      }
+      const s = fake.summary ?? (fake.state === "open" ? await fake.handle?.summary() : undefined);
       return {
-        runningSessions,
-        inFlightDeliveries,
-        pendingActions,
-        uncertainEffects,
+        runningSessions: s?.runningSessions ?? 0,
+        inFlightDeliveries: s?.inFlightDeliveries ?? 0,
+        pendingActions: s?.pendingActions ?? 0,
+        uncertainEffects: s?.uncertainEffects ?? 0,
       };
     },
     async close() {
-      started = false;
+      closed = true;
     },
   };
 }
@@ -261,7 +199,7 @@ export async function startTestHost(
   host: HostServer;
   url: string;
   root: string;
-  module: ReturnType<typeof createFakeModule> | TenantModule;
+  module: TenantModule;
   config: HostConfigFile;
   credentials: HostCredentialsFile;
 }> {
@@ -269,7 +207,6 @@ export async function startTestHost(
   roots.push(root);
   await mkdir(join(root, "home"), { recursive: true });
   await mkdir(join(root, "tmp"), { recursive: true });
-  await mkdir(join(root, "tenants"), { recursive: true });
 
   const port = overrides?.port ?? (await freePort());
   const config: HostConfigFile = {

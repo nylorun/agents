@@ -10,15 +10,15 @@
  *
  * D1  a page with a publishable key and the app server's token route: preflight, an AG-UI
  *     run through HttpAgent that pauses for approval and completes, history, reattach
- * D2  refusals: another person's thread, another Tenant's token, forged tokens, a disallowed
- *     origin (no CORS headers), a Tenant key from a browser, minting with a token, a
- *     preflight to /v1/tokens
+ * D2  refusals: another person's thread, forged tokens, a disallowed origin (no CORS
+ *     headers), a Tenant key from a browser, minting with a token, a preflight to
+ *     /v1/tokens
  * D3  revocation ends the person's open event stream within seconds; the old token is 401
  *     and a new one works
  * D4  a role's turn limit answers 429 limit_exceeded
  * D5  rotating keys keeps outstanding tokens; a forced rotation and revoke ends them, and
  *     a new token works
- * D6  a native app: no Origin, the Tenant header and a token
+ * D6  a native app: no Origin and a token
  * D7  one thread started through the app server's handler and continued from the browser
  */
 import assert from "node:assert/strict";
@@ -35,8 +35,8 @@ import {
 import { createAgUiHandler } from "@nylorun/agents/ag-ui";
 import { createBrowserClient } from "@nylorun/agents/browser";
 import { serveActionEndpoint } from "../lib/action-endpoint.mjs";
-import { ensureImages, eventually, tenantHeaders, withStack } from "../lib/stack.mjs";
-import { withTemporaryTenant } from "../lib/temporary-tenant.mjs";
+import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
+import { withResetTenant } from "../lib/stack-tenant.mjs";
 
 const ORIGIN = "http://localhost:5173";
 const results = [];
@@ -113,7 +113,7 @@ async function runWithApproval(agent, seen, text) {
   assert.ok(done, `the resumed run finishes: ${seen.map((e) => e.type).join(", ")}`);
 }
 
-async function d1(runtime, tenant, app, key) {
+async function d1(runtime, app, key) {
   const preflight = await fetch(`${runtime}/v1/ag-ui/agents/desk`, {
     method: "OPTIONS",
     headers: {
@@ -153,7 +153,7 @@ async function d1(runtime, tenant, app, key) {
   pass("D1", "a page chatted over AG-UI with an approval, read history and reattached, with CORS");
 }
 
-async function d2(runtime, tenant, app, key, otherTenant) {
+async function d2(runtime, tenant, app, key) {
   const { client } = browserFor(runtime, key, app, "app:eli");
   const token = await client.token();
   const page = (path, init = {}, extra = {}) =>
@@ -170,21 +170,13 @@ async function d2(runtime, tenant, app, key, otherTenant) {
   const others = await page("/v1/ag-ui/agents/desk/threads/d1/messages");
   assert.deepEqual(await others.json(), [], "another person's thread is empty");
 
-  const otherApp = createClient({
-    url: otherTenant.env.NYLORUN_RUNTIME_URL,
-    key: otherTenant.env.NYLORUN_SERVER_KEY,
-    tenant: otherTenant.id,
-  });
-  await otherApp.access.putPolicy(POLICY);
-  const foreign = (await otherApp.tokens.create({ subject: "app:eli", role: "user" })).token;
   const forged = [
-    foreign,
     `${Buffer.from(JSON.stringify({ alg: "none", typ: "nylorun-subject+jwt" })).toString("base64url")}.${token.split(".")[1]}.AAAA`,
     `${token.split(".")[0]}.${Buffer.from(JSON.stringify({ sub: "app:dana" })).toString("base64url")}.${token.split(".")[2]}`,
   ];
   for (const bad of forged) {
     const response = await page("/v1/sessions", {}, { authorization: `Bearer ${bad}` });
-    assert.equal(response.status, 404, "forged and foreign tokens are the opaque 404");
+    assert.equal(response.status, 404, "forged tokens are the opaque 404");
   }
   // Not token-shaped at all: refused like any Tenant key from a page, before any lookup.
   const unsigned = await page("/v1/sessions", {}, {
@@ -216,7 +208,7 @@ async function d2(runtime, tenant, app, key, otherTenant) {
     headers: { origin: ORIGIN, "access-control-request-method": "POST" },
   });
   assert.equal(preflight.status, 403, "no preflight for /v1/tokens");
-  pass("D2", "other people's threads, other Tenants' and forged tokens, other origins, Tenant keys from pages and minting from pages are all refused");
+  pass("D2", "other people's threads, forged tokens, other origins, Tenant keys from pages and minting from pages are all refused");
 }
 
 async function d3(runtime, app, key) {
@@ -281,16 +273,16 @@ async function d5(runtime, app, key) {
   pass("D5", "rotation kept outstanding tokens; a forced rotation and revoke ended them; the client recovered");
 }
 
-async function d6(runtime, tenant, app) {
+async function d6(runtime, app) {
   const token = (await app.tokens.create({ subject: "app:ivy", role: "user" })).token;
   const response = await fetch(`${runtime}/v1/sessions`, {
-    headers: tenantHeaders(tenant.id, token),
+    headers: runtimeHeaders(token),
   });
-  assert.equal(response.status, 200, "a native app with the Tenant header and a token");
+  assert.equal(response.status, 200, "a native app with a token");
   pass("D6", "a native app called the Runtime with a token and no Origin");
 }
 
-async function d7(runtime, tenant, app, key) {
+async function d7(runtime, app, key) {
   const handler = createAgUiHandler({ agents: [desk], client: app, subject: () => "app:jo" });
   const handled = new HttpAgent({
     url: "http://app.test/desk",
@@ -315,34 +307,31 @@ try {
   await withStack({ name: "nylorun-direct", images, startArgs: ["--no-studio"] }, async (stack) => {
     const runtime = stack.runtimeUrl;
     const admin = await stack.admin();
-    await withTemporaryTenant({ admin, name: "direct" }, async (tenant) =>
-      withTemporaryTenant({ admin, name: "direct-other" }, async (otherTenant) => {
-        const app = createClient({
-          url: tenant.env.NYLORUN_RUNTIME_URL,
-          key: tenant.env.NYLORUN_SERVER_KEY,
-          tenant: tenant.id,
-        });
-        const features = await app.hostFeatures();
-        for (const feature of ["subject-tokens", "browser-access", "ag-ui-endpoint"])
-          assert.ok(features.includes(feature), `the Runtime advertises ${feature}`);
-        await app.access.putPolicy(POLICY);
-        const key = (
-          await app.access.publishableKeys.create({ name: "web", origins: ["http://localhost:*"] })
-        ).key;
-        const endpoint = await serveActionEndpoint({ agents: [desk], client: app });
-        try {
-          await d1(runtime, tenant, app, key);
-          await d2(runtime, tenant, app, key, otherTenant);
-          await d3(runtime, app, key);
-          await d4(runtime, app, key);
-          await d5(runtime, app, key);
-          await d6(runtime, tenant, app);
-          await d7(runtime, tenant, app, key);
-        } finally {
-          await endpoint.close();
-        }
-      })
-    );
+    await withResetTenant({ admin, name: "direct" }, async (tenant) => {
+      const app = createClient({
+        url: tenant.env.NYLORUN_RUNTIME_URL,
+        key: tenant.env.NYLORUN_SERVER_KEY,
+      });
+      const features = await app.hostFeatures();
+      for (const feature of ["subject-tokens", "browser-access", "ag-ui-endpoint"])
+        assert.ok(features.includes(feature), `the Runtime advertises ${feature}`);
+      await app.access.putPolicy(POLICY);
+      const key = (
+        await app.access.publishableKeys.create({ name: "web", origins: ["http://localhost:*"] })
+      ).key;
+      const endpoint = await serveActionEndpoint({ agents: [desk], client: app });
+      try {
+        await d1(runtime, app, key);
+        await d2(runtime, tenant, app, key);
+        await d3(runtime, app, key);
+        await d4(runtime, app, key);
+        await d5(runtime, app, key);
+        await d6(runtime, app);
+        await d7(runtime, app, key);
+      } finally {
+        await endpoint.close();
+      }
+    });
   });
   console.log("\nDirect Access acceptance on the stack:");
   for (const item of results) console.log(`  PASS ${item.id} ${item.message}`);

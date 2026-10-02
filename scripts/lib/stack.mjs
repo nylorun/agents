@@ -5,9 +5,12 @@
  *   reuses the ones `NYLORUN_RUNTIME_IMAGE` / `NYLORUN_STUDIO_IMAGE` name (CI
  *   builds those with buildx before the smoke runs).
  * - `withStack` starts `nylorun start` under a temporary `NYLORUN_HOME` with a
- *   unique `NYLORUN_STACK_PROJECT`, hands the stack to a callback, and always
- *   ends with `nylorun reset --yes` (containers and volumes) and removes the
- *   temporary Host root.
+ *   unique `NYLORUN_STACK` (and `NYLORUN_STACK_PROJECT`), hands the stack to a
+ *   callback, and always ends with `nylorun reset --yes` (containers and
+ *   volumes) and removes the temporary Host root. Its commands run from the
+ *   Host root, which is not a project, so `start` links nothing; a check that
+ *   wants a Project link runs `nylorun start` in its project directory
+ *   (`cwd`), which attaches to the same stack through `NYLORUN_STACK`.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -107,7 +110,7 @@ function exec(command, args, { env, cwd = root, echo = true, timeout = 600_000 }
   });
 }
 
-/** A stack project name Compose accepts: `<prefix>-<random>`. */
+/** A stack (and Compose project) name: `<prefix>-<random>`. */
 export function stackProjectName(prefix) {
   const base = prefix.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[^a-z0-9]+/, "");
   return `${base || "nylorun"}-${randomBytes(3).toString("hex")}`;
@@ -119,6 +122,7 @@ export function stackProjectName(prefix) {
  * default, or packed installs).
  * `baseEnv` replaces `process.env` as the environment the stack's commands
  * start from (the release smoke passes one without publishing credentials).
+ * The stack's name (`NYLORUN_STACK`) doubles as its Compose project.
  */
 export async function createStack({
   name = "nylorun-stack",
@@ -135,6 +139,7 @@ export async function createStack({
     ...baseEnv,
     ...extraEnv,
     NYLORUN_HOME: home,
+    NYLORUN_STACK: project,
     NYLORUN_STACK_PROJECT: project,
     ...(images?.runtime ? { NYLORUN_RUNTIME_IMAGE: images.runtime } : {}),
     ...(images?.studio ? { NYLORUN_STUDIO_IMAGE: images.studio } : {}),
@@ -156,25 +161,35 @@ export async function createStack({
     env,
     cli,
     runtimeUrl: undefined,
-    /** Run `nylorun <args>` against this stack (`entry`: another CLI install). */
-    async nylorun(args, { check = true, echo = true, cwd = root, timeout, entry = cli } = {}) {
+    /**
+     * Run `nylorun <args>` against this stack (`entry`: another CLI install).
+     * `cwd` defaults to the Host root, outside any project; pass a project
+     * directory to link it.
+     */
+    async nylorun(args, { check = true, echo = true, cwd = home, timeout, entry = cli } = {}) {
       log(`$ nylorun ${args.join(" ")}`);
       const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
       if (check && result.code !== 0)
         throw new Error(`nylorun ${args.join(" ")} exited with ${result.code}`);
       return result;
     },
-    /** Run `nylo <args>` (the Runtime client) against this stack's Host root. */
-    async nylo(args, { check = true, echo = true, cwd = root, timeout, entry = nylo } = {}) {
+    /**
+     * Run `nylo <args>` (the Runtime client). It reads the Project link in
+     * `cwd` (a linked project), or NYLORUN_RUNTIME_URL + NYLORUN_SERVER_KEY.
+     */
+    async nylo(args, { check = true, echo = true, cwd = home, timeout, entry = nylo } = {}) {
       log(`$ nylo ${args.join(" ")}`);
       const result = await exec(process.execPath, [entry, ...args], { env, cwd, echo, timeout });
       if (check && result.code !== 0)
         throw new Error(`nylo ${args.join(" ")} exited with ${result.code}:\n${result.stderr ?? ""}`);
       return result;
     },
-    /** `nylorun start`; returns the Runtime URL and Studio login URL it prints. */
-    async start(args = []) {
-      const { stdout } = await stack.nylorun(["start", ...args]);
+    /**
+     * `nylorun start` (in `cwd`: a project directory links it); returns the
+     * Runtime URL and Studio login URL it prints.
+     */
+    async start(args = [], { cwd } = {}) {
+      const { stdout } = await stack.nylorun(["start", ...args], cwd ? { cwd } : {});
       const runtimeUrl = /^Runtime\s+(\S+)/m.exec(stdout)?.[1];
       assert.ok(runtimeUrl, `nylorun start prints the Runtime URL:\n${stdout}`);
       stack.runtimeUrl = runtimeUrl;
@@ -187,7 +202,10 @@ export async function createStack({
         throw new Error(`docker compose ${args.join(" ")} exited with ${result.code}`);
       return result.stdout;
     },
-    /** One SQL statement through `psql` in the postgres container; rows as text. */
+    /**
+     * One SQL statement through `psql` in the postgres container; rows as
+     * text. The Tenant's state is in schema `nylorun` of database `nylorun`.
+     */
     async psql(sql) {
       return (
         await stack.compose([
@@ -220,6 +238,10 @@ export async function createStack({
       const { createAdmin } = await import(module);
       return createAdmin({ home });
     },
+    /** The stack's one Tenant: its id and `project` key (see `hostTenant`). */
+    async tenant(module) {
+      return hostTenant(await stack.admin(module));
+    },
     async logs(tail = 200) {
       if (!existsSync(join(home, "stack", "compose.yaml"))) return;
       await stack.nylorun(["logs", "--tail", String(tail)], { check: false });
@@ -244,7 +266,7 @@ export async function createStack({
 
 /**
  * Run `fn(stack)` on a fresh stack and always reset it afterwards. With
- * `start: false` the callback starts it (e.g. through `nylorun up`). Logs
+ * `start: false` the callback starts it (e.g. `nylorun start` in a project). Logs
  * are printed when the callback fails; Ctrl-C still resets.
  */
 export async function withStack(options, fn) {
@@ -306,22 +328,35 @@ export async function eventually(check, { timeout = 60_000, interval = 250, mess
   }
 }
 
-const PROTOCOL = "4";
+/**
+ * The Host's one Tenant from `admin.status()`, once it is open, with the key
+ * of its `project` principal (what `nylorun start` writes to a project's
+ * credentials).
+ * @param {{ status(): Promise<{ tenant: { id: string | null, state: string } }>, deriveTenantKey(tenantId: string, principalId: string): string }} admin
+ * @returns {Promise<{ id: string, key: string }>}
+ */
+export async function hostTenant(admin) {
+  const { tenant } = await admin.status();
+  if (tenant.state !== "open" || !tenant.id)
+    throw new Error(`The Host's Tenant is not open (${tenant.state}${tenant.id ? `, ${tenant.id}` : ""}).`);
+  return { id: tenant.id, key: admin.deriveTenantKey(tenant.id, "project") };
+}
 
-/** Headers for the Tenant API. */
-export function tenantHeaders(tenantId, key, extra = {}) {
+export const PROTOCOL = "5";
+
+/** Headers for the Tenant API: the Host's one Tenant, so nothing selects it. */
+export function runtimeHeaders(key, extra = {}) {
   return {
     authorization: `Bearer ${key}`,
-    "Nylorun-Tenant": tenantId,
     "Nylorun-Protocol": PROTOCOL,
     ...extra,
   };
 }
 
 /** GET a Tenant API path as JSON (throws on a non-2xx status). */
-export async function tenantGet(runtimeUrl, tenantId, key, path) {
+export async function runtimeGet(runtimeUrl, key, path) {
   const response = await fetch(`${runtimeUrl}${path}`, {
-    headers: tenantHeaders(tenantId, key),
+    headers: runtimeHeaders(key),
     signal: AbortSignal.timeout(10_000),
   });
   const text = await response.text();

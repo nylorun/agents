@@ -21,20 +21,19 @@
     "method": "GET",
     "path": "/v1/agents",
     "status": 426,
-    "tenantId": "<tenant>",
-    "durationMs": "number"
-  },
-  {
-    "method": "GET",
-    "path": "/v1/agents",
-    "status": 400,
     "durationMs": "number"
   },
   {
     "method": "GET",
     "path": "/v1/agents",
     "status": 404,
-    "tenantId": "tn_0000000000000000000000dead",
+    "tenantId": "<tenant>",
+    "durationMs": "number"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agents",
+    "status": 404,
     "durationMs": "number"
   },
   {

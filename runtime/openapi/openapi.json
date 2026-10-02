@@ -3,10 +3,10 @@
   "info": {
     "title": "Nylorun Runtime: Tenant API",
     "version": "0.0.0",
-    "description": "Agents, sessions and their events, vaults, access and the Tenant's settings, for one Tenant (`Nylorun-Tenant`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
+    "description": "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 4,
+      "max": 5,
       "features": [
         "runtime-tenants",
         "admin-status",
@@ -58,7 +58,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "Nylorun-Key",
-        "description": "A publishable key, sent by a browser page on one of its origins. Public by design: it names the Tenant and grants the access policy's anonymous scopes."
+        "description": "A publishable key, sent by a browser page on one of its origins. Public by design: it grants the access policy's anonymous scopes."
       }
     },
     "schemas": {
@@ -6269,8 +6269,6 @@
               "host_rejected",
               "origin_rejected",
               "unsupported_media_type",
-              "tenant_conflict",
-              "active_work",
               "connection_missing",
               "incompatible_host",
               "subject_invalid",
@@ -18525,7 +18523,7 @@
           "Host"
         ],
         "summary": "Check the Runtime is ready",
-        "description": "The listeners, Tenant discovery, Postgres, Restate and S2.",
+        "description": "The listeners, the Tenant (open), Postgres, Restate and S2.",
         "responses": {
           "200": {
             "description": "Ready",
@@ -18601,21 +18599,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -18728,21 +18716,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -18849,21 +18827,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -19005,21 +18973,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -19106,21 +19064,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -19227,21 +19175,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -19331,21 +19269,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -19438,21 +19366,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -19566,21 +19484,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -19736,21 +19644,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -19884,21 +19782,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -20042,21 +19930,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -20210,21 +20088,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -20387,21 +20255,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -20555,21 +20413,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -20807,21 +20655,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -20928,21 +20766,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -21051,21 +20879,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -21164,21 +20982,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -21280,21 +21088,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -21405,21 +21203,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -21529,21 +21317,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -21702,21 +21480,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -21827,21 +21595,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -21951,21 +21709,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22087,21 +21835,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22212,21 +21950,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22335,21 +22063,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22470,21 +22188,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22609,21 +22317,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22779,21 +22477,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -22936,21 +22624,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -23091,21 +22769,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -23249,21 +22917,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -23414,21 +23072,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -23579,21 +23227,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -23742,21 +23380,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -23918,21 +23546,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -24046,7 +23664,7 @@
           "Access"
         ],
         "summary": "Get the public keys subject and delivery tokens are signed with",
-        "description": "A JSON Web Key Set, to verify a subject token or a delivery token without calling the Runtime. No credential is needed: `Nylorun-Tenant` alone names the Tenant.",
+        "description": "A JSON Web Key Set, to verify a subject token or a delivery token without calling the Runtime. No credential is needed.",
         "security": [
           {
             "applicationKey": []
@@ -24071,21 +23689,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -24224,21 +23832,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24336,21 +23934,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24436,21 +24024,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24548,21 +24126,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24651,21 +24219,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24774,21 +24332,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24889,21 +24437,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -24975,7 +24513,7 @@
           "Access"
         ],
         "summary": "Create a publishable key",
-        "description": "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it names the Tenant and grants the policy's anonymous scopes.",
+        "description": "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it grants the policy's anonymous scopes.",
         "security": [
           {
             "applicationKey": []
@@ -24990,21 +24528,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -25113,21 +24641,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -25231,21 +24749,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -25334,21 +24842,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           }
         ],
@@ -25461,21 +24959,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -25635,21 +25123,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -25821,21 +25299,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -25988,21 +25456,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant; optional with a publishable key, which names it"
-            },
-            "required": false,
-            "description": "The Tenant; optional with a publishable key, which names it",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -26143,21 +25601,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {
@@ -26314,21 +25762,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `4`"
+              "description": "The protocol version, `5`"
             },
             "required": true,
-            "description": "The protocol version, `4`",
+            "description": "The protocol version, `5`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Tenant"
-            },
-            "required": true,
-            "description": "The Tenant",
-            "name": "Nylorun-Tenant",
             "in": "header"
           },
           {

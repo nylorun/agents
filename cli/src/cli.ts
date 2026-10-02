@@ -9,17 +9,22 @@ import { putHostModel } from "./model/host-model.js";
 import { CliError } from "./errors.js";
 import { findProjectRoot } from "./project/root.js";
 import { printLinkedEnvExports } from "./project/env.js";
-import { readLink as readProjectLink } from "./project/link.js";
-import { readCredentials as readProjectCredentials } from "./project/credentials.js";
-import { tenantCommand } from "./tenant/commands.js";
+import { linkedConnection } from "./project/connection.js";
 import { accessCommand } from "./access/commands.js";
+import {
+  endpointsCommand,
+  resetCommand,
+  statusCommand,
+} from "./installation/commands.js";
 
-const usage = `nylo <tenant|access|configure|env|doctor>
+const usage = `nylo <status|reset|endpoints|access|configure|env|doctor>
 
-Runtime client (the local stack's Runtime, or any Runtime by URL and key):
-  tenant create [name]                    create a Tenant; in a Project, link it and seed it from .env
-  tenant use <name-or-id>                 link this Project to a Tenant, e.g. one created in Studio
-  tenant current|list [--json]|status [--json]|reset|delete
+Runtime client for the linked installation and its one Tenant (the Project link that
+npx nylorun start writes, or NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY):
+  status [--json]                         the Tenant, its checks and counts, and the stack
+  reset [--sessions|--sandboxes|--all] [--yes]
+                                          clear the Tenant's sessions, sandboxes or all its data
+  endpoints [--json]|ping <agent>         the registered Action endpoints and their health
   access policy get|set <file>|init       the access policy for subject tokens (nylo access --help)
   access keys list|create|set-origins|revoke  publishable keys for web pages and apps
   access signing-keys list|rotate|revoke  the Tenant's token signing keys
@@ -29,12 +34,17 @@ Runtime client (the local stack's Runtime, or any Runtime by URL and key):
   env                                     print the linked Project's NYLORUN_* variables as exports
   doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers
 
-The local stack is managed by the nylorun package: npx nylorun up|down|status|logs|studio`;
+The local stack is managed by the nylorun package: npx nylorun start in a project creates
+its stack, its Tenant and the Project link.`;
 
 /** Local stack commands, which moved to the nylorun package. */
 const STACK_COMMANDS = new Set([
-  "up", "down", "start", "stop", "status", "logs", "studio", "reset", "stack", "runtime", "restart", "run",
+  "up", "down", "start", "stop", "logs", "studio", "stack", "runtime", "restart", "run",
 ]);
+
+const TENANT_REMOVED = `nylo tenant was removed: an installation serves one Tenant.
+Run "npx nylorun start" in your project to create its stack, its Tenant and the Project link.
+Then use nylo status, nylo reset and nylo endpoints on the linked installation.`;
 
 interface Flags {
   rest: string[];
@@ -82,34 +92,6 @@ function parseFlags(
 
 const usageError = (message: string) => new CliError(message, 2);
 
-async function resolveLinkedAuth(projectRoot: string): Promise<{
-  url: string;
-  key: string;
-  tenantId: string;
-  tenantName: string;
-}> {
-  const link = await readProjectLink(projectRoot);
-  const credentials = await readProjectCredentials(projectRoot);
-  if (link && credentials) {
-    return {
-      url: link.hostUrl,
-      key: credentials.applicationKey,
-      tenantId: link.tenantId,
-      tenantName: link.tenantId,
-    };
-  }
-  const url = process.env.NYLORUN_RUNTIME_URL?.trim();
-  const key = process.env.NYLORUN_SERVER_KEY?.trim();
-  const tenantId = process.env.NYLORUN_TENANT?.trim();
-  if (url && key && tenantId) {
-    return { url, key, tenantId, tenantName: tenantId };
-  }
-  throw new CliError(
-    `No Project link in ${projectRoot}. Run nylo tenant create, or set NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY and NYLORUN_TENANT.`,
-    1,
-  );
-}
-
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h")
@@ -120,7 +102,10 @@ async function main() {
       1,
     );
 
-  if (command === "tenant") return await tenantCommand(args);
+  if (command === "tenant") throw usageError(TENANT_REMOVED);
+  if (command === "status") return await statusCommand(args);
+  if (command === "reset") return await resetCommand(args);
+  if (command === "endpoints") return await endpointsCommand(args);
   if (command === "access") {
     if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
       const { accessUsage } = await import("./access/commands.js");
@@ -148,7 +133,7 @@ async function main() {
 
   if (command === "dev")
     throw usageError(
-      "nylorun dev was removed: run nylo tenant create once in your project, then your project's npm run dev.",
+      'nylorun dev was removed: run "npx nylorun start" once in your project, then your project\'s npm run dev.',
     );
   if (STACK_COMMANDS.has(command))
     throw usageError(`The local stack moved to the nylorun package: npx nylorun ${command}`);
@@ -157,7 +142,7 @@ async function main() {
     const flags = parseFlags(args);
     if (flags.rest.length) throw usageError(usage);
     const projectRoot = findProjectRoot() ?? process.cwd();
-    const auth = await resolveLinkedAuth(projectRoot);
+    const auth = await linkedConnection(projectRoot);
     const controller = new AbortController();
     const cancel = (signal: "SIGINT" | "SIGTERM") =>
       controller.abort(new ConfigurationCancelled(signal));
@@ -166,19 +151,15 @@ async function main() {
     const health = await fetch(`${auth.url}/health`).catch(() => undefined);
     if (!health?.ok)
       throw new CliError(
-        `No Runtime is listening at ${auth.url}. Start the local stack with "npx nylorun up".`,
+        `No Runtime is listening at ${auth.url}. Start the local stack with "npx nylorun start".`,
         6,
       );
-    const catalog = await fetchModelCatalog({
-      url: auth.url,
-      key: auth.key,
-      tenantId: auth.tenantId,
-    });
+    const catalog = await fetchModelCatalog({ url: auth.url, key: auth.key });
     const prompted = await configureProvider({
       signal: controller.signal,
       catalog,
     });
-    await putHostModel(auth.url, auth.key, prompted, auth.tenantId);
+    await putHostModel(auth.url, auth.key, prompted);
     return;
   }
 

@@ -1,20 +1,20 @@
 /**
  * The Host's Durable Session Execution (architecture §6, §12.3, §14.8): one per process,
- * shared by every Tenant the Host opens.
+ * for the Tenant the Host serves.
  *
- * - `tenantExecution` is what the Host passes to each Tenant it opens
+ * - `tenantExecution` is what the Host passes to its Tenant when it opens it
  *   (`TenantOpenHooks.execution`): the execution, the `TenantWorkers` registry its handlers
- *   dispatch through (with `resolve` opening a Tenant on demand when an invocation arrives for
- *   one that is not open), and the Tenant status hook for stuck invocations.
+ *   dispatch through (with `resolve` waiting for the Tenant when an invocation arrives while
+ *   it opens), and the Tenant status hook for stuck invocations.
  * - `start` serves the Worker endpoint when the process runs loop (`infra/workers.ts`), and does
  *   nothing for a core-only process, whose wakes, timers and sweep arming go through Restate's
  *   ingress.
- * - `armAll` re-arms every Tenant's sweep at startup. Arming is idempotent, so it is safe on
- *   every start, and it is what recovers from lost Restate state: the sweep re-wakes `runnable`
- *   sessions without a live owner (§14.8).
- * - `disarm` stops a deleted Tenant's sweep.
+ * - `armAll` arms the listed Tenants' sweeps (tests, recovery). Arming is idempotent; opening
+ *   the Tenant arms its own at every start, which is what recovers from lost Restate state:
+ *   the sweep re-wakes `runnable` sessions without a live owner (§14.8).
+ * - `disarm` stops a Tenant's sweep.
  *
- * **Order at startup.** Call `start` before opening any Tenant. Opening a Tenant arms its
+ * **Order at startup.** Call `start` before opening the Tenant. Opening the Tenant arms its
  * sweep through Restate's ingress, which answers 404 until a Worker has registered the
  * services, so the open would fail. A core-only process relies on a Worker having registered
  * them first.
@@ -53,7 +53,7 @@ export interface CreateHostExecutionOptions {
 }
 
 export interface HostExecution {
-  /** Pass to every Tenant the Host opens (`TenantOpenHooks.execution`). */
+  /** Pass to the Tenant the Host opens (`TenantOpenHooks.execution`). */
   readonly tenantExecution: TenantExecution;
   /** Serves the Worker endpoint when the process runs loop. Idempotent. */
   start(): Promise<void>;

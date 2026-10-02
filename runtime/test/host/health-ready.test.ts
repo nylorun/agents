@@ -37,34 +37,40 @@ it("C2: /health reports hostId, protocol, coreVersion and pid without auth", asy
   expect(parsed).not.toHaveProperty("scopeId");
 });
 
-it("C2: /ready is 200 after listen when module.started", async () => {
+it("C2: /ready is 200 after listen once the Tenant is open", async () => {
   const { url } = await startTestHost();
   const ready = await getJson(`${url}/ready`);
   expect(ready.status).toBe(200);
   ReadyResponseSchema.parse(ready.body);
   expect(ready.body).toMatchObject({
     status: "ready",
-    checks: { listener: true, discovery: true },
+    checks: { listener: true, tenant: true },
   });
 });
 
-it("C2: /ready is 503 while discovery has not completed", async () => {
+it("C2: /ready is 503 while the Tenant could not be opened", async () => {
+  const { url } = await startTestHost({
+    module: createFakeModule({
+      tenant: {
+        state: "unavailable",
+        cause: { code: "kek-missing", message: "vault key missing", repair: "restore it" },
+      },
+    }),
+  });
+  const ready = await getJson(`${url}/ready`);
+  expect(ready.status).toBe(503);
+  expect(ready.body).toMatchObject({
+    status: "not_ready",
+    checks: { listener: true, tenant: false },
+  });
+});
+
+it("C2: /ready is 503 while the Tenant opens", async () => {
   let finishStart!: () => void;
   const blocked = new Promise<void>((resolve) => {
     finishStart = resolve;
   });
-  let discovery = false;
-  const base = createFakeModule();
-  const mod = {
-    ...base,
-    async start() {
-      await blocked;
-      discovery = true;
-    },
-    get started() {
-      return discovery;
-    },
-  };
+  const mod = createFakeModule({ onStart: () => blocked });
 
   const root = await mkdtemp(join(tmpdir(), "nylorun-ready-"));
   const port = await freePort();
@@ -100,7 +106,7 @@ it("C2: /ready is 503 while discovery has not completed", async () => {
   expect(notReady.status).toBe(503);
   expect(notReady.body).toMatchObject({
     status: "not_ready",
-    checks: { listener: true, discovery: false },
+    checks: { listener: true, tenant: false },
   });
 
   finishStart();
@@ -109,7 +115,7 @@ it("C2: /ready is 503 while discovery has not completed", async () => {
   expect(ready.status).toBe(200);
   expect(ready.body).toMatchObject({
     status: "ready",
-    checks: { listener: true, discovery: true },
+    checks: { listener: true, tenant: true },
   });
   await host.close();
   await rm(root, { recursive: true, force: true });

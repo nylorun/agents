@@ -2,29 +2,25 @@ import { expect, it } from "vitest";
 import { AdminStatusSchema } from "@nylorun/core/contracts";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import {
+  FAKE_TENANT_ID,
   adminHeaders,
   createFakeModule,
   getJson,
-  newTenantId,
   startTestHost,
 } from "./support.js";
 
 it("A1: GET /v1/admin/status returns AdminStatusSchema with host", async () => {
   const module = createFakeModule({
-    tenants: [
-      {
-        id: newTenantId(),
-        name: "demo",
-        state: "open",
-        summary: {
-          ready: true,
-          runningSessions: 1,
-          inFlightDeliveries: 0,
-          pendingActions: 0,
-          uncertainEffects: 0,
-        },
+    tenant: {
+      name: "demo",
+      summary: {
+        ready: true,
+        runningSessions: 1,
+        inFlightDeliveries: 0,
+        pendingActions: 0,
+        uncertainEffects: 0,
       },
-    ],
+    },
   });
   const { url, config } = await startTestHost({ module });
   const { status, body } = await getJson(`${url}/v1/admin/status`, {
@@ -43,14 +39,17 @@ it("A1: GET /v1/admin/status returns AdminStatusSchema with host", async () => {
     url,
     pid: process.pid,
   });
-  expect(parsed.tenants).toHaveLength(1);
+  expect(parsed.tenant).toEqual({
+    id: FAKE_TENANT_ID,
+    name: "demo",
+    state: "open",
+    envelope: expect.objectContaining({ id: FAKE_TENANT_ID, name: "demo" }),
+  });
   expect(parsed.aggregate.runningSessions).toBe(1);
 });
 
 it("A1: GET /v1/admin/host returns the identical body as /status", async () => {
-  const module = createFakeModule({
-    tenants: [{ id: newTenantId(), name: "a", state: "open" }],
-  });
+  const module = createFakeModule();
   const { url } = await startTestHost({ module });
   const status = await getJson(`${url}/v1/admin/status`, {
     headers: adminHeaders(),
@@ -64,13 +63,15 @@ it("A1: GET /v1/admin/host returns the identical body as /status", async () => {
   AdminStatusSchema.parse(host.body);
 });
 
-it("A2: /health advertises admin-status", async () => {
+it("A2: /health advertises admin-status, and runtime-tenants for protocol 4 clients", async () => {
   const { url } = await startTestHost();
   const { status, body } = await getJson(`${url}/health`);
   expect(status).toBe(200);
   expect(body).toMatchObject({
     protocol: {
-      features: expect.arrayContaining(["admin-status"]),
+      min: 4,
+      max: 5,
+      features: expect.arrayContaining(["admin-status", "runtime-tenants"]),
     },
   });
 });

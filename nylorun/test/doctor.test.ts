@@ -12,7 +12,14 @@ describe("doctor (the stack)", () => {
     expect(text).toMatch(/node\s+✓/);
     expect(text).toMatch(/docker\s+✓ 29\.0\.0/);
     expect(text).toMatch(/compose\s+✓ 2\.40\.0/);
-    expect(text).toMatch(/stack\s+- not created .*nylorun up/);
+    expect(text).toMatch(/stack\s+- home-root not created .*nylorun up/);
+  });
+
+  it("says when no stack is selected here, and still exits 0", async () => {
+    const lines: string[] = [];
+    const deps = testDeps(await temporaryHome(), { env: {} });
+    expect(await doctorStack({ json: false, deps, log: (line) => lines.push(line) })).toBe(0);
+    expect(lines.join("\n")).toMatch(/stack\s+- No stack selected/);
   });
 
   it("names the fix when Docker is missing and skips the stack; exit 1", async () => {

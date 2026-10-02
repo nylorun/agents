@@ -2,7 +2,7 @@
  * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's
  * routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's listeners.
  * It opens no Tenant runtime, no Restate endpoint and no stream relay, and runs no migration;
- * it needs only the Postgres pool and the Host's tenants directory (read-only).
+ * it needs only the Postgres pool and the Host's tenant directory (read-only).
  *
  * Nothing is written while a model call runs, so the server's request timeout sits above the
  * gate's longest call. Closing stops accepting calls, lets running ones finish for up to
@@ -28,11 +28,11 @@ export const GATES_REQUEST_TIMEOUT_MS = 660_000;
 export interface StartGatesOptions {
   readonly gates: GatesConfig;
   readonly logger: Logger;
-  /** The Host root, for the Tenants' vault keys. Required unless `vaults` is given. */
+  /** The Host root, for the Tenant's vault key. Required unless `vaults` is given. */
   readonly hostRoot?: string;
-  /** The pool for Tenant vaults and readiness. Required unless `vaults` is given. */
+  /** The pool for the Tenant's vault and readiness. Required unless `vaults` is given. */
   readonly database?: PostgresClient;
-  /** Replaces the Postgres-backed Tenant vaults (tests). */
+  /** Replaces the Postgres-backed Tenant vault (tests). */
   readonly vaults?: TenantVaults;
   /** Retries and timeouts of model calls (tests). */
   readonly settings?: ModelCallSettings;

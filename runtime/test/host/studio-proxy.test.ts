@@ -5,9 +5,9 @@ import {
   TENANT_HEADER,
 } from "@nylorun/core/compatibility";
 import {
+  FAKE_TENANT_ID,
   createFakeModule,
   getJson,
-  newTenantId,
   startTestHost,
 } from "./support.js";
 
@@ -17,14 +17,13 @@ import {
  * would be rejected (covered in loopback tests).
  */
 it("A8: Studio proxy-shaped upstream request has no Origin and is accepted", async () => {
-  const tenantId = newTenantId();
-  const module = createFakeModule({
-    tenants: [{ id: tenantId, name: "studio", state: "open" }],
-  });
+  const tenantId = FAKE_TENANT_ID;
+  const module = createFakeModule();
   const { url } = await startTestHost({ module });
 
   const proxyShapedHeaders: Record<string, string> = {
     authorization: "Bearer application-key-value-16",
+    // Studio still sends the header in the protocol 4 window; it names this Host's Tenant.
     [TENANT_HEADER]: tenantId,
     [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
     accept: "application/json",

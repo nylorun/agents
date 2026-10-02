@@ -1,7 +1,6 @@
 /**
  * The Worker side of Durable Session Execution (architecture §12.3): what a `DurableExecution`
- * calls for one Tenant, and the registry that lets one execution serve every Tenant open on
- * this process.
+ * calls for the Tenant, and the registry its handlers dispatch through by Tenant id.
  *
  * - `TenantWorker` is one open Tenant's handlers: `advance(sessionId, signal)` (§10.5, in
  *   `advance.ts`), `sweep()` (the Tenant sweep, in `sweep.ts`) and, optionally,
@@ -9,12 +8,13 @@
  * - `TenantWorkers` is the registry. Its `handlers` are the `WorkerHandlers` an execution is
  *   started with; they dispatch by `tenantId` to the registered `TenantWorker`. A Tenant
  *   registers when it opens and unregisters when it closes. A call for a Tenant that is not
- *   open here asks the optional `resolve` hook (the Host can open it on demand); without one,
+ *   open here asks the optional `resolve` hook (the Host's, which waits for its Tenant to
+ *   open, and knows no other); without one,
  *   the advance and the delivery return `done` and the sweep does nothing. Nothing is lost:
  *   the Tenant's sweep re-wakes its orphaned sessions once it is open again, and an Action
  *   that was not delivered stays pending.
  * - `TenantExecution` pairs an execution with its registry. The Host creates one per process
- *   (`host/execution.ts`) and passes it to every Tenant it opens; a Tenant opened without one
+ *   (`host/execution.ts`) and passes it to its Tenant; a Tenant opened without one
  *   (tests, ephemeral) gets its own in-process `MemoryExecution`.
  *
  * ## Advance deadline

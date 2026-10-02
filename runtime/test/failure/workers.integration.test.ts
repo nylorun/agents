@@ -10,10 +10,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { tenantSchemaName } from "../../src/store/postgres/names.js";
 import { CONTROL_STREAM } from "../../src/streams/types.js";
 import { stackEndpoints } from "../stack/endpoints.js";
-import { openTestSessionStore, testPool } from "../support/store.js";
+import { openTestSessionStore, testTenantPool } from "../support/store.js";
 import {
   cancel,
   controlledModel,
@@ -23,7 +22,6 @@ import {
   view,
 } from "../host/execution-support.js";
 import {
-  FULL_STACK,
   FailureTenant,
   completeHistory,
   countOf,
@@ -35,6 +33,7 @@ import {
   workerOf,
   type Node,
 } from "./support.js";
+import { STACK_ENABLED } from "../stack/endpoints.js";
 
 const tenants: FailureTenant[] = [];
 afterEach(async () => {
@@ -71,7 +70,7 @@ function slowModel(ms: number) {
   return model;
 }
 
-describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2", () => {
+describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S2", () => {
   it("§17.3 a Worker killed during a model effect: the effect is uncertain after takeover, never called again, and the session is usable", async () => {
     const t = failureTenant();
     const model = controlledModel(); // ignores its signal, like a call cut off by a crash
@@ -170,8 +169,8 @@ describe.skipIf(!FULL_STACK)("§17 Worker failures on Postgres, Restate and S2",
     expect(await sessionRow(nodeB)).toMatchObject({ owner: "worker-a", epoch });
 
     // worker-a stalls past its lease (presumed dead, still running): worker-b takes over.
-    await testPool().unsafe(
-      `UPDATE "${tenantSchemaName(t.tenantId)}".sessions
+    await testTenantPool(t.tenantId).unsafe(
+      `UPDATE nylorun.sessions
          SET owner_expires_at = now() - interval '1 second' WHERE id = 's1'`
     );
     expect(await workerOf(nodeB).advance("s1", signal)).toEqual({ status: "done" });

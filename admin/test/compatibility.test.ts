@@ -5,7 +5,7 @@ import {
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
 import { createAdmin } from "../src/index.js";
-import { ADMIN_KEY, healthBody, startStubServer } from "./helpers.js";
+import { ADMIN_KEY, healthBody, sampleStatus, startStubServer } from "./helpers.js";
 
 afterEach(() => {
   delete process.env.NYLORUN_ADMIN_URL;
@@ -23,12 +23,12 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify([]));
+      response.end(JSON.stringify(sampleStatus()));
     });
     try {
       const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await admin.listTenants();
-      await admin.listTenants();
+      await admin.status();
+      await admin.status();
       expect(health).toBe(1);
       expect(server.recorded.filter((r) => r.url === "/health")).toHaveLength(
         1,
@@ -60,11 +60,11 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify([]));
+      response.end(JSON.stringify(sampleStatus()));
     });
     try {
       const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.listTenants()).rejects.toMatchObject({
+      await expect(admin.status()).rejects.toMatchObject({
         code: "incompatible_host",
       });
       expect(server.recorded.map((r) => r.url)).toEqual(["/health"]);
@@ -75,7 +75,7 @@ describe("B3 /health compatibility cache", () => {
 
   it("clears the cache on 426 and rechecks once", async () => {
     let health = 0;
-    let tenants = 0;
+    let requests = 0;
     const server = await startStubServer((request, response) => {
       if (request.url === "/health") {
         health += 1;
@@ -95,8 +95,8 @@ describe("B3 /health compatibility cache", () => {
         );
         return;
       }
-      tenants += 1;
-      if (tenants === 1) {
+      requests += 1;
+      if (requests === 1) {
         response.writeHead(426, { "content-type": "application/json" });
         response.end(
           JSON.stringify({
@@ -109,15 +109,15 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify([]));
+      response.end(JSON.stringify(sampleStatus()));
     });
     try {
       const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.listTenants()).rejects.toMatchObject({
+      await expect(admin.status()).rejects.toMatchObject({
         code: "incompatible_host",
       });
       expect(health).toBe(2);
-      expect(tenants).toBe(1);
+      expect(requests).toBe(1);
     } finally {
       await server.close();
     }
@@ -125,7 +125,7 @@ describe("B3 /health compatibility cache", () => {
 
   it("retries the request once when a 426 recheck still reports compatible", async () => {
     let health = 0;
-    let tenants = 0;
+    let requests = 0;
     const server = await startStubServer((request, response) => {
       if (request.url === "/health") {
         health += 1;
@@ -133,8 +133,8 @@ describe("B3 /health compatibility cache", () => {
         response.end(JSON.stringify(healthBody()));
         return;
       }
-      tenants += 1;
-      if (tenants === 1) {
+      requests += 1;
+      if (requests === 1) {
         response.writeHead(426, { "content-type": "application/json" });
         response.end(
           JSON.stringify({
@@ -147,13 +147,13 @@ describe("B3 /health compatibility cache", () => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify([]));
+      response.end(JSON.stringify(sampleStatus()));
     });
     try {
       const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
-      await expect(admin.listTenants()).resolves.toEqual([]);
+      await expect(admin.status()).resolves.toEqual(sampleStatus());
       expect(health).toBe(2);
-      expect(tenants).toBe(2);
+      expect(requests).toBe(2);
     } finally {
       await server.close();
     }

@@ -2,14 +2,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import test from "node:test";
-import {
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-  TENANT_HEADER,
-} from "@nylorun/agents";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 import { proxyRuntime } from "../dist/proxy.js";
-
-const TENANT = "tn_00000000000000000000000003";
 
 async function withUpstream(
   handler: (
@@ -31,7 +25,7 @@ async function withUpstream(
   }
 }
 
-test("proxy forwards Tenant and Protocol headers and allows /v1/tenant routes", async () => {
+test("proxy forwards the bearer and Protocol header, names no Tenant, and allows /v1/tenant routes", async () => {
   const seen: { path: string; headers: Record<string, string | string[] | undefined> }[] = [];
   await withUpstream(
     (req, res) => {
@@ -45,7 +39,6 @@ test("proxy forwards Tenant and Protocol headers and allows /v1/tenant routes", 
           origin: "http://127.0.0.1:4161",
           runtimeUrl: upstreamUrl,
           serverKey: "server-secret",
-          tenantId: TENANT,
         });
       });
       studio.listen(0, "127.0.0.1");
@@ -64,7 +57,7 @@ test("proxy forwards Tenant and Protocol headers and allows /v1/tenant routes", 
         assert.equal(seen.length, 1);
         assert.equal(seen[0]!.path, "/v1/tenant/model");
         assert.equal(seen[0]!.headers.authorization, "Bearer server-secret");
-        assert.equal(seen[0]!.headers[TENANT_HEADER.toLowerCase()], TENANT);
+        assert.equal(seen[0]!.headers["nylorun-tenant"], undefined);
         assert.equal(
           seen[0]!.headers[PROTOCOL_HEADER.toLowerCase()],
           String(PROTOCOL_VERSION),
@@ -89,7 +82,6 @@ test("proxy rejects legacy /v1/host model routes", async () => {
           origin: "http://127.0.0.1:4161",
           runtimeUrl: upstreamUrl,
           serverKey: "server-secret",
-          tenantId: TENANT,
         });
       });
       studio.listen(0, "127.0.0.1");
@@ -135,7 +127,6 @@ test("proxy allows /health for SDK compatibility checks", async () => {
           origin: "http://127.0.0.1:4161",
           runtimeUrl: upstreamUrl,
           serverKey: "server-secret",
-          tenantId: TENANT,
         });
       });
       studio.listen(0, "127.0.0.1");

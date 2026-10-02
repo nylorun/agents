@@ -5,10 +5,10 @@ Terms follow the Runtime Tenants model, Runtime Clients and Admin API
 uses these terms in code, comments, errors and CLI output.
 
 Agent definitions describe capabilities. The harness engine advances execution.
-A **Runtime Host** listens once and routes work into isolated **Tenants**. A
-developer **Project** attaches through a **Project link**, not by owning the
-Host process or its storage. Every process that talks to a Runtime is a
-**Client**.
+A **Runtime Host** listens once and serves the one **Tenant** of its
+installation: one Runtime with its own database and infrastructure. A developer
+**Project** attaches through a **Project link**, not by owning the Host process
+or its storage. Every process that talks to a Runtime is a **Client**.
 
 ## Language
 
@@ -16,13 +16,15 @@ Host process or its storage. Every process that talks to a Runtime is a
 application, Studio, the CLI, a desktop app, an IDE extension or CI.
 _Avoid_: calling only the SDK or only the CLI "the client".
 
-**Tenant API**: Every route a Tenant principal calls, identified by the
-`Nylorun-Tenant` header or a publishable key (`Nylorun-Key`). Agents, sessions, events, Action endpoints, vaults, Tenant
-settings and status. Client package: `@nylorun/agents`.
+**Tenant API**: Every route a Tenant principal calls, on the Host's one Tenant: nothing
+in a request selects it (protocol 5). Agents, sessions, events, Action endpoints, vaults,
+Tenant settings and status. Client package: `@nylorun/agents`.
 _Avoid_: "SDK API" or "application API" as the surface name.
 
-**Admin API**: The `/v1/admin/tenants` and `/v1/admin/status` routes, called
-with an admin key (`host/admin-api.ts`). Shared by OSS and Cloud. Client package: `@nylorun/admin`.
+**Admin API**: `/v1/admin/status` (the Host, its protocol, its Tenant and why it is not
+open, `AdminStatus.tenant`), called with an admin key (`host/admin-api.ts`). There are no
+Tenant routes: the Host creates its Tenant itself. Shared by OSS and Cloud. Client package:
+`@nylorun/admin`.
 Served on the **operator listener** when the Host has one, otherwise on its
 only listener.
 `POST /v1/admin/host/shutdown` is Host-private on OSS and is not part of
@@ -34,9 +36,12 @@ imports to call one surface. Each depends only on `@nylorun/core`.
 _Avoid_: depending on `runtime` or `harness` from application code.
 
 **Local stack**: The Runtime image with Postgres, Restate and S2, run by
-`nylorun up` (the `nylorun` package) on a developer machine. It never creates
-Tenants; `@nylorun/cli` (`nylo`) and Studio do. `@nylorun/runtime` is a library with no
-bin; the Runtime runs as the `ghcr.io/nylorun/runtime` image.
+`nylorun start` (the `nylorun` package) on a developer machine: one installation, one
+per project by default. A stack has a name (`--name`, else the project directory's),
+its Compose project `nylorun-<name>`, its Host root `~/.nylorun/stacks/<name>/`, ports
+and volumes. Its Runtime creates the stack's one Tenant on first start. Stacks start and
+stop only when the developer says so. `@nylorun/runtime` is a library with no bin; the
+Runtime runs as the `ghcr.io/nylorun/runtime` image.
 _Avoid_: "native Host", or installing `@nylorun/runtime` globally.
 
 **Prerequisites**: What a developer installs before using the Runtime: Node 24
@@ -59,25 +64,27 @@ Host shutdown and the Tenant API, never to browsers. Without one, a single
 _Avoid_: proxying the operator port.
 
 **Runtime Host** (or **Host**): The code in every Runtime process that listens,
-validates `Nylorun-Protocol` and `Nylorun-Tenant`, serves admin routes, and
-forwards Tenant routes to the matching Tenant Runtime, opening it on demand
-(`host/create-host.ts`: the listeners and the `Host` check; `host/app.ts`: the rest of the
-pipeline, a Hono app). Only `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`,
-`hostId` and protocol range; `/ready` reports Postgres, Restate and S2
-(`infra/readiness.ts`). Tenant data is a Postgres schema per Tenant; the Host
-keeps each Tenant's key, plugin data and logs under `tenants/` in its Host root
-(`NYLORUN_HOME` or `~/.nylorun`). `nylorun up` writes `host.json` and
+validates `Nylorun-Protocol`, serves admin routes, and forwards Tenant routes to its one
+Tenant Runtime, which it opens at start (`host/create-host.ts`: the listeners and the
+`Host` check; `host/app.ts`: the rest of the pipeline, a Hono app). A protocol 4
+`Nylorun-Tenant`, or a publishable key, naming another Tenant gets the opaque `404`. Only
+`host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`, `hostId`
+and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
+(`infra/readiness.ts`). The Tenant's data is its Postgres database; the Host keeps its
+key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or the
+stack's `~/.nylorun/stacks/<name>/`). `nylorun start` writes `host.json` and
 `host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
 **Tenant**: One isolated unit of sessions, principals, vault, sandboxes, plugin
-data and logs: the Postgres schema `tenant_<id>` and the Tenant directory
-`<host root>/tenants/<tenantId>/`. Selected by the `Nylorun-Tenant` header or
-by the Tenant a publishable key names (`Nylorun-Key`); both must agree when both
-are sent. Never by a default, query string or body field. Ids
-match `tn_` plus 26 Crockford characters. Quarantine leaves other Tenants
-running.
-_Avoid_: "scope" or "database" as the name for this unit.
+data and logs: the one Tenant of an installation, its state in the Postgres schema
+`nylorun` of its own database (the `nylorun.tenant` row holds its envelope), its record in
+`nylorun_streams`, and the Tenant directory `<host root>/tenant/`. The Host creates it on
+first start (`store/postgres/tenant.ts`: `NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, its
+Studio and derived principals). Nothing in a request selects it. Ids match `tn_` plus 26
+Crockford characters; the id stays as identity (token issuers, keys, basins). A Tenant
+that cannot be opened fails the Host's readiness with its cause (`tenant/cause.ts`).
+_Avoid_: "scope" as the name for this unit.
 
 **Tenant Runtime**: The in-process handler for one open Tenant. Created from a
 `TenantConfig` (paths, model, sandbox, child env, logger). It authenticates its
@@ -86,17 +93,19 @@ API routes are in `api/`: the `/v1` HTTP routes (`api/http/`), the AG-UI
 endpoint (`api/ag-ui/`) and the A2A endpoint (`api/a2a/`).
 _Avoid_: equating "Runtime" alone with a single Project's process.
 
-**Host root**: The absolute directory that holds Host files, `tenants/`, and
-`trash/`. Resolved once from `NYLORUN_HOME` or `~/.nylorun`. The local stack
-bind-mounts it into the Runtime container at `/nylorun`.
+**Host root**: The absolute directory that holds Host files and the Tenant directory
+`tenant/`. Resolved once from `NYLORUN_HOME`, or for a local stack
+`~/.nylorun/stacks/<name>/`. The local stack bind-mounts it into the Runtime container
+at `/nylorun`.
 
 **Project link**: Project-local `.nylorun/link.json` with
-`{ format, hostUrl, hostId, tenantId }`, plus `.nylorun/credentials.json`
-(mode 0600) holding the application key and principal id. Format `0` (missing
-`format`) may still contain an `executors` map; version 1 ignores it and drops
-it on write. `nylo tenant create` writes it; `nylo tenant use` chooses another
-Tenant. A fresh clone or second worktree does not attach until it creates or
-chooses a link.
+`{ format: 2, stack, hostUrl, hostId, tenantId }` (`tenantId` is information:
+nothing selects a Tenant), plus `.nylorun/credentials.json` (mode 0600) holding the
+key of the derived principal `project` and its id. `nylorun start` writes both. A
+format 0 or 1 link named a Tenant on an older multi-Tenant Host; clients refuse it and
+`nylorun start` replaces it with a new stack. A fresh clone or second worktree does not
+attach until `nylorun start` creates its stack, or `nylorun start --name <stack>`
+attaches it to an existing one.
 _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
 flags and env vars that selected a database path.
 
@@ -220,8 +229,9 @@ _Avoid_: "executor key" (removed in protocol 3).
 Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 3`; required features `runtime-tenants`,
-`admin-status`, `studio-principal` and `action-endpoints`; optional Host features
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 5`; the Host serves 4 and 5; required features
+`admin-status`, `studio-principal` and `action-endpoints`, and the Host still advertises
+`runtime-tenants` for protocol 4 clients; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
 `subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint` and
 `a2a-endpoint`).
@@ -229,19 +239,20 @@ Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
 
-**Studio principal**: Application principal `studio` that every Tenant created
-by `@nylorun/admin` registers. Its key is derived from the admin key and the
-Tenant id (`deriveStudioToken`, `admin/src/derived-credentials.ts`); the Tenant
-stores only its hash (`tenant/principals.ts`). Studio derives it to call the
+**Studio principal**: Application principal `studio` that the Host registers when it
+creates its Tenant. Its key is derived from the admin key and the Tenant id
+(`deriveStudioToken`, `admin/src/derived-credentials.ts`; the Host's side is
+`tenant/principals.ts`); the Tenant stores only its hash. Studio derives it to call the
 Tenant API; the admin key is never a Tenant bearer.
 
 **Derived principal**: Application principal, named by its client (`babai`),
 whose key is derived from the admin key, the principal id and the Tenant id
-(`deriveTenantKey`, `admin/src/derived-credentials.ts`). Registered by hash when
-the Tenant is created (`derivedPrincipals`, feature `derived-principals`), so
-the client stores no key. The Studio principal is the first of these, with its
-own derivation. Tenants Studio creates register `project` (`PROJECT_PRINCIPAL_ID`),
-which `nylo tenant use` derives to link a Project on the same machine.
+(`deriveTenantKey`, `admin/src/derived-credentials.ts`). The Host registers each one
+it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default `project`) by hash when
+it creates its Tenant, and adds one configured later on its next start (feature
+`derived-principals`), so the client stores no key. The Studio principal is the first
+of these, with its own derivation. `project` (`PROJECT_PRINCIPAL_ID`) is the one a
+Project on the same machine derives.
 _Avoid_: storing an application key on a machine that already holds the admin
 key.
 
@@ -282,14 +293,15 @@ One line each; the module named is where the term lives in code.
 - **Route declaration**: A Tenant or Admin route declared once with who may call it (`RouteAccess`: credentials, subject scopes, browser access), which serves it, checks subject scopes (`requireScopes`), answers its browser preflight and describes it (`api/http/define.ts`, `api/route.ts`). A path or method no route declares is `404 Route not found` once the caller is known.
 - **OpenAPI document**: The Tenant API's and the Admin API's OpenAPI 3.2 descriptions, generated from the route declarations (`api/openapi.ts`): served (`/openapi.json`, `/v1/admin/openapi.json`), packed (`@nylorun/runtime/openapi.json`, `/admin-openapi.json`), attached to each release; `runtime/openapi/` is their committed snapshot.
 - **Profile**: Who operates the Runtime's infrastructure, OSS or Cloud; not a code switch, since only endpoints (`host/stack-config.ts`) and the vault key differ.
-- **Tenant handle**: The `TenantHandle` of one open Tenant Runtime, bound to its schema, basin and vault key (`tenant/types.ts`, opened by `tenant/store-pg.ts`).
+- **Tenant handle**: The `TenantHandle` of the Host's open Tenant Runtime, bound to its database, basin and vault key (`tenant/types.ts`, opened by `tenant/store-pg.ts`, kept by `tenant/module.ts`).
 - **Service**: What one Runtime process runs, chosen with `--service` (blueprint §19): `core` (the Tenant and Admin APIs, SSE, the stream relay), `loop` (the agent loop and the Worker endpoint) or `gates` (the Model Gate); `--role api|worker|all` is its deprecated alias (`host/stack-config.ts`). A service is not a container. _Avoid_: "role", which means a Postgres or access-policy role.
 - **Packing**: Which services share a container. The local stack's combined packing runs `core,loop` in the `runtime` container and `gates` in the `gateway` container; core and loop may share a process, gates never joins them (`NYLORUN_PACKING`, `nylorun/src/stack/compose-file.ts`).
 - **Gateway**: The local stack's container for the gates service (and, in later releases, egress and keys). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider.
 - **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam the loop calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`) or over HTTP (`gates/http-client.ts`). Only it reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
 - **API node**: A Runtime process that runs the core service, serving the Tenant API, Admin API and SSE (`host/stack-config.ts`, `infra/workers.ts`).
 - **Worker**: A Runtime process that runs the loop service, whose Restate endpoint runs advances and sweeps (`infra/workers.ts`, `tenant/worker.ts`).
-- **Session Store**: A Tenant's durable state in its Postgres schema, behind the async `SessionStore`/`Tx` seam (`store/types.ts`, `store/postgres/`).
+- **Session Store**: The Tenant's durable state in the fixed schemas of its own Postgres database, behind the async `SessionStore`/`Tx` seam (`store/types.ts`, `store/postgres/`). Drizzle defines its tables (`store/postgres/schema.ts`), generates its migrations (`store/postgres/drizzle/`) and runs its queries; only `store/postgres/` imports Drizzle or the driver.
+- **Migration**: One step of the Tenant database's schema: a SQL file drizzle-kit generated from `schema.ts`, or custom SQL for what it does not model (the schemas, `doc()`, the relay's publication). The Host applies the missing ones at startup under an advisory lock and records them in `nylorun.__drizzle_migrations`; a database holding one this Runtime does not ship is `schema-too-new`. The schema version is the number applied (`store/postgres/migrate.ts`).
 - **Durable Session Execution**: Delivers wakes, runs at most one advance per session, and arms the Tenant sweep; Restate (`execution/types.ts`, `adapters/execution/restate.ts`).
 - **Durable Streams**: One ordered, resumable stream per session plus `tenant/control`; S2 (`streams/types.ts`, `adapters/streams/s2.ts`).
 - **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
@@ -298,10 +310,10 @@ One line each; the module named is where the term lives in code.
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`).
 - **Ownership epoch**: The counter an advance takes with a session's lease; every write the advance makes checks it (`store/ownership.ts`).
 - **Engine host**: `resolveEffect`, which journals each effect's intent and outcome and dispatches it by kind (`tenant/effects.ts`).
-- **Record**: Every session event, written in its state transaction to Postgres `nylorun_streams.session_events` (shared by every Tenant, keyed by `tenant_id`), with each session's log head; Durable Streams are fed from it (`Tx.event`, `store/postgres/migrations/shared/`).
-- **Record module**: The one write path into the Record (`record/`, blueprint D27): it builds each event on the `nylorun.event/2` envelope, checks it against the event catalog and holds the only insert into `session_events` and `session_log_heads`. The stores call it from `Tx.event` under the session lock; `scripts/check-boundaries.mjs` refuses an insert anywhere else.
+- **Record**: Every session event, written in its state transaction to Postgres `nylorun_streams.session_events` (keyed by session and seq: the database holds one Tenant), with each session's log head; Durable Streams are fed from it (`Tx.event`, `store/postgres/schema.ts`, `store/postgres/record.ts`).
+- **Record module**: The one write path into the Record (`record/`, blueprint D27): it builds each event on the `nylorun.event/2` envelope, checks it against the event catalog and holds the only insert into `session_events` and `session_log_heads`, whose two statements it runs through the store's `RecordWriter` (`store/postgres/record-writer.ts`, behind the driver boundary). The store calls it from `Tx.event` under the session lock; `scripts/check-boundaries.mjs` refuses an insert anywhere else.
 - **Transcript fold**: The own loop's model-facing transcript, rebuilt from the session's `transcript.updated` events (internal, never served) at each segment start; `turn.cancelled` and `turn.failed` undo their turn's edits. The session row stores the engine state without it, folding from `Session.history.from` (`tenant/history.ts`, blueprint P0.3). Tests run in shadow mode (`test/setup/transcript-shadow.ts`), which also keeps the transcript on the row and checks the fold against it.
-- **Stream relay**: Feeds Durable Streams from the record, exactly once and in order per session (`matchSeq`), acknowledging the replication slot only after S2 has the events; reconciles the record with S2 after a new or lost slot. On a Host with S2 one process-wide relay reads logical replication (`streams/relay/`, `adapters/replication/pgoutput.ts`); otherwise each Tenant relays its own commits (`tenant/streams.ts`). The only writer of session streams.
+- **Stream relay**: Feeds Durable Streams from the record, exactly once and in order per session (`matchSeq`), acknowledging the replication slot only after S2 has the events; reconciles the record with S2 after a new or lost slot. On a Host with S2 one process-wide relay reads logical replication once the Tenant is open, filling in its id (`streams/relay/`, `adapters/replication/pgoutput.ts`); otherwise the Tenant relays its own commits (`tenant/streams.ts`). The only writer of session streams.
 - **Basin generation**: The Tenant's current S2 basin, from 0; a sessions reset moves to the next, so ids it frees start in an empty basin, and the old basin is deleted after a grace period (`streams/basin.ts`, `tenant/streams.ts`).
 - **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`).
 - **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions and stops idle sandboxes (`tenant/sweep.ts`).
@@ -318,7 +330,12 @@ One line each; the module named is where the term lives in code.
 | `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents` | Action endpoints: `createActionHandler` and `PUT /v1/endpoints` |
 | `nylorun serve` | `node dist/src/main.js` / the app's Action endpoint |
 | importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
-| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun up` |
-| `nylorun dev`, `nylorun dev --ephemeral` | `nylo tenant create` once, then the project's `npm run dev` |
-| `tenant.sqlite`, the SQLite store | the Tenant's Postgres schema (Session Store) |
+| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun start` |
+| `nylorun dev`, `nylorun dev --ephemeral` | `nylorun start` once, then the project's `npm run dev` |
+| `nylo tenant create\|use\|list\|current\|delete`, one stack for every project | `nylorun start` in the project: its own stack, Tenant and link |
+| `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation |
+| `tenant.sqlite`, the SQLite store | the Tenant's Postgres database (Session Store) |
+| `tenant_<id>` schemas, the Tenant catalog, quarantine | one Tenant per database; a readiness cause |
+| `schema_version` tables, hand-written migrations, `lockSchema` | Drizzle migrations and their journal (`store/postgres/migrate.ts`) |
+| `Nylorun-Tenant` on new clients, `/v1/admin/tenants` | nothing selects the Tenant; `/v1/admin/status` names it |
 | Hosted Studio, `local.nylorun.studio`, pairing | the stack's Studio service and its login URL |

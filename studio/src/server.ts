@@ -16,11 +16,11 @@
  *   served without one; only `frameAncestors` may frame them.
  * - `Host` must be the published loopback address (DNS rebinding); requests
  *   that change state must carry this origin's `Origin`; no CORS headers.
- * - Tenants are listed and created through the Admin API with the admin key.
- *   A Tenant Studio creates registers the derived principal `project`, so a
- *   Project on this machine can link it (`nylo tenant use`). Tenant API
- *   calls use the Tenant's Studio key, derived from the admin key in memory.
- *   No key ever reaches the browser.
+ * - Studio serves its installation's one Tenant, which it learns from the
+ *   Admin API (`admin.status().tenant`): `/` redirects to `/tenants/<id>`, and
+ *   a route or login token naming another Tenant is refused. Tenant API calls
+ *   use the Tenant's Studio key, derived from the admin key in memory. No key
+ *   ever reaches the browser.
  *
  * This module does not read the environment; `server-main.ts` does.
  */
@@ -33,9 +33,9 @@ import {
 } from "node:http";
 import {
   AdminError,
-  PROJECT_PRINCIPAL_ID,
   createAdmin,
   deriveStudioToken,
+  type HostTenant,
 } from "@nylorun/admin";
 import {
   StudioLoginTokenRequestSchema,
@@ -95,20 +95,23 @@ export type StudioServer = Readonly<{
   close(): Promise<void>;
 }>;
 
+/** The installation's one Tenant, as `/_studio/hello` reports it. */
 export type StudioTenantSummary = Readonly<{
-  id: string;
+  /** Null until Studio has read it: the Host cannot read its Tenant, or the Admin API is unreachable. */
+  id: string | null;
   name: string | null;
-  state: string;
+  state: "open" | "unavailable";
+  /** Why it is unavailable and how to repair it. */
+  message?: string;
 }>;
 
 export type StudioServerHello = Readonly<{
   version: string;
   runtime: RuntimeCompatibility;
+  tenant: StudioTenantSummary;
 }>;
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
-/** Longest Tenant name Studio creates. */
-export const TENANT_NAME_MAX = 64;
 const MAX_JSON_BODY = 4096;
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TENANT_RUNTIME = /^\/_studio\/tenants\/([^/]+)\/runtime(\/.*)$/;
@@ -292,27 +295,6 @@ function fail(response: ServerResponse, status: number, message: string): void {
   json(response, status, { message });
 }
 
-/** A small JSON request body, or undefined when it is not JSON or too large. */
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  const type = request.headers["content-type"] ?? "";
-  if (!/^application\/json(;|$)/iu.test(type)) {
-    request.resume();
-    return undefined;
-  }
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    size += (chunk as Buffer).length;
-    if (size > MAX_JSON_BODY) return undefined;
-    chunks.push(chunk as Buffer);
-  }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
 const INVALID_BODY = Symbol("invalid body");
 
 /**
@@ -373,6 +355,13 @@ function page(
 const SIGN_IN =
   "Run <code>npx nylorun studio</code> in a terminal. It opens Studio in your browser, signed in for 30 days.";
 
+/** Why the Host's Tenant is not open, with the repair the Host names. */
+function unavailableMessage(tenant: HostTenant): string {
+  if (tenant.cause === undefined)
+    return "The Runtime has not opened its Tenant yet. Try again in a moment.";
+  return `${tenant.cause.message} ${tenant.cause.repair} (${tenant.cause.code})`;
+}
+
 /** Starts the Studio server. The container entry is `server-main.ts`. */
 /** `frame-ancestors` sources for the allowlist; `'none'` when it is empty. */
 function frameAncestorSources(origins: readonly string[]): string {
@@ -422,20 +411,90 @@ export async function startStudioServer(
     string,
     Readonly<{ expiresAt: number; tenant: string | null; subject: string | null }>
   >();
-  /** Tenant id → derived Studio key, in memory only. */
-  const studioKeys = new Map<string, string>();
+  /**
+   * The Host's Tenant id, once Studio has read it: an installation's Tenant
+   * keeps its id. A failure to read it is not remembered, so a later request
+   * asks the Admin API again.
+   */
+  let knownTenantId: string | undefined;
+  /** The Tenant's derived Studio key, in memory only. */
+  let studioKeyMemo: Readonly<{ tenantId: string; key: string }> | undefined;
 
   let boundPort = 0;
   let publicPort = 0;
   let publicHosts: ReadonlySet<string> = new Set();
 
   const studioKey = (tenantId: string): string => {
-    let key = studioKeys.get(tenantId);
-    if (key === undefined) {
-      key = deriveStudioToken(adminKey, tenantId);
-      studioKeys.set(tenantId, key);
+    if (studioKeyMemo?.tenantId !== tenantId)
+      studioKeyMemo = { tenantId, key: deriveStudioToken(adminKey, tenantId) };
+    return studioKeyMemo.key;
+  };
+
+  /** The Host's one Tenant, read from the Admin API (`admin.status().tenant`). */
+  const hostTenant = async (): Promise<StudioTenantSummary> => {
+    try {
+      const { tenant } = await admin.status();
+      if (tenant.id !== null) knownTenantId = tenant.id;
+      return tenant.state === "open" && tenant.id !== null
+        ? { id: tenant.id, name: tenant.name, state: "open" }
+        : {
+            id: tenant.id,
+            name: tenant.name,
+            state: "unavailable",
+            message: unavailableMessage(tenant),
+          };
+    } catch (error) {
+      return {
+        id: knownTenantId ?? null,
+        name: null,
+        state: "unavailable",
+        message:
+          error instanceof AdminError
+            ? `The Runtime Admin API is unavailable: ${error.message}`
+            : "The Runtime Admin API is unavailable.",
+      };
     }
-    return key;
+  };
+
+  /** The Tenant id routes and login tokens must name: remembered, or read now. */
+  const tenantIdOrCause = async (): Promise<
+    Readonly<{ id: string } | { id: null; message: string }>
+  > => {
+    if (knownTenantId !== undefined) return { id: knownTenantId };
+    const tenant = await hostTenant();
+    return tenant.id !== null
+      ? { id: tenant.id }
+      : { id: null, message: tenant.message ?? "The Tenant is unavailable." };
+  };
+
+  /**
+   * `GET /`: the dashboard of the installation's one Tenant. Like the
+   * dashboard's files it needs no session; the Tenant id is not a secret.
+   */
+  const redirectToTenant = async (
+    url: URL,
+    response: ServerResponse,
+    method: string,
+  ): Promise<void> => {
+    const tenant = await hostTenant();
+    if (tenant.state !== "open" || tenant.id === null) {
+      page(
+        response,
+        503,
+        "Tenant unavailable",
+        `${escapeHtml(tenant.message ?? "The Tenant is unavailable.")} Reload this page to try again; <code>npx nylorun status</code> reports the stack.`,
+        method,
+      );
+      return;
+    }
+    // Framed like the dashboard it leads to (Studio §8.9).
+    response.removeHeader("x-frame-options");
+    response.writeHead(302, {
+      location: `/tenants/${encodeURIComponent(tenant.id)}${url.search}`,
+      "cache-control": "no-store",
+      "content-security-policy": `frame-ancestors ${dashboard.frameAncestors}`,
+    });
+    response.end();
   };
 
   /**
@@ -490,12 +549,29 @@ export async function startStudioServer(
         400,
         `Send JSON { "tenant"?: "<Tenant id>", "subject"?: "<1–200 visible ASCII characters>" }: ${parsed.error.issues[0]?.message ?? "invalid"}.`,
       );
+    const tenant = parsed.data.tenant ?? null;
+    // The embed contract keeps the `tenant` claim; it must name this
+    // installation's Tenant.
+    if (tenant !== null) {
+      const host = await tenantIdOrCause();
+      if (host.id === null)
+        return fail(
+          response,
+          503,
+          `Studio cannot read this installation's Tenant: ${host.message}`,
+        );
+      if (tenant !== host.id)
+        return fail(
+          response,
+          404,
+          `Unknown Tenant: this Studio serves only Tenant ${host.id}.`,
+        );
+    }
     const at = now();
     for (const [token, entry] of loginTokens)
       if (entry.expiresAt <= at) loginTokens.delete(token);
     const token = randomBytes(32).toString("base64url");
     const expiresAt = at + LOGIN_TOKEN_TTL_MS;
-    const tenant = parsed.data.tenant ?? null;
     const subject = parsed.data.subject ?? null;
     loginTokens.set(token, { expiresAt, tenant, subject });
     const reply: StudioLoginTokenResponse = {
@@ -562,63 +638,6 @@ export async function startStudioServer(
       "cache-control": "no-store",
     });
     response.end();
-  };
-
-  const listTenants = async (response: ServerResponse): Promise<void> => {
-    try {
-      const tenants = await admin.listTenants();
-      const summaries: StudioTenantSummary[] = tenants.map((tenant) => ({
-        id: tenant.id,
-        name: tenant.name,
-        state: tenant.state,
-      }));
-      json(response, 200, { tenants: summaries });
-    } catch (error) {
-      const detail =
-        error instanceof AdminError
-          ? error.message
-          : "The Runtime Admin API is unavailable";
-      fail(response, 502, detail);
-    }
-  };
-
-  const createTenant = async (
-    request: IncomingMessage,
-    response: ServerResponse,
-  ): Promise<void> => {
-    const body = await readJsonBody(request);
-    const raw =
-      body && typeof body === "object" && !Array.isArray(body)
-        ? (body as { name?: unknown }).name
-        : undefined;
-    const name = typeof raw === "string" ? raw.trim() : "";
-    if (name === "" || name.length > TENANT_NAME_MAX)
-      return fail(
-        response,
-        400,
-        `Send JSON { "name": "…" } with a Tenant name of 1 to ${TENANT_NAME_MAX} characters.`,
-      );
-    try {
-      // The application key it returns is dropped: Projects derive theirs.
-      const { tenant } = await admin.createTenant({
-        name,
-        principals: [PROJECT_PRINCIPAL_ID],
-      });
-      const summary: StudioTenantSummary = {
-        id: tenant.id,
-        name: tenant.name,
-        state: "open",
-      };
-      json(response, 201, { tenant: summary });
-    } catch (error) {
-      fail(
-        response,
-        502,
-        error instanceof AdminError
-          ? error.message
-          : "The Runtime Admin API is unavailable",
-      );
-    }
   };
 
   const handle = async (
@@ -693,6 +712,13 @@ export async function startStudioServer(
       return await createSession(request, response);
     }
 
+    if (pathname === "/") {
+      request.resume();
+      if (!SAFE_METHODS.has(method))
+        return fail(response, 405, "Studio only serves static assets here.");
+      return await redirectToTenant(url, response, method);
+    }
+
     // The dashboard's files carry no data: served without a session, framed
     // only by the allowlist. Its sign-in page is part of the dashboard.
     if (!pathname.startsWith("/_studio/")) {
@@ -728,26 +754,12 @@ export async function startStudioServer(
       request.resume();
       if (!SAFE_METHODS.has(method))
         return fail(response, 405, "Method not allowed");
-      const hello: StudioServerHello = {
-        version: STUDIO_VERSION,
-        runtime: await probeRuntimeCompatibility(runtimeUrl),
-      };
+      const [runtime, tenant] = await Promise.all([
+        probeRuntimeCompatibility(runtimeUrl),
+        hostTenant(),
+      ]);
+      const hello: StudioServerHello = { version: STUDIO_VERSION, runtime, tenant };
       return json(response, 200, hello, method);
-    }
-
-    if (pathname === "/_studio/tenants") {
-      if (session.tenant !== null) {
-        request.resume();
-        return fail(
-          response,
-          403,
-          "This Studio session is limited to one Tenant; listing and creating Tenants needs a Host-wide session.",
-        );
-      }
-      if (method === "POST") return createTenant(request, response);
-      request.resume();
-      if (method !== "GET") return fail(response, 405, "Method not allowed");
-      return listTenants(response);
     }
 
     const tenantRoute = TENANT_RUNTIME.exec(pathname);
@@ -759,10 +771,19 @@ export async function startStudioServer(
       } catch {
         tenantId = "";
       }
-      // A session limited to another Tenant gets the same answer as a Tenant
-      // that does not exist.
+      if (!TENANT_ID.test(tenantId)) {
+        request.resume();
+        return fail(response, 404, "Unknown Tenant");
+      }
+      const host = await tenantIdOrCause();
+      if (host.id === null) {
+        request.resume();
+        return fail(response, 503, host.message);
+      }
+      // Another Tenant, and a session limited to another Tenant, get the same
+      // answer as a Tenant that does not exist.
       if (
-        !TENANT_ID.test(tenantId) ||
+        tenantId !== host.id ||
         (session.tenant !== null && session.tenant !== tenantId)
       ) {
         request.resume();
@@ -785,7 +806,6 @@ export async function startStudioServer(
         origin,
         runtimeUrl,
         serverKey: studioKey(tenantId),
-        tenantId,
         prefix: `/_studio/tenants/${segment}/runtime`,
         allowedOrigins: new Set([origin]),
       });

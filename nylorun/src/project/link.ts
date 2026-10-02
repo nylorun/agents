@@ -1,22 +1,122 @@
-import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isTenantId } from "@nylorun/core/compatibility";
-import { findProjectRoot } from "./root.js";
+import { ProjectLinkFileSchema } from "@nylorun/core/contracts";
+import { CliError } from "../errors.js";
 
 /**
- * The linked Project's Tenant id, read from `.nylorun/link.json`, or undefined
- * outside a linked Project. nylorun only reads the link: `@nylorun/cli` writes
- * it when it creates or chooses a Tenant.
+ * The Project link (`.nylorun/link.json`) and credentials (`.nylorun/credentials.json`).
+ * `nylorun start` writes both, format 2: the stack the Project uses, its URL and Host id, and
+ * the Tenant id as information (nothing selects a Tenant). Formats 0 and 1 named a Tenant on a
+ * multi-Tenant Host of an older Runtime.
  */
-export async function linkedTenantId(cwd = process.cwd()): Promise<string | undefined> {
-  const root = findProjectRoot(cwd);
-  if (!root) return undefined;
+export interface ProjectLink {
+  format: 0 | 1 | 2;
+  /** The local stack (format 2). */
+  stack?: string;
+  hostUrl: string;
+  hostId: string;
+  tenantId?: string;
+}
+
+export function linkPath(projectRoot: string): string {
+  return join(projectRoot, ".nylorun", "link.json");
+}
+
+export function credentialsPath(projectRoot: string): string {
+  return join(projectRoot, ".nylorun", "credentials.json");
+}
+
+/** The Project's link, or undefined when it has none. An unreadable link is an error. */
+export async function readProjectLink(projectRoot: string): Promise<ProjectLink | undefined> {
+  let text: string;
   try {
-    const link = JSON.parse(await readFile(join(root, ".nylorun", "link.json"), "utf8")) as {
-      tenantId?: unknown;
+    text = await readFile(linkPath(projectRoot), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    value = undefined;
+  }
+  const parsed = ProjectLinkFileSchema.safeParse(value);
+  if (!parsed.success)
+    throw new CliError(
+      `Invalid or newer Project link at ${linkPath(projectRoot)}. Upgrade nylorun, or remove the file and run "npx nylorun start" again.`,
+      1,
+    );
+  const link = parsed.data;
+  return {
+    format: link.format,
+    ...(link.stack ? { stack: link.stack } : {}),
+    hostUrl: link.hostUrl.replace(/\/$/, ""),
+    hostId: link.hostId,
+    ...(link.tenantId ? { tenantId: link.tenantId } : {}),
+  };
+}
+
+async function writePrivate(path: string, value: unknown): Promise<void> {
+  const temporary = `${path}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    await rename(temporary, path);
+    await chmod(path, 0o600);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+/** `.nylorun/` mode 0700 with its own `.gitignore` of `*`; the Project's is never edited. */
+async function ensureProjectDir(projectRoot: string): Promise<void> {
+  const dir = join(projectRoot, ".nylorun");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await chmod(dir, 0o700);
+  await writeFile(join(dir, ".gitignore"), "*\n", { mode: 0o600 });
+}
+
+export async function writeProjectLink(
+  projectRoot: string,
+  link: { stack: string; hostUrl: string; hostId: string; tenantId: string },
+): Promise<void> {
+  await ensureProjectDir(projectRoot);
+  await writePrivate(linkPath(projectRoot), {
+    format: 2,
+    stack: link.stack,
+    hostUrl: link.hostUrl.replace(/\/$/, ""),
+    hostId: link.hostId,
+    tenantId: link.tenantId,
+  });
+}
+
+/** The Project's application key and principal, or undefined when absent or unreadable. */
+export async function readProjectCredentials(
+  projectRoot: string,
+): Promise<{ applicationKey: string; principalId: string } | undefined> {
+  try {
+    const value = JSON.parse(await readFile(credentialsPath(projectRoot), "utf8")) as {
+      applicationKey?: unknown;
+      principalId?: unknown;
     };
-    return isTenantId(link.tenantId) ? link.tenantId : undefined;
+    return typeof value.applicationKey === "string" && typeof value.principalId === "string"
+      ? { applicationKey: value.applicationKey, principalId: value.principalId }
+      : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** `.nylorun/credentials.json` (format 1, mode 0600). */
+export async function writeProjectCredentials(
+  projectRoot: string,
+  credentials: { applicationKey: string; principalId: string },
+): Promise<void> {
+  await ensureProjectDir(projectRoot);
+  await writePrivate(credentialsPath(projectRoot), {
+    format: 1,
+    applicationKey: credentials.applicationKey,
+    principalId: credentials.principalId,
+  });
 }

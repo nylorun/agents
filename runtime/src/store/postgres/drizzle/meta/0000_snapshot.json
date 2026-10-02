@@ -1,0 +1,21 @@
+{
+  "id": "66d149df-4b0f-4133-9151-d19c2ffceeaa",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {},
+  "enums": {},
+  "schemas": {
+    "nylorun": "nylorun",
+    "nylorun_streams": "nylorun_streams"
+  },
+  "views": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

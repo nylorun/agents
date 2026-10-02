@@ -4,12 +4,11 @@
  * only, so the SDK takes no JWT dependency: a JWS ES256 signature is the raw `r || s` pair
  * WebCrypto's ECDSA verifies.
  */
-import {
-  PROTOCOL_HEADER,
-  PROTOCOL_VERSION,
-  TENANT_HEADER,
-} from "@nylorun/core/compatibility";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION, isTenantId } from "@nylorun/core/compatibility";
 import { DELIVERY_TOKEN_TYPE, subjectTokenIssuer } from "@nylorun/core/contracts";
+
+/** The issuer prefix of a Tenant's tokens: `urn:nylorun:tenant:<tenantId>`. */
+const ISSUER_PREFIX = subjectTokenIssuer("");
 
 /** The claims of a verified delivery token. */
 export interface DeliveryClaims {
@@ -48,11 +47,17 @@ const FORBIDDEN_HEADERS = ["jku", "jwk", "x5u", "x5c", "x5t", "x5t#S256", "crit"
 /** The largest token accepted: well above a real one, well below a request limit. */
 const MAX_TOKEN_LENGTH = 4096;
 
+/**
+ * Verifies `token` against `body`. The keys are the installation's, so a valid signature already
+ * binds the issuer to its one Tenant: any `urn:nylorun:tenant:<id>` issuer is accepted (and
+ * returned in `iss`) unless `tenantId` names the one expected.
+ */
 export async function verifyDeliveryToken(
   token: string | null,
   options: {
     keys: KeyLookup;
-    tenantId: string;
+    /** When set, `iss` must name this Tenant. */
+    tenantId?: string;
     body: Uint8Array;
     /** When set, `aud` must equal it: the URL this endpoint was registered with. */
     audience?: string;
@@ -94,7 +99,12 @@ export async function verifyDeliveryToken(
     typeof claims.jti !== "string"
   )
     throw invalid("Missing claims");
-  if (claims.iss !== subjectTokenIssuer(options.tenantId))
+  if (
+    !claims.iss.startsWith(ISSUER_PREFIX) ||
+    !isTenantId(claims.iss.slice(ISSUER_PREFIX.length))
+  )
+    throw invalid("The token was not issued by a Tenant");
+  if (options.tenantId !== undefined && claims.iss !== subjectTokenIssuer(options.tenantId))
     throw invalid("The token is for another Tenant");
   if (options.audience !== undefined && claims.aud !== options.audience)
     throw invalid(`The token is for ${claims.aud}, not ${options.audience}`);
@@ -124,7 +134,7 @@ export class JwksCache {
 
   constructor(
     private readonly source:
-      | { url: string; tenant: string; key?: string; fetch?: typeof fetch }
+      | { url: string; key?: string; fetch?: typeof fetch }
       | { keys: readonly JsonWebKey[] },
     private readonly refetchMs = 5000,
   ) {}
@@ -166,12 +176,10 @@ export class JwksCache {
 
   private async fetchKeys(source: {
     url: string;
-    tenant: string;
     key?: string;
     fetch?: typeof fetch;
   }): Promise<readonly JsonWebKey[]> {
     const headers: Record<string, string> = {
-      [TENANT_HEADER]: source.tenant,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
     };
     if (source.key) headers.Authorization = `Bearer ${source.key}`;

@@ -8,7 +8,6 @@ import { Agent } from "@nylorun/agents";
 import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
-  TENANT_HEADER,
 } from "@nylorun/core/compatibility";
 import {
   SeedTenantConfigResponseSchema,
@@ -16,6 +15,7 @@ import {
 } from "@nylorun/core/contracts";
 import { startTestTenant } from "./support/tenant.js";
 import { startEphemeralRuntime } from "../src/tenant/ephemeral.js";
+import { testPool } from "./support/store.js";
 
 const roots: string[] = [];
 const closers: { close(): Promise<void> }[] = [];
@@ -47,7 +47,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
   const body = await response.json();
   const parsed = TenantStatusSchema.parse(body);
   expect(parsed.tenant.id).toBe(runtime.tenantId);
-  expect(parsed.path).toContain(runtime.tenantId);
+  expect(parsed.path).toMatch(/\/tenant$/);
   expect(parsed.checks.store).toBe(true);
   expect(parsed.checks.schema).toBe(true);
   expect(parsed.model.configured).toBe(false);
@@ -204,6 +204,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
 it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () => {
   const hostRoot = await tempRoot("ephemeral-host-");
   const runtime = await startEphemeralRuntime({
+    database: testPool(),
     hostRoot,
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
   });
@@ -220,7 +221,6 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
   const status = await fetch(`${runtime.url}/v1/tenant`, {
     headers: {
       authorization: `Bearer ${runtime.applicationKey}`,
-      [TENANT_HEADER]: runtime.tenantId,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       "content-type": "application/json",
     },
@@ -232,12 +232,7 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
 it("reset sandboxes renames then clears the sandboxes directory (A17)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
-  const sandboxes = join(
-    runtime.root,
-    "tenants",
-    runtime.tenantId,
-    "sandboxes",
-  );
+  const sandboxes = join(runtime.root, "tenant", "sandboxes");
   writeFileSync(join(sandboxes, "marker.txt"), "keep-me-not");
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
@@ -302,13 +297,7 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
     }),
   });
 
-  const logPath = join(
-    runtime.root,
-    "tenants",
-    runtime.tenantId,
-    "logs",
-    "tenant.log",
-  );
+  const logPath = join(runtime.root, "tenant", "logs", "tenant.log");
   writeFileSync(logPath, '{"level":"info","message":"noise"}\n');
   expect(existsSync(logPath)).toBe(true);
 

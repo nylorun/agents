@@ -9,12 +9,10 @@ import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
   HOST_PROTOCOL,
-  TENANT_HEADER,
   newTenantId,
 } from "@nylorun/core/compatibility";
 import { hashToken, mintBearerToken } from "../../src/core/bearer.js";
 import type { ModelProvider } from "../../src/core/provider.js";
-import { bootstrapPrincipal } from "../../src/tenant/principals.js";
 import { createTenantLogger } from "../../src/tenant/logger.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import {
@@ -27,19 +25,10 @@ import type { ModelGate } from "../../src/gates/model-gate.js";
 import { httpModelGate } from "../../src/gates/http-client.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
-import { MemorySessionStore } from "../../src/store/memory.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { DurableStreams } from "../../src/streams/types.js";
-import {
-  TEST_STORE,
-  dropTestTenant,
-  memoryTenantData,
-  memoryTenantExists,
-  testCatalog,
-  testEnvelope,
-  withTestSessionStore,
-} from "./store.js";
+import { dropTestTenant, openTestTenant, withTestSessionStore } from "./store.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Action endpoints registered once the Tenant is up (`PUT /v1/endpoints`). */
@@ -89,7 +78,7 @@ const retainedStreams = new Map<string, MemoryStreams>();
 
 /**
  * Rewrites fields of a stored session of a closed Tenant (restart tests). `root` is the
- * Host root; the store is the one `NYLORUN_TEST_STORE` selects.
+ * Host root.
  */
 export async function patchStoredSession(
   root: string,
@@ -108,9 +97,9 @@ export async function patchStoredSession(
 
 /**
  * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5). The
- * Tenant's Session Store is the one `NYLORUN_TEST_STORE` selects (`./store.ts`): in memory
- * (the default), or a fresh Postgres schema. `close()` drops the Tenant's data unless the
- * root is retained.
+ * Tenant is the one Tenant of a database of its own (`./store.ts`), created on first start
+ * and found again by a restart with the same `tenantId`. `close()` drops the database unless
+ * the root is retained.
  */
 export async function startTestTenant(
   options: StartTestTenantOptions = {}
@@ -128,7 +117,7 @@ export async function startTestTenant(
   const hostRoot =
     options.hostRoot ?? (await mkdtemp(join(tmpdir(), "nylorun-test-tenant-")));
   const tenantId = options.tenantId ?? newTenantId();
-  const paths = options.paths ?? tenantPaths(hostRoot, tenantId);
+  const paths = options.paths ?? tenantPaths(hostRoot);
   for (const dir of [
     paths.root,
     paths.home,
@@ -146,38 +135,18 @@ export async function startTestTenant(
   const logger =
     options.logger ?? createTenantLogger({ tenantId, logPath: paths.log });
 
-  const bootstrap = {
-    principalId,
-    credentialHash,
-    idempotencyKey: `boot-${tenantId}`,
+  // A restart (same `tenantId`) finds its database again and keeps its principals.
+  const result = await openTestTenant(tenantId, {
+    principals: [{ id: principalId, credentialHash }],
+    onError: (error) =>
+      logger.error("post-commit step failed", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  });
+  const opened: Pick<TenantOpenHooks, "store" | "envelope"> = {
+    store: result.store,
+    envelope: result.envelope,
   };
-  let opened: Pick<TenantOpenHooks, "store" | "envelope">;
-  if (TEST_STORE === "postgres") {
-    const catalog = testCatalog();
-    if (!(await catalog.tenantExists(tenantId)))
-      await catalog.createTenant({
-        envelope: testEnvelope(tenantId),
-        principals: bootstrap,
-      });
-    const result = await catalog.openTenant(tenantId);
-    if (result.status !== "ok")
-      throw new Error(`Test Tenant ${tenantId} is ${result.status}`);
-    opened = { store: result.store, envelope: result.envelope };
-  } else {
-    const fresh = !memoryTenantExists(tenantId);
-    const store = new MemorySessionStore(
-      {
-        tenantId,
-        onError: (error) =>
-          logger.error("post-commit step failed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
-      },
-      memoryTenantData(tenantId)
-    );
-    if (fresh) await store.tx((t) => bootstrapPrincipal(t, bootstrap));
-    opened = { store, envelope: testEnvelope(tenantId) };
-  }
 
   const mode = options.mode ?? "test";
   let model = options.model ?? { kind: "scripted" as const, output: "ok" };
@@ -250,6 +219,7 @@ export async function startTestTenant(
   if (options.modelGate) hooks.modelGate = options.modelGate;
   else if (options.useHostModel && process.env.NYLORUN_TEST_MODEL_GATE === "http") {
     gate = await startTestGate({
+      tenantId,
       store: opened.store,
       vault: new HostModelVault({
         store: opened.store,
@@ -304,7 +274,6 @@ export async function startTestTenant(
 
   const headers = (key?: string): Record<string, string> => ({
     authorization: `Bearer ${key ?? applicationKey}`,
-    [TENANT_HEADER]: tenantId,
     [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
     "content-type": "application/json",
   });
@@ -344,6 +313,9 @@ export async function startTestTenant(
           await defaultStreams.close();
         }
       }
+      // The Tenant is closed: a client's kept-alive or abandoned connection must not hold the
+      // listener open until it times out.
+      server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -360,6 +332,7 @@ export async function startTestTenant(
  * what the local stack's `gateway` container and the runtime container's loop do.
  */
 export async function startTestGate(options: {
+  tenantId: string;
   store: SessionStore;
   vault: HostModelVault;
   root: string;
@@ -372,6 +345,7 @@ export async function startTestGate(options: {
     logger: options.logger,
     vaults: {
       open: async () => ({
+        tenantId: options.tenantId,
         store: options.store,
         root: options.root,
         readHostModel: () => options.vault.readHostModel(),

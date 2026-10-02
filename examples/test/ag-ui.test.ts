@@ -1,6 +1,6 @@
 /**
  * The AG-UI example (`src/ag-ui/`) as a browser sees it: two signed-in people chat with the
- * support agent through the backend, against an in-memory Runtime whose fixture model calls
+ * support agent through the backend, against an in-process Runtime whose fixture model calls
  * `lookup_order`. Each person reaches only their own threads, a forged `Nylorun-*` header
  * changes nothing, and no response carries the application key, Runtime URL or Tenant id.
  */
@@ -14,8 +14,10 @@ import { HttpAgent } from "@ag-ui/client";
 import { createClient } from "@nylorun/agents";
 import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
 import { createSupportApp } from "../src/ag-ui/app.js";
+import { testDatabase } from "./database.js";
 
 let hostRoot: string;
+let database: Awaited<ReturnType<typeof testDatabase>>;
 let runtime: EphemeralRuntime;
 let server: Server;
 let base: string;
@@ -24,11 +26,15 @@ const received: string[] = [];
 
 beforeAll(async () => {
   hostRoot = await mkdtemp(join(tmpdir(), "examples-ag-ui-"));
-  runtime = await startEphemeralRuntime({ hostRoot, model: { kind: "fixture" } });
+  database = await testDatabase();
+  runtime = await startEphemeralRuntime({
+    hostRoot,
+    model: { kind: "fixture" },
+    database: database.url,
+  });
   const client = createClient({
     url: runtime.url,
     key: runtime.applicationKey,
-    tenant: runtime.tenantId,
   });
   const app = createSupportApp({ client });
   server = createServer(app.listener);
@@ -42,6 +48,7 @@ afterAll(async () => {
   server?.closeAllConnections();
   await new Promise((resolve) => server?.close(resolve));
   await runtime?.close();
+  await database?.drop();
   await rm(hostRoot, { recursive: true, force: true });
 });
 

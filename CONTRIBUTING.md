@@ -39,12 +39,11 @@ support remains separate from the pinned contributor toolchain.
 1. It builds the host packages, then the Runtime and Studio images from your
    checkout (`nylorun-runtime:dev`, `nylorun-studio:dev`; unchanged layers come
    from Docker's cache).
-2. It runs `nylorun start` on those images. The stack lives in `NYLORUN_HOME`
-   (default `~/.nylorun`) as Compose project `nylorun`, and outlives
-   `npm run dev`.
-3. It links `examples/` to its Tenant once (`nylo tenant create`, the Project
-   link in the git-ignored `examples/.nylorun/`), signs the browser in to Studio
-   on that Tenant (`nylorun studio`; `--no-open` prints a single-use login URL
+2. It runs `nylorun start` in `examples/` on those images. That creates the
+   examples' own stack (Host root `~/.nylorun/stacks/examples/`, Compose project
+   `nylorun-examples`) with its one Tenant, writes the Project link in the
+   git-ignored `examples/.nylorun/`, and outlives `npm run dev`.
+3. It signs the browser in to Studio on that Tenant (`nylorun studio`; `--no-open` prints a single-use login URL
    instead), and
    starts the examples' Action endpoint with their own `npm run dev` (`tsx watch`).
 4. It watches `core`, `harness`, `agents`, `admin`, `runtime`, `nylorun`, `cli`
@@ -78,13 +77,13 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `eval "$(npx nylo env)"` (in `examples/`)   | Export URL, key and Tenant for the linked Project                          |
 | `npx nylorun down` / `npx nylorun reset`    | Stop the stack (volumes kept) / delete its volumes and Tenants             |
 | `npm run build`                             | Build all eight packages                                                   |
-| `npm test`                                  | Run package, tooling, and examples tests after setup                       |
+| `npm test`                                  | Run package, tooling, and examples tests after setup (needs Docker)        |
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
 | `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary stack                             |
-| `npm run test:starter`                      | Smoke the packed starter (`nylorun up`, `nylo tenant create`, `npm run dev`, a temporary fixture-model Tenant) on a temporary stack |
+| `npm run test:starter`                      | Smoke the packed starter (`nylorun start` in the project, `npm run dev`, the stack's Tenant reset to the fixture model) on a temporary stack |
 | `npm run test:dev`                          | Smoke `npm run dev` on a temporary stack and a clean copy of `examples/`   |
-| `npm run test:acceptance [-- --only H1,H2]` | Tenant acceptance (H1–H9) on a temporary stack                             |
+| `npm run test:acceptance [-- --only I1,I2]` | Installation acceptance (I1–I9) on a temporary stack                       |
 
 The stack smokes (`scripts/lib/stack.mjs`) build `nylorun-runtime:local`
 and `nylorun-studio:local` from the checkout, or reuse the images
@@ -99,6 +98,37 @@ preview agents and credentials are never overwritten.
 For focused checks: `npm run check --workspace @nylorun/runtime` (substitute another
 package). CI uses `-- --built` on root checks after setup to avoid rebuilding.
 
+The Runtime's tests keep every Tenant in Postgres: each test file gets its own database,
+cloned from a template the run migrates, on the Docker test stack
+(`runtime/test/stack/compose.yaml`: Postgres, Restate, s2-lite). `npm test` in `runtime/`
+starts that stack when its Postgres does not answer, and leaves it running for the next
+run; the examples' tests use it too. Manage it yourself with
+`npm run test:stack:up --workspace @nylorun/runtime` and `npm run test:stack:down
+--workspace @nylorun/runtime`; set `NYLORUN_TEST_STACK_EXTERNAL=1` to make the tests fail
+instead of starting it, and the `NYLORUN_TEST_*_PORT` variables to move its ports.
+
+### Adding a migration
+
+Drizzle defines the Session Store's tables in `runtime/src/store/postgres/schema.ts`, and
+drizzle-kit generates the migrations from it into `runtime/src/store/postgres/drizzle/`
+(SQL files, `meta/_journal.json`, and the snapshots drizzle-kit diffs against). The build
+copies the SQL files and the journal into `dist/`; the Host applies the missing ones at
+startup and refuses a database holding one it does not ship.
+
+1. Edit `schema.ts`.
+2. Run `npm run db:generate --workspace @nylorun/runtime` and review the SQL it writes. A
+   migration is forward-only: never edit, reorder or delete one that has been released.
+3. For SQL drizzle-kit does not model (functions, publications, grants, data changes), add
+   a custom migration with `npm run db:generate --workspace @nylorun/runtime --
+   --custom --name=<name>` and write the SQL into the empty file it creates; separate
+   statements with `--> statement-breakpoint`.
+4. Run the Runtime's tests: the template database every test file clones is migrated
+   with the new files.
+
+`npm run db:studio --workspace @nylorun/runtime` opens Drizzle Studio on the database in
+`NYLORUN_DATABASE_URL` (a stack's, or a test database on the test stack). drizzle-kit and
+`runtime/drizzle.config.ts` are for development only and are not published.
+
 The Runtime and Studio ship as the images `ghcr.io/nylorun/runtime` and
 `ghcr.io/nylorun/studio`, built from the repository root. To run your changes
 under `nylorun up` without `npm run dev`, build them and point `nylorun` at the
@@ -111,8 +141,9 @@ NYLORUN_RUNTIME_IMAGE=nylorun-runtime:dev NYLORUN_STUDIO_IMAGE=nylorun-studio:de
 ```
 
 CI builds both images from the PR for the `stack`, `smoke-starter`, `smoke-dev`
-and `acceptance` jobs, and `integration` runs the Runtime's integration tests
-against the Docker test stack (`npm run test:stack:up --workspace @nylorun/runtime`, then
+and `acceptance` jobs. `check` and `consumers` start the Docker test stack before
+their tests, and `integration` runs the Runtime's integration tests against it
+(`npm run test:stack:up --workspace @nylorun/runtime`, then
 `NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
 Releases publish both images; see [RELEASING.md](./RELEASING.md).
 

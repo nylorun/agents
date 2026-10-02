@@ -14,6 +14,7 @@ import {
 } from "../src/compatibility.js";
 import {
   AdminStatusSchema,
+  HostTenantSchema,
   ProjectCredentialsFileSchema,
   ProjectLinkFileSchema,
   RejectedResponseSchema,
@@ -86,9 +87,14 @@ describe("Wave 0 schemas", () => {
       protocol: {
         min: 2,
         max: 2,
-        features: ["runtime-tenants", "admin-status"],
+        features: ["admin-status"],
       },
-      tenants: [],
+      tenant: {
+        id: "tn_00000000000000000000000000",
+        name: "default",
+        state: "open",
+        envelope: null,
+      },
       aggregate: {
         runningSessions: 0,
         inFlightDeliveries: 0,
@@ -102,6 +108,22 @@ describe("Wave 0 schemas", () => {
     expect(AdminStatusSchema.parse(cloud).host).toBeUndefined();
   });
 
+  it("reports a Tenant that could not be opened, with its cause", () => {
+    const tenant = HostTenantSchema.parse({
+      id: null,
+      name: null,
+      state: "unavailable",
+      envelope: null,
+      cause: {
+        code: "database-layout-old",
+        message: "The database holds Tenant schemas of an older Runtime",
+        repair: "point the Runtime at a new database",
+      },
+    });
+    expect(tenant.cause?.code).toBe("database-layout-old");
+    expect(() => HostTenantSchema.parse({ ...tenant, state: "quarantined" })).toThrow();
+  });
+
   it("defaults Project link format to 0", () => {
     const link = ProjectLinkFileSchema.parse({
       hostUrl: "http://127.0.0.1:7432",
@@ -109,6 +131,17 @@ describe("Wave 0 schemas", () => {
       tenantId: "tn_00000000000000000000000000",
     });
     expect(link.format).toBe(0);
+  });
+
+  it("parses a format 2 Project link that names its stack and no Tenant", () => {
+    const link = ProjectLinkFileSchema.parse({
+      format: 2,
+      stack: "my-app",
+      hostUrl: "http://127.0.0.1:7432",
+      hostId: "host_1",
+    });
+    expect(link).toMatchObject({ format: 2, stack: "my-app" });
+    expect(link.tenantId).toBeUndefined();
   });
 
   it("parses Project credentials", () => {
@@ -134,6 +167,16 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
+  it("serves protocol 4 and 5 clients; protocol 5 clients no longer require runtime-tenants", () => {
+    expect(PROTOCOL_VERSION).toBe(5);
+    expect(PROTOCOL_FEATURES).not.toContain("runtime-tenants");
+    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 5 });
+    // The window: a protocol 4 client requires runtime-tenants, and the Host still has it.
+    expect(
+      checkCompatibility({ version: 4, required: ["runtime-tenants"] }, HOST_PROTOCOL),
+    ).toEqual({ ok: true });
+  });
+
   it("accepts a client inside the host range with required features", () => {
     expect(
       checkCompatibility(

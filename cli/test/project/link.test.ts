@@ -1,24 +1,10 @@
-import {
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import {
-  ensureProjectNylorunDir,
-  readLink,
-  writeLink,
-  removeLink,
-} from "../../src/project/link.js";
-import {
-  readCredentials,
-  writeCredentials,
-} from "../../src/project/credentials.js";
-import { newTenantId } from "@nylorun/agents";
+import { readLink } from "../../src/project/link.js";
+import { readCredentials } from "../../src/project/credentials.js";
+import { CliError } from "../../src/errors.js";
+import { HOST_ID, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -28,95 +14,99 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "nylorun-link-"));
+  const root = await project("nylorun-link-");
   roots.push(root);
-  await writeFile(join(root, "package.json"), '{"name":"demo"}');
   return root;
 }
 
-it("creates .nylorun 0700 with private .gitignore containing *", async () => {
+it("reads a format 2 link: its stack, Host and the Tenant id as information", async () => {
   const root = await fixture();
-  const dir = await ensureProjectNylorunDir(root);
-  expect(dir).toBe(join(root, ".nylorun"));
-  expect((await stat(dir)).mode & 0o777).toBe(0o700);
-  expect(await readFile(join(dir, ".gitignore"), "utf8")).toBe("*\n");
-  await expect(readFile(join(root, ".gitignore"))).rejects.toThrow();
+  await writeProjectLink(root, {
+    format: 2,
+    stack: "demo",
+    hostUrl: "http://127.0.0.1:8787/",
+    hostId: HOST_ID,
+    tenantId: "tn_00000000000000000000000000",
+  });
+  expect(await readLink(root)).toEqual({
+    format: 2,
+    stack: "demo",
+    hostUrl: "http://127.0.0.1:8787",
+    hostId: HOST_ID,
+    tenantId: "tn_00000000000000000000000000",
+  });
 });
 
-it("F2-2: writes format 1 link.json and credentials.json without executors", async () => {
+it("reads a format 2 link without a stack or a Tenant id", async () => {
   const root = await fixture();
-  const tenantId = newTenantId();
-  await writeLink(root, {
-    hostUrl: "http://127.0.0.1:8787",
-    hostId: "host_01habcdefghijklmnopqrstuv",
-    tenantId,
+  await writeProjectLink(root, {
+    format: 2,
+    hostUrl: "https://runtime.example.com",
+    hostId: HOST_ID,
   });
-  await writeCredentials(root, {
-    applicationKey: "a".repeat(64),
-    principalId: "pr_testprincipal00000000000001",
+  expect(await readLink(root)).toEqual({
+    format: 2,
+    hostUrl: "https://runtime.example.com",
+    hostId: HOST_ID,
   });
-  expect((await stat(join(root, ".nylorun/link.json"))).mode & 0o777).toBe(
-    0o600,
-  );
-  expect(
-    (await stat(join(root, ".nylorun/credentials.json"))).mode & 0o777,
-  ).toBe(0o600);
-  const linkRaw = JSON.parse(
-    await readFile(join(root, ".nylorun/link.json"), "utf8"),
-  );
-  expect(linkRaw).toEqual({
-    format: 1,
-    hostUrl: "http://127.0.0.1:8787",
-    hostId: "host_01habcdefghijklmnopqrstuv",
-    tenantId,
-  });
-  const credRaw = JSON.parse(
-    await readFile(join(root, ".nylorun/credentials.json"), "utf8"),
-  );
-  expect(credRaw).toEqual({
-    format: 1,
-    applicationKey: "a".repeat(64),
-    principalId: "pr_testprincipal00000000000001",
-  });
-  expect(credRaw).not.toHaveProperty("executors");
-  expect(await readLink(root)).toMatchObject({ format: 1, tenantId });
-  expect(await readCredentials(root)).toMatchObject({ format: 1 });
-  await removeLink(root);
-  expect(await readLink(root)).toBeUndefined();
 });
 
-it("F2-2: reads format 0 link and credentials, ignoring a legacy executors map", async () => {
-  const root = await fixture();
-  const tenantId = newTenantId();
-  await ensureProjectNylorunDir(root);
-  await writeFile(
-    join(root, ".nylorun/link.json"),
-    JSON.stringify({
+it("refuses a format 0 or 1 link, which named a Tenant on a multi-Tenant Host", async () => {
+  for (const format of [undefined, 0, 1]) {
+    const root = await fixture();
+    await writeProjectLink(root, {
+      ...(format === undefined ? {} : { format }),
       hostUrl: "http://127.0.0.1:8787",
-      hostId: "host_01habcdefghijklmnopqrstuv",
-      tenantId,
-    }),
-  );
-  await writeFile(
-    join(root, ".nylorun/credentials.json"),
-    JSON.stringify({
+      hostId: HOST_ID,
+      tenantId: "tn_00000000000000000000000000",
+    });
+    const error = await readLink(root).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).message).toMatch(/older Runtime, before one Tenant per installation/);
+    expect((error as CliError).message).toContain('Run "npx nylorun start"');
+  }
+});
+
+it("refuses a newer link format and an invalid link", async () => {
+  const root = await fixture();
+  await writeProjectLink(root, { format: 3, hostUrl: "http://x", hostId: HOST_ID });
+  await expect(readLink(root)).rejects.toThrow("unsupported format");
+  await writeProjectLink(root, { format: 2, hostId: HOST_ID });
+  await expect(readLink(root)).rejects.toThrow("npx nylorun start");
+});
+
+it("no link is no link", async () => {
+  expect(await readLink(await fixture())).toBeUndefined();
+});
+
+it("reads format 0 credentials, ignoring a legacy executors map, and keeps them 0600", async () => {
+  const root = await fixture();
+  await writeProjectLink(
+    root,
+    { format: 2, hostUrl: "http://127.0.0.1:8787", hostId: HOST_ID },
+    {
       applicationKey: "b".repeat(64),
       principalId: "principal_legacy",
       executors: { agent: "c".repeat(64) },
-    }),
+    },
   );
-  const link = await readLink(root);
+  const path = join(root, ".nylorun/credentials.json");
+  await chmod(path, 0o644);
   const credentials = await readCredentials(root);
-  expect(link?.format).toBe(0);
-  expect(credentials?.format).toBe(0);
-  expect(credentials).not.toHaveProperty("executors");
-  await writeCredentials(root, {
-    applicationKey: credentials!.applicationKey,
-    principalId: credentials!.principalId,
+  expect(credentials).toEqual({
+    format: 0,
+    applicationKey: "b".repeat(64),
+    principalId: "principal_legacy",
   });
-  const rewritten = JSON.parse(
-    await readFile(join(root, ".nylorun/credentials.json"), "utf8"),
+  expect((await stat(path)).mode & 0o777).toBe(0o600);
+});
+
+it("refuses invalid credentials, pointing at nylorun start", async () => {
+  const root = await fixture();
+  await writeProjectLink(
+    root,
+    { format: 2, hostUrl: "http://127.0.0.1:8787", hostId: HOST_ID },
+    { format: 1, applicationKey: "short", principalId: "project" },
   );
-  expect(rewritten.format).toBe(1);
-  expect(rewritten).not.toHaveProperty("executors");
+  await expect(readCredentials(root)).rejects.toThrow('run "npx nylorun start"');
 });
