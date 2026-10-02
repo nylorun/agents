@@ -10,6 +10,7 @@ import { MODEL_CALLS_PATH } from "../../src/gates/contract.js";
 import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { failure } from "../../src/model/classify.js";
 import { GATES_REQUEST_TIMEOUT_MS, startGates, type GatesServer } from "../../src/host/gates.js";
+import { MemorySessionStore } from "../../src/store/memory.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 
 const realFetch = globalThis.fetch;
@@ -25,6 +26,7 @@ const secret: HostModelSecret = {
 const body = {
   sessionId: "session-1",
   turnId: "turn-1",
+  agentId: "bot",
   effectId: "turn-1:0:model:1",
   invocationId: "1",
   call: {
@@ -34,11 +36,13 @@ const body = {
   },
 };
 
+const ledger = new MemorySessionStore({ tenantId });
 const vaults: TenantVaults = {
   async open(id) {
     if (id !== tenantId)
       throw new GateRefusal(failure("transient", `Tenant ${id} is at schema version 1`, true));
     return {
+      store: ledger,
       root: "/nonexistent-tenant-home",
       readHostModel: async () => secret,
       writeHostCredential: async () => {},

@@ -2342,6 +2342,38 @@ export const TenantSandboxViewSchema = z
   .strict();
 export type TenantSandboxView = z.infer<typeof TenantSandboxViewSchema>;
 
+/** What a usage total or a budget covers: the whole Tenant, one agent, or one turn. */
+export const ModelUsageScopeSchema = z.enum(["tenant", "agent", "turn"]);
+export type ModelUsageScope = z.infer<typeof ModelUsageScopeSchema>;
+
+/** `GET /v1/tenant/usage`: which rows of the model usage ledger to total. */
+export const ModelUsageQuerySchema = z
+  .object({
+    scope: ModelUsageScopeSchema.default("tenant"),
+    /** The agent or turn id; required for those scopes. */
+    id: z.string().min(1).optional(),
+    /** The current UTC day or month, or every row. */
+    period: z.enum(["day", "month", "total"]).default("total"),
+  })
+  .strict();
+export type ModelUsageQuery = z.infer<typeof ModelUsageQuerySchema>;
+
+/** The model calls the ledger recorded for one scope and period, and what they cost. */
+export const ModelUsageTotalsSchema = z
+  .object({
+    scope: ModelUsageScopeSchema,
+    id: z.string().optional(),
+    period: z.enum(["day", "month", "total"]),
+    /** When the period started (ISO); absent for `total`. */
+    since: z.string().optional(),
+    calls: z.number().int().nonnegative(),
+    tokens: z.number().int().nonnegative(),
+    /** pi-ai's catalog price; custom endpoints count as $0. */
+    costUsd: z.number().nonnegative(),
+  })
+  .strict();
+export type ModelUsageTotals = z.infer<typeof ModelUsageTotalsSchema>;
+
 export const ListVaultsResponseSchema = z.object({ vaults: z.array(VaultInfoSchema) }).strict();
 export type ListVaultsResponse = z.infer<typeof ListVaultsResponseSchema>;
 export const ListCredentialsResponseSchema = z

@@ -107,6 +107,7 @@ export async function invokeModel(
         tenantId: ctx.config.tenantId,
         sessionId: request.sessionId,
         turnId: request.turnId,
+        agentId: request.agentId,
         effectId: request.effectId,
         invocationId: String(request.context.invocationId),
         call: request.input as RuntimeModelCall,

@@ -18,6 +18,8 @@ export interface ModelGateRequest {
   readonly tenantId: string;
   readonly sessionId: string;
   readonly turnId: string;
+  /** The session's agent, for the usage ledger and its budgets (P1.3). */
+  readonly agentId: string;
   /** The effect's journal id; sent as `Idempotency-Key` (acted on from P1.2). */
   readonly effectId: string;
   readonly invocationId: string;

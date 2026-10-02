@@ -306,6 +306,43 @@ export interface SubjectUsageRow {
   refilledAt: string;
 }
 
+/** One model call in the usage ledger (P1.3). Token counts are 0 when the provider sent none. */
+export interface ModelUsageRow {
+  id: string;
+  /** The model effect's id; unique per Tenant, since it carries the turn id. */
+  effectKey: string;
+  sessionId: string;
+  turnId: string;
+  agentId: string;
+  provider: string | null;
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  /** True when an earlier row has the same `effectKey`: the provider billed the call twice. */
+  duplicate: boolean;
+  createdAt: string;
+}
+
+/** Which rows of the usage ledger a total covers. */
+export interface ModelUsageQuery {
+  scope: "tenant" | "agent" | "turn";
+  /** The agent or turn id; ignored for `tenant`. */
+  id?: string;
+  /** Only rows created at or after this ISO time. */
+  since?: string;
+}
+
+export interface ModelUsageTotals {
+  calls: number;
+  tokens: number;
+  costUsd: number;
+}
+
 export interface VaultCredentialRow extends SealedSecret {
   id: string;
   vaultId: string;
@@ -704,6 +741,12 @@ export interface Tx {
     patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
   ): Promise<boolean>;
 
+  // --- model usage ---------------------------------------------------------
+
+  /** Appends a row, setting `duplicate` when one with the same `effectKey` exists; returns it. */
+  recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow>;
+  modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals>;
+
   // --- tenant settings (non-secret) -----------------------------------------
 
   getSetting(key: string): Promise<string | undefined>;
@@ -718,10 +761,9 @@ export interface Tx {
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
    * - `sandboxes`: sandbox records;
-   * - `all`: both, plus definitions, Action endpoints and user vaults with their
-   *   credentials. The host vault, principals, signing keys, subject epochs, publishable
-   *   keys, settings,
-   *   audit and vault idempotency rows stay.
+   * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials
+   *   and the model usage ledger. The host vault, principals, signing keys, subject epochs,
+   *   publishable keys, settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;
 }

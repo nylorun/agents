@@ -77,6 +77,9 @@ import type {
   SigningKeyRow,
   PublishableKeyRow,
   SubjectUsageRow,
+  ModelUsageQuery,
+  ModelUsageRow,
+  ModelUsageTotals,
   StoredSession,
   TakeOwnership,
   Tx,
@@ -1232,6 +1235,42 @@ class PostgresTx implements Tx {
     return rows.length === 1;
   }
 
+  // --- model usage ---------------------------------------------------------
+
+  async recordModelUsage(row: Omit<ModelUsageRow, "duplicate">): Promise<ModelUsageRow> {
+    this.check();
+    const [inserted] = await this.sql`
+      INSERT INTO ${this.t("model_usage")} (
+        id, effect_key, session_id, turn_id, agent_id, provider, model,
+        input_tokens, output_tokens, total_tokens, cached_tokens, cache_write_tokens,
+        reasoning_tokens, cost_usd, duplicate, created_at)
+      SELECT ${row.id}, ${row.effectKey}, ${row.sessionId}, ${row.turnId}, ${row.agentId},
+        ${row.provider}, ${row.model}, ${row.inputTokens}, ${row.outputTokens},
+        ${row.totalTokens}, ${row.cachedTokens}, ${row.cacheWriteTokens},
+        ${row.reasoningTokens}, ${row.costUsd},
+        EXISTS (SELECT 1 FROM ${this.t("model_usage")} WHERE effect_key = ${row.effectKey}),
+        ${row.createdAt}
+      RETURNING duplicate`;
+    return { ...row, duplicate: inserted!.duplicate as boolean };
+  }
+
+  async modelUsageTotals(query: ModelUsageQuery): Promise<ModelUsageTotals> {
+    this.check();
+    const sql = this.sql;
+    const where = [
+      ...(query.scope === "agent" ? [sql`agent_id = ${query.id ?? ""}`] : []),
+      ...(query.scope === "turn" ? [sql`turn_id = ${query.id ?? ""}`] : []),
+      ...(query.since !== undefined ? [sql`created_at >= ${query.since}`] : []),
+    ];
+    const [row] = await sql`
+      SELECT count(*)::int AS calls,
+        coalesce(sum(total_tokens), 0)::bigint AS tokens,
+        coalesce(sum(cost_usd), 0)::double precision AS cost_usd
+      FROM ${this.t("model_usage")}
+      ${where.length ? sql`WHERE ${where.reduce((all, next) => sql`${all} AND ${next}`)}` : sql``}`;
+    return { calls: row!.calls as number, tokens: Number(row!.tokens), costUsd: Number(row!.cost_usd) };
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1270,6 +1309,7 @@ class PostgresTx implements Tx {
     if (scope === "all") {
       await sql`DELETE FROM ${this.t("definitions")}`;
       await sql`DELETE FROM ${this.t("endpoints")}`;
+      await sql`DELETE FROM ${this.t("model_usage")}`;
       await sql`DELETE FROM ${this.t("vaults")} WHERE scope <> 'host'`;
     }
   }

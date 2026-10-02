@@ -19,6 +19,7 @@ import {
 import {
   DOC_TABLES,
   type Commit,
+  type ModelUsageRow,
   type SessionStore,
   type SessionStoreOptions,
   type VaultCredentialRow,
@@ -961,6 +962,82 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(await store.tx((t) => t.getEndpoint("a"))).toBeDefined();
         await store.tx((t) => t.reset("all"));
         expect(await store.tx((t) => t.getEndpoint("a"))).toBeUndefined();
+      });
+    });
+
+    describe("model usage", () => {
+      const usage = (id: string, patch: Partial<ModelUsageRow> = {}) => ({
+        id,
+        effectKey: `turn-1:0:model:${id}`,
+        sessionId: "s1",
+        turnId: "turn-1",
+        agentId: "bot",
+        provider: "openai",
+        model: "gpt-test",
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: 0.25,
+        createdAt: "2030-01-01T00:00:00.000Z",
+        ...patch,
+      });
+
+      it("records rows, flagging a second row for the same effect", async () => {
+        const store = await fresh();
+        const first = await store.tx((t) => t.recordModelUsage(usage("u1")));
+        expect(first).toEqual({ ...usage("u1"), duplicate: false });
+        const again = await store.tx((t) =>
+          t.recordModelUsage({ ...usage("u2"), effectKey: usage("u1").effectKey }),
+        );
+        expect(again.duplicate).toBe(true);
+        expect(await store.tx((t) => t.modelUsageTotals({ scope: "tenant" }))).toEqual({
+          calls: 2,
+          tokens: 30,
+          costUsd: 0.5,
+        });
+      });
+
+      it("totals by scope and since", async () => {
+        const store = await fresh();
+        await store.tx(async (t) => {
+          await t.recordModelUsage(usage("u1"));
+          await t.recordModelUsage(usage("u2", { turnId: "turn-2", createdAt: "2030-01-02T00:00:00.000Z" }));
+          await t.recordModelUsage(
+            usage("u3", { agentId: "other", turnId: "turn-3", totalTokens: 100, costUsd: 1 }),
+          );
+        });
+        await store.tx(async (t) => {
+          expect(await t.modelUsageTotals({ scope: "tenant" })).toEqual({ calls: 3, tokens: 130, costUsd: 1.5 });
+          expect(await t.modelUsageTotals({ scope: "agent", id: "bot" })).toEqual({ calls: 2, tokens: 30, costUsd: 0.5 });
+          expect(await t.modelUsageTotals({ scope: "turn", id: "turn-3" })).toEqual({ calls: 1, tokens: 100, costUsd: 1 });
+          expect(await t.modelUsageTotals({ scope: "agent", id: "nobody" })).toEqual({ calls: 0, tokens: 0, costUsd: 0 });
+          expect(
+            await t.modelUsageTotals({ scope: "agent", id: "bot", since: "2030-01-02T00:00:00.000Z" }),
+          ).toEqual({ calls: 1, tokens: 15, costUsd: 0.25 });
+        });
+      });
+
+      it("keeps the ledger through a sessions reset and clears it on a full reset", async () => {
+        const store = await fresh();
+        await store.tx((t) => t.recordModelUsage(usage("u1")));
+        await store.tx((t) => t.reset("sessions"));
+        expect((await store.tx((t) => t.modelUsageTotals({ scope: "tenant" }))).calls).toBe(1);
+        await store.tx((t) => t.reset("all"));
+        expect((await store.tx((t) => t.modelUsageTotals({ scope: "tenant" }))).calls).toBe(0);
+      });
+
+      it("rolls a row back with its transaction", async () => {
+        const store = await fresh();
+        await expect(
+          store.tx(async (t) => {
+            await t.recordModelUsage(usage("u1"));
+            throw new Error("rollback");
+          }),
+        ).rejects.toThrow("rollback");
+        expect((await store.tx((t) => t.modelUsageTotals({ scope: "tenant" }))).calls).toBe(0);
       });
     });
 

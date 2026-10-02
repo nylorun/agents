@@ -1,6 +1,6 @@
 /**
  * The Tenant's own settings (`/v1/tenant/**`): its status, reset, a first configuration, the
- * model it calls and the sandboxes its sessions get.
+ * model it calls, what its model calls cost, and the sandboxes its sessions get.
  *
  * A reset that deletes sessions moves the Tenant to a new basin generation, so a session
  * created again starts in an empty basin; the old basin is deleted after a grace period.
@@ -9,6 +9,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { z } from "zod";
 import {
+  ModelUsageQuerySchema,
   PutHostModelRequestSchema,
   PutTenantSandboxRequestSchema,
   ResetTenantRequestSchema,
@@ -20,6 +21,7 @@ import {
   HostModelCatalog,
   HostModelView,
   ListProvidersResponse,
+  ModelUsageTotals,
   PutHostModelRequest,
   PutTenantSandboxRequest,
   ResetTenantRequest,
@@ -30,6 +32,7 @@ import {
   TenantSandboxView,
   TenantStatus,
 } from "../../components.js";
+import { periodStart } from "../../../gates/meter.js";
 import { hostModelCatalog } from "../../../model/catalog.js";
 import { sandboxConfigErrors } from "../../../sandbox/resolve.js";
 import {
@@ -216,6 +219,42 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       if (errors.length > 0) fail(400, errors.join(" "));
       await ctx.store.tx((t) => writeSandboxConfig(t, config));
       return jsonResponse(200, await sandboxView(ctx));
+    },
+  );
+
+  tenantRoute(
+    api,
+    SETTINGS,
+    {
+      method: "get",
+      path: "/v1/tenant/usage",
+      tags: ["Tenant"],
+      summary: "Get what the Tenant's model calls used",
+      description:
+        "Totals from the model usage ledger, which the model gate writes once per call: for the Tenant, one agent or one turn, over the current UTC day or month, or all time.",
+      request: { query: ModelUsageQuerySchema },
+      responses: { 200: json(ModelUsageTotals, "The calls, tokens and cost") },
+    },
+    async (c) => {
+      const parsed = ModelUsageQuerySchema.safeParse(c.req.query());
+      if (!parsed.success) return fail(400, parsed.error.issues[0]?.message ?? "Invalid query");
+      const { scope, id, period } = parsed.data;
+      if (scope !== "tenant" && !id) fail(400, `The ${scope} scope needs an id`);
+      const since = period === "total" ? undefined : periodStart(period, new Date());
+      const totals = await c.env.tenant.store.tx((t) =>
+        t.modelUsageTotals({
+          scope,
+          ...(scope !== "tenant" ? { id: id! } : {}),
+          ...(since ? { since } : {}),
+        }),
+      );
+      return jsonResponse(200, {
+        scope,
+        ...(scope !== "tenant" ? { id } : {}),
+        period,
+        ...(since ? { since } : {}),
+        ...totals,
+      });
     },
   );
 

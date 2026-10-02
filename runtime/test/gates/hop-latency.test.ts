@@ -14,6 +14,7 @@ import { httpModelGate } from "../../src/gates/http-client.js";
 import { inProcessModelGate } from "../../src/gates/in-process.js";
 import type { ModelGate, ModelGateRequest } from "../../src/gates/model-gate.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
+import { MemorySessionStore } from "../../src/store/memory.js";
 
 const CALLS = 50;
 const WARMUP = 5;
@@ -55,13 +56,20 @@ describe.skipIf(!process.env.NYLORUN_BENCH)("Model Gate hop latency", () => {
     gates = await startGates({
       gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
       logger: quiet,
-      vaults: { open: async () => ({ root: "/nonexistent-bench-home", ...host }) },
+      vaults: {
+        open: async () => ({
+          store: new MemorySessionStore({ tenantId: newTenantId() }),
+          root: "/nonexistent-bench-home",
+          ...host,
+        }),
+      },
       drainMs: 0,
     });
     const request: ModelGateRequest = {
       tenantId: newTenantId(),
       sessionId: "s",
       turnId: "t",
+      agentId: "bot",
       effectId: "t:0:model:1",
       invocationId: "1",
       call: {

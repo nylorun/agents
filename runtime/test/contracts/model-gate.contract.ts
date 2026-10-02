@@ -46,6 +46,7 @@ const request = (overrides: Partial<ModelGateRequest> = {}): ModelGateRequest =>
   tenantId: newTenantId(),
   sessionId: "session-1",
   turnId: "turn-1",
+  agentId: "bot",
   effectId: "turn-1:0:model:1",
   invocationId: "1",
   call,

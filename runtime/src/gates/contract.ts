@@ -31,6 +31,7 @@ export const MAX_MODEL_CALL_BYTES = 32 * 1024 * 1024;
 export const ModelCallBodySchema = z.object({
   sessionId: z.string().min(1),
   turnId: z.string().min(1),
+  agentId: z.string().min(1),
   effectId: z.string().min(1),
   invocationId: z.string().min(1),
   call: z.looseObject({

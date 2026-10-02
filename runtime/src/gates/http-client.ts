@@ -79,6 +79,7 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
       const body: ModelCallBody = {
         sessionId: request.sessionId,
         turnId: request.turnId,
+        agentId: request.agentId,
         effectId: request.effectId,
         invocationId: request.invocationId,
         call: request.call as unknown as ModelCallBody["call"],

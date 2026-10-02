@@ -15,6 +15,7 @@ const request: ModelGateRequest = {
   tenantId: newTenantId(),
   sessionId: "session-1",
   turnId: "turn-1",
+  agentId: "bot",
   effectId: "turn-1:0:model:1",
   invocationId: "1",
   call: {
@@ -72,6 +73,7 @@ describe("httpModelGate", () => {
     expect(seen?.body).toEqual({
       sessionId: request.sessionId,
       turnId: request.turnId,
+      agentId: request.agentId,
       effectId: request.effectId,
       invocationId: request.invocationId,
       call: request.call,
