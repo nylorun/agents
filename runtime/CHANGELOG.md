@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.15.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [4b9906f]
+- Updated dependencies
+  - @nylorun/core@0.11.0-beta
+  - @nylorun/harness@0.21.2-beta
+
 ## 0.15.0-beta
 
 ### Major Changes
