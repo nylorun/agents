@@ -60,16 +60,35 @@ it("C3: admin routes require protocol before admin auth", async () => {
   expect(bad.status).toBe(426);
 });
 
-it("P13: the Host serves protocol 4 and 5 clients", async () => {
+it("P13: the Host serves protocol 4, 5 and 6 clients", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  for (const version of ["4", "5"]) {
+  for (const version of ["4", "5", "6"]) {
     const { status } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
     expect(status, `protocol ${version}`).toBe(200);
   }
-  const six = await getJson(`${url}/v1/agents`, {
-    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "6" },
+  const seven = await getJson(`${url}/v1/agents`, {
+    headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "7" },
   });
-  expect(six.status).toBe(426);
+  expect(seven.status).toBe(426);
+  // Only a capability link is served without the header (protocol 6).
+  const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
+  const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });
+  expect(link.status).not.toBe(426);
+  const noProtocol = await getJson(`${url}/v1/agents`, { headers: unversioned });
+  expect(noProtocol.status).toBe(426);
+});
+
+it("lets only an artifact upload carry a body that is not JSON", async () => {
+  const { url } = await startTestHost({ module: createFakeModule() });
+  const send = (path: string) =>
+    fetch(`${url}${path}`, {
+      method: "POST",
+      headers: { ...tenantHeaders(), "content-type": "image/png" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+  expect((await send("/v1/sessions/s1/commands")).status).toBe(415);
+  expect((await send("/v1/artifacts?name=a.png")).status).not.toBe(415);
+  expect((await send(`/v1/artifacts/af_${"0".repeat(26)}/versions`)).status).not.toBe(415);
 });

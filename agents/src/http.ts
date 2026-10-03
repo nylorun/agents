@@ -231,7 +231,8 @@ export class Transport {
     if (this.publishableKey)
       headers.set(PUBLISHABLE_KEY_HEADER, this.publishableKey);
     headers.set(PROTOCOL_HEADER, String(PROTOCOL_VERSION));
-    if (init.body) headers.set("Content-Type", "application/json");
+    // JSON unless the caller says otherwise (an artifact upload sends the file's type).
+    if (init.body && !headers.has("content-type")) headers.set("Content-Type", "application/json");
     return headers;
   }
 

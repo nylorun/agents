@@ -26,6 +26,8 @@ const SUBJECT = "app:ann";
 const ALL_SCOPES = "agents:read agents:write sessions:own vaults:own tenant:settings";
 /** A body every schema rejects, so a write that gets past authorization changes nothing. */
 const INVALID = [] as const;
+/** An artifact id that never exists. */
+const MISSING_ARTIFACT = `af_${"0".repeat(26)}`;
 
 let root: string;
 let rt: EphemeralRuntime;
@@ -176,6 +178,18 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/sandboxes/team%2Fsbx-missing" },
     { method: "GET", path: "/v1/sandboxes/team%2Fsbx-missing/events" },
     { method: "DELETE", path: "/v1/sandboxes/team%2Fsbx-missing" },
+    // File artifacts (protocol 6): an empty name fails validation, so nothing is stored.
+    { method: "POST", path: "/v1/artifacts?name=&sessionId=s1", body: INVALID },
+    { method: "POST", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions`, body: INVALID },
+    { method: "GET", path: "/v1/artifacts" },
+    { method: "GET", path: "/v1/artifacts?sessionId=s1" },
+    { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}` },
+    { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/latest/content` },
+    { method: "POST", path: `/v1/artifacts/${MISSING_ARTIFACT}/links`, body: INVALID },
+    { method: "DELETE", path: `/v1/artifacts/${MISSING_ARTIFACT}` },
+    { method: "GET", path: "/v1/artifact-links/not-a-token" },
+    { method: "GET", path: "/v1/tenant/artifacts" },
+    { method: "PUT", path: "/v1/tenant/artifacts", body: INVALID },
     { method: "GET", path: "/v1/tenant" },
     { method: "POST", path: "/v1/tenant/reset", body: INVALID },
     { method: "PUT", path: "/v1/tenant/config/seed", body: INVALID },

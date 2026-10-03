@@ -18,7 +18,7 @@ export function createInteriorDesign(deps: AgentDependencies): ExampleAgent {
     ],
   })
     .use(modelSelection(deps.provider, deps.model))
-    .use(interiorDesign(deps.media, deps.imageEditor))
+    .use(interiorDesign(deps.artifacts, deps.imageEditor))
     .build();
   return agent;
 }

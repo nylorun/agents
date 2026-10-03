@@ -40,6 +40,16 @@ export interface RouteAccess {
    * served too. A credential that is sent is still checked, so a wrong one stays the opaque 404.
    */
   readonly anonymous?: boolean;
+  /**
+   * The body is the bytes of a file, of any media type (an artifact upload): the Host lets it
+   * through without `application/json`, and the handler streams it.
+   */
+  readonly bytes?: boolean;
+  /**
+   * Served without `Nylorun-Protocol` (a capability link, opened by a browser or an `<img>`):
+   * the Host checks the header only when it is sent.
+   */
+  readonly unversioned?: boolean;
 }
 
 const SCHEMES: Record<Credential, string> = {
@@ -134,8 +144,9 @@ export function tenantRoute(
 ): void {
   const takes = (credential: Credential) => access.credentials.includes(credential);
   const schemes = [...new Set(access.credentials.map((credential) => SCHEMES[credential]))];
+  const protocol = z.string().meta({ description: `The protocol version, \`${PROTOCOL_VERSION}\`` });
   const headers = z.object({
-    "Nylorun-Protocol": z.string().meta({ description: `The protocol version, \`${PROTOCOL_VERSION}\`` }),
+    "Nylorun-Protocol": access.unversioned ? protocol.optional() : protocol,
     ...(takes("subject")
       ? {
           "Nylorun-Subject": z

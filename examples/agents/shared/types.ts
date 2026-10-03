@@ -1,5 +1,5 @@
 import type { BuiltAgent } from "@nylorun/agents/define";
-import type { MediaStore } from "@nylorun/runtime/node";
+import type { ArtifactsClient } from "@nylorun/agents";
 import type { ImageEditor } from "../interior-design/image-editor.js";
 
 export type ExampleAgent = BuiltAgent & { close?: () => Promise<void> };
@@ -8,7 +8,8 @@ export type AgentDependencies = Readonly<{
   provider: string;
   model: string;
   dataRoot: string;
-  media: MediaStore;
+  /** The Runtime's file artifacts: uploaded room photos in, redesigned images out. */
+  artifacts: ArtifactsClient;
   imageEditor?: ImageEditor;
 }>;
 

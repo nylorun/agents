@@ -1,15 +1,18 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
- * Protocol 5: a Host serves one Tenant, and nothing in a request selects it. Clients send no
- * `Nylorun-Tenant`; the Host still accepts protocol 4 (and the header) for one release.
+ * Protocol 6: file artifacts (`/v1/artifacts/**`, Runtime-signed capability links) and user
+ * messages with `parts`, whose file parts name an artifact the model reads. Protocol 5: a Host
+ * serves one Tenant, and nothing in a request selects it. Clients send no `Nylorun-Tenant`; the
+ * Host still accepts protocol 4 (and the header) and protocol 5 clients.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "admin-status",
   "studio-principal",
   "action-endpoints",
+  "artifacts",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -58,11 +61,12 @@ export interface ProtocolRange {
 }
 /**
  * What this Host serves. `runtime-tenants` (protocol 4 clients require it) is still advertised
- * for the compatibility window; protocol 5 clients no longer require it.
+ * for the compatibility window; protocol 5 and 6 clients no longer require it. `artifacts`
+ * (protocol 6, required by its clients): file artifacts, capability links and message `parts`.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
-  max: 5,
+  max: 6,
   features: ["runtime-tenants", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -120,6 +124,8 @@ export const PRINCIPAL_ID_PATTERN = /^pr_[0-9a-hjkmnp-tv-z]{26}$/;
 export const SIGNING_KEY_ID_PATTERN = /^sk_[0-9a-hjkmnp-tv-z]{26}$/;
 /** A publishable key's id (not the key). */
 export const PUBLISHABLE_KEY_ID_PATTERN = /^pk_[0-9a-hjkmnp-tv-z]{26}$/;
+/** A file artifact's id (protocol 6). */
+export const ARTIFACT_ID_PATTERN = /^af_[0-9a-hjkmnp-tv-z]{26}$/;
 /** A publishable key: `nr_pub_<tenantId>_<32 Crockford characters>`. */
 export const PUBLISHABLE_KEY_PATTERN =
   /^nr_pub_(tn_[0-9a-hjkmnp-tv-z]{26})_([0-9a-hjkmnp-tv-z]{32})$/;
@@ -175,7 +181,7 @@ let lastTime = -1;
 let lastRandom = "";
 
 function newPrefixedId(
-  prefix: "tn_" | "pr_" | "sk_" | "pk_",
+  prefix: "tn_" | "pr_" | "sk_" | "pk_" | "af_",
   now?: number,
 ): string {
   const ms = now ?? Date.now();
@@ -211,6 +217,15 @@ export function newSigningKeyId(now?: number): string {
 /** Publishable key id: `pk_` + lowercase Crockford ULID. */
 export function newPublishableKeyId(now?: number): string {
   return newPrefixedId("pk_", now);
+}
+
+/** Artifact id: `af_` + lowercase Crockford ULID. */
+export function newArtifactId(now?: number): string {
+  return newPrefixedId("af_", now);
+}
+
+export function isArtifactId(value: unknown): value is string {
+  return typeof value === "string" && ARTIFACT_ID_PATTERN.test(value);
 }
 
 /** A new publishable key for `tenantId`: 160 random bits after the Tenant id. */

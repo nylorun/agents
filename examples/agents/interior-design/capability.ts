@@ -1,10 +1,16 @@
 import { tool } from "@nylorun/agents/define";
 import { z } from "zod";
-import type { MediaStore } from "@nylorun/runtime/node";
+import type { ArtifactsClient } from "@nylorun/agents";
 import type { ImageEditor } from "./image-editor.js";
 
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/**
+ * The room photo comes in as a file artifact the user uploaded to the session (and named in a
+ * message part, so the model saw it); the redesign goes back as a new artifact of the session.
+ */
 export function interiorDesign(
-  store: MediaStore,
+  artifacts: ArtifactsClient,
   editor: ImageEditor | undefined,
 ) {
   return {
@@ -28,48 +34,38 @@ export function interiorDesign(
               message:
                 "Set OPENAI_API_KEY to enable the Interior Design image editor.",
             };
-          const source = await store.latestInput(
-            "interior-design",
-            ((context.info as { sessionId?: string } | undefined)?.sessionId ?? context.executionId),
-          );
+          const sessionId =
+            (context.info as { sessionId?: string } | undefined)?.sessionId ?? context.executionId;
+          const source = (await artifacts.list({ sessionId }))
+            .filter((artifact) => IMAGE_TYPES.has(artifact.contentType))
+            .at(-1);
           if (!source)
             return {
               kind: "failed" as const,
               code: "image.missing-input",
               message: "Upload one room photo before requesting a redesign.",
             };
-          const input = await store.read(
-            "interior-design",
-            ((context.info as { sessionId?: string } | undefined)?.sessionId ?? context.executionId),
-            source.id,
-          );
-          if (!input)
-            return {
-              kind: "failed" as const,
-              code: "image.missing-input",
-              message: "The uploaded room photo is no longer available.",
-            };
           try {
+            const download = await artifacts.download(source.artifactId);
             const result = await editor.edit({
-              bytes: input.bytes,
-              mediaType: input.asset.mediaType,
+              bytes: new Uint8Array(await download.arrayBuffer()),
+              mediaType: source.contentType,
               prompt: `Reimagine this exact interior in a ${theme} theme. Preserve the room's layout, camera viewpoint, architecture, windows, doors, and proportions. Change only furnishings, finishes, lighting, and decor. Produce a realistic interior design visualization.`,
               signal: context.signal,
             });
-            const image = await store.saveGenerated(
-              "interior-design",
-              ((context.info as { sessionId?: string } | undefined)?.sessionId ?? context.executionId),
-              result.mediaType,
-              result.bytes,
-            );
+            const saved = await artifacts.upload(result.bytes, {
+              name: "redesign.png",
+              sessionId,
+              contentType: result.mediaType,
+            });
             return {
               kind: "completed" as const,
               output: {
                 image: {
-                  id: image.id,
-                  mediaType: image.mediaType,
-                  bytes: image.bytes,
-                  kind: image.kind,
+                  artifactId: saved.artifact.artifactId,
+                  version: saved.version.version,
+                  mediaType: saved.version.contentType,
+                  bytes: saved.version.size,
                 },
                 theme,
               },

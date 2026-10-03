@@ -90,7 +90,7 @@ describe("nylorun sandbox", () => {
     expect(headers.get("authorization")).toBe(
       `Bearer ${deriveTenantKey(adminKey(home), TENANT_ID, PROJECT_PRINCIPAL_ID)}`,
     );
-    expect(headers.get("nylorun-protocol")).toBe("5");
+    expect(headers.get("nylorun-protocol")).toBe("6");
   });
 
   it("ls --json prints the sandboxes", async () => {
