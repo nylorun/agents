@@ -338,6 +338,17 @@ jobs:
       - name: Sandboxes service suite
         timeout-minutes: 25
         run: npm run test:sandboxes:service -- --context kind-nylorun --host-address 172.17.0.1
+      # F7.2 8c: the network invariant and the red-team from inside the namespace (pod-stack.mjs).
+      # Both need a joined pod sandbox, so they run once the pods path (F7.2 8b,
+      # runtime/src/sandbox/pods/) is in the tree, after its suite has loaded the pod images.
+      - name: Sandbox network invariant
+        if: hashFiles('runtime/src/sandbox/pods/**') != ''
+        timeout-minutes: 15
+        run: npm run test:sandboxes:network -- --context kind-nylorun --host-address 172.17.0.1
+      - name: Sandbox red-team
+        if: hashFiles('runtime/src/sandbox/pods/**') != ''
+        timeout-minutes: 15
+        run: npm run test:sandboxes:redteam -- --context kind-nylorun --host-address 172.17.0.1
       - name: Cluster diagnostics
         if: failure()
         run: |

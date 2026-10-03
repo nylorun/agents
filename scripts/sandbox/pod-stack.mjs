@@ -1,0 +1,214 @@
+// What the network invariant and the red-team suite share (F7.2, S10): a Tenant with sandboxes
+// enabled on a cluster, one pod sandbox created through the Tenant API and joined, a busybox
+// probe pod in the sandbox namespace (under the same NetworkPolicy as every sandbox pod), and
+// tokens minted by the gateway's keys service, as core mints them at join.
+//
+// Needs kubectl, a context with agent-sandbox v1.0.5 or none, the workspace builds, and the images
+// sandbox pods use loaded into the cluster (CI: `kind load docker-image` of the runtime image,
+// python:3.13-slim and busybox:1.37.0).
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { parseArgs } from "node:util";
+import { subjectTokenIssuer } from "@nylorun/core/contracts";
+import { run } from "../lib/repo.mjs";
+import { ensureImages, runtimeHeaders, withStack } from "../lib/stack.mjs";
+
+/** `runtime/src/sandbox/egress-token.ts`. */
+export const EGRESS_TOKEN_TYP = "nylorun-egress+jwt";
+export const EGRESS_TOKEN_AUD = "nylorun-egress";
+/** `runtime/src/tenant/run-token.ts`. */
+export const RUN_TOKEN_TYP = "nylorun-run+jwt";
+export const RUN_TOKEN_AUD = "nylorun-gates";
+/** The host token core mints at join (D42, S7). */
+export const HOST_TOKEN_TYP = "nylorun-host+jwt";
+
+export const PROBE_IMAGE = "busybox:1.37.0";
+/** In the Tenant's default network ceiling, so a pod spec may allow it. */
+export const ALLOWED_HOST = "pypi.org";
+
+export function podOptions() {
+  const { values } = parseArgs({
+    options: {
+      context: { type: "string", default: process.env.NYLORUN_SANDBOX_CONTEXT ?? "kind-nylorun" },
+      "host-address": { type: "string", default: process.env.NYLORUN_SANDBOX_HOST_ADDRESS },
+    },
+  });
+  return { context: values.context, hostAddress: values["host-address"] };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** `KEY=value` lines of the Tenant's `docker/.env`. */
+async function readEnv(home) {
+  const env = {};
+  for (const line of (await readFile(join(home, "docker", ".env"), "utf8")).split("\n")) {
+    const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    if (match) env[match[1]] = match[2].replace(/^"(.*)"$/, "$1");
+  }
+  return env;
+}
+
+/** Signs `{typ, claims}` with the Tenant's key through the keys service, from the runtime container. */
+const SIGN = String.raw`
+const [request] = process.argv.slice(1);
+fetch(process.env.NYLORUN_KEYS_URL + "/nylorun/v1/keys/sign", {
+  method: "POST",
+  headers: { authorization: "Bearer " + process.env.NYLORUN_GATES_TOKEN, "content-type": "application/json" },
+  body: JSON.stringify({ args: [JSON.parse(request)] }),
+  signal: AbortSignal.timeout(20000),
+}).then(async (r) => console.log(await r.text()), (e) => console.log(JSON.stringify({ error: String(e) })));`;
+
+/**
+ * Runs `fn(pod)` on a fresh Tenant with sandboxes enabled and one joined pod sandbox whose spec
+ * allows `ALLOWED_HOST`. Always deletes the namespace and resets the Tenant.
+ */
+export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
+  const kubectl = async (args, { check = true, timeout = 120_000 } = {}) => {
+    try {
+      return await run("kubectl", ["--context", context, ...args], { capture: true, timeout });
+    } catch (error) {
+      if (check) throw error;
+      return undefined;
+    }
+  };
+  const images = await ensureImages({ only: ["runtime", "sandboxes"] });
+  await withStack({ name, images, startArgs: ["--no-studio"] }, async (stack) => {
+    const namespace = `nylorun-sbx-${stack.project}`;
+    try {
+      step(`nylorun sandbox enable --context ${context}`);
+      const enable = ["sandbox", "enable", "--context", context, "--no-pull"];
+      if (hostAddress) enable.push("--host-address", hostAddress);
+      await stack.nylorun(enable, { timeout: 900_000 });
+      const env = await readEnv(stack.home);
+      const host = env.NYLORUN_SANDBOX_HOST_ADDRESS;
+      const ports = {
+        harness: Number(env.NYLORUN_SANDBOX_HARNESS_PORT),
+        gates: Number(env.NYLORUN_SANDBOX_GATES_PORT),
+        egress: Number(env.NYLORUN_SANDBOX_EGRESS_PORT),
+        runtime: Number(env.NYLORUN_PORT),
+        admin: Number(env.NYLORUN_ADMIN_PORT),
+        restate: Number(env.NYLORUN_RESTATE_PORT),
+      };
+      assert.ok(host && ports.harness && ports.gates && ports.egress, "enable records the host address and pod-facing ports");
+      const tenant = await stack.tenant();
+
+      step(`create pod sandbox sbx_net (network.allow ${ALLOWED_HOST})`);
+      const sandboxId = "sbx_net";
+      const put = await fetch(`${stack.runtimeUrl}/v1/sandboxes/${sandboxId}`, {
+        method: "PUT",
+        headers: { ...runtimeHeaders(tenant.key), "content-type": "application/json" },
+        body: JSON.stringify({ kind: "pod", network: { allow: [ALLOWED_HOST] } }),
+      });
+      assert.ok(put.ok, `PUT /v1/sandboxes/${sandboxId}: ${put.status} ${await put.text()}`);
+
+      step("wait for the sandbox pod to run and join");
+      let sandboxPod;
+      let epoch = 0;
+      for (let attempt = 0; attempt < 180 && !(sandboxPod && epoch > 0); attempt += 1) {
+        const pods = JSON.parse(await kubectl(["get", "pods", "-n", namespace, "-l", "nylorun.dev/role=sandbox", "-o", "json"]));
+        sandboxPod = pods.items.find((pod) =>
+          pod.status?.conditions?.some((condition) => condition.type === "Ready" && condition.status === "True"),
+        );
+        if (sandboxPod)
+          epoch = Number(
+            await stack.psql(`SELECT host_epoch FROM nylorun.sandbox_resources WHERE id = '${sandboxId}'`),
+          );
+        if (!(sandboxPod && epoch > 0)) await sleep(2000);
+      }
+      assert.ok(sandboxPod, "the sandbox pod becomes Ready");
+      assert.ok(epoch > 0, "the pod's harness joined (host epoch above 0)");
+
+      step(`probe pods in ${namespace}`);
+      const idle = ["sh", "-c", "trap 'exit 0' TERM; while :; do sleep 1; done"];
+      await kubectl(["run", "nylorun-probe", "-n", namespace, "--image", PROBE_IMAGE, "--restart=Never", "--labels", "nylorun.dev/role=probe", "--command", "--", ...idle]);
+      await kubectl(["run", "nylorun-peer", "-n", namespace, "--image", PROBE_IMAGE, "--restart=Never", "--labels", "nylorun.dev/role=probe", "--command", "--", "httpd", "-f", "-p", "8080"]);
+      await kubectl(["wait", "-n", namespace, "--for=condition=Ready", "pod/nylorun-probe", "pod/nylorun-peer", "--timeout=120s"], { timeout: 150_000 });
+      const peerIp = (await kubectl(["get", "pod", "nylorun-peer", "-n", namespace, "-o", "jsonpath={.status.podIP}"])).trim();
+
+      /** A shell command in the probe pod; `undefined` when it exits non-zero. */
+      const sh = (command) =>
+        kubectl(["exec", "-n", namespace, "nylorun-probe", "--", "sh", "-c", command], { check: false, timeout: 60_000 });
+      /** Whether the probe pod opens a TCP connection to `target:port`. */
+      const reaches = async (target, port) => (await sh(`nc -w 2 ${target} ${port} </dev/null`)) !== undefined;
+      /** Sends raw `request` bytes from the probe pod; the answer's status line. */
+      const raw = async (target, port, request) =>
+        ((await sh(`echo ${Buffer.from(request).toString("base64")} | base64 -d | nc -w 5 ${target} ${port} | head -n 1`)) ?? "").trim();
+      const status = (line) => Number(/^HTTP\/1\.[01] (\d{3})/.exec(line)?.[1] ?? 0);
+      /** An HTTP request from the probe pod; its status (0: no answer). */
+      const http = async (target, port, method, path, { headers = {}, body } = {}) => {
+        const lines = [`${method} ${path} HTTP/1.1`, `Host: ${target}:${port}`, "Connection: close"];
+        for (const [key, value] of Object.entries(headers)) lines.push(`${key}: ${value}`);
+        if (body !== undefined) lines.push("Content-Type: application/json", `Content-Length: ${Buffer.byteLength(body)}`);
+        return status(await raw(target, port, `${lines.join("\r\n")}\r\n\r\n${body ?? ""}`));
+      };
+      /** CONNECT `authority` through egress-gate from the probe pod; the answer's status. */
+      const connect = async (authority, token) =>
+        status(
+          await raw(
+            host,
+            ports.egress,
+            `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n${token ? `Proxy-Authorization: Bearer ${token}\r\n` : ""}\r\n`,
+          ),
+        );
+
+      // kindnet programs a new pod's NetworkPolicy late (8a): wait until the internet is closed.
+      for (let open = 0; await reaches("1.1.1.1", 443); open += 1) {
+        assert.ok(open < 20, "the probe pod's NetworkPolicy takes effect");
+        await sleep(1000);
+      }
+
+      /** Signs `claims` as `typ` with the Tenant's key, as the keys service signs for core. */
+      const sign = async (typ, claims) => {
+        const out = await stack.compose(["exec", "-T", "runtime", "node", "-e", SIGN, JSON.stringify({ typ, claims })]);
+        const answer = JSON.parse(out.trim().split("\n").at(-1));
+        assert.ok(answer.result?.token, `keys.sign: ${JSON.stringify(answer)}`);
+        return answer.result.token;
+      };
+      const iat = () => Math.floor(Date.now() / 1000);
+      const issuer = subjectTokenIssuer(tenant.id);
+      const podUid = sandboxPod.metadata.uid;
+      /** An egress token as core mints it at join (`mintEgressToken`), with `overrides`. */
+      const egressToken = (overrides = {}) =>
+        sign(EGRESS_TOKEN_TYP, {
+          iss: issuer,
+          aud: EGRESS_TOKEN_AUD,
+          sbx: sandboxId,
+          epc: epoch,
+          pod: podUid,
+          iat: iat(),
+          exp: iat() + 600,
+          jti: crypto.randomUUID(),
+          ...overrides,
+        });
+
+      await fn({
+        stack,
+        kubectl,
+        namespace,
+        tenant,
+        sandboxId,
+        sandboxPod,
+        podUid,
+        epoch,
+        host,
+        ports,
+        peerIp,
+        sh,
+        reaches,
+        http,
+        connect,
+        sign,
+        issuer,
+        egressToken,
+      });
+    } catch (error) {
+      await kubectl(["get", "sandbox,pod,pvc,secret,networkpolicy", "-n", namespace, "-o", "wide"], { check: false }).then((out) => out && console.error(out));
+      await kubectl(["describe", "pods", "-n", namespace], { check: false }).then((out) => out && console.error(out));
+      await stack.compose(["logs", "--tail", "100", "gateway", "sandboxes"], { check: false }).then(console.error, () => {});
+      throw error;
+    } finally {
+      await kubectl(["delete", "namespace", namespace, "--ignore-not-found", "--wait=false"], { check: false });
+    }
+  });
+}

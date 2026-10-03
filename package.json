@@ -39,6 +39,8 @@
     "test:stack": "node scripts/smoke-stack.mjs",
     "test:failure": "node scripts/smoke-failure.mjs",
     "test:sandboxes:service": "node scripts/sandbox/service-suite.mjs",
+    "test:sandboxes:network": "node scripts/sandbox/network-invariant.mjs",
+    "test:sandboxes:redteam": "node scripts/sandbox/redteam.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
     "changeset": "changeset",

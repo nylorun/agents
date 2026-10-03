@@ -20,6 +20,11 @@ export interface ResolveSandboxInput {
   readonly config: EffectiveSandboxConfig;
   /** The request acts for a subject (`Nylorun-Subject`) rather than as the application. */
   readonly actingForSubject: boolean;
+  /**
+   * The sandbox's kind. Default `virtual`, which allows exact host names only; a `pod`'s
+   * egress-gate also matches `*.suffix` patterns.
+   */
+  readonly kind?: "virtual" | "pod";
 }
 
 export const SUBJECT_INLINE_MESSAGE =
@@ -51,7 +56,7 @@ function build(
   for (const host of allow) {
     if (!withinCeiling(host, limits.network))
       errors.push(`sandbox.network.allow includes ${host}, which this Tenant does not allow.`);
-    else if (host.startsWith("*."))
+    else if (host.startsWith("*.") && input.kind !== "pod")
       errors.push(
         `sandbox.network.allow includes ${host}; the virtual sandbox allows exact host names only, such as ${host.slice(2)}.`
       );

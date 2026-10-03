@@ -13,7 +13,8 @@
  * listener (`NYLORUN_GATES_LISTEN_*`), and only one that runs loop parses
  * where to reach the gate (`NYLORUN_GATES_URL`). Both read
  * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
- * process must never hold a model credential.
+ * process must never hold a model credential. `egress` (egress-gate, F7.2) joins gates and keys
+ * in the gateway and parses its listener (`NYLORUN_EGRESS_LISTEN_*`, default `0.0.0.0:4200`).
  *
  * Two listen modes:
  * - **local** (no `NYLORUN_LISTEN_*` / `NYLORUN_ALLOWED_HOSTS`): the Host binds
@@ -31,23 +32,26 @@
 import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
 
 /** A Runtime service this release has. */
-export type RuntimeService = "core" | "loop" | "gates" | "keys";
+export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress";
 
 export type RuntimeServices = ReadonlySet<RuntimeService>;
 
-export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys"];
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys", "egress"];
 
 /**
  * Services that may share a process (D12): they hold the same secrets and parse the same
- * trust class of input. keys joins gates (F4.2); egress joins them in a later release.
+ * trust class of input. keys joins gates (F4.2), and egress joins them (F7.2).
  */
 const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
   ["core", "loop"],
-  ["gates", "keys"],
+  ["gates", "keys", "egress"],
 ];
 
 /** Where the gates service listens by default. */
 export const DEFAULT_GATES_LISTEN_PORT = 4100;
+
+/** Where egress-gate listens by default. */
+export const DEFAULT_EGRESS_LISTEN_PORT = 4200;
 
 /** What a process runs without `--service`: core and loop, as `--role all` did. */
 export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
@@ -57,7 +61,6 @@ export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
 
 /** Services of the blueprint this release doesn't have yet. */
 const LATER_SERVICES: readonly string[] = [
-  "egress",
   "harness",
   "sandboxd",
 ];
@@ -119,6 +122,11 @@ export interface GatesConfig {
   token: string;
 }
 
+/** egress-gate's listener (`NYLORUN_EGRESS_LISTEN_HOST`, `NYLORUN_EGRESS_LISTEN_PORT`). */
+export interface EgressConfig {
+  listen: { host: string; port: number };
+}
+
 /** Where the loop reaches the gates service (`NYLORUN_GATES_URL`, `NYLORUN_GATES_TOKEN`). */
 export interface ModelGateEndpoint {
   url: string;
@@ -130,6 +138,8 @@ export interface StackConfig {
   services: RuntimeServices;
   /** Present when the process runs gates. */
   gates?: GatesConfig;
+  /** Present when the process runs egress. */
+  egress?: EgressConfig;
   /**
    * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
    * remote MCP calls and Action deliveries cross the gates service. Required for loop in
@@ -241,7 +251,7 @@ function read(env: EnvSnapshot, name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-const USAGE = "Usage: main.js [--service core,loop|gates]";
+const USAGE = "Usage: main.js [--service core,loop|gates,keys,egress]";
 
 /** Parses `--service a,b` (or the deprecated `--role`); throws `StackConfigError`. */
 export function parseServices(argv: readonly string[]): ServiceSelection {
@@ -460,6 +470,7 @@ export function parseStackConfig(
   const listen = servesApi ? parseListen(env) : undefined;
   const operator = servesApi ? parseAdminListen(env) : undefined;
   const gates = services.has("gates") || services.has("keys") ? parseGates(env) : undefined;
+  const egress = services.has("egress") ? parseEgress(env) : undefined;
   // The gates service's clients: the loop's model and tool calls, and core's endpoint pings.
   const modelGate = servesApi ? parseModelGate(env) : undefined;
   // The keys service is the gateway's unless NYLORUN_KEYS_URL names another listener.
@@ -517,6 +528,7 @@ export function parseStackConfig(
     services,
     ...(deprecatedRole ? { deprecatedRole } : {}),
     ...(gates ? { gates } : {}),
+    ...(egress ? { egress } : {}),
     ...(modelGate ? { modelGate } : {}),
     ...(keys ? { keys } : {}),
     ...(rawPacking ? { packing: rawPacking } : {}),
@@ -618,6 +630,17 @@ function parseGates(env: EnvSnapshot): GatesConfig {
     listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
     token,
   };
+}
+
+/** `StackConfig.egress` from `NYLORUN_EGRESS_LISTEN_*`. CONNECT has no Host header to check. */
+function parseEgress(env: EnvSnapshot): EgressConfig {
+  const host = read(env, "NYLORUN_EGRESS_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
+  if (/\s|\//.test(host))
+    throw new StackConfigError(`NYLORUN_EGRESS_LISTEN_HOST is not an address: ${host}`);
+  const rawPort = read(env, "NYLORUN_EGRESS_LISTEN_PORT");
+  const port =
+    rawPort === undefined ? DEFAULT_EGRESS_LISTEN_PORT : parsePort("NYLORUN_EGRESS_LISTEN_PORT", rawPort);
+  return { listen: { host, port } };
 }
 
 /** `StackConfig.modelGate` from `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. */

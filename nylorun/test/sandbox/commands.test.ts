@@ -179,4 +179,18 @@ describe(".env and compose.yaml with sandboxes", () => {
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     expect(gateway).not.toContain("sandboxes");
   });
+
+  it("runs egress-gate in the gateway, published on the bind address, only with sandboxes", () => {
+    const gatewayOf = (compose: string) => compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
+    const plain = gatewayOf(renderComposeFile("nylorun-shop", "shop"));
+    expect(plain).toContain('command: ["--service", "gates,keys"]');
+    expect(plain).not.toMatch(/egress|ports:/i);
+    const gateway = gatewayOf(renderComposeFile("nylorun-shop", "shop", { sandboxes: true }));
+    expect(gateway).toContain('command: ["--service", "gates,keys,egress"]');
+    expect(gateway).toContain('NYLORUN_EGRESS_LISTEN_PORT: "4200"');
+    expect(gateway).toContain(
+      '- "${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_EGRESS_PORT:?run nylorun sandbox enable}:4200"',
+    );
+    expect(gateway.match(/^\s+ports:/gm)).toHaveLength(1);
+  });
 });
