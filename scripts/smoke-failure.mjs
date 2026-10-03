@@ -28,7 +28,8 @@
 //    uncertain, and once it is back the next turn completes.
 // 8. Gateway killed mid-call: the same, and the stub's request is closed.
 // 9. Cancel mid-call: the stub sees its request aborted within 2 s.
-// 10. The gateway refuses a caller without the Host root's gateway token.
+// 10. The gateway refuses a caller without the Host root's gateway token, a run
+//     token on the keys route, and core's credential on a model call (F5).
 // 11. A budget's cap is reached (P1.3): the turn fails with
 //     model.budget_exhausted and the stub sees no call.
 // 12. A remote MCP call through the Tool Gate (F4.1): a stub MCP server holds
@@ -437,6 +438,23 @@ try {
         "fetch('http://gateway:4100/nylorun/v1/model-calls',{method:'POST',headers:{authorization:'Bearer '+'00'.repeat(32)}}).then(r=>console.log(r.status))",
       ]);
       assert.equal(refused.trim(), "401", "a wrong gates token is refused");
+      // Two credentials (F5): a run token, signed by the Tenant's key as core mints one, never
+      // reaches the keys; core's credential never calls the model.
+      const crossed = await stack.compose([
+        "exec", "-T", "-e", `SMOKE_TENANT=${tenant.id}`, "runtime", "node", "--input-type=module", "-e",
+        [
+          "const gate = 'http://gateway:4100/nylorun/v1';",
+          "const core = { authorization: 'Bearer ' + process.env.NYLORUN_GATES_TOKEN, 'content-type': 'application/json' };",
+          "const now = Math.floor(Date.now() / 1000);",
+          "const claims = { iss: 'urn:nylorun:tenant:' + process.env.SMOKE_TENANT, aud: 'nylorun-gates', sub: 'smoke', trn: 'smoke', agt: 'smoke', epc: 1, iat: now, exp: now + 60, jti: 'smoke' };",
+          "const signed = await (await fetch(gate + '/keys/sign', { method: 'POST', headers: core, body: JSON.stringify({ args: [{ typ: 'nylorun-run+jwt', claims }] }) })).json();",
+          "const run = { authorization: 'Bearer ' + signed.result.token, 'content-type': 'application/json' };",
+          "const keys = await fetch(gate + '/keys/sign', { method: 'POST', headers: run, body: JSON.stringify({ args: [{ typ: 'x', claims: {} }] }) });",
+          "const model = await fetch(gate + '/model-calls', { method: 'POST', headers: core, body: '{}' });",
+          "console.log(keys.status + ' ' + model.status);",
+        ].join(" "),
+      ]);
+      assert.equal(crossed.trim(), "401 401", "a run token on /keys and core's credential on model calls are refused");
 
       // 11. A cap one token above today's spend: one more call runs, the next is refused at
       // the gateway before it reaches the provider. The ledger recorded every call.

@@ -59,8 +59,13 @@ sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_BROWSER_ACCESS` (`on` or `off`) and the operator listener
 (`NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`,
 `NYLORUN_ADMIN_ALLOWED_HOSTS`). A process that runs `loop` sends its model
-calls to the gate at `NYLORUN_GATES_URL` with `NYLORUN_GATES_TOKEN`; in a
-container it refuses to start without them. A `gates` process needs only
+calls to the gate at `NYLORUN_GATES_URL`; in a container it refuses to start
+without it and `NYLORUN_GATES_TOKEN`. That token is core's credential: the gate
+accepts only it for vault writes, token signing and Action deliveries. Model and
+remote MCP calls carry a run token instead, which the loop mints for each
+session it advances, and the gate takes the call's session, turn and agent from
+it; a token whose turn was cancelled or whose session another process took over
+is refused with `409 run_stale`. A `gates` process needs only
 `NYLORUN_DATABASE_URL`, `NYLORUN_GATES_TOKEN`, its listener
 (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it

@@ -85,7 +85,8 @@ NYLORUN_TEST_STACK=1 NYLORUN_BENCH=1 npx vitest run -c vitest.integration.config
 
 Model calls of the loop cross the gates service (the `gateway` container). A failure
 of that hop is a failure outcome, never an uncertain effect, and cancel still reaches the
-provider. The real cases run on a local Tenant (`nylorun up`) in `scripts/smoke-failure.mjs`
+provider. Each call carries the run token of the advance that owns its session (F5), and
+the gateway takes the call's session, turn and agent from it. The real cases run on a local Tenant (`nylorun up`) in `scripts/smoke-failure.mjs`
 (`npm run test:failure`), after §17.3, with the stub model holding calls open:
 
 | Case | `scripts/smoke-failure.mjs` | Also covered by |
@@ -95,7 +96,9 @@ provider. The real cases run on a local Tenant (`nylorun up`) in `scripts/smoke-
 | The gateway dies mid-call | step 8: `model.transient`, no new `effect.uncertain`, the provider request closed | `gates/http-client.test.ts` › "…when the connection is lost mid-call" |
 | Cancel mid-call | step 9: the provider request aborted within 2 s; the turn ends `cancelled` | `contracts/model-gate.contract.ts` › "throws and aborts the provider request when cancelled during the call" (both gates); `gates/gates-host.test.ts` › "aborts the provider request when the caller goes away mid-call" |
 | The runtime dies or stops mid-call | steps 3–5: the gateway keeps the keyed call; after takeover the runtime re-sends it and joins it; the turn completes, nothing `uncertain`, one provider call (P1.2) | `tenant/recovery.test.ts`; `gates/inflight.test.ts`; `gates/gates-host.test.ts` › "keyed calls (P1.2)" |
-| A wrong gates token | step 10: `401` | `gates/gates-host.test.ts` › "refuses a missing or wrong token…"; `gates/http-client.test.ts` › "is an auth failure naming NYLORUN_GATES_TOKEN…" |
+| A wrong gates token | step 10: `401` | `gates/gates-host.test.ts` › "refuses a model call with no credential, core's credential or a bad token…"; `gates/http-client.test.ts` › "is an auth failure when the gate refuses the run token" |
+| A run token on a core route (F5) | step 10: a run token signed by the Tenant's key on `/keys/sign`, and core's credential on a model call, both `401` | `gates/gates-host.test.ts` › "refuses a run token on the keys and deliveries routes"; `security/run-tokens.test.ts` |
+| A stale run token (F5): after a cancel, a new turn or a takeover | steps 3–5 and 12: the restarted runtime's re-send joins under its new epoch; the gateway answers `409 run_stale` to the dead owner's token | `gates/gates-host.test.ts` › "answers 409 run_stale after a cancel, a new turn or a takeover" and "lets the new owner join after a takeover…"; `tenant/recovery.test.ts`, `tenant/mcp-recovery.test.ts` (the old owner's token refused after the takeover); `gates/tool-gate.test.ts` › "a session's MCP requests under its run token (F5)" |
 | A runaway loop reaches its cap | step 11: a Tenant day cap fails the next turn with `model.budget_exhausted`, and the provider sees no call (P1.3) | `model-budget.test.ts` › "stops a runaway loop at the turn's token cap" (both gates); `gates/meter.test.ts` › "caps" |
 
 ## Tool Gate (F4.1)

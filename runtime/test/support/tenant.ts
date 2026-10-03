@@ -30,6 +30,7 @@ import { VaultService } from "../../src/vault/service.js";
 import { httpKeys } from "../../src/keys/client.js";
 import { inProcessKeys, type Keys } from "../../src/keys/keys.js";
 import { SigningKeys } from "../../src/tenant/signing-keys.js";
+import { createRunGrants, type RunGrants } from "../../src/tenant/run-grants.js";
 import type { Session } from "../../src/tenant/context.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
@@ -126,6 +127,8 @@ export async function startTestTenant(
   headers(key?: string): Record<string, string>;
   root: string;
   handle: TenantHandle;
+  /** The gates service, with `NYLORUN_TEST_MODEL_GATE=http`. */
+  gate?: TestGate;
   close(): Promise<void>;
 }> {
   const hostRoot =
@@ -230,7 +233,7 @@ export async function startTestTenant(
     createKekFile(paths.kek);
   }
 
-  let gate: (GatesServer & { modelGate: ModelGate; toolGate: ToolGate; keys: Keys }) | undefined;
+  let gate: TestGate | undefined;
   if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
     const kek = () => {
       const found = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
@@ -257,8 +260,12 @@ export async function startTestTenant(
   else if (options.useHostModel && gate) hooks.modelGate = gate.modelGate;
   if (options.toolGate) hooks.toolGate = options.toolGate;
   else if (gate) hooks.toolGate = gate.toolGate;
-  // The keys service (F4.2): the Tenant never reads the vault key; the gate does.
-  if (gate) hooks.keys = gate.keys;
+  // The keys service (F4.2): the Tenant never reads the vault key; the gate does. Its
+  // advances mint their run tokens through it into the clients' grants (F5).
+  if (gate) {
+    hooks.keys = gate.keys;
+    hooks.runGrants = gate.runGrants;
+  }
 
   const handle = await openTenantRuntime(config, hooks);
   const tenant = getRequestListener((request, node) => handle.fetch(request, node), {
@@ -327,6 +334,7 @@ export async function startTestTenant(
     headers,
     root: hostRoot,
     handle,
+    ...(gate ? { gate } : {}),
     async close() {
       await handle.close();
       await gate?.close();
@@ -351,9 +359,20 @@ export async function startTestTenant(
   };
 }
 
+/** A gates service and the loop's clients of it, with the run grants the clients read. */
+export type TestGate = GatesServer & {
+  modelGate: ModelGate;
+  toolGate: ToolGate;
+  keys: Keys;
+  runGrants: RunGrants;
+  /** Core's credential (`NYLORUN_GATES_TOKEN`). */
+  token: string;
+};
+
 /**
  * A gates service on 127.0.0.1 serving one Tenant's vault, and the loop's HTTP client of it:
- * what the local stack's `gateway` container and the runtime container's loop do.
+ * what the local stack's `gateway` container and the runtime container's loop do. The clients
+ * read run tokens from `runGrants`, which the Tenant's advances fill (`hooks.runGrants`).
  */
 export async function startTestGate(options: {
   tenantId: string;
@@ -367,8 +386,9 @@ export async function startTestGate(options: {
   logger: TenantConfig["logger"];
   settings?: TenantConfig["modelCall"];
   delivery?: TenantConfig["delivery"];
-}): Promise<GatesServer & { modelGate: ModelGate; toolGate: ToolGate; keys: Keys }> {
+}): Promise<TestGate> {
   const token = randomBytes(32).toString("hex");
+  const runGrants = createRunGrants();
   const session = (sessionId: string) =>
     options.store.tx((t) => t.get<Session>("sessions", sessionId));
   const keys = options.credentials
@@ -406,8 +426,10 @@ export async function startTestGate(options: {
     drainMs: 0,
   });
   return Object.assign(server, {
-    modelGate: httpModelGate({ url: server.url, token }),
-    toolGate: httpToolGate({ url: server.url, token }),
+    modelGate: httpModelGate({ url: server.url, runTokens: runGrants }),
+    toolGate: httpToolGate({ url: server.url, token, runTokens: runGrants }),
     keys: httpKeys({ url: server.url, token }),
+    runGrants,
+    token,
   });
 }

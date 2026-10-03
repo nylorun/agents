@@ -9,12 +9,11 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
-import { newTenantId } from "@nylorun/core/compatibility";
 import { httpModelGate } from "../../src/gates/http-client.js";
 import { inProcessModelGate } from "../../src/gates/in-process.js";
 import type { ModelGate, ModelGateRequest } from "../../src/gates/model-gate.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
-import { createTestSessionStore } from "../support/store.js";
+import { runFixture } from "../support/run-tokens.js";
 
 const CALLS = 50;
 const WARMUP = 5;
@@ -53,21 +52,25 @@ describe.skipIf(!process.env.NYLORUN_BENCH)("Model Gate hop latency", () => {
       writeHostCredential: async () => {},
     };
     const token = "ab".repeat(32);
-    const store = await createTestSessionStore();
+    // The HTTP calls carry session s's run token (F5).
+    const runs = await runFixture();
+    await runs.run("s", { agentId: "bot", turnId: "t" });
     gates = await startGates({
       gates: { listen: { host: "127.0.0.1", port: 0, allowedHosts: [] }, token },
       logger: quiet,
       vaults: {
-        open: async () => ({
-          store,
-          root: "/nonexistent-bench-home",
-          ...host,
-        }),
+        open: async () =>
+          ({
+            tenantId: runs.tenantId,
+            store: runs.store,
+            root: "/nonexistent-bench-home",
+            ...host,
+          }) as never,
       },
       drainMs: 0,
     });
     const request: ModelGateRequest = {
-      tenantId: newTenantId(),
+      tenantId: runs.tenantId,
       sessionId: "s",
       turnId: "t",
       agentId: "bot",
@@ -92,7 +95,7 @@ describe.skipIf(!process.env.NYLORUN_BENCH)("Model Gate hop latency", () => {
       return { p50: at(0.5), p99: at(0.99) };
     };
     const local = await time(inProcessModelGate(host));
-    const remote = await time(httpModelGate({ url: gates.url, token }));
+    const remote = await time(httpModelGate({ url: gates.url, runTokens: runs.grants }));
     const added = { p50: remote.p50 - local.p50, p99: remote.p99 - local.p99 };
     console.log(
       `Model Gate hop over ${CALLS} calls: in-process p50 ${local.p50.toFixed(1)} ms, p99 ${local.p99.toFixed(1)} ms; ` +
