@@ -205,9 +205,9 @@ describe("signing key rotation", () => {
     await ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
     const refused = await refusal(ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: false }));
     expect(refused.status).toBe(409);
-    const details = await ctx.keys
+    const details = (await ctx.keys
       .rotateSigningKeys({ maxTtlSeconds: 60, force: false })
-      .catch((error: HttpError) => error.rejection.details as { retryAfterSeconds: number });
+      .catch((error: HttpError) => error.rejection.details)) as { retryAfterSeconds: number };
     expect(details.retryAfterSeconds).toBeGreaterThan(DELIVERY_TOKEN_MAX_TTL_SECONDS);
   });
 });
