@@ -1,6 +1,6 @@
 {
   "name": "nylorun",
-  "version": "0.5.0-beta",
+  "version": "0.6.0-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Set up and run local Nylorun Tenants (Runtime and Studio) with Docker Compose",
@@ -41,7 +41,7 @@
     "nylorun": "dist/cli.js"
   },
   "nylorun": {
-    "runtime": "0.15.1-beta",
-    "studio": "0.16.0-beta"
+    "runtime": "0.15.2-beta",
+    "studio": "0.17.0-beta"
   }
 }
