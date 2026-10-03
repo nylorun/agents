@@ -78,7 +78,7 @@ async function scenario(reason: Reason, harnessApi: boolean) {
       ? {
           execution: {
             execution: (execution = new MemoryExecution({ sweepIntervalMs: 60_000 })),
-            workers: new TenantWorkers({ advanceDeadlineMs: 300 }),
+            workers: new TenantWorkers({ advanceDeadlineMs: 2_000 }),
           },
         }
       : {}),

@@ -44,6 +44,7 @@ it("replays a turn without its prompts: intents only for new effects, the transc
   const frames: { frame: Frame; from: string; bytes: number }[] = [];
   const runtime = await startTestTenant({
     modelProvider: model,
+    harnessApi: true,
     harness: "json",
     harnessTap: (frame, from, bytes) => frames.push({ frame, from, bytes: bytes ?? 0 }),
   });
