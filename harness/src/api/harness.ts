@@ -72,8 +72,6 @@ interface Live extends HarnessRun {
   readonly waiting: Map<string, (outcome: ActionOutcome) => void>;
 }
 
-
-
 export function createHarness(options: HarnessOptions): Harness {
   const { channel, executors } = options;
   const maxRuns = options.maxRuns ?? Infinity;
@@ -184,7 +182,13 @@ export function createHarness(options: HarnessOptions): Harness {
     options.onGrant?.(grant);
     const stopRenewing = renew(run);
     const done = runTurn(
-      { channel, executors, cache, hold, ...(options.holdMs === undefined ? {} : { holdMs: options.holdMs }) },
+      {
+        channel,
+        executors,
+        cache,
+        hold,
+        ...(options.holdMs === undefined ? {} : { holdMs: options.holdMs }),
+      },
       run,
     )
       .catch((error: unknown) =>
@@ -231,9 +235,10 @@ export function createHarness(options: HarnessOptions): Harness {
         api: HARNESS_API_VERSION,
         name: options.name ?? "@nylorun/harness",
         version: options.version ?? "0",
-        capabilities: options.capabilities?.workspace === undefined
-          ? {}
-          : { workspace: options.capabilities.workspace },
+        capabilities:
+          options.capabilities?.workspace === undefined
+            ? {}
+            : { workspace: options.capabilities.workspace },
       });
       renewEveryMs = hello.renewEveryMs;
       options.onHello?.(hello);

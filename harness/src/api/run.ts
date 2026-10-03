@@ -34,7 +34,11 @@ export interface RunContext {
    * Waits up to `ms` for core's outcome of a pending Action of the run (`effect.resolved`).
    * Absent: a pending Action ends the segment.
    */
-  readonly hold?: (run: HarnessRun, effectId: string, ms: number) => Promise<ActionOutcome | undefined>;
+  readonly hold?: (
+    run: HarnessRun,
+    effectId: string,
+    ms: number,
+  ) => Promise<ActionOutcome | undefined>;
   /**
    * The longest this harness holds a run for a pending Action; core says how long each run
    * may (`TurnStart.options.holdMs`), and never past its yield budget.
@@ -97,7 +101,10 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
               ctx.hold!(
                 run,
                 effectId,
-                Math.min(holdMs, budget === undefined ? Infinity : budget - (Date.now() - startedAt)),
+                Math.min(
+                  holdMs,
+                  budget === undefined ? Infinity : budget - (Date.now() - startedAt),
+                ),
               ),
           }
         : {}),
