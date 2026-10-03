@@ -19,6 +19,7 @@ const psUp = {
   stdout: JSON.stringify([
     { Service: "gateway", State: "running", Health: "healthy" },
     { Service: "runtime", State: "running", Health: "healthy" },
+    { Service: "harness", State: "running", Health: "healthy" },
     { Service: "studio", State: "running", Health: "healthy" },
   ]),
   stderr: "",
