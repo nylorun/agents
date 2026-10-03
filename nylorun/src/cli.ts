@@ -9,34 +9,34 @@ import {
   studioCommand,
 } from "./stack/index.js";
 
-const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|legacy|doctor|telemetry>
+const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|doctor|telemetry>
 
-Local stacks (Docker Compose), one per project:
+Local Tenants (Docker Compose), one per project:
 ${stackUsage}
-  doctor [--json]                     check Node, Docker and Compose v2, and the stack's health
+  doctor [--json]                     check Node, Docker and Compose v2, and the Tenant's health
   telemetry [status|enable|disable]   Studio's anonymous usage analytics (on unless disabled,
                                       NYLORUN_TELEMETRY_DISABLED=1, DO_NOT_TRACK=1 or CI)
 
-A command acts on the stack --name or NYLORUN_STACK names, else the linked project's;
-NYLORUN_HOME sets its Host root (default ~/.nylorun/stacks/<name>).
+A command acts on the Tenant --tenant or NYLORUN_TENANT names, else the linked project's,
+else (outside a project) the default Tenant; NYLORUN_HOME sets its Host root
+(default ~/.nylorun/tenants/<name>).
 
-nylorun sets up and runs local stacks. "nylorun start" in a project creates the
-project's stack, its one Tenant and the Project link. Agents, sessions and model
-providers belong to the Runtime client: npx @nylorun/cli --help`;
+nylorun sets up and runs local Tenants. "nylorun start" in a project creates the
+project's Tenant and the Project link; anywhere else, it starts the default Tenant.
+Agents, sessions and model providers belong to the Runtime client: npx @nylorun/cli --help`;
 
 const CLIENT = "npx @nylorun/cli";
 
 /** Commands that were removed, or moved to the Runtime client (`@nylorun/cli`, command `nylo`). */
 const MOVED_TO_CLIENT: Record<string, string> = {
-  dev: "nylorun dev was removed: run `npx nylorun start` in your project (it creates the project's stack, its Tenant and the Project link), then your project's `npm run dev`.",
-  tenant: `Tenant commands were removed: a stack serves one Tenant, which \`npx nylorun start\` in a project creates with the stack and the Project link. Use nylorun status|reset, or ${CLIENT} status|reset|endpoints.`,
+  dev: "nylorun dev was removed: run `npx nylorun start` in your project (it creates the project's Tenant and the Project link), then your project's `npm run dev`.",
   configure: `nylorun configure moved to the Runtime client: ${CLIENT} configure`,
   serve: "nylorun serve was removed. Use node dist/src/main.js with NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.",
-  runtime: "nylorun runtime was removed: the local Runtime runs in the Docker Compose stack. Use nylorun up|down|status|logs.",
+  runtime: "nylorun runtime was removed: the local Runtime runs in Docker Compose. Use nylorun up|down|status|logs.",
 };
 
 const LOCAL_UI_REMOVED =
-  "--local-ui was removed: Studio runs in the stack's studio container. Run nylorun studio.";
+  "--local-ui was removed: Studio runs in its own container. Run nylorun studio.";
 
 const usageError = (message: string) => new CliError(message, 2);
 
@@ -64,14 +64,6 @@ async function main() {
     process.exitCode = await stackCommand(command, args, baselineEnv());
     return;
   }
-  // `nylorun stack <command>`: the Wave 1 spelling, kept as a hidden alias.
-  if (command === "stack") {
-    const [name, ...rest] = args;
-    if (!isStackCommand(name)) throw usageError(usage);
-    process.exitCode = await stackCommand(name!, rest, baselineEnv());
-    return;
-  }
-
   if (command === "telemetry") {
     const { telemetryCommand } = await import("./telemetry.js");
     const { defaultNylorunRoot } = await import("./stack/stacks.js");
@@ -84,14 +76,12 @@ async function main() {
   }
 
   if (command === "doctor") {
-    // `doctor stack` and `doctor runtime` are older spellings of `doctor`.
-    const options = args[0] === "stack" || args[0] === "runtime" ? args.slice(1) : args;
     if (args[0] === "sandbox")
       throw usageError(`nylorun doctor sandbox moved to the Runtime client: ${CLIENT} doctor sandbox`);
-    if (options.some((option) => option !== "--json"))
+    if (args.some((option) => option !== "--json"))
       throw usageError("Usage: nylorun doctor [--json]");
     const { doctorStack } = await import("./doctor.js");
-    process.exitCode = await doctorStack({ json: options.includes("--json"), env: baselineEnv() });
+    process.exitCode = await doctorStack({ json: args.includes("--json"), env: baselineEnv() });
     return;
   }
 

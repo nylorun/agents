@@ -6,14 +6,14 @@ import { CliError } from "../errors.js";
 
 /**
  * The Project link (`.nylorun/link.json`) and credentials (`.nylorun/credentials.json`).
- * `nylorun start` writes both, format 2: the stack the Project uses, its URL and Host id, and
- * the Tenant id as information (nothing selects a Tenant). Formats 0 and 1 named a Tenant on a
- * multi-Tenant Host of an older Runtime.
+ * `nylorun start` writes both, format 3: the local Tenant's name, its URL and Host id, and
+ * the Tenant id as information (nothing in a request selects a Tenant). `start` replaces a link
+ * of an older format.
  */
 export interface ProjectLink {
-  format: 0 | 1 | 2;
-  /** The local stack (format 2). */
-  stack?: string;
+  format: 0 | 1 | 2 | 3;
+  /** The local Tenant's name (format 3). */
+  tenant?: string;
   hostUrl: string;
   hostId: string;
   tenantId?: string;
@@ -51,7 +51,7 @@ export async function readProjectLink(projectRoot: string): Promise<ProjectLink 
   const link = parsed.data;
   return {
     format: link.format,
-    ...(link.stack ? { stack: link.stack } : {}),
+    ...(link.format === 3 && link.tenant ? { tenant: link.tenant } : {}),
     hostUrl: link.hostUrl.replace(/\/$/, ""),
     hostId: link.hostId,
     ...(link.tenantId ? { tenantId: link.tenantId } : {}),
@@ -79,12 +79,12 @@ async function ensureProjectDir(projectRoot: string): Promise<void> {
 
 export async function writeProjectLink(
   projectRoot: string,
-  link: { stack: string; hostUrl: string; hostId: string; tenantId: string },
+  link: { tenant: string; hostUrl: string; hostId: string; tenantId: string },
 ): Promise<void> {
   await ensureProjectDir(projectRoot);
   await writePrivate(linkPath(projectRoot), {
-    format: 2,
-    stack: link.stack,
+    format: 3,
+    tenant: link.tenant,
     hostUrl: link.hostUrl.replace(/\/$/, ""),
     hostId: link.hostId,
     tenantId: link.tenantId,

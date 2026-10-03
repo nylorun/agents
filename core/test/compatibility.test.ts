@@ -133,15 +133,26 @@ describe("Wave 0 schemas", () => {
     expect(link.format).toBe(0);
   });
 
-  it("parses a format 2 Project link that names its stack and no Tenant", () => {
+  it("parses a format 3 Project link that names its local Tenant and no Tenant id", () => {
     const link = ProjectLinkFileSchema.parse({
-      format: 2,
-      stack: "my-app",
+      format: 3,
+      tenant: "my-app",
       hostUrl: "http://127.0.0.1:7432",
       hostId: "host_1",
     });
-    expect(link).toMatchObject({ format: 2, stack: "my-app" });
+    expect(link).toMatchObject({ format: 3, tenant: "my-app" });
     expect(link.tenantId).toBeUndefined();
+  });
+
+  it("parses a format 2 Project link so readers can refuse it", () => {
+    expect(
+      ProjectLinkFileSchema.parse({
+        format: 2,
+        stack: "my-app",
+        hostUrl: "http://127.0.0.1:7432",
+        hostId: "host_1",
+      }).format,
+    ).toBe(2);
   });
 
   it("parses Project credentials", () => {

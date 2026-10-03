@@ -42,8 +42,8 @@ export interface StackEnv {
    * when telemetry is off. Decided again on every start.
    */
   studioAnalyticsId: string;
-  /** The stack's name: the name of the Tenant its Runtime creates. */
-  stackName: string;
+  /** The Tenant's name, which the Runtime gives the Tenant it creates. */
+  tenantName: string;
   /**
    * Derived principals the Runtime registers on its Tenant, comma-separated (persists);
    * always includes `project`, the Project link's principal.
@@ -66,7 +66,7 @@ const KEYS = {
   studioImage: "NYLORUN_STUDIO_IMAGE",
   studioFrameAncestors: "NYLORUN_STUDIO_FRAME_ANCESTORS",
   studioAnalyticsId: "NYLORUN_STUDIO_ANALYTICS_ID",
-  stackName: "NYLORUN_STACK_NAME",
+  tenantName: "NYLORUN_TENANT_NAME",
   derivedPrincipals: "NYLORUN_DERIVED_PRINCIPALS",
 } as const satisfies Record<keyof StackEnv, string>;
 
@@ -129,10 +129,10 @@ export function renderEnvFile(env: StackEnv): string {
     "# it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.",
     line("studioAnalyticsId"),
     "",
-    "# The stack's name, which its Runtime gives the Tenant it creates on the first",
+    "# The Tenant's name, which the Runtime gives the Tenant it creates on the first",
     "# start, and the derived principals it registers on that Tenant (keys derived",
     "# from the admin key; `project` is the Project link's).",
-    line("stackName"),
+    line("tenantName"),
     line("derivedPrincipals"),
     "",
   ].join("\n");

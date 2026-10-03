@@ -35,14 +35,18 @@ _Avoid_: treating Host shutdown as a shared Admin API method.
 imports to call one surface. Each depends only on `@nylorun/core`.
 _Avoid_: depending on `runtime` or `harness` from application code.
 
-**Local stack**: The Runtime image with Postgres, Restate and S2, run by
-`nylorun start` (the `nylorun` package) on a developer machine: one installation, one
-per project by default. A stack has a name (`--name`, else the project directory's),
-its Compose project `nylorun-<name>`, its Host root `~/.nylorun/stacks/<name>/`, ports
-and volumes. Its Runtime creates the stack's one Tenant on first start. Stacks start and
-stop only when the developer says so. `@nylorun/runtime` is a library with no bin; the
-Runtime runs as the `ghcr.io/nylorun/runtime` image.
-_Avoid_: "native Host", or installing `@nylorun/runtime` globally.
+**Local Tenant**: The Tenant of an installation that `nylorun start` (the `nylorun`
+package, `nylorun/src/stack/`) runs on a developer machine: the Runtime image with
+Postgres, Restate and S2 in Docker Compose. One per project by default; outside a
+project, or with `start --no-link`, the Tenant `default`. Its name is the Tenant's name:
+`--tenant`, else `NYLORUN_TENANT`, else the Project link's `tenant`, else (on `start`)
+the project directory's; a name starting with `tn_` (a Tenant id) is refused. It has its
+Compose project `nylorun-<name>`, its Host root `~/.nylorun/tenants/<name>/` (with
+`tenant.json`), ports and volumes. Its Runtime creates the Tenant and its id on first
+start. Local Tenants start and stop only when the developer says so.
+`@nylorun/runtime` is a library with no bin; the Runtime runs as the
+`ghcr.io/nylorun/runtime` image.
+_Avoid_: stack; "native Host", or installing `@nylorun/runtime` globally.
 
 **Prerequisites**: What a developer installs before using the Runtime: Node 24
 or newer and Docker, on macOS or Linux; Windows developers use WSL2. A missing
@@ -54,8 +58,8 @@ root. `@nylorun/admin` reads them for local connection resolution: `port` is
 the Tenant API, `adminPort` (when present) the operator listener.
 
 **Public listener** / **Operator listener**: With an operator listener
-(`adminPort` in host.json, or `NYLORUN_ADMIN_LISTEN_PORT` in a container; the
-stack's is container port 4001, published on loopback as `NYLORUN_ADMIN_PORT`),
+(`adminPort` in host.json, or `NYLORUN_ADMIN_LISTEN_PORT` in a container; a
+local Tenant's is container port 4001, published on loopback as `NYLORUN_ADMIN_PORT`),
 the Host serves two ports (`ListenerRole` in `host/create-host.ts`). The public
 listener serves the Tenant API, with browser access when enabled, and answers
 admin routes with the opaque `404`. The operator listener serves the Admin API,
@@ -71,8 +75,8 @@ Tenant Runtime, which it opens at start (`host/create-host.ts`: the listeners an
 `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`, `hostId`
 and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
 (`infra/readiness.ts`). The Tenant's data is its Postgres database; the Host keeps its
-key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or the
-stack's `~/.nylorun/stacks/<name>/`). `nylorun start` writes `host.json` and
+key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or a
+local Tenant's `~/.nylorun/tenants/<name>/`). `nylorun start` writes `host.json` and
 `host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
@@ -94,18 +98,18 @@ endpoint (`api/ag-ui/`) and the A2A endpoint (`api/a2a/`).
 _Avoid_: equating "Runtime" alone with a single Project's process.
 
 **Host root**: The absolute directory that holds Host files, the Tenant directory
-`tenant/` and, for a local stack, its Docker Compose files in `docker/`. Resolved once from `NYLORUN_HOME`, or for a local stack
-`~/.nylorun/stacks/<name>/`. The local stack bind-mounts it into the Runtime container
+`tenant/` and, for a local Tenant, its Docker Compose files in `docker/`. Resolved once from `NYLORUN_HOME`, or for a local Tenant
+`~/.nylorun/tenants/<name>/`. A local Tenant bind-mounts it into the Runtime container
 at `/nylorun`.
 
 **Project link**: Project-local `.nylorun/link.json` with
-`{ format: 2, stack, hostUrl, hostId, tenantId }` (`tenantId` is information:
+`{ format: 3, tenant, tenantId, hostUrl, hostId }` (`tenant` is the local Tenant's
+name, absent for an installation that is not local; `tenantId` is information:
 nothing selects a Tenant), plus `.nylorun/credentials.json` (mode 0600) holding the
 key of the derived principal `project` and its id. `nylorun start` writes both. A
-format 0 or 1 link named a Tenant on an older multi-Tenant Host; clients refuse it and
-`nylorun start` replaces it with a new stack. A fresh clone or second worktree does not
-attach until `nylorun start` creates its stack, or `nylorun start --name <stack>`
-attaches it to an existing one.
+link below format 3 is from an older nylorun; clients refuse it and `nylorun start`
+replaces it. A fresh clone or second worktree does not attach until `nylorun start`
+creates its Tenant, or `nylorun start --tenant <name>` attaches it to an existing one.
 _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
 flags and env vars that selected a database path.
 
@@ -179,7 +183,7 @@ no session or vault.
 _Avoid_: calling it an API key or a secret; using it to authorize (tokens do).
 
 **Browser access**: Whether requests with an `Origin` may reach Tenant routes
-(`browserAccess`; `NYLORUN_BROWSER_ACCESS`, on in the stack). The Host answers
+(`browserAccess`; `NYLORUN_BROWSER_ACCESS`, on in a local Tenant). The Host answers
 preflights for browser routes from the route alone; the Tenant admits an
 `Origin` only with a publishable key that lists it, and only then sets CORS
 headers. `/health`, `/ready`, admin routes and delivery tokens refuse
@@ -295,8 +299,8 @@ One line each; the module named is where the term lives in code.
 - **Profile**: Who operates the Runtime's infrastructure, OSS or Cloud; not a code switch, since only endpoints (`host/stack-config.ts`) and the vault key differ.
 - **Tenant handle**: The `TenantHandle` of the Host's open Tenant Runtime, bound to its database, basin and vault key (`tenant/types.ts`, opened by `tenant/store-pg.ts`, kept by `tenant/module.ts`).
 - **Service**: What one Runtime process runs, chosen with `--service` (blueprint §19): `core` (the Tenant and Admin APIs, SSE, the stream relay), `loop` (the agent loop and the Worker endpoint) or `gates` (the Model Gate); `--role api|worker|all` is its deprecated alias (`host/stack-config.ts`). A service is not a container. _Avoid_: "role", which means a Postgres or access-policy role.
-- **Packing**: Which services share a container. The local stack's combined packing runs `core,loop` in the `runtime` container and `gates` in the `gateway` container; core and loop may share a process, gates never joins them (`NYLORUN_PACKING`, `nylorun/src/stack/compose-file.ts`).
-- **Gateway**: The local stack's container for the gates service (and, in later releases, egress and keys). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider.
+- **Packing**: Which services share a container. A local Tenant's combined packing runs `core,loop` in the `runtime` container and `gates` in the `gateway` container; core and loop may share a process, gates never joins them (`NYLORUN_PACKING`, `nylorun/src/stack/compose-file.ts`).
+- **Gateway**: A local Tenant's container for the gates service (and, in later releases, egress and keys). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider.
 - **Keys service**: The `keys` service (F4.2), run in the gateway's process (`--service gates,keys`): the only process that reads the vault key (`<Host root>/keys/vault-kek`). It runs the vault writes that touch a secret and signs every token, behind the `Keys` seam (`keys/keys.ts`): in process, or over HTTP (`keys/client.ts`, `POST /nylorun/v1/keys/{operation}`, `NYLORUN_KEYS_URL`). With it, a Tenant runtime never reads, creates or holds the key.
 - **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`) and Action deliveries (`/nylorun/v1/deliveries`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`). A keyed MCP call runs once (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway is `uncertain`. Stdio MCP servers and the sandbox tools never cross it.
 - **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam the loop calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`) or over HTTP (`gates/http-client.ts`). Only it reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
@@ -332,12 +336,13 @@ One line each; the module named is where the term lives in code.
 | `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents` | Action endpoints: `createActionHandler` and `PUT /v1/endpoints` |
 | `nylorun serve` | `node dist/src/main.js` / the app's Action endpoint |
 | importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
-| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local stack: `nylorun start` |
+| `nylorun-runtime`, the launcher, `nylorun runtime up` | the local Tenant: `nylorun start` |
 | `nylorun dev`, `nylorun dev --ephemeral` | `nylorun start` once, then the project's `npm run dev` |
-| `nylo tenant create\|use\|list\|current\|delete`, one stack for every project | `nylorun start` in the project: its own stack, Tenant and link |
+| `nylo tenant create\|use\|list\|current\|delete`, one installation for every project | `nylorun start` in the project: its own local Tenant and link |
+| stack, `nylorun start --name`, `NYLORUN_STACK`, `~/.nylorun/stacks/`, `nylorun legacy` | local Tenant, `--tenant`, `NYLORUN_TENANT`, `~/.nylorun/tenants/` (`nylorun legacy` is removed) |
 | `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation |
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres database (Session Store) |
 | `tenant_<id>` schemas, the Tenant catalog, quarantine | one Tenant per database; a readiness cause |
 | `schema_version` tables, hand-written migrations, `lockSchema` | Drizzle migrations and their journal (`store/postgres/migrate.ts`) |
 | `Nylorun-Tenant` on new clients, `/v1/admin/tenants` | nothing selects the Tenant; `/v1/admin/status` names it |
-| Hosted Studio, `local.nylorun.studio`, pairing | the stack's Studio service and its login URL |
+| Hosted Studio, `local.nylorun.studio`, pairing | the local Tenant's Studio service and its login URL |

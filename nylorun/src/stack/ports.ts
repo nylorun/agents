@@ -8,7 +8,7 @@ export const DEFAULT_PORTS = {
   restate: 9070,
 } as const;
 
-/** How the stack finds ports on 127.0.0.1; injectable for tests. */
+/** How `nylorun start` finds ports on 127.0.0.1; injectable for tests. */
 export interface PortProbe {
   isFree(port: number): Promise<boolean>;
   /** A port the OS reports free right now. */
@@ -40,7 +40,7 @@ export const loopbackPorts: PortProbe = {
 
 /**
  * Choose a port: the persisted one if any (kept even when busy, because the
- * running stack may hold it), else the default when free, else a free one.
+ * running Tenant may hold it), else the default when free, else a free one.
  * Never returns a port in `taken`.
  */
 export async function choosePort(

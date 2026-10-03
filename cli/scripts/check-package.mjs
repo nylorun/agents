@@ -4,7 +4,7 @@ checkBoundaries("cli");
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 if (pkg.bin?.nylo !== "dist/cli.js")
   throw new Error("Missing nylo binary");
-// nylorun (the stack package) owns the `nylorun` command and the image pins.
+// nylorun (the local Tenants' package) owns the `nylorun` command and the image pins.
 if (pkg.bin?.nylorun !== undefined || pkg.nylorun !== undefined)
   throw new Error("The CLI must not declare the nylorun binary or image pins");
 const deps = Object.keys(pkg.dependencies ?? {}).sort();

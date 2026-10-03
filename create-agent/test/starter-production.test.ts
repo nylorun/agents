@@ -42,7 +42,7 @@ it("starter source imports only @nylorun/agents among Nylorun packages", async (
       "import { createActionHandler } from \"@nylorun/agents\";",
       "import { agents } from \"../agents/index.js\";",
       "",
-      "// The Runtime delivers each tool call to this URL. On the local stack `localhost` means this",
+      "// The Runtime delivers each tool call to this URL. On a local Tenant `localhost` means this",
       "// machine; in production set NYLORUN_ACTIONS_URL to the URL the Runtime reaches this app at.",
       "const port = Number(process.env.PORT ?? 3001);",
       "const url = process.env.NYLORUN_ACTIONS_URL ?? `http://localhost:${port}/nylorun/actions`;",

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
@@ -7,7 +7,7 @@ import { deriveTenantKey } from "../../src/project/derived-key.js";
 import { runStackCommand, type StackDeps } from "../../src/stack/commands.js";
 import { parseEnvLines } from "../../src/stack/env-file.js";
 import { stackPaths } from "../../src/stack/paths.js";
-import { chooseStackName, sanitizeStackName } from "../../src/stack/stacks.js";
+import { chooseTenantName, sanitizeTenantName } from "../../src/stack/stacks.js";
 import { fakeDocker, fakeFetch, json, temporaryDir, testDeps } from "./support.js";
 
 /** A machine: `~/.nylorun` (`base`) and directories for projects, in one temporary directory. */
@@ -27,16 +27,16 @@ async function project(dir: string, env?: string): Promise<string> {
 const readJson = (path: string) => JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 
 /**
- * A fetch that answers for every stack under `base`: the Host on each stack's Runtime port, its
- * Tenant (one id per stack, named after it) on its operator port, and the Tenant API.
+ * A fetch that answers for every Tenant under `base`: the Host on each Tenant's Runtime port, the
+ * Tenant (one id per name) on its operator port, and the Tenant API.
  */
 function machineFetch(base: string, options: { modelConfigured?: boolean } = {}) {
   const tenants = new Map<string, string>();
-  const stackOn = (url: string, field: "port" | "adminPort") => {
+  const tenantOn = (url: string, field: "port" | "adminPort") => {
     const port = Number(new URL(url).port);
-    const stacks = join(base, "stacks");
-    for (const name of existsSync(stacks) ? readdirSync(stacks) : []) {
-      const host = join(stacks, name, "host.json");
+    const tenants = join(base, "tenants");
+    for (const name of existsSync(tenants) ? readdirSync(tenants) : []) {
+      const host = join(tenants, name, "host.json");
       if (existsSync(host) && readJson(host)[field] === port)
         return { name, hostId: readJson(host).hostId as string };
     }
@@ -48,13 +48,13 @@ function machineFetch(base: string, options: { modelConfigured?: boolean } = {})
   };
   const fetch = fakeFetch((url) => {
     if (url.endsWith("/health")) {
-      const stack = stackOn(url, "port");
-      return stack ? json({ status: "ok", version: "0.10.0-beta", hostId: stack.hostId }) : undefined;
+      const tenant = tenantOn(url, "port");
+      return tenant ? json({ status: "ok", version: "0.10.0-beta", hostId: tenant.hostId }) : undefined;
     }
     if (url.endsWith("/v1/admin/status")) {
-      const stack = stackOn(url, "adminPort");
-      return stack
-        ? json({ tenant: { id: tenantOf(stack.name), name: stack.name, state: "open", envelope: null } })
+      const tenant = tenantOn(url, "adminPort");
+      return tenant
+        ? json({ tenant: { id: tenantOf(tenant.name), name: tenant.name, state: "open", envelope: null } })
         : undefined;
     }
     if (url.endsWith("/v1/tenant/config/seed")) return json({ applied: ["sandbox"], kept: [] });
@@ -81,7 +81,7 @@ function machineDeps(
 }
 
 describe("start in a project", () => {
-  it("creates the project's stack, its Tenant and the Project link", async () => {
+  it("creates the project's Tenant and the Project link", async () => {
     const { tmp, base } = await machine();
     const dir = await project(join(tmp, "My Shop"));
     const fetch = machineFetch(base);
@@ -89,23 +89,23 @@ describe("start in a project", () => {
     const deps = machineDeps(base, join(dir), { fetch, docker });
     expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
 
-    const root = join(base, "stacks", "my-shop");
+    const root = join(base, "tenants", "my-shop");
     const paths = stackPaths(root);
-    expect(readJson(join(root, "stack.json"))).toEqual({ format: 1, name: "my-shop", project: dir });
+    expect(readJson(join(root, "tenant.json"))).toEqual({ format: 1, name: "my-shop", project: dir });
     expect(docker.streamed[0]!.slice(0, 7)).toEqual([
       "compose", "--project-name", "nylorun-my-shop", "--file", paths.compose, "--env-file", paths.env,
     ]);
     expect(readFileSync(paths.compose, "utf8")).toMatch(/^name: nylorun-my-shop$/m);
     const env = parseEnvLines(readFileSync(paths.env, "utf8"));
-    expect(env.get("NYLORUN_STACK_NAME")).toBe("my-shop");
+    expect(env.get("NYLORUN_TENANT_NAME")).toBe("my-shop");
     expect(env.get("NYLORUN_DERIVED_PRINCIPALS")).toBe("project");
     expect(existsSync(paths.tenant)).toBe(true);
 
     const tenantId = fetch.tenantOf("my-shop");
     const host = readJson(paths.config);
     expect(readJson(join(dir, ".nylorun", "link.json"))).toEqual({
-      format: 2,
-      stack: "my-shop",
+      format: 3,
+      tenant: "my-shop",
       hostUrl: "http://localhost:8787",
       hostId: host.hostId,
       tenantId,
@@ -116,11 +116,11 @@ describe("start in a project", () => {
       applicationKey: deriveTenantKey(adminKey, tenantId, "project"),
       principalId: "project",
     });
-    expect(deps.lines.slice(0, 2)).toEqual([
-      `Stack     my-shop  (${root})`,
-      `Tenant    ${tenantId}  (my-shop)`,
-    ]);
-    expect(deps.errors).toContain(`Linked ${dir} to stack my-shop (.nylorun/link.json, .nylorun/credentials.json).`);
+    expect(deps.lines.slice(0, 2)).toEqual([`Tenant    my-shop  (${tenantId})`, "Runtime   http://localhost:8787"]);
+    expect(deps.errors).toContain(
+      `Created Tenant my-shop under ${root} (Runtime port 8787, Studio port 4161).`,
+    );
+    expect(deps.errors).toContain(`Linked ${dir} to Tenant my-shop (.nylorun/link.json, .nylorun/credentials.json).`);
   });
 
   it("seeds a new link's Tenant from .env, with the project key and no Tenant header", async () => {
@@ -153,13 +153,13 @@ describe("start in a project", () => {
     });
     expect(deps.errors).toContain("Seeded the Tenant from .env: sandbox, model anthropic/claude-x.");
 
-    // A later start reuses the stack and the link, and seeds nothing.
+    // A later start reuses the Tenant and the link, and seeds nothing.
     const again = machineDeps(base, dir, { fetch });
     fetch.requests.length = 0;
     expect(await runStackCommand("start", ["--no-studio"], again)).toBe(0);
     expect(fetch.requests.filter((r) => r.url.includes("/v1/tenant/"))).toEqual([]);
     expect(again.errors.some((line) => line.startsWith("Linked") || line.startsWith("Created"))).toBe(false);
-    expect(readdirSync(join(base, "stacks"))).toEqual(["shop"]);
+    expect(readdirSync(join(base, "tenants"))).toEqual(["shop"]);
   });
 
   it("keeps a configured model, and stores none for the fixture model", async () => {
@@ -176,92 +176,119 @@ describe("start in a project", () => {
     expect(fixture.requests.filter((r) => r.url.includes("/v1/tenant/"))).toEqual([]);
   });
 
-  it("gives a second project of the same directory name its own stack, on its own ports", async () => {
+  it("gives a second project of the same directory name its own Tenant, on its own ports", async () => {
     const { tmp, base } = await machine();
     const first = await project(join(tmp, "a", "app"));
     const second = await project(join(tmp, "b", "app"));
     expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, first))).toBe(0);
     expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, second))).toBe(0);
-    expect(readJson(join(second, ".nylorun", "link.json")).stack).toBe("app-2");
-    expect(readJson(join(base, "stacks", "app-2", "stack.json")).project).toBe(second);
+    expect(readJson(join(second, ".nylorun", "link.json")).tenant).toBe("app-2");
+    expect(readJson(join(base, "tenants", "app-2", "tenant.json")).project).toBe(second);
     expect(readJson(join(second, ".nylorun", "link.json")).hostUrl).toBe("http://localhost:50000");
-    // A fresh clone at the first path finds the stack created for it.
-    expect(await chooseStackName(base, first)).toBe("app");
-    expect(await chooseStackName(base, await project(join(tmp, "c", "app")))).toBe("app-3");
+    // A fresh clone at the first path finds the Tenant created for it.
+    expect(await chooseTenantName(base, first)).toBe("app");
+    expect(await chooseTenantName(base, await project(join(tmp, "c", "app")))).toBe("app-3");
   });
 
-  it("--name attaches another checkout to an existing stack", async () => {
+  it("--tenant attaches another checkout to an existing Tenant", async () => {
     const { tmp, base } = await machine();
     const fetch = machineFetch(base);
     const main = await project(join(tmp, "app"));
     const worktree = await project(join(tmp, "app-feature"));
     await runStackCommand("start", ["--no-studio"], machineDeps(base, main, { fetch }));
-    expect(await runStackCommand("start", ["--no-studio", "--name", "app"], machineDeps(base, worktree, { fetch }))).toBe(0);
+    expect(await runStackCommand("start", ["--no-studio", "--tenant", "app"], machineDeps(base, worktree, { fetch }))).toBe(0);
     expect(readJson(join(worktree, ".nylorun", "link.json"))).toEqual(
       readJson(join(main, ".nylorun", "link.json")),
     );
-    expect(readdirSync(join(base, "stacks"))).toEqual(["app"]);
-    // The linked worktree then selects that stack on its own.
+    expect(readdirSync(join(base, "tenants"))).toEqual(["app"]);
+    // The linked worktree then selects that Tenant on its own.
     const status = machineDeps(base, worktree);
     await runStackCommand("status", ["--json"], status);
     expect(JSON.parse(status.lines.join("\n")).name).toBe("app");
   });
 
-  it("replaces a link to a Tenant on an older Runtime's stack with the project's own stack", async () => {
+  it("replaces a link of an older nylorun (format 2) as if there were none", async () => {
     const { tmp, base } = await machine();
     const dir = await project(join(tmp, "shop"));
     await mkdir(join(dir, ".nylorun"));
     await writeFile(
       join(dir, ".nylorun", "link.json"),
-      JSON.stringify({ format: 1, hostUrl: "http://localhost:8787", hostId: "host_old", tenantId: "tn_old" }),
+      JSON.stringify({ format: 2, stack: "other", hostUrl: "http://localhost:8787", hostId: "host_old", tenantId: "tn_old" }),
     );
+    const status = runStackCommand("status", [], machineDeps(base, dir));
+    await expect(status).rejects.toThrow(/^No Tenant selected/);
     const deps = machineDeps(base, dir);
     expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
-    expect(deps.errors.some((line) => /linked to a Tenant on http:\/\/localhost:8787, a stack of an older Runtime/.test(line))).toBe(true);
-    expect(readJson(join(dir, ".nylorun", "link.json"))).toMatchObject({ format: 2, stack: "shop" });
+    expect(deps.errors.filter((line) => /an older/.test(line))).toEqual([]);
+    expect(readJson(join(dir, ".nylorun", "link.json"))).toMatchObject({ format: 3, tenant: "shop" });
+    expect(readJson(join(dir, ".nylorun", "link.json")).stack).toBeUndefined();
   });
 
-  it("--no-link starts a named stack and leaves the project alone", async () => {
+  it("other commands need a link, --tenant or NYLORUN_TENANT", async () => {
+    const { tmp, base } = await machine();
+    await runStackCommand("start", ["--no-studio", "--no-link", "--tenant", "scratch"], machineDeps(base, tmp));
+    const dir = await project(join(tmp, "repo"));
+    const status = runStackCommand("status", [], machineDeps(base, dir));
+    await expect(status).rejects.toMatchObject({ exitCode: 2 });
+    await expect(status).rejects.toThrow(
+      'No Tenant selected: run "nylorun start" in this project, pass --tenant <name>, or set NYLORUN_TENANT. Tenants on this machine: scratch.',
+    );
+  });
+
+  it("--no-link starts the default Tenant and leaves the project alone", async () => {
     const { tmp, base } = await machine();
     const dir = await project(join(tmp, "repo"));
-    await expect(
-      runStackCommand("start", ["--no-link"], machineDeps(base, dir)),
-    ).rejects.toMatchObject({ exitCode: 2 });
-    expect(await runStackCommand("start", ["--no-studio", "--no-link", "--name", "smoke"], machineDeps(base, dir))).toBe(0);
+    expect(await runStackCommand("start", ["--no-studio", "--no-link"], machineDeps(base, dir))).toBe(0);
+    expect(readJson(join(base, "tenants", "default", "tenant.json"))).toEqual({ format: 1, name: "default" });
+    expect(await runStackCommand("start", ["--no-studio", "--no-link", "--tenant", "smoke"], machineDeps(base, dir))).toBe(0);
     expect(existsSync(join(dir, ".nylorun"))).toBe(false);
-    expect(readJson(join(base, "stacks", "smoke", "stack.json"))).toEqual({ format: 1, name: "smoke" });
+    expect(readJson(join(base, "tenants", "smoke", "tenant.json"))).toEqual({ format: 1, name: "smoke" });
   });
 });
 
 describe("outside a project", () => {
-  it("start needs a name and writes no link; other commands need a stack", async () => {
+  it("start uses the default Tenant and writes no link; so do the other commands", async () => {
     const { tmp, base } = await machine();
-    await expect(runStackCommand("start", [], machineDeps(base, tmp))).rejects.toThrow(
-      /Not in a project: name the stack with "nylorun start --name <stack>"/,
-    );
-    expect(await runStackCommand("start", ["--no-studio", "--name", "scratch"], machineDeps(base, tmp))).toBe(0);
+    const started = machineDeps(base, tmp);
+    expect(await runStackCommand("start", ["--no-studio"], started)).toBe(0);
+    expect(started.lines[0]).toMatch(/^Tenant {4}default {2}\(tn_\w+\)$/);
+    expect(readJson(join(base, "tenants", "default", "tenant.json"))).toEqual({ format: 1, name: "default" });
     expect(existsSync(join(tmp, ".nylorun"))).toBe(false);
-    const status = runStackCommand("status", [], machineDeps(base, tmp));
-    await expect(status).rejects.toMatchObject({ exitCode: 2 });
-    await expect(status).rejects.toThrow(/No stack selected.*Stacks on this machine: scratch\./);
-    await expect(runStackCommand("status", ["--name", "Bad"], machineDeps(base, tmp))).rejects.toThrow(/--name must be lowercase/);
-    const named = machineDeps(base, tmp, { env: { NYLORUN_STACK: "scratch" } });
+    const status = machineDeps(base, tmp);
+    expect(await runStackCommand("status", ["--json"], status)).toBe(0);
+    expect(JSON.parse(status.lines.join("\n")).project).toBe("nylorun-default");
+    expect(await runStackCommand("start", ["--no-studio", "--tenant", "scratch"], machineDeps(base, tmp))).toBe(0);
+    await expect(runStackCommand("status", ["--tenant", "Bad"], machineDeps(base, tmp))).rejects.toThrow(/--tenant must be lowercase/);
+    const named = machineDeps(base, tmp, { env: { NYLORUN_TENANT: "scratch" } });
     expect(await runStackCommand("status", ["--json"], named)).toBe(0);
     expect(JSON.parse(named.lines.join("\n")).project).toBe("nylorun-scratch");
   });
 
-  it("sanitises directory names into stack names", () => {
-    expect(sanitizeStackName("My Shop!")).toBe("my-shop");
-    expect(sanitizeStackName("--Agents.Foundation__")).toBe("agents-foundation");
-    expect(sanitizeStackName("日本")).toBe("stack");
+  it("refuses a Tenant id where a Tenant's name belongs", async () => {
+    const { tmp, base } = await machine();
+    const flag = runStackCommand("start", ["--tenant", "tn_x"], machineDeps(base, tmp));
+    await expect(flag).rejects.toMatchObject({ exitCode: 2 });
+    await expect(flag).rejects.toThrow(/^--tenant must be a Tenant's name, not a Tenant id: tn_x\. "nylorun ls" lists/);
+    const env = machineDeps(base, tmp, { env: { NYLORUN_TENANT: "tn_01OLD" } });
+    await expect(runStackCommand("status", [], env)).rejects.toThrow(/^NYLORUN_TENANT must be a Tenant's name/);
+    expect(existsSync(join(base, "tenants"))).toBe(false);
+  });
+
+  it("sanitises directory names into Tenant names", () => {
+    expect(sanitizeTenantName("My Shop!")).toBe("my-shop");
+    expect(sanitizeTenantName("--Agents.Foundation__")).toBe("agents-foundation");
+    expect(sanitizeTenantName("tn_shop")).toBe("tn-shop");
+    expect(sanitizeTenantName("日本")).toBe("tenant");
   });
 });
 
 describe("ls", () => {
-  it("lists the stacks with their project, ports and state", async () => {
+  it("lists the Tenants with their project, ports and state, and nothing else under tenants/", async () => {
     const { tmp, base } = await machine();
     await runStackCommand("start", ["--no-studio"], machineDeps(base, await project(join(tmp, "app"))));
-    await runStackCommand("start", ["--no-studio", "--name", "scratch"], machineDeps(base, tmp));
+    await runStackCommand("start", ["--no-studio", "--tenant", "scratch"], machineDeps(base, tmp));
+    // A release before 0.4 kept a directory per Tenant id here.
+    await mkdir(join(base, "tenants", "tn_01old", "home"), { recursive: true });
     const docker = fakeDocker({
       respond: (args) =>
         args[1] === "ls"
@@ -270,12 +297,12 @@ describe("ls", () => {
     });
     const deps = machineDeps(base, tmp, { docker });
     expect(await runStackCommand("ls", ["--json"], deps)).toBe(0);
-    const listed = JSON.parse(deps.lines.join("\n")) as { stacks: Record<string, unknown>[]; legacy?: unknown };
-    expect(listed.legacy).toBeUndefined();
-    expect(listed.stacks).toEqual([
+    const listed = JSON.parse(deps.lines.join("\n")) as Record<string, Record<string, unknown>[]>;
+    expect(Object.keys(listed)).toEqual(["tenants"]);
+    expect(listed.tenants).toEqual([
       {
         name: "app",
-        root: join(base, "stacks", "app"),
+        root: join(base, "tenants", "app"),
         project: realpathSync(join(tmp, "app")),
         state: "running",
         runtimeUrl: "http://localhost:8787",
@@ -290,23 +317,26 @@ describe("ls", () => {
       docker: fakeDocker({ respond: () => ({ code: 127, stdout: "", stderr: "", missing: true }) }),
     });
     expect(await runStackCommand("ls", [], words)).toBe(0);
-    expect(words.lines[0]).toMatch(/^NAME\s+STATE\s+RUNTIME\s+STUDIO\s+PROJECT$/);
+    expect(words.lines[0]).toMatch(/^TENANT\s+STATE\s+RUNTIME\s+STUDIO\s+PROJECT$/);
+    expect(words.lines).toHaveLength(3);
     expect(words.lines[1]).toMatch(/^app\s+unknown\s+http:\/\/localhost:8787\s+http:\/\/localhost:4161\s+\//);
   });
 
-  it("says when there are no stacks", async () => {
+  it("says when there are no Tenants", async () => {
     const { tmp, base } = await machine();
     const deps = machineDeps(base, tmp);
     expect(await runStackCommand("ls", [], deps)).toBe(0);
-    expect(deps.lines).toEqual([`No stacks under ${join(base, "stacks")}. Run "npx nylorun start" in a project.`]);
+    expect(deps.lines).toEqual([
+      'No Tenants on this machine. Run "npx nylorun start" in a project (or anywhere, for the default Tenant).',
+    ]);
   });
 });
 
 describe("delete", () => {
   it("refuses without --yes, then removes the containers, volumes and Host root", async () => {
     const { tmp, base } = await machine();
-    await runStackCommand("start", ["--no-studio", "--name", "scratch"], machineDeps(base, tmp));
-    const root = join(base, "stacks", "scratch");
+    await runStackCommand("start", ["--no-studio", "--tenant", "scratch"], machineDeps(base, tmp));
+    const root = join(base, "tenants", "scratch");
     const docker = fakeDocker();
     const refused = runStackCommand("delete", ["scratch"], machineDeps(base, tmp, { docker }));
     await expect(refused).rejects.toMatchObject({ exitCode: 2 });
@@ -321,79 +351,60 @@ describe("delete", () => {
       ],
     ]);
     expect(existsSync(root)).toBe(false);
-    expect(existsSync(join(base, "stacks"))).toBe(true);
+    expect(existsSync(join(base, "tenants"))).toBe(true);
     await expect(runStackCommand("delete", ["scratch", "--yes"], machineDeps(base, tmp))).rejects.toMatchObject({ exitCode: 3 });
     await expect(runStackCommand("delete", [], machineDeps(base, tmp))).rejects.toMatchObject({ exitCode: 2 });
   });
 });
 
-describe("the legacy stack", () => {
-  /** The single stack of an older release, directly under `base`. */
-  async function legacyLayout(base: string) {
-    await mkdir(join(base, "stack"), { recursive: true });
-    await mkdir(join(base, "tenants", "tn_x"), { recursive: true });
-    await writeFile(join(base, "stack", "compose.yaml"), "name: nylorun\n");
-    await writeFile(join(base, "stack", ".env"), "NYLORUN_PORT=8787\nNYLORUN_STUDIO_PORT=4161\n");
-    await writeFile(join(base, "host.json"), "{}");
-    await writeFile(join(base, "host-credentials.json"), "{}");
-  }
-
-  it("start mentions it once and keeps clear of its ports", async () => {
+describe("the Host roots of nylorun 0.4", () => {
+  it("move from stacks/ to tenants/ once, with tenant.json and NYLORUN_TENANT_NAME", async () => {
     const { tmp, base } = await machine();
-    await legacyLayout(base);
-    const deps = machineDeps(base, await project(join(tmp, "app")));
-    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
-    expect(deps.errors.filter((line) => line.includes("nylorun legacy stop"))).toHaveLength(1);
-    expect(readJson(join(base, "stacks", "app", "host.json")).port).toBe(50000);
-    const again = machineDeps(base, join(tmp, "app"));
-    await runStackCommand("start", ["--no-studio"], again);
-    expect(again.errors.some((line) => line.includes("legacy"))).toBe(false);
-    const listed = machineDeps(base, tmp);
-    await runStackCommand("ls", ["--json"], listed);
-    expect(JSON.parse(listed.lines.join("\n")).legacy).toEqual({ root: base, project: "nylorun", state: "stopped" });
-  });
+    await runStackCommand("start", ["--no-studio", "--tenant", "shop"], machineDeps(base, tmp));
+    await runStackCommand("start", ["--no-studio", "--tenant", "taken"], machineDeps(base, tmp));
+    // Lay out shop as 0.4 kept it, and a stacks/taken whose name tenants/ already holds.
+    const old = join(base, "stacks");
+    await mkdir(old);
+    await rename(join(base, "tenants", "shop"), join(old, "shop"));
+    await rename(join(old, "shop", "tenant.json"), join(old, "shop", "stack.json"));
+    for (const file of [join(old, "shop", "docker", ".env"), join(old, "shop", "docker", "compose.yaml")])
+      await writeFile(file, readFileSync(file, "utf8").replaceAll("NYLORUN_TENANT_NAME", "NYLORUN_STACK_NAME"));
+    await mkdir(join(old, "taken"));
+    await writeFile(join(old, ".legacy-noted"), "");
 
-  it("legacy stop stops Compose project nylorun; legacy delete --yes removes only the old layout", async () => {
-    const { tmp, base } = await machine();
-    await legacyLayout(base);
-    await runStackCommand("start", ["--no-studio", "--name", "keep"], machineDeps(base, tmp));
-    const legacyCompose = [
-      "compose", "--project-name", "nylorun",
-      "--file", join(base, "stack", "compose.yaml"), "--env-file", join(base, "stack", ".env"),
-    ];
-    const docker = fakeDocker();
-    expect(await runStackCommand("legacy", ["stop"], machineDeps(base, tmp, { docker }))).toBe(0);
-    await expect(runStackCommand("legacy", ["delete"], machineDeps(base, tmp, { docker }))).rejects.toThrow(
-      /every Tenant on it with their vault keys.*Pass --yes/,
-    );
-    expect(await runStackCommand("legacy", ["delete", "--yes"], machineDeps(base, tmp, { docker }))).toBe(0);
-    expect(docker.streamed).toEqual([
-      [...legacyCompose, "stop"],
-      [...legacyCompose, "down", "--volumes", "--remove-orphans"],
-    ]);
-    expect(readdirSync(base).sort()).toEqual(["stacks"]);
-    expect(existsSync(join(base, "stacks", "keep", "host.json"))).toBe(true);
-    const none = machineDeps(base, tmp);
-    expect(await runStackCommand("legacy", ["stop"], none)).toBe(0);
-    expect(none.lines[0]).toMatch(/^No legacy stack under /);
-    await expect(runStackCommand("legacy", ["start"], none)).rejects.toMatchObject({ exitCode: 2 });
+    const deps = machineDeps(base, tmp);
+    expect(await runStackCommand("ls", ["--json"], deps)).toBe(0);
+    expect(deps.errors).toEqual([`Moved Tenants shop from ${old} to ${join(base, "tenants")}.`]);
+    expect(JSON.parse(deps.lines.join("\n")).tenants.map((t: { name: string }) => t.name)).toEqual(["shop", "taken"]);
+    const root = join(base, "tenants", "shop");
+    expect(readJson(join(root, "tenant.json"))).toEqual({ format: 1, name: "shop" });
+    expect(parseEnvLines(readFileSync(join(root, "docker", ".env"), "utf8")).get("NYLORUN_TENANT_NAME")).toBe("shop");
+    expect(readFileSync(join(root, "docker", "compose.yaml"), "utf8")).not.toContain("NYLORUN_STACK_NAME");
+    expect(readdirSync(old)).toEqual(["taken"]);
+
+    const again = machineDeps(base, tmp);
+    await runStackCommand("status", ["--tenant", "shop", "--json"], again);
+    expect(again.errors).toEqual([]);
+    await rm(join(old, "taken"), { recursive: true });
+    await runStackCommand("ls", [], machineDeps(base, tmp));
+    expect(existsSync(old)).toBe(false);
   });
 });
 
 describe("reset", () => {
-  it("resets only the selected stack, and the next start relinks the project", async () => {
+  it("resets only the selected Tenant, and the next start relinks the project", async () => {
     const { tmp, base } = await machine();
     const fetch = machineFetch(base);
     const dir = await project(join(tmp, "app"));
     await runStackCommand("start", ["--no-studio"], machineDeps(base, dir, { fetch }));
-    await runStackCommand("start", ["--no-studio", "--name", "other"], machineDeps(base, tmp, { fetch }));
-    await writeFile(join(base, "stacks", "other", "tenant", "vault-kek"), "kek");
-    await writeFile(join(base, "stacks", "app", "tenant", "vault-kek"), "kek");
+    await runStackCommand("start", ["--no-studio", "--tenant", "other"], machineDeps(base, tmp, { fetch }));
+    await writeFile(join(base, "tenants", "other", "tenant", "vault-kek"), "kek");
+    await writeFile(join(base, "tenants", "app", "tenant", "vault-kek"), "kek");
     const docker = fakeDocker();
     expect(await runStackCommand("reset", ["--yes"], machineDeps(base, dir, { docker, fetch }))).toBe(0);
     expect(docker.streamed.map((args) => args[2])).toEqual(["nylorun-app"]);
-    expect(existsSync(join(base, "stacks", "app", "tenant", "vault-kek"))).toBe(false);
-    expect(existsSync(join(base, "stacks", "other", "tenant", "vault-kek"))).toBe(true);
+    expect(existsSync(join(base, "tenants", "app", "tenant", "vault-kek"))).toBe(false);
+    expect(existsSync(join(base, "tenants", "other", "tenant", "vault-kek"))).toBe(true);
 
     // The Runtime creates a new Tenant after a reset: start rewrites the link.
     const before = readJson(join(dir, ".nylorun", "link.json")).tenantId;
@@ -404,7 +415,7 @@ describe("reset", () => {
     expect(after).not.toBe(before);
     expect(after).toBe(fresh.tenantOf("app"));
     expect(await readFile(join(dir, ".nylorun", "credentials.json"), "utf8")).toContain(
-      deriveTenantKey((readJson(join(base, "stacks", "app", "host-credentials.json")) as { adminKey: string }).adminKey, after as string, "project"),
+      deriveTenantKey((readJson(join(base, "tenants", "app", "host-credentials.json")) as { adminKey: string }).adminKey, after as string, "project"),
     );
   });
 });

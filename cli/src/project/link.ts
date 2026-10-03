@@ -3,13 +3,13 @@ import { join } from "node:path";
 import { CliError } from "../errors.js";
 
 /**
- * Project-local link to an installation (format 2). `nylorun start` writes it; `nylo` only
+ * Project-local link to an installation (format 3). `nylorun start` writes it; `nylo` only
  * reads it. `tenantId` is information: the installation serves one Tenant, so nothing selects it.
  */
 export interface ProjectLink {
-  format: 2;
-  /** The local stack the link names (`~/.nylorun/stacks/<stack>/`). */
-  stack?: string;
+  format: 3;
+  /** The local Tenant the link names (`~/.nylorun/tenants/<tenant>/`). */
+  tenant?: string;
   hostUrl: string;
   hostId: string;
   tenantId?: string;
@@ -34,7 +34,7 @@ export async function readLink(
   const path = linkPath(projectRoot);
   let value: {
     format?: unknown;
-    stack?: unknown;
+    tenant?: unknown;
     hostUrl?: unknown;
     hostId?: unknown;
     tenantId?: unknown;
@@ -54,13 +54,18 @@ export async function readLink(
       1,
     );
   }
-  // Formats 0 and 1 named a Tenant on a multi-Tenant Host of an older Runtime.
-  if (value?.format === undefined || value.format === 0 || value.format === 1)
+  // Formats 0 to 2 are from older releases.
+  if (
+    value?.format === undefined ||
+    value.format === 0 ||
+    value.format === 1 ||
+    value.format === 2
+  )
     throw new CliError(
-      `The Project link at ${path} is for a stack of an older Runtime, before one Tenant per installation. Run "npx nylorun start" in this project to start its own stack and link it again.`,
+      `The Project link at ${path} is from an older nylorun. Run "npx nylorun start" in this project to link it again.`,
       1,
     );
-  if (value.format !== 2)
+  if (value.format !== 3)
     throw new CliError(
       `Project link at ${path} has an unsupported format. Upgrade the CLI.`,
       1,
@@ -68,7 +73,7 @@ export async function readLink(
   if (
     typeof value.hostUrl !== "string" ||
     typeof value.hostId !== "string" ||
-    (value.stack !== undefined && typeof value.stack !== "string") ||
+    (value.tenant !== undefined && typeof value.tenant !== "string") ||
     (value.tenantId !== undefined && typeof value.tenantId !== "string")
   )
     throw new CliError(
@@ -76,8 +81,8 @@ export async function readLink(
       1,
     );
   return {
-    format: 2,
-    ...(value.stack ? { stack: value.stack } : {}),
+    format: 3,
+    ...(value.tenant ? { tenant: value.tenant } : {}),
     hostUrl: value.hostUrl.replace(/\/$/, ""),
     hostId: value.hostId,
     ...(value.tenantId ? { tenantId: value.tenantId } : {}),

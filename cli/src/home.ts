@@ -3,8 +3,8 @@ import { join, resolve } from "node:path";
 
 /**
  * Where `nylo` keeps its own files (the installation id): an explicit home,
- * `NYLORUN_HOME`, or `~/.nylorun`, which holds the local stacks' Host roots
- * (`stacks/<name>/`). `@nylorun/admin` resolves a stack's Host root itself.
+ * `NYLORUN_HOME`, or `~/.nylorun`, which holds the local Tenants' Host roots
+ * (`tenants/<name>/`). `@nylorun/admin` resolves a Tenant's Host root itself.
  */
 export function resolveHome(
   home?: string,

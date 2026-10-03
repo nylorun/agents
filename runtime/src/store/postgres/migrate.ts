@@ -115,15 +115,15 @@ export async function assertCurrentLayout(q: Queryable): Promise<void> {
       "database-layout-old",
       "The database was written by an older Runtime that kept several Tenants in one database " +
         "(tenant_<id> schemas). This release starts fresh with one Tenant per database and " +
-        "never changes the old one: point the Runtime at a new database (with the local stack, " +
-        "start a new stack).",
+        "never changes the old one: point the Runtime at a new database (locally, a new Tenant: " +
+        "`nylorun start --tenant <new name>`).",
     );
   if (row?.versioned)
     throw openError(
       "database-layout-old",
       "The database was created by a pre-release build of one Tenant per database, whose " +
         "migrations this release replaces. It is never changed: point the Runtime at a new " +
-        "database (with the local stack, delete the stack and start it again).",
+        "database (locally, `nylorun reset` and then `nylorun start`).",
     );
 }
 

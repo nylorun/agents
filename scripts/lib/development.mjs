@@ -1,13 +1,13 @@
 /**
- * `npm run dev`: the contributor loop on the local Docker stack.
+ * `npm run dev`: the contributor loop on a local Tenant (Docker Compose).
  *
  * 1. Build the host-side packages the examples application runs on (core,
  *    harness, agents, admin, runtime, nylorun, cli).
  * 2. Build the Runtime and Studio images from this checkout
  *    (`nylorun-runtime:dev`, `nylorun-studio:dev`; NYLORUN_RUNTIME_IMAGE /
- *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` examples/' stack on
- *    them, in examples/: it creates the stack (named after examples/ unless
- *    NYLORUN_STACK names one) and its Tenant, and links examples/ to it.
+ *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` examples/' Tenant
+ *    on them, in examples/: it creates the Tenant (named after examples/
+ *    unless NYLORUN_TENANT names one) and links examples/ to it.
  * 3. Print a Studio login on the Tenant (`nylorun studio`), and run the
  *    examples Action endpoint with its own `npm run dev` (`tsx watch`), as a
  *    developer's project runs.
@@ -93,7 +93,7 @@ export function packageOf(repo, path) {
 
 /**
  * The real commands: npm builds, `docker build` and the workspace nylorun
- * (the stack). `develop` takes these as a parameter so tests can replace them.
+ * (local Tenants). `develop` takes these as a parameter so tests can replace them.
  */
 export function workspaceCommands({ repo = root, project = join(repo, "examples"), env = process.env } = {}) {
   const nylorun = join(repo, "nylorun/dist/cli.js");
@@ -125,10 +125,10 @@ export function workspaceCommands({ repo = root, project = join(repo, "examples"
       }
       await buildImage(name, images[name], { log });
     },
-    /** `nylorun start` in examples/: the stack, its Tenant, and the Project link once. */
+    /** `nylorun start` in examples/: the Tenant, and the Project link once. */
     async startStack(group, { studio }) {
       const child = group.start(
-        "stack",
+        "tenant",
         process.execPath,
         [nylorun, "start", ...(studio ? [] : ["--no-studio"])],
         { cwd: project, env: stackEnv() },
@@ -182,7 +182,7 @@ export async function develop(
     log,
     onExit(label, code) {
       if (!stopping && label === "examples") {
-        log(`[dev] The examples runner exited (${code}); stopping. The stack keeps running.`);
+        log(`[dev] The examples runner exited (${code}); stopping. The Tenant keeps running.`);
         void close(code || 1);
       }
     },
@@ -212,7 +212,7 @@ export async function develop(
       startRunner();
     } catch (error) {
       if (!stopping)
-        log(`[dev] ${error.message} The running stack and examples runner were retained.`);
+        log(`[dev] ${error.message} The running Tenant and examples runner were retained.`);
     }
   }
 
@@ -277,7 +277,7 @@ export async function develop(
     log(
       "[dev] Watching core, harness, agents, admin, runtime, nylorun, cli" +
         (options.studio ? " and studio" : "") +
-        ". Ctrl-C stops the examples runner; `npx nylorun stop` (in examples/) stops the stack.",
+        ". Ctrl-C stops the examples runner; `npx nylorun stop` (in examples/) stops the Tenant.",
     );
     return { close, done };
   } catch (error) {

@@ -47,7 +47,7 @@ test("only package sources are watched", () => {
 });
 
 test(
-  "edits rebuild and restart; a failed build keeps the stack and runner and recovers",
+  "edits rebuild and restart; a failed build keeps the Tenant and runner and recovers",
   { timeout: 60_000 },
   async () => {
     const repo = await mkdtemp(join(tmpdir(), "nylorun-dev-test-"));

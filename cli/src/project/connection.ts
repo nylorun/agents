@@ -26,7 +26,7 @@ export async function linkedConnection(
   const key = env.NYLORUN_SERVER_KEY?.trim();
   if (url && key) return { url: url.replace(/\/$/, ""), key };
   throw new CliError(
-    `No Project link in ${projectRoot}. Run "npx nylorun start" in this project to start its stack and link it, or set NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.`,
+    `No Project link in ${projectRoot}. Run "npx nylorun start" in this project to start its Tenant and link it, or set NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.`,
     1,
   );
 }

@@ -1,14 +1,14 @@
 /**
- * `npm run dev` smoke: the contributor loop on the Docker stack, after
+ * `npm run dev` smoke: the contributor loop on a local Tenant, after
  * `npm run setup`:
  *
  *   npm run test:dev
  *
  * Runs scripts/lib/development.mjs against a temporary NYLORUN_HOME and a
- * unique stack (NYLORUN_STACK), with the images from scripts/lib/stack.mjs.
- * Checks that the stack starts on those images, `nylorun start` links the
- * examples Project to the stack's Tenant, its Action endpoints answer, the printed Studio login works, and that an edit to
- * a host package rebuilds it and restarts the examples runner. The stack is
+ * unique Tenant (NYLORUN_TENANT), with the images from scripts/lib/stack.mjs.
+ * Checks that the Tenant starts on those images, `nylorun start` links the
+ * examples Project to it, its Action endpoints answer, the printed Studio login works, and that an edit to
+ * a host package rebuilds it and restarts the examples runner. The Tenant is
  * reset afterwards.
  *
  * The examples run from a temporary copy of the files git tracks under
@@ -85,17 +85,18 @@ try {
       const containerImage = (
         await stack.compose(["ps", "--format", "{{.Image}}", "runtime"])
       ).trim();
-      assert.equal(containerImage, images.runtime, "the stack runs the images from this checkout");
+      assert.equal(containerImage, images.runtime, "the Tenant runs the images from this checkout");
       const gatewayImage = (
         await stack.compose(["ps", "--format", "{{.Image}}", "gateway"])
       ).trim();
       assert.equal(gatewayImage, images.runtime, "the gateway runs the same Runtime image");
 
-      const { tenantId, hostUrl, stack: linked } = JSON.parse(await readFile(join(link, "link.json"), "utf8"));
+      const { format, tenantId, hostUrl, tenant: linked } = JSON.parse(await readFile(join(link, "link.json"), "utf8"));
       const { applicationKey } = JSON.parse(await readFile(join(link, "credentials.json"), "utf8"));
       assert.equal(hostUrl, status.runtime.url);
-      assert.equal(linked, stack.env.NYLORUN_STACK, "examples/ is linked to the test stack");
-      assert.equal(tenantId, (await stack.tenant()).id, "the link names the stack's Tenant");
+      assert.equal(format, 3, "link format 3");
+      assert.equal(linked, stack.env.NYLORUN_TENANT, "examples/ is linked to the test Tenant");
+      assert.equal(tenantId, (await stack.tenant()).id, "the link names the Tenant's id");
       // The examples serve their agents as Action endpoints; the Runtime (in Docker) reaches
       // them when a ping through it answers 200.
       const connected = async () => {
@@ -131,7 +132,7 @@ try {
     }
   });
   console.log(
-    "Development smoke passed: npm run dev on the stack (local images), examples linked to its Tenant, Action endpoints, Studio login, package rebuild and runner restart.",
+    "Development smoke passed: npm run dev on a local Tenant (local images), examples linked to it, Action endpoints, Studio login, package rebuild and runner restart.",
   );
 } catch (error) {
   console.error(error);

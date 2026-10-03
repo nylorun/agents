@@ -117,7 +117,7 @@ export function createA2aHandler(options: A2aHandlerOptions): A2aHandler {
       if (!features.includes(REQUIRED_FEATURE))
         throw new Problem(
           502,
-          `The Runtime does not support ${REQUIRED_FEATURE}; upgrade the stack (nylorun up).`,
+          `The Runtime does not support ${REQUIRED_FEATURE}; update the Runtime (npx nylorun@latest start).`,
           "runtime_feature_missing"
         );
       return client;

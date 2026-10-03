@@ -11,7 +11,7 @@ import { CliError } from "./errors.js";
  */
 export const STUDIO_ANALYTICS_ID = "G-K6RPDFH6Q6";
 
-/** `~/.nylorun/telemetry.json`: the developer's choice, for every stack on the machine. */
+/** `~/.nylorun/telemetry.json`: the developer's choice, for every Tenant on the machine. */
 export interface TelemetryFile {
   format: 1;
   /** False after `nylorun telemetry disable`; absent until a choice is made. */
@@ -97,7 +97,7 @@ export async function telemetryCommand(
     const enabled = action === "enable";
     await writeTelemetry(context.nylorunRoot, { ...file, enabled });
     context.out(
-      `Studio telemetry ${enabled ? "enabled" : "disabled"}. Running stacks pick this up on the next "nylorun start".`,
+      `Studio telemetry ${enabled ? "enabled" : "disabled"}. Running Tenants pick this up on the next "nylorun start".`,
     );
   }
   const decision = telemetryDecision(context.env, await readTelemetry(context.nylorunRoot));

@@ -1,5 +1,5 @@
 /**
- * The Studio server that runs in the `studio` container of the Docker stack:
+ * The Studio server that runs in the `studio` container of a Tenant's Compose project:
  * the dashboard and the trusted proxy on one origin, behind a cookie session.
  *
  * - The CLI mints a single-use login token with the admin key
@@ -510,7 +510,7 @@ export async function startStudioServer(
         response,
         503,
         "Tenant unavailable",
-        `${escapeHtml(tenant.message ?? "The Tenant is unavailable.")} Reload this page to try again; <code>npx nylorun status</code> reports the stack.`,
+        `${escapeHtml(tenant.message ?? "The Tenant is unavailable.")} Reload this page to try again; <code>npx nylorun status</code> reports the Tenant.`,
         method,
       );
       return;

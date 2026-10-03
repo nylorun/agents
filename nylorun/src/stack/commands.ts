@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 import {
   compareVersions,
   PROTOCOL_HEADER,
@@ -37,41 +37,40 @@ import { stackPaths, type StackPaths } from "./paths.js";
 import type { PortProbe } from "./ports.js";
 import { prepareStack, readStackEnv } from "./prepare.js";
 import {
-  assertStackName,
-  chooseStackName,
+  assertTenantName,
+  chooseTenantName,
+  DEFAULT_TENANT,
   defaultNylorunRoot,
-  LEGACY_ENTRIES,
-  legacyStack,
-  listStacks,
-  readStackRecord,
-  sanitizeStackName,
-  stackRoot,
-  stacksDir,
-  writeStackRecord,
-  type LegacyStack,
+  listTenants,
+  moveStackRoots,
+  readTenantRecord,
+  sanitizeTenantName,
+  tenantRoot,
+  tenantsDir,
+  writeTenantRecord,
 } from "./stacks.js";
 import { mintStudioLogin, studioOrigin, type FetchLike } from "./studio-login.js";
 
 export const STACK_SERVICES = ["postgres", "restate", "s2", "gateway", "runtime", "studio"] as const;
 const CORE_SERVICES = ["postgres", "restate", "s2", "gateway", "runtime"] as const;
 
-export const stackUsage = `  up|start [--name <stack>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
-                                      start the project's stack, creating it, its one Tenant and the Project link
-                                      (.nylorun/link.json, credentials.json) on the first run; print the Runtime and Studio URLs
-                                      and open Studio signed in (in a terminal). --name attaches to (or creates) a named stack;
-                                      --no-link starts a stack without linking the current directory
-  down|stop [--name <stack>]          stop the stack's containers; keep volumes
-  status [--name <stack>] [--json]    the stack, its Tenant, services, endpoints and Runtime health
-  logs [service] [--name <stack>] [-f] [--tail <n>]
-                                      stack logs (${STACK_SERVICES.join(", ")})
-  studio [--name <stack>] [--no-open] sign a browser in to Studio on the stack's Tenant; --no-open prints the login URL; start the stack if it is stopped
-  reset [--name <stack>] [--yes]      delete the stack's volumes and its Tenant directory; the next start creates a new Tenant
-  ls [--json]                         the stacks on this machine
-  delete <stack> --yes                remove a stack: containers, volumes and its Host root, with the vault key (KEK)
-  legacy stop|delete [--yes]          stop or remove the single stack of older releases (Compose project nylorun)`;
+export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
+                                      start the project's Tenant, creating it and the Project link (.nylorun/link.json,
+                                      credentials.json) on the first run; print the Runtime and Studio URLs and open Studio
+                                      signed in (in a terminal). --tenant attaches to (or creates) a named Tenant; --no-link
+                                      starts the default Tenant (or --tenant's) without linking the current directory
+  down|stop [--tenant <name>]         stop the Tenant's containers; keep volumes
+  status [--tenant <name>] [--json]   the Tenant, its id, services, endpoints and Runtime health
+  logs [service] [--tenant <name>] [-f] [--tail <n>]
+                                      container logs (${STACK_SERVICES.join(", ")})
+  studio [--tenant <name>] [--no-open]
+                                      sign a browser in to Studio on the Tenant; --no-open prints the login URL; start the Tenant if it is stopped
+  reset [--tenant <name>] [--yes]     delete the Tenant's data (volumes, tenant/ and vault key); the next start creates it anew
+  ls [--json]                         the Tenants on this machine
+  delete <tenant> --yes               remove a Tenant: containers, volumes and its Host root, with the vault key (KEK)`;
 
 export interface StackDeps {
-  /** Environment snapshot (NYLORUN_HOME, NYLORUN_STACK, image overrides, NYLORUN_STACK_PROJECT). */
+  /** Environment snapshot (NYLORUN_HOME, NYLORUN_TENANT, image overrides, NYLORUN_COMPOSE_PROJECT). */
   env: Readonly<Record<string, string | undefined>>;
   docker: DockerRunner;
   fetch: FetchLike;
@@ -92,7 +91,7 @@ export interface StackDeps {
   pidAlive(pid: number): boolean;
   /** Where the project is looked for (default: the process's working directory). */
   cwd?: string;
-  /** `~/.nylorun`: the stacks and the legacy stack (tests use a temporary directory). */
+  /** `~/.nylorun`: the Tenants (tests use a temporary directory). */
   nylorunRoot?: string;
   /** Delay between health polls; tests shorten it. */
   pollMs?: number;
@@ -104,16 +103,16 @@ export interface StackDeps {
 
 const usageError = (message: string) => new CliError(message, 2);
 
-/** The Compose project of stack `name`: `nylorun-<name>`, or `NYLORUN_STACK_PROJECT`. */
+/** The Compose project of Tenant `name`: `nylorun-<name>`, or `NYLORUN_COMPOSE_PROJECT`. */
 export function stackProject(env: StackDeps["env"], name: string): string {
-  const override = env.NYLORUN_STACK_PROJECT?.trim();
+  const override = env.NYLORUN_COMPOSE_PROJECT?.trim();
   if (!override) return `nylorun-${name}`;
-  return assertStackName(override, "NYLORUN_STACK_PROJECT");
+  return assertTenantName(override, "NYLORUN_COMPOSE_PROJECT");
 }
 
 interface Context {
   deps: StackDeps;
-  /** The stack's name (also its Tenant's name). */
+  /** The Tenant's name. */
   name: string;
   paths: StackPaths;
   /** The Compose project. */
@@ -128,16 +127,17 @@ function nylorunRoot(deps: StackDeps): string {
   return deps.nylorunRoot ?? defaultNylorunRoot();
 }
 
-async function stackNames(deps: StackDeps): Promise<string> {
-  const names = (await listStacks(nylorunRoot(deps))).map((stack) => stack.name);
-  return names.length ? ` Stacks on this machine: ${names.join(", ")}.` : "";
+async function tenantNames(deps: StackDeps): Promise<string> {
+  const names = (await listTenants(nylorunRoot(deps))).map((tenant) => tenant.name);
+  return names.length ? ` Tenants on this machine: ${names.join(", ")}.` : "";
 }
 
 /**
- * Which stack a command acts on: `--name`, then `NYLORUN_STACK`, then the stack of the
- * project's link (format 2); for `start` in a project, then a name from the project
- * directory (`chooseStackName`). `NYLORUN_HOME` sets the Host root whatever the name; its
- * name otherwise comes from its `stack.json`, the project directory or the Host root's own.
+ * Which Tenant a command acts on: `--tenant`, then `NYLORUN_TENANT`, then the Tenant of the
+ * project's link (format 3; `start` replaces an older one); for `start` in a project, then a
+ * name from the project directory (`chooseTenantName`); outside a project (or with
+ * --no-link), `default`. `NYLORUN_HOME` sets the Host root whatever the name; its name
+ * otherwise comes from its `tenant.json`, the project directory or the Host root's own.
  */
 async function selectStack(
   deps: StackDeps,
@@ -147,29 +147,28 @@ async function selectStack(
   const base = nylorunRoot(deps);
   const projectDir = options.noLink ? undefined : findProjectRoot(deps.cwd ?? process.cwd());
   const link = projectDir ? await readProjectLink(projectDir) : undefined;
-  const explicit = options.name ?? (env.NYLORUN_STACK?.trim() || undefined);
+  const explicit = options.name ?? (env.NYLORUN_TENANT?.trim() || undefined);
   if (explicit !== undefined)
-    assertStackName(explicit, options.name !== undefined ? "--name" : "NYLORUN_STACK");
-  let name = explicit ?? (link?.format === 2 ? link.stack : undefined);
+    assertTenantName(explicit, options.name !== undefined ? "--tenant" : "NYLORUN_TENANT");
+  let name = explicit ?? link?.tenant;
   let root: string;
   const home = env.NYLORUN_HOME?.trim();
   if (home) {
     root = resolve(home);
     name ??=
-      (await readStackRecord(root))?.name ??
-      sanitizeStackName(basename(projectDir ?? root));
+      (await readTenantRecord(root))?.name ??
+      sanitizeTenantName(basename(projectDir ?? root));
   } else {
     if (name === undefined && options.start && projectDir)
-      name = await chooseStackName(base, projectDir);
+      name = await chooseTenantName(base, projectDir);
+    if (name === undefined && !projectDir) name = DEFAULT_TENANT;
     if (name === undefined)
       throw usageError(
-        options.start
-          ? `Not in a project: name the stack with "nylorun start --name <stack>" (or NYLORUN_STACK).${await stackNames(deps)}`
-          : `No stack selected: run this in a project "nylorun start" linked, pass --name <stack>, or set NYLORUN_STACK.${await stackNames(deps)}`,
+        `No Tenant selected: run "nylorun start" in this project, pass --tenant <name>, or set NYLORUN_TENANT.${await tenantNames(deps)}`,
       );
-    root = stackRoot(base, name);
+    root = tenantRoot(base, name);
   }
-  assertStackName(name, "The stack name");
+  assertTenantName(name, "The Tenant name");
   return {
     deps,
     name,
@@ -196,7 +195,7 @@ function composeArgs(ctx: Pick<Context, "project" | "paths">, ...args: string[])
 function requireStackFiles(ctx: Context): void {
   if (!existsSync(ctx.paths.compose) || !existsSync(ctx.paths.env))
     throw new CliError(
-      `No Nylorun stack ${ctx.name} under ${ctx.paths.root}. Run "nylorun start" first.`,
+      `No Tenant ${ctx.name} under ${ctx.paths.root}. Run "nylorun start" first.`,
       3,
     );
 }
@@ -253,9 +252,9 @@ export function parseStackFlags(
   return { rest, booleans, values, lists };
 }
 
-/** `--name` when given. */
+/** `--tenant` when given. */
 function nameOption(flags: Flags): { name?: string } {
-  const name = flags.values.get("--name");
+  const name = flags.values.get("--tenant");
   return name === undefined ? {} : { name };
 }
 
@@ -344,18 +343,18 @@ async function fetchTenant(
   }
 }
 
-/** Why the stack's Tenant is unavailable, with the repair the Runtime names. */
+/** Why the Tenant is unavailable, with the repair the Runtime names. */
 function tenantCauseMessage(ctx: Context, tenant: StackTenant): string {
   const cause = tenant.cause!;
   const hint =
     cause.code === "schema-too-new"
-      ? ` This nylorun pins Runtime ${ctx.deps.runtimeVersion}, older than the stack's database: update nylorun (npx nylorun@latest start).`
+      ? ` This nylorun pins Runtime ${ctx.deps.runtimeVersion}, older than the Tenant's database: update nylorun (npx nylorun@latest start).`
       : "";
-  return `The Tenant of stack ${ctx.name} is unavailable (${cause.code}): ${cause.message} ${cause.repair}${hint} See "nylorun logs runtime".`;
+  return `Tenant ${ctx.name} is unavailable (${cause.code}): ${cause.message} ${cause.repair}${hint} See "nylorun logs runtime".`;
 }
 
 /**
- * Wait until the stack's Tenant is open: the Runtime creates it on the first start and opens
+ * Wait until the Tenant is open: the Runtime creates it on the first start and opens
  * it on later ones. A Tenant that could not be opened has a cause; report it.
  */
 async function waitForTenant(
@@ -370,7 +369,7 @@ async function waitForTenant(
     if (tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
     if (Date.now() > deadline)
       throw new CliError(
-        `The Tenant of stack ${ctx.name} did not open (${adminUrl}/v1/admin/status: ${
+        `Tenant ${ctx.name} did not open (${adminUrl}/v1/admin/status: ${
           tenant ? tenant.state : "no answer"
         }). See "nylorun status" and "nylorun logs runtime".`,
         7,
@@ -427,7 +426,7 @@ function isOlder(version: string, than: unknown): than is string {
 }
 
 /**
- * Refuse a Runtime older than the stack's database: the Runtime that last ran the stack
+ * Refuse a Runtime older than the Tenant's database: the Runtime that last ran the Tenant
  * (host.json `runtimeVersion`) migrated it, and an older one cannot open its Tenant
  * (`schema-too-new`). Checked before Compose replaces anything. Skipped when
  * `NYLORUN_RUNTIME_IMAGE` names the image.
@@ -438,25 +437,21 @@ async function refuseDowngrade(ctx: Context, allowDowngrade: boolean): Promise<v
   if (!isOlder(pinned, host?.runtimeVersion)) return;
   if (allowDowngrade) {
     ctx.deps.err(
-      `Warning: starting Runtime ${pinned} on stack ${ctx.name}, which Runtime ${host.runtimeVersion} last ran. If that Runtime migrated the database, the Tenant stays unavailable (schema-too-new).`,
+      `Warning: starting Runtime ${pinned} on Tenant ${ctx.name}, which Runtime ${host.runtimeVersion} last ran. If that Runtime migrated the database, the Tenant stays unavailable (schema-too-new).`,
     );
     return;
   }
   throw new CliError(
-    `Refusing to start Runtime ${pinned} on stack ${ctx.name}: Runtime ${host.runtimeVersion} last ran it (${ctx.paths.config}), and a Runtime older than the stack's database cannot open its Tenant. Update nylorun (npx nylorun@latest start), or run "nylorun start --allow-downgrade" when both Runtimes use the same database schema.`,
+    `Refusing to start Runtime ${pinned} on Tenant ${ctx.name}: Runtime ${host.runtimeVersion} last ran it (${ctx.paths.config}), and a Runtime older than the Tenant's database cannot open its Tenant. Update nylorun (npx nylorun@latest start), or run "nylorun start --allow-downgrade" when both Runtimes use the same database schema.`,
     5,
   );
 }
 
-/** Ports other stacks (and the legacy stack) keep in their `.env`, so a new stack avoids them. */
+/** Ports other Tenants keep in their `.env`, so a new Tenant avoids them. */
 async function reservedPorts(ctx: Context): Promise<Set<number>> {
-  const base = nylorunRoot(ctx.deps);
-  const others: Pick<StackPaths, "env">[] = (await listStacks(base))
-    .filter((stack) => resolve(stack.root) !== ctx.paths.root)
-    .map((stack) => stackPaths(stack.root));
-  // The legacy stack keeps its .env in stack/, not docker/.
-  const legacy = legacyStack(base);
-  if (legacy && resolve(base) !== ctx.paths.root) others.push(legacy);
+  const others = (await listTenants(nylorunRoot(ctx.deps)))
+    .filter((tenant) => resolve(tenant.root) !== ctx.paths.root)
+    .map((tenant) => stackPaths(tenant.root));
   const reserved = new Set<number>();
   for (const paths of others) {
     const persisted = await readStackEnv(paths);
@@ -518,13 +513,13 @@ async function bringUp(
     deps.err(TELEMETRY_NOTICE);
     await writeTelemetry(nylorunRoot(deps), { ...telemetry, noticeShown: new Date().toISOString() });
   }
-  const record = await readStackRecord(ctx.paths.root);
+  const record = await readTenantRecord(ctx.paths.root);
   const project = record?.project ?? ctx.projectDir;
   if (record?.name !== ctx.name || record.project !== project)
-    await writeStackRecord(ctx.paths.root, { name: ctx.name, ...(project ? { project } : {}) });
+    await writeTenantRecord(ctx.paths.root, { name: ctx.name, ...(project ? { project } : {}) });
   if (prepared.firstRun)
     deps.err(
-      `Created stack ${ctx.name} under ${ctx.paths.root} (Runtime port ${prepared.env.runtimePort}, Studio port ${prepared.env.studioPort}).`,
+      `Created Tenant ${ctx.name} under ${ctx.paths.root} (Runtime port ${prepared.env.runtimePort}, Studio port ${prepared.env.studioPort}).`,
     );
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.runtimePort}`;
   const adminUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.adminPort}`;
@@ -602,24 +597,11 @@ async function openLogin(ctx: Pick<Context, "deps">, login: string): Promise<voi
   if (!(await ctx.deps.openBrowser(login))) ctx.deps.out(`Sign in   ${login}`);
 }
 
-/** The legacy stack is mentioned once per machine (a marker under `stacks/`). */
-async function noteLegacy(deps: StackDeps): Promise<void> {
-  const base = nylorunRoot(deps);
-  const legacy = legacyStack(base);
-  const marker = join(stacksDir(base), ".legacy-noted");
-  if (!legacy || existsSync(marker)) return;
-  deps.err(
-    `Note: the single stack of an older release is still on this machine (Compose project nylorun, Host root ${legacy.root}). Stacks are now one per project, and the old one is left as it is: stop it with "npx nylorun legacy stop", or remove it and its Tenants with "npx nylorun legacy delete --yes".`,
-  );
-  await mkdir(stacksDir(base), { recursive: true, mode: 0o700 });
-  await writeFile(marker, "", { mode: 0o600 });
-}
-
 /**
- * Link the project to the stack: `.nylorun/link.json` (format 2) and
+ * Link the project to the Tenant: `.nylorun/link.json` (format 3) and
  * `.nylorun/credentials.json` with the key of the derived principal `project`. The link is
- * rewritten only when the stack, its URL, Host or Tenant changed; a new link seeds the
- * Tenant from the project's `.env`.
+ * rewritten only when it is older, or the Tenant's name, URL, Host or id changed; a new link
+ * seeds the Tenant from the project's `.env`.
  */
 async function linkProject(
   ctx: Context & { projectDir: string },
@@ -627,20 +609,16 @@ async function linkProject(
   tenantId: string,
 ): Promise<void> {
   const { deps, projectDir, link } = ctx;
-  if (link && link.format < 2)
-    deps.err(
-      `This project was linked to a Tenant on ${link.hostUrl}, a stack of an older Runtime. It gets its own stack, ${ctx.name}, and a new link; model credentials come from .env (or Studio), and agents register again (npm run dev).`,
-    );
   const applicationKey = deriveTenantKey(started.adminKey, tenantId, PROJECT_PRINCIPAL_ID);
   const fresh =
-    link?.format !== 2 ||
-    link.stack !== ctx.name ||
+    link?.format !== 3 ||
+    link.tenant !== ctx.name ||
     link.hostUrl !== started.runtimeUrl ||
     link.hostId !== started.hostId ||
     link.tenantId !== tenantId;
   if (fresh)
     await writeProjectLink(projectDir, {
-      stack: ctx.name,
+      tenant: ctx.name,
       hostUrl: started.runtimeUrl,
       hostId: started.hostId,
       tenantId,
@@ -656,7 +634,7 @@ async function linkProject(
       principalId: PROJECT_PRINCIPAL_ID,
     });
   if (!fresh) return;
-  deps.err(`Linked ${projectDir} to stack ${ctx.name} (.nylorun/link.json, .nylorun/credentials.json).`);
+  deps.err(`Linked ${projectDir} to Tenant ${ctx.name} (.nylorun/link.json, .nylorun/credentials.json).`);
   try {
     const seeded = await seedTenant({
       fetch: deps.fetch,
@@ -674,7 +652,7 @@ async function linkProject(
 }
 
 const START_USAGE =
-  "nylorun start [--name <stack>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]";
+  "nylorun start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]";
 
 async function start(deps: StackDeps, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
@@ -687,7 +665,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
         "--allow-downgrade",
         "--studio-embed-origin-reset",
       ],
-      values: ["--name"],
+      values: ["--tenant"],
       lists: ["--studio-embed-origin"],
     },
     START_USAGE,
@@ -699,7 +677,6 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
     noLink: flags.booleans.has("--no-link"),
   });
   await dockerPreflight(deps.docker);
-  await noteLegacy(deps);
   const embedOrigins = flags.lists.get("--studio-embed-origin") ?? [];
   const resetEmbed = flags.booleans.has("--studio-embed-origin-reset");
   const started = await bringUp(ctx, {
@@ -711,8 +688,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
   });
   const tenant = await waitForTenant(ctx, started.adminUrl, started.adminKey);
   if (ctx.projectDir) await linkProject({ ...ctx, projectDir: ctx.projectDir }, started, tenant.id);
-  deps.out(`Stack     ${ctx.name}  (${ctx.paths.root})`);
-  deps.out(`Tenant    ${tenant.id}${tenant.name ? `  (${tenant.name})` : ""}`);
+  deps.out(`Tenant    ${ctx.name}  (${tenant.id})`);
   deps.out(`Runtime   ${started.runtimeUrl}`);
   if (started.studioStarted) {
     deps.out(`Studio    ${studioOrigin(started.studioPort)}`);
@@ -725,20 +701,20 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
 }
 
 async function stop(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun stop [--name <stack>]";
-  const flags = parseStackFlags(args, { values: ["--name"] }, usage);
+  const usage = "nylorun stop [--tenant <name>]";
+  const flags = parseStackFlags(args, { values: ["--tenant"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const ctx = await selectStack(deps, nameOption(flags));
   requireStackFiles(ctx);
   await dockerPreflight(deps.docker);
   const code = await deps.docker.stream(composeArgs(ctx, "stop"));
   if (code !== 0) throw new CliError(`docker compose stop failed (exit ${code}).`, 1);
-  deps.out(`Stopped stack ${ctx.name}; volumes are kept.`);
+  deps.out(`Stopped Tenant ${ctx.name}; its data is kept.`);
   return 0;
 }
 
 export interface StackStatus {
-  /** The stack's name. */
+  /** The Tenant's name. */
   name: string;
   /** The Compose project. */
   project: string;
@@ -747,13 +723,13 @@ export interface StackStatus {
   state: "running" | "stopped" | "absent";
   runtime: {
     url?: string;
-    /** The Admin API (operator listener), when the stack publishes one. */
+    /** The Admin API (operator listener), when the Tenant publishes one. */
     adminUrl?: string;
     healthy: boolean;
     version?: string;
     hostId?: string;
   };
-  /** The stack's one Tenant, while the Runtime answers. */
+  /** The Tenant as the Runtime reports it, while it answers. */
   tenant?: StackTenant;
   studio: {
     url?: string;
@@ -790,7 +766,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
   const host = await readHostConfig(ctx.paths);
   const healthy =
     health?.status === "ok" && (host === undefined || health.hostId === host.hostId);
-  // The Admin API answers on the operator port; an older stack has only the Runtime port.
+  // The Admin API answers on the operator port; an older Host root has only the Runtime port.
   const adminUrl = persisted.adminPort
     ? `http://${STACK_CLIENT_HOST}:${persisted.adminPort}`
     : runtimeUrl;
@@ -834,6 +810,7 @@ export async function readStackStatus(
   deps: StackDeps,
   options: { name?: string } = {},
 ): Promise<StackStatus> {
+  await moveStackRoots(nylorunRoot(deps), deps.err);
   return await stackStatus(await selectStack(deps, options));
 }
 
@@ -846,19 +823,19 @@ function describeTenant(tenant: StackTenant): string {
 }
 
 async function status(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun status [--name <stack>] [--json]";
-  const flags = parseStackFlags(args, { booleans: ["--json"], values: ["--name"] }, usage);
+  const usage = "nylorun status [--tenant <name>] [--json]";
+  const flags = parseStackFlags(args, { booleans: ["--json"], values: ["--tenant"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const result = await stackStatus(await selectStack(deps, nameOption(flags)));
   const { out } = deps;
   if (flags.booleans.has("--json")) {
     out(JSON.stringify(result, null, 2));
   } else if (result.state === "absent") {
-    out(`Stack       ${result.name} absent (nothing under ${result.home}; run "nylorun start")`);
+    out(`Tenant      ${result.name} absent (nothing under ${result.home}; run "nylorun start")`);
   } else {
-    out(`Stack       ${result.name} ${result.state} (Compose project ${result.project})`);
+    out(`Tenant      ${result.name}  ${result.state} (Compose project ${result.project})`);
     out(`Host root   ${result.home} (admin key in host-credentials.json, mode 0600)`);
-    if (result.tenant) out(`Tenant      ${describeTenant(result.tenant)}`);
+    if (result.tenant) out(`Tenant id   ${describeTenant(result.tenant)}`);
     const runtimeDetail = result.runtime.healthy
       ? `healthy, ${result.runtime.version ?? "?"}, ${result.runtime.hostId ?? "?"}`
       : "not answering";
@@ -888,10 +865,10 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
 }
 
 async function logs(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = `nylorun logs [${STACK_SERVICES.join("|")}] [--name <stack>] [-f] [--tail <n>]`;
+  const usage = `nylorun logs [${STACK_SERVICES.join("|")}] [--tenant <name>] [-f] [--tail <n>]`;
   const flags = parseStackFlags(
     args,
-    { booleans: ["--follow"], values: ["--tail", "--name"], aliases: { "-f": "--follow" } },
+    { booleans: ["--follow"], values: ["--tail", "--tenant"], aliases: { "-f": "--follow" } },
     usage,
   );
   if (flags.rest.length > 1) throw usageError(`Usage: ${usage}`);
@@ -915,20 +892,20 @@ async function logs(deps: StackDeps, args: readonly string[]): Promise<number> {
 }
 
 async function reset(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun reset [--name <stack>] [--yes]";
+  const usage = "nylorun reset [--tenant <name>] [--yes]";
   const flags = parseStackFlags(
     args,
-    { booleans: ["--yes"], values: ["--name"], aliases: { "-y": "--yes" } },
+    { booleans: ["--yes"], values: ["--tenant"], aliases: { "-y": "--yes" } },
     usage,
   );
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const ctx = await selectStack(deps, nameOption(flags));
   const { paths } = ctx;
   if (!flags.booleans.has("--yes")) {
-    const question = `Delete stack ${ctx.name}'s volumes (Compose project ${ctx.project}) and its Tenant directory ${paths.tenant} and vault key ${paths.vaultKey}? Its Tenant's data is lost and the next start creates a new Tenant. [y/N] `;
+    const question = `Delete Tenant ${ctx.name}'s volumes (Compose project ${ctx.project}), its Tenant directory ${paths.tenant} and its vault key ${paths.vaultKey}? Its data is lost, and the next start creates the Tenant anew, with a new id. [y/N] `;
     if (!deps.confirm)
       throw usageError(
-        `nylorun reset deletes stack ${ctx.name}'s Tenant and all its data; pass --yes to confirm when not in a terminal.`,
+        `nylorun reset deletes all of Tenant ${ctx.name}'s data; pass --yes to confirm when not in a terminal.`,
       );
     if (!(await deps.confirm(question))) {
       deps.err("Reset cancelled.");
@@ -947,16 +924,16 @@ async function reset(deps: StackDeps, args: readonly string[]): Promise<number> 
   // The vault key goes with the Tenant's data; the next start writes a new one.
   await rm(paths.keys, { recursive: true, force: true });
   deps.out(
-    `Reset stack ${ctx.name}: volumes and the Tenant directory deleted. Run "nylorun start" to start again with a new Tenant (it relinks the project).`,
+    `Reset Tenant ${ctx.name}: its volumes, Tenant directory and vault key deleted. Run "nylorun start" to create it anew (it relinks the project).`,
   );
   return 0;
 }
 
-interface ListedStack {
+interface ListedTenant {
   name: string;
   /** The Host root. */
   root: string;
-  /** The project directory the stack was created for. */
+  /** The project directory the Tenant was created for. */
   project?: string;
   state: "running" | "stopped" | "unknown";
   runtimeUrl?: string;
@@ -991,13 +968,13 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
   const base = nylorunRoot(deps);
   const projects = await composeProjects(deps.docker);
   const state = (project: string) => (projects ? (projects.get(project) ?? "stopped") : "unknown");
-  const stacks: ListedStack[] = [];
-  for (const entry of await listStacks(base)) {
+  const tenants: ListedTenant[] = [];
+  for (const entry of await listTenants(base)) {
     const persisted = (await readStackEnv(stackPaths(entry.root))) ?? {};
-    stacks.push({
+    tenants.push({
       name: entry.name,
       root: entry.root,
-      ...(entry.record?.project ? { project: entry.record.project } : {}),
+      ...(entry.record.project ? { project: entry.record.project } : {}),
       state: state(`nylorun-${entry.name}`),
       ...(persisted.runtimePort
         ? { runtimeUrl: `http://${STACK_CLIENT_HOST}:${persisted.runtimePort}` }
@@ -1011,44 +988,38 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
       },
     });
   }
-  const legacy = legacyStack(base);
-  const legacyView = legacy
-    ? { root: legacy.root, project: legacy.project, state: state(legacy.project) }
-    : undefined;
   if (flags.booleans.has("--json")) {
-    deps.out(JSON.stringify({ stacks, ...(legacyView ? { legacy: legacyView } : {}) }, null, 2));
+    deps.out(JSON.stringify({ tenants }, null, 2));
     return 0;
   }
-  if (stacks.length === 0)
-    deps.out(`No stacks under ${stacksDir(base)}. Run "npx nylorun start" in a project.`);
-  else {
-    const width = Math.max(4, ...stacks.map((stack) => stack.name.length)) + 2;
-    deps.out(`${"NAME".padEnd(width)}${"STATE".padEnd(9)}${"RUNTIME".padEnd(24)}${"STUDIO".padEnd(24)}PROJECT`);
-    for (const stack of stacks)
-      deps.out(
-        `${stack.name.padEnd(width)}${stack.state.padEnd(9)}${(stack.runtimeUrl ?? "-").padEnd(24)}${(stack.studioUrl ?? "-").padEnd(24)}${stack.project ?? "-"}`,
-      );
-  }
-  if (legacyView)
+  if (tenants.length === 0) {
     deps.out(
-      `Legacy stack: Compose project nylorun, Host root ${legacyView.root} (${legacyView.state}); "nylorun legacy stop|delete" handles it.`,
+      'No Tenants on this machine. Run "npx nylorun start" in a project (or anywhere, for the default Tenant).',
+    );
+    return 0;
+  }
+  const width = Math.max(6, ...tenants.map((tenant) => tenant.name.length)) + 2;
+  deps.out(`${"TENANT".padEnd(width)}${"STATE".padEnd(9)}${"RUNTIME".padEnd(24)}${"STUDIO".padEnd(24)}PROJECT`);
+  for (const tenant of tenants)
+    deps.out(
+      `${tenant.name.padEnd(width)}${tenant.state.padEnd(9)}${(tenant.runtimeUrl ?? "-").padEnd(24)}${(tenant.studioUrl ?? "-").padEnd(24)}${tenant.project ?? "-"}`,
     );
   return 0;
 }
 
 async function deleteStack(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun delete <stack> --yes";
+  const usage = "nylorun delete <tenant> --yes";
   const flags = parseStackFlags(args, { booleans: ["--yes"], aliases: { "-y": "--yes" } }, usage);
   const [name, ...extra] = flags.rest;
   if (name === undefined || extra.length) throw usageError(`Usage: ${usage}`);
-  assertStackName(name, "The stack name");
+  assertTenantName(name, "The Tenant name");
   const base = nylorunRoot(deps);
-  const ctx = { deps, project: stackProject(deps.env, name), paths: stackPaths(stackRoot(base, name)) };
+  const ctx = { deps, project: stackProject(deps.env, name), paths: stackPaths(tenantRoot(base, name)) };
   if (!existsSync(ctx.paths.root))
-    throw new CliError(`No stack ${name} under ${stacksDir(base)}. See "nylorun ls".`, 3);
+    throw new CliError(`No Tenant ${name} under ${tenantsDir(base)}. See "nylorun ls".`, 3);
   if (!flags.booleans.has("--yes"))
     throw usageError(
-      `nylorun delete removes stack ${name}: its containers, volumes and Host root ${ctx.paths.root}, with the Tenant's vault key (KEK) and all its data. This cannot be undone; pass --yes to confirm.`,
+      `nylorun delete removes Tenant ${name}: its containers, volumes and Host root ${ctx.paths.root}, with its vault key (KEK) and all its data. This cannot be undone; pass --yes to confirm.`,
     );
   await dockerPreflight(deps.docker);
   const files = existsSync(ctx.paths.compose) && existsSync(ctx.paths.env);
@@ -1059,57 +1030,13 @@ async function deleteStack(deps: StackDeps, args: readonly string[]): Promise<nu
   );
   if (code !== 0) throw new CliError(`docker compose down failed (exit ${code}).`, 1);
   await rm(ctx.paths.root, { recursive: true, force: true });
-  deps.out(`Deleted stack ${name}: its containers, volumes and Host root (vault key included).`);
+  deps.out(`Deleted Tenant ${name}: its containers, volumes and Host root (vault key included).`);
   return 0;
 }
 
-function legacyCompose(legacy: LegacyStack, ...args: string[]): string[] {
-  return [
-    "compose",
-    "--project-name",
-    legacy.project,
-    "--file",
-    legacy.compose,
-    "--env-file",
-    legacy.env,
-    ...args,
-  ];
-}
-
-async function legacy(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun legacy stop|delete [--yes]";
-  const flags = parseStackFlags(args, { booleans: ["--yes"], aliases: { "-y": "--yes" } }, usage);
-  const [action, ...extra] = flags.rest;
-  if ((action !== "stop" && action !== "delete") || extra.length) throw usageError(`Usage: ${usage}`);
-  if (action === "stop" && flags.booleans.has("--yes")) throw usageError(`Usage: ${usage}`);
-  const base = nylorunRoot(deps);
-  const stack = legacyStack(base);
-  if (!stack) {
-    deps.out(`No legacy stack under ${base} (no stack/compose.yaml).`);
-    return 0;
-  }
-  if (action === "stop") {
-    await dockerPreflight(deps.docker);
-    const code = await deps.docker.stream(legacyCompose(stack, "stop"));
-    if (code !== 0) throw new CliError(`docker compose stop failed (exit ${code}).`, 1);
-    deps.out("Stopped the legacy stack (Compose project nylorun); its volumes are kept.");
-    return 0;
-  }
-  if (!flags.booleans.has("--yes"))
-    throw usageError(
-      `nylorun legacy delete removes the legacy stack (Compose project nylorun): its containers, volumes, every Tenant on it with their vault keys, and its files under ${base} (${LEGACY_ENTRIES.join(", ")}). ${stacksDir(base)} is kept. Pass --yes to confirm.`,
-    );
-  await dockerPreflight(deps.docker);
-  const code = await deps.docker.stream(legacyCompose(stack, "down", "--volumes", "--remove-orphans"));
-  if (code !== 0) throw new CliError(`docker compose down failed (exit ${code}).`, 1);
-  for (const entry of LEGACY_ENTRIES) await rm(join(base, entry), { recursive: true, force: true });
-  deps.out(`Deleted the legacy stack: its containers, volumes and files under ${base}; ${stacksDir(base)} is kept.`);
-  return 0;
-}
-
-/** The running stack as clients reach it. */
+/** The running Tenant as clients reach it. */
 export interface StackEndpoints {
-  /** The stack's name. */
+  /** The Tenant's name. */
   name: string;
   /** The Host root. */
   home: string;
@@ -1126,7 +1053,7 @@ export interface StackEndpoints {
   started: boolean;
 }
 
-/** The stack when the Runtime (and Studio, if wanted) already answer; otherwise undefined. */
+/** The Tenant when the Runtime (and Studio, if wanted) already answer; otherwise undefined. */
 async function runningStack(
   ctx: Context,
   options: { studio: boolean },
@@ -1182,7 +1109,7 @@ async function ensureSelected(ctx: Context, options: { studio: boolean }): Promi
 }
 
 /**
- * Start the selected stack unless it is already running (`nylorun studio`): the
+ * Start the selected Tenant unless it is already running (`nylorun studio`): the
  * `start` code path without its output, its Tenant wait or the Project link. Compose
  * progress still streams, since the first run pulls images.
  */
@@ -1204,21 +1131,21 @@ export function withNext(loginUrl: string, next: string | undefined): string {
   return url.toString();
 }
 
-/** The Studio page of the stack's Tenant, as a login `next` path. */
+/** The Tenant's Studio page, as a login `next` path. */
 export function tenantStudioPath(tenantId: string): string {
   return `/tenants/${encodeURIComponent(tenantId)}`;
 }
 
 /**
- * Mint a fresh Studio login URL on a running stack, landing on `next`.
+ * Mint a fresh Studio login URL on a running Tenant, landing on `next`.
  * Undefined (after a warning) when Studio does not answer.
  */
 export async function studioLoginUrl(
   deps: StackDeps,
-  stack: Pick<StackEndpoints, "studioPort" | "adminKey">,
+  running: Pick<StackEndpoints, "studioPort" | "adminKey">,
   next?: string,
 ): Promise<string | undefined> {
-  const login = await tryStudioLogin({ deps }, stack.studioPort, stack.adminKey);
+  const login = await tryStudioLogin({ deps }, running.studioPort, running.adminKey);
   return login === undefined ? undefined : withNext(login, next);
 }
 
@@ -1227,41 +1154,42 @@ async function studio(
   args: readonly string[],
   options: { next?: string } = {},
 ): Promise<number> {
-  const usage = "nylorun studio [--name <stack>] [--no-open]";
-  const flags = parseStackFlags(args, { booleans: ["--no-open"], values: ["--name"] }, usage);
+  const usage = "nylorun studio [--tenant <name>] [--no-open]";
+  const flags = parseStackFlags(args, { booleans: ["--no-open"], values: ["--tenant"] }, usage);
   if (flags.rest.length) throw usageError(`Usage: ${usage}`);
   const ctx = await selectStack(deps, nameOption(flags));
-  const stack = await ensureSelected(ctx, { studio: true });
-  if (stack.started) deps.out(`Runtime   ${stack.runtimeUrl}`);
-  if (!stack.studioUp)
+  const running = await ensureSelected(ctx, { studio: true });
+  if (running.started) deps.out(`Runtime   ${running.runtimeUrl}`);
+  if (!running.studioUp)
     throw new CliError(`Studio did not start. See "nylorun logs studio".`, 7);
-  // Studio serves the stack's one Tenant; the link's Tenant id stands in while it is opening.
+  // Studio serves the one Tenant; the link's Tenant id stands in while it is opening.
   let next = options.next;
   if (next === undefined) {
-    const tenant = await fetchTenant(deps, stack.adminUrl, stack.adminKey);
+    const tenant = await fetchTenant(deps, running.adminUrl, running.adminKey);
     const linked =
-      ctx.link?.format === 2 && ctx.link.stack === ctx.name ? ctx.link.tenantId : undefined;
+      ctx.link?.tenant === ctx.name ? ctx.link.tenantId : undefined;
     const tenantId = tenant?.id ?? linked;
     if (tenantId) next = tenantStudioPath(tenantId);
   }
-  const login = await studioLoginUrl(deps, stack, next);
+  const login = await studioLoginUrl(deps, running, next);
   if (!login) return 1;
   if (flags.booleans.has("--no-open")) {
     deps.out(`Studio    ${login}`);
     return 0;
   }
-  const origin = studioOrigin(stack.studioPort);
+  const origin = studioOrigin(running.studioPort);
   deps.out(`Studio    ${next ? new URL(next, origin).toString() : origin}`);
   await openLogin({ deps }, login);
   return 0;
 }
 
-/** `nylorun studio`, landing on `next` when given, else on the stack's Tenant. */
+/** `nylorun studio`, landing on `next` when given, else on the Tenant's page. */
 export async function runStudioCommand(
   args: readonly string[],
   deps: StackDeps,
   options: { next?: string } = {},
 ): Promise<number> {
+  await moveStackRoots(nylorunRoot(deps), deps.err);
   return await studio(deps, args, options);
 }
 
@@ -1277,20 +1205,20 @@ const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Pro
   studio: (deps, args) => studio(deps, args),
   ls,
   delete: deleteStack,
-  legacy,
 };
 
 export function isStackCommand(name: string | undefined): boolean {
   return name !== undefined && Object.hasOwn(COMMANDS, name);
 }
 
-/** Run one stack command (`up`/`start`, `down`/`stop`, `status`, `logs`, `reset`, `studio`, `ls`, `delete`, `legacy`). */
+/** Run one Tenant command (`up`/`start`, `down`/`stop`, `status`, `logs`, `reset`, `studio`, `ls`, `delete`). */
 export async function runStackCommand(
   name: string,
   args: readonly string[],
   deps: StackDeps,
 ): Promise<number> {
   const command = COMMANDS[name];
-  if (!command) throw usageError(`Unknown stack command ${name}.\n${stackUsage}`);
+  if (!command) throw usageError(`Unknown command ${name}.\n${stackUsage}`);
+  await moveStackRoots(nylorunRoot(deps), deps.err);
   return await command(deps, args);
 }

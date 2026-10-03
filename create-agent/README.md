@@ -4,7 +4,7 @@ Install the prerequisites first (the creator checks them and never installs
 them): Node 24 or newer, and Docker with Compose v2 ([Docker
 Desktop](https://docs.docker.com/get-started/get-docker/),
 [OrbStack](https://orbstack.dev) or [Colima](https://github.com/abiosoft/colima)).
-The local Runtime and Studio run as a Docker Compose stack that `nylorun`
+The local Runtime and Studio run in Docker Compose, which `nylorun`
 manages. On Windows, work inside
 [WSL2](https://learn.microsoft.com/windows/wsl/install) with Docker Desktop's WSL
 integration; native Windows is not supported.
@@ -30,7 +30,7 @@ ignored: the creator starts nothing and opens no browser.
 
 ```sh
 cd my-agent
-npx nylorun@beta start  # this project's stack (Docker), its Tenant, linked in .nylorun/
+npx nylorun@beta start  # this project's Tenant (Docker) and the link in .nylorun/
 npm run dev             # tsx watch src/main.ts
 npx nylorun studio      # a fresh Studio login on this project's Tenant
 npm run build
@@ -38,9 +38,8 @@ npm start
 ```
 
 `nylorun start` in the project creates and starts the project's own local
-stack (Runtime, Studio and their infrastructure, named after the directory;
-`--name` picks or shares another), whose Runtime creates the stack's one
-Tenant. It writes the Project link and the derived application credentials to
+Tenant (Runtime, Studio and their infrastructure in Docker, named after the
+directory; `--tenant` picks or shares another). It writes the Project link and the derived application credentials to
 gitignored `.nylorun/`, and seeds the model provider from `.env`
 (`MODEL_PROVIDER`, `MODEL`, `MODEL_PROVIDER_API_KEY`) into the Tenant vault.
 `@nylorun/cli` (command `nylo`) is the Runtime client: `nylo status`,
@@ -49,7 +48,7 @@ gitignored `.nylorun/`, and seeds the model provider from `.env`
 `npm start` runs `node dist/src/main.js` with the same entry as development.
 Export the Project environment (`eval "$(npx @nylorun/cli env)"`) before a
 production start when there is no Project link. Tenant data, including the
-vault, lives in the stack. Definitions have no model provider or
+vault, lives in the Tenant's Docker volumes. Definitions have no model provider or
 `agent.run()`.
 
 `starter/` is the canonical template. `compatibility.json` pins core, harness,
@@ -65,8 +64,8 @@ remain outside that registry for later migration.
 `npm run test:starter` (`create-agent/scripts/smoke-starter.mjs`) packs the
 workspace, scaffolds the starter from the packed creator, installs `nylorun`
 and `@nylorun/cli` beside it (never into it), runs `nylorun start` in it and
-`npm run dev` against a temporary local Docker stack, then resets the stack's
-Tenant, seeds the fixture model and runs one turn that calls the starter's
+`npm run dev` against a temporary local Tenant, then resets that Tenant,
+seeds the fixture model and runs one turn that calls the starter's
 tool.
 
 See [RELEASING](../RELEASING.md) for the Changesets beta workflow. Nothing is

@@ -133,7 +133,7 @@ export function tenantDocument(): OpenApiDocument {
     servers: [
       {
         url: "{origin}",
-        description: "A Runtime: the local stack (`nylorun start`), or where yours runs",
+        description: "A Runtime: a local Tenant (`nylorun start`), or where yours runs",
         variables: { origin: { default: "http://localhost:8787" } },
       },
     ],
@@ -166,7 +166,7 @@ export function adminDocument(): OpenApiDocument {
     servers: [
       {
         url: "{origin}",
-        description: "The operator listener: the local stack's, or where yours runs",
+        description: "The operator listener: a local Tenant's, or where yours runs",
         variables: { origin: { default: "http://localhost:8788" } },
       },
     ],

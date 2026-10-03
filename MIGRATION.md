@@ -1,36 +1,79 @@
+# Local Tenants: "Tenant" replaces "stack"
+
+`nylorun` now calls what it runs a **Tenant**: each local installation holds one Tenant,
+and the installation's name is the Tenant's name. Commands take `--tenant <name>` and
+`NYLORUN_TENANT`, Host roots move to `~/.nylorun/tenants/<name>/`, and the Project link is
+format 3 with a `tenant` field. `nylorun start` also works outside a project: there it
+runs the Tenant `default`.
+
+What to do, from nylorun 0.4:
+
+1. Upgrade `nylorun`, `@nylorun/agents`, `@nylorun/cli` and `@nylorun/admin` together:
+   they read link format 3.
+2. Nothing for Host roots. The first `nylorun` command moves each
+   `~/.nylorun/stacks/<name>/` to `~/.nylorun/tenants/<name>/` (`stack.json` becomes
+   `tenant.json`, the `docker/.env` key `NYLORUN_STACK_NAME` becomes
+   `NYLORUN_TENANT_NAME`) and says so once. Compose projects, ports, volumes and keys do
+   not change.
+3. Run `npx nylorun start` in each project. It rewrites `.nylorun/link.json` as format 3.
+   Until then the SDK, `nylo` and `@nylorun/admin` refuse the old link and say so.
+4. Replace the old names in scripts, CI and code:
+
+| Before | After |
+| --- | --- |
+| `nylorun <command> --name <stack>` | `nylorun <command> --tenant <name>` |
+| `NYLORUN_STACK` | `NYLORUN_TENANT` (a name; a `tn_…` id is refused) |
+| `NYLORUN_STACK_PROJECT` | `NYLORUN_COMPOSE_PROJECT` |
+| `~/.nylorun/stacks/<name>/`, `stack.json` | `~/.nylorun/tenants/<name>/`, `tenant.json` (moved for you) |
+| `NYLORUN_STACK_NAME` in `docker/.env` | `NYLORUN_TENANT_NAME` (renamed for you) |
+| `.nylorun/link.json` format 2 `{ stack, hostUrl, hostId, tenantId }` | Format 3 `{ tenant, tenantId, hostUrl, hostId }`; `npx nylorun start` rewrites it |
+| `createAdmin({ stack })`, `stackHostRoot(name)` | `createAdmin({ tenant })`, `tenantHostRoot(name)` |
+| Outside a project, `--name` required | The Tenant `default` (also for `start --no-link`) |
+| `nylorun ls`: column `STACK`, JSON `{ stacks, legacy }` | Column `TENANT`, JSON `{ tenants }` |
+| `nylorun legacy stop\|delete` | Removed: [remove the old installation with Docker](#one-tenant-per-installation-protocol-5) |
+| `nylorun stack <command>`, `nylorun doctor stack\|runtime` | `nylorun <command>`, `nylorun doctor` |
+| `nylo status` / `nylo endpoints`: `stack` line and JSON key | Removed; the Tenant's name is printed |
+
+A `NYLORUN_TENANT=tn_…` left from releases before 0.4 is refused: unset it, or set a
+Tenant's name (`nylorun ls` lists them).
+
 # One Tenant per installation (protocol 5)
 
 A Runtime now serves exactly one Tenant, the one its own Postgres database holds, and
-nothing in a request selects it. Locally that means one stack per project: `nylorun start`
-in a project creates the project's stack, its Tenant and the Project link together. Two
-Tenants are two installations.
+nothing in a request selects it. Locally that means one Tenant per project: `nylorun start`
+in a project creates the project's Tenant and the Project link together. Two Tenants are
+two installations.
 
-**This release starts fresh.** Existing stacks are left as they are: the old stack under
-`~/.nylorun` (Compose project `nylorun`, `tenant_<id>` schemas) is never migrated, changed
-or deleted. Your agents, sessions, keys and vault credentials stay in it until you remove it.
+**This release starts fresh.** The old installation under `~/.nylorun` (Compose project
+`nylorun`, `tenant_<id>` schemas) is never migrated, changed or deleted. Your agents, sessions, keys and vault credentials stay in it until you remove it.
 
 What to do:
 
 1. Upgrade the packages together (`@nylorun/agents`, `@nylorun/cli`, `@nylorun/admin`,
    `nylorun`): clients speak protocol 5.
-2. In each project, run `npx nylorun start`. It creates the project's stack
-   (`~/.nylorun/stacks/<project>/`, Compose project `nylorun-<project>`, its own ports and
-   volumes), whose Runtime creates its Tenant, writes a new `.nylorun/link.json` (format 2)
-   and `.nylorun/credentials.json`, and seeds the model provider from the project's `.env`.
-   A project still linked to the old stack gets a note and a new stack. To share one stack
-   between checkouts, run `npx nylorun start --name <stack>` in the others.
+2. In each project, run `npx nylorun start`. It creates the project's Tenant
+   (`~/.nylorun/tenants/<project>/`, Compose project `nylorun-<project>`, its own ports and
+   volumes), writes a new `.nylorun/link.json` and `.nylorun/credentials.json`, and seeds
+   the model provider from the project's `.env`. A link to the old installation is
+   replaced. To share one Tenant between checkouts, run
+   `npx nylorun start --tenant <name>` in the others.
 3. Re-enter model credentials that were not in `.env` (`npm run configure`, or Studio),
    and register your agents again: `npm run dev` does this.
-4. Stop or remove the old stack when you no longer need it: `npx nylorun legacy stop`, or
-   `npx nylorun legacy delete --yes` (its volumes, its Tenants and their vault keys go).
+4. Stop or remove the old installation with Docker when you no longer need it (`nylorun`
+   no longer handles it). Stop it:
+   `docker compose --project-name nylorun --file ~/.nylorun/stack/compose.yaml --env-file ~/.nylorun/stack/.env stop`.
+   Remove it with `down --volumes` in place of `stop` (its volumes, its Tenants and their
+   vault keys go), then delete `host.json`, `host-credentials.json`, `host-state.json`,
+   `stack/`, `home/`, `tmp/` and `trash/` under `~/.nylorun`, and the `tn_…` directories
+   in `~/.nylorun/tenants/` (never one with a `tenant.json`).
 
 | Before | After |
 | --- | --- |
-| One stack per machine (`~/.nylorun`, Compose project `nylorun`) serving many Tenants | One stack per project: `~/.nylorun/stacks/<name>/`, Compose project `nylorun-<name>`; `nylorun ls`, `nylorun delete <name>` |
-| `nylo tenant create\|use\|list\|current\|delete` | `nylorun start` in the project (creates the stack, its Tenant and the link); `--name <stack>` attaches to an existing stack |
-| `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation; `nylorun status` shows the stack's Tenant |
+| One installation per machine (`~/.nylorun`, Compose project `nylorun`) serving many Tenants | One Tenant per project: `~/.nylorun/tenants/<name>/`, Compose project `nylorun-<name>`; `nylorun ls`, `nylorun delete <name>` |
+| `nylo tenant create\|use\|list\|current\|delete` | `nylorun start` in the project (creates its Tenant and the link); `--tenant <name>` attaches to an existing Tenant |
+| `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation; `nylorun status` shows the Tenant |
 | `NYLORUN_TENANT`, `Nylorun-Tenant`, `createClient({ tenant })`, `runtime: { url, tenant }` | Gone: `NYLORUN_RUNTIME_URL` + `NYLORUN_SERVER_KEY` (or the link), `createClient({ url, key })`, `runtime: { url }` |
-| `.nylorun/link.json` format 1 `{ hostUrl, hostId, tenantId }` with a minted application key | Format 2 `{ stack, hostUrl, hostId, tenantId }`; `credentials.json` holds the key of the derived principal `project`. Clients refuse a format 0 or 1 link and name `nylorun start` |
+| `.nylorun/link.json` format 1 `{ hostUrl, hostId, tenantId }` with a minted application key | Format 3 `{ tenant, tenantId, hostUrl, hostId }`; `credentials.json` holds the key of the derived principal `project`. Clients refuse a link below format 3 and name `nylorun start` |
 | `admin.createTenant`, `listTenants`, `getTenant`, `deleteTenant`; `/v1/admin/tenants*` | Gone (404). The Host creates its Tenant on first start; `admin.status().tenant` names it and why it is not open |
 | `AdminStatus.tenants[]`, per-Tenant quarantine | `AdminStatus.tenant`; a Tenant that cannot be opened fails `/ready` with its cause (`schema-too-new`, `kek-missing`, `database-layout-old`, …) |
 | `verifyDeliveryToken({ tenantId })` required | `tenantId` optional: the endpoint accepts its installation's Tenant |
@@ -342,7 +385,7 @@ checks the prerequisites and the stack's health.
 | `nylorun runtime status [--json]` | `nylorun status [--json]` |
 | `nylorun runtime status --env` | `nylo env` ([above](#nylorun-and-nylo-setup-and-the-runtime-client-breaking-beta)) |
 | `nylorun runtime logs`, `nylorun logs` (launcher) | `nylorun logs [service] [-f] [--tail <n>]` |
-| `nylorun stack logs`, `nylorun stack studio` | `nylorun logs`, `nylorun studio` (the `stack` spelling still works) |
+| `nylorun stack logs`, `nylorun stack studio` | `nylorun logs`, `nylorun studio` |
 | `nylorun studio [--local-ui] [--port <n>]` (in-process proxy) | `nylorun studio [--no-open]`: a fresh login URL for the stack's Studio, on the linked Project's Tenant |
 | `nylorun dev --local-ui` | `npm run dev`, then `nylorun studio` (opens Studio on the Project's Tenant) |
 | `nylorun dev --ephemeral` (in-process Runtime) | removed ([step 6](#6-nylorun-dev---ephemeral-and-the-fixture-model)) |

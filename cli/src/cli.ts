@@ -21,7 +21,7 @@ const usage = `nylo <status|reset|endpoints|access|configure|env|doctor>
 
 Runtime client for the linked installation and its one Tenant (the Project link that
 npx nylorun start writes, or NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY):
-  status [--json]                         the Tenant, its checks and counts, and the stack
+  status [--json]                         the Tenant, its checks and counts
   reset [--sessions|--sandboxes|--all] [--yes]
                                           clear the Tenant's sessions, sandboxes or all its data
   endpoints [--json]|ping <agent>         the registered Action endpoints and their health
@@ -34,16 +34,16 @@ npx nylorun start writes, or NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY):
   env                                     print the linked Project's NYLORUN_* variables as exports
   doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers
 
-The local stack is managed by the nylorun package: npx nylorun start in a project creates
-its stack, its Tenant and the Project link.`;
+Local Tenants are run by the nylorun package: npx nylorun start in a project creates its
+Tenant and the Project link.`;
 
-/** Local stack commands, which moved to the nylorun package. */
-const STACK_COMMANDS = new Set([
-  "up", "down", "start", "stop", "logs", "studio", "stack", "runtime", "restart", "run",
+/** Local Tenant commands, which the nylorun package runs. */
+const LOCAL_COMMANDS = new Set([
+  "up", "down", "start", "stop", "logs", "studio", "runtime", "restart", "run",
 ]);
 
 const TENANT_REMOVED = `nylo tenant was removed: an installation serves one Tenant.
-Run "npx nylorun start" in your project to create its stack, its Tenant and the Project link.
+Run "npx nylorun start" in your project to create its Tenant and the Project link.
 Then use nylo status, nylo reset and nylo endpoints on the linked installation.`;
 
 interface Flags {
@@ -124,7 +124,7 @@ async function main() {
     const [topic, ...options] = args;
     if (topic !== "sandbox" || options.some((option) => option !== "--json"))
       throw usageError(
-        "Usage: nylo doctor sandbox [--json]. Check the local stack with npx nylorun doctor.",
+        "Usage: nylo doctor sandbox [--json]. Check the local Tenant with npx nylorun doctor.",
       );
     const { doctorSandbox } = await import("./doctor.js");
     await doctorSandbox({ json: options.includes("--json") });
@@ -135,8 +135,8 @@ async function main() {
     throw usageError(
       'nylorun dev was removed: run "npx nylorun start" once in your project, then your project\'s npm run dev.',
     );
-  if (STACK_COMMANDS.has(command))
-    throw usageError(`The local stack moved to the nylorun package: npx nylorun ${command}`);
+  if (LOCAL_COMMANDS.has(command))
+    throw usageError(`Local Tenants are run by the nylorun package: npx nylorun ${command}`);
 
   if (command === "configure") {
     const flags = parseFlags(args);
@@ -151,7 +151,7 @@ async function main() {
     const health = await fetch(`${auth.url}/health`).catch(() => undefined);
     if (!health?.ok)
       throw new CliError(
-        `No Runtime is listening at ${auth.url}. Start the local stack with "npx nylorun start".`,
+        `No Runtime is listening at ${auth.url}. Start the local Tenant with "npx nylorun start".`,
         6,
       );
     const catalog = await fetchModelCatalog({ url: auth.url, key: auth.key });

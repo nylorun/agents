@@ -69,7 +69,7 @@ test("the publication smoke creates a project without a terminal and starts noth
   assert.deepEqual(commands, [["install", "--yes"]]);
 });
 
-test("the smoke reads the dev banner and the stack's services", () => {
+test("the smoke reads the dev banner and the Tenant's Compose services", () => {
   const banner = [
     "Runtime       http://localhost:4123  (started; stays running)",
     "Studio        http://localhost:4124/login?token=abc&next=%2Ftenants%2Ftn_1",

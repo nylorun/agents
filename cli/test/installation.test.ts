@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { endpointLine } from "../src/installation/commands.js";
-import { APPLICATION_KEY, HOST_ID, link2, project, writeProjectLink } from "./helpers/project.js";
+import { APPLICATION_KEY, HOST_ID, link3, project, writeProjectLink } from "./helpers/project.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const roots: string[] = [];
@@ -98,7 +98,7 @@ async function runtime(options: { tenantOpen?: boolean } = {}) {
 async function linkedProject(hostUrl: string): Promise<string> {
   const root = await project("nylo-installation-");
   roots.push(root);
-  await writeProjectLink(root, link2(hostUrl));
+  await writeProjectLink(root, link3(hostUrl));
   return root;
 }
 
@@ -113,7 +113,7 @@ function nylo(args: string[], cwd: string, env: Record<string, string> = {}) {
       NYLORUN_SERVER_KEY: "",
       NYLORUN_ADMIN_URL: "",
       NYLORUN_ADMIN_KEY: "",
-      NYLORUN_STACK: "",
+      NYLORUN_TENANT: "",
       NYLORUN_HOME: "",
       ...env,
     },
@@ -129,18 +129,19 @@ function nylo(args: string[], cwd: string, env: Record<string, string> = {}) {
 }
 
 describe("nylo status|reset|endpoints on the linked installation", { timeout: 20_000 }, () => {
-  it("status shows the Tenant and the link's stack", async () => {
+  it("status shows the Tenant", async () => {
     const host = await runtime();
     const root = await linkedProject(host.url);
     const text = await nylo(["status"], root);
     expect(text.code).toBe(0);
     expect(text.stdout).toContain(`demo  ${TENANT_ID}`);
-    expect(text.stdout).toContain("stack    demo");
+    expect(text.stdout).not.toContain("stack");
     expect(text.stdout).toContain(`runtime  ${host.url}`);
     expect(text.stdout).toContain("counts   sessions=3 running=1 pending=0");
     const json = await nylo(["status", "--json"], root);
     expect(json.code).toBe(0);
-    expect(JSON.parse(json.stdout)).toMatchObject({ stack: "demo", tenant: { id: TENANT_ID } });
+    expect(JSON.parse(json.stdout)).toMatchObject({ tenant: { id: TENANT_ID } });
+    expect(JSON.parse(json.stdout)).not.toHaveProperty("stack");
   });
 
   it("status of a Tenant that is not open shows the Host's cause", async () => {
@@ -161,7 +162,7 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     const root = await linkedProject(host.url);
     const result = await nylo(["reset"], root);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Reset the Tenant on stack demo");
+    expect(result.stdout).toContain(`Reset Tenant demo (${host.url}) (sessions).`);
     const reset = host.requests.find((r) => r.url === "/v1/tenant/reset");
     expect(reset?.body).toMatchObject({ scope: "sessions", activeWork: "drain" });
     // Not a terminal: --all needs --yes.
@@ -197,7 +198,7 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
       NYLORUN_SERVER_KEY: APPLICATION_KEY,
     });
     expect(result.code).toBe(0);
-    expect(result.stdout).not.toContain("stack ");
+    expect(result.stdout).toContain(`runtime  ${host.url}`);
   });
 
   it("requests carry the key and protocol and never a Nylorun-Tenant header", async () => {
@@ -214,14 +215,14 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     }
   });
 
-  it("refuses an old multi-Tenant link and says to run nylorun start", async () => {
+  it("refuses a link from an older nylorun and says to run nylorun start", async () => {
     const host = await runtime();
     const root = await project("nylo-installation-");
     roots.push(root);
-    await writeProjectLink(root, { format: 1, hostUrl: host.url, hostId: HOST_ID, tenantId: TENANT_ID });
+    await writeProjectLink(root, { format: 2, stack: "demo", hostUrl: host.url, hostId: HOST_ID });
     const result = await nylo(["status"], root);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("before one Tenant per installation");
+    expect(result.stderr).toContain("is from an older nylorun");
     expect(result.stderr).toContain('Run "npx nylorun start"');
     expect(host.requests).toEqual([]);
   });

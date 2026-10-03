@@ -67,7 +67,7 @@ try {
       `Setup modified ${file}`,
     );
   // Starter scripts: tsx watch on the linked Tenant, no serve, and no Studio
-  // script (Studio runs in the stack; `nylorun studio` opens it).
+  // script (Studio runs in the Tenant's containers; `nylorun studio` opens it).
   const starterPkg = await readJson(
     join(temporary, "create-agent/starter/package.json"),
   );

@@ -9,7 +9,7 @@ import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility
 import { createClient } from "@nylorun/agents";
 import { readCredentials } from "../../src/project/credentials.js";
 import { linkedConnection } from "../../src/project/connection.js";
-import { APPLICATION_KEY, link2, project, writeProjectLink } from "../helpers/project.js";
+import { APPLICATION_KEY, link3, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -21,7 +21,7 @@ afterEach(async () => {
 it("the linked client sends the key and the protocol, and no Nylorun-Tenant header", async () => {
   const root = await project("cli-sec-project-");
   roots.push(root);
-  await writeProjectLink(root, link2("http://127.0.0.1:8787"));
+  await writeProjectLink(root, link3("http://127.0.0.1:8787"));
   const connection = await linkedConnection(root, {});
   expect(connection).toMatchObject({ url: "http://127.0.0.1:8787", key: APPLICATION_KEY });
   const seen: Headers[] = [];
@@ -63,7 +63,7 @@ it("without a link, NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY are the connectio
 it("project credentials are read back 0600 inside a 0700 .nylorun", async () => {
   const root = await project("cli-sec-project-");
   roots.push(root);
-  await writeProjectLink(root, link2("http://127.0.0.1:8787"));
+  await writeProjectLink(root, link3("http://127.0.0.1:8787"));
   expect(await readCredentials(root)).toMatchObject({ applicationKey: APPLICATION_KEY });
   expect((await stat(join(root, ".nylorun"))).mode & 0o777).toBe(0o700);
   expect((await stat(join(root, ".nylorun/credentials.json"))).mode & 0o777).toBe(0o600);

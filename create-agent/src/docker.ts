@@ -33,7 +33,7 @@ function run(args: readonly string[]): Promise<Result> {
 const firstLine = (text: string) => text.trim().split(/\r?\n/u)[0] ?? "";
 
 /**
- * The local Nylorun stack runs in Docker Compose. Report, never fix: a missing
+ * A local Nylorun Tenant runs in Docker Compose. Report, never fix: a missing
  * docker command, an engine that does not answer, or Compose older than v2.
  */
 export async function checkDocker(): Promise<DockerCheck> {

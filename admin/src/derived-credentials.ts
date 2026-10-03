@@ -18,7 +18,7 @@ export function deriveStudioToken(adminKey: string, tenantId: string): string {
 
 /**
  * The derived principal that Projects use. The Host registers it on its Tenant by default
- * (`NYLORUN_DERIVED_PRINCIPALS`), and `nylorun start` derives its key from the stack's admin
+ * (`NYLORUN_DERIVED_PRINCIPALS`), and `nylorun start` derives its key from the Tenant's admin
  * key into the Project's `.nylorun/credentials.json`.
  */
 export const PROJECT_PRINCIPAL_ID = "project";

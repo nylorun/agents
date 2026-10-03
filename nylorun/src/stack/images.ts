@@ -1,7 +1,7 @@
 import { pinnedVersion } from "./versions.js";
 
 /**
- * Images the local stack runs. The Runtime and Studio tags are pinned by this
+ * Images a local Tenant runs. The Runtime and Studio tags are pinned by this
  * CLI release; `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them
  * (local builds, CI images). Postgres, Restate and s2-lite are the official
  * images, pinned here.

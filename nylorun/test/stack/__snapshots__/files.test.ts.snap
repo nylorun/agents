@@ -25,7 +25,7 @@ NYLORUN_RESTATE_IDENTITY_KEY=publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdc
 # into the Host root belong to you.
 NYLORUN_UID=501
 NYLORUN_GID=20
-NYLORUN_HOST_ROOT=/Users/dev/.nylorun/stacks/shop
+NYLORUN_HOST_ROOT=/Users/dev/.nylorun/tenants/shop
 
 NYLORUN_RUNTIME_IMAGE=ghcr.io/nylorun/runtime:0.10.0-beta
 NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
@@ -38,10 +38,10 @@ NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'
 # it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.
 NYLORUN_STUDIO_ANALYTICS_ID=G-K6RPDFH6Q6
 
-# The stack's name, which its Runtime gives the Tenant it creates on the first
+# The Tenant's name, which the Runtime gives the Tenant it creates on the first
 # start, and the derived principals it registers on that Tenant (keys derived
 # from the admin key; \`project\` is the Project link's).
-NYLORUN_STACK_NAME=shop
+NYLORUN_TENANT_NAME=shop
 NYLORUN_DERIVED_PRINCIPALS='project,babai'
 "
 `;
@@ -138,7 +138,7 @@ services:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
-      NYLORUN_TENANT_NAME: \${NYLORUN_STACK_NAME:?run nylorun start}
+      NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
       NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
       # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
@@ -148,12 +148,12 @@ services:
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_LISTEN_HOST: 0.0.0.0
       NYLORUN_LISTEN_PORT: "4000"
-      # Host headers the Runtime accepts: the stack network name, and the
+      # Host headers the Runtime accepts: its name on the Compose network, and the
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
       NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
       # The Admin API on its own listener, published on loopback only; Studio reaches it on
-      # the stack network. Port 4000 serves the Tenant API alone.
+      # the Compose network. Port 4000 serves the Tenant API alone.
       NYLORUN_ADMIN_LISTEN_PORT: "4001"
       NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:\${NYLORUN_ADMIN_PORT},127.0.0.1:\${NYLORUN_ADMIN_PORT}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
@@ -170,7 +170,7 @@ services:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
-      # Empty and read-only over the vault key (keys/) and the stack's secrets (docker/):
+      # Empty and read-only over the vault key (keys/) and the Compose secrets (docker/):
       # only the gateway reads the key, and only Restate its private key.
       - type: tmpfs
         target: /nylorun/keys

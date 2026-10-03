@@ -24,7 +24,7 @@ export class ConnectionError extends Error {
 function missing(tried: string[]): never {
   throw new ConnectionError(
     `connection_missing: no Runtime connection found (tried ${tried.join(", ")}). ` +
-      `Run "npx nylorun start" in this project to start its stack and link it, ` +
+      `Run "npx nylorun start" in this project to start its Tenant and link it, ` +
       `or set NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.`,
   );
 }
@@ -53,12 +53,11 @@ async function readProjectLink(
       throw error;
     }
     const link = ProjectLinkFileSchema.parse(JSON.parse(linkRaw));
-    // Formats 0 and 1 named a Tenant on a multi-Tenant Host of an older Runtime.
-    if (link.format < 2)
+    // Formats 0 to 2 are from older releases.
+    if (link.format < 3)
       throw new ConnectionError(
-        `connection_missing: the Project link at ${linkPath} is for a stack of an older ` +
-          `Runtime, before one Tenant per installation. Run "npx nylorun start" in this project ` +
-          `to start its own stack and link it again.`,
+        `connection_missing: the Project link at ${linkPath} is from an older nylorun. ` +
+          `Run "npx nylorun start" in this project to link it again.`,
       );
     const credentials = ProjectCredentialsFileSchema.parse(
       JSON.parse(await readFile(join(nylorun, "credentials.json"), "utf8")),

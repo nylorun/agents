@@ -45,7 +45,7 @@ async function readText(path: string): Promise<string | undefined> {
   }
 }
 
-/** Read the persisted stack settings without writing anything. */
+/** Read the persisted Compose settings without writing anything. */
 export async function readStackEnv(paths: Pick<StackPaths, "env">) {
   const text = await readText(paths.env);
   return text === undefined ? undefined : parsePersisted(text);
@@ -59,7 +59,7 @@ export async function readStackEnv(paths: Pick<StackPaths, "env">) {
  */
 export async function prepareStack(input: {
   paths: StackPaths;
-  /** The stack's name (its Tenant's name) and its Compose project. */
+  /** The Tenant's name and its Compose project. */
   name: string;
   project: string;
   images: StackImages;
@@ -68,7 +68,7 @@ export async function prepareStack(input: {
   /** Recorded in host.json; undefined keeps the recorded version. */
   runtimeVersion: string | undefined;
   ports: PortProbe;
-  /** Ports other stacks keep in their `.env`: never chosen for a port not chosen yet. */
+  /** Ports other Tenants keep in their `.env`: never chosen for a port not chosen yet. */
   reserved?: ReadonlySet<number>;
   /** `NYLORUN_DERIVED_PRINCIPALS` from the environment of `nylorun start`; else kept. */
   derivedPrincipals?: string;
@@ -131,7 +131,7 @@ export async function prepareStack(input: {
     studioImage: input.images.studio,
     studioFrameAncestors,
     studioAnalyticsId: input.studioAnalyticsId ?? "",
-    stackName: input.name,
+    tenantName: input.name,
     derivedPrincipals: (input.derivedPrincipals?.trim()
       ? parseDerivedPrincipals(input.derivedPrincipals, "NYLORUN_DERIVED_PRINCIPALS")
       : (persisted.derivedPrincipals ?? ["project"])

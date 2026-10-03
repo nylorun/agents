@@ -12,10 +12,10 @@ try {
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  // The stack is examples/' own: named after the directory unless NYLORUN_STACK
-  // names one, under ~/.nylorun/stacks/<name>/ (NYLORUN_HOME overrides) as
-  // Compose project nylorun-<name> (NYLORUN_STACK_PROJECT overrides). It
-  // outlives npm run dev.
+  // The Tenant is examples/' own: named after the directory unless
+  // NYLORUN_TENANT names one, under ~/.nylorun/tenants/<name>/ (NYLORUN_HOME
+  // overrides) as Compose project nylorun-<name> (NYLORUN_COMPOSE_PROJECT
+  // overrides). It outlives npm run dev.
   app = await develop(options, { signal: controller.signal });
   if (controller.signal.aborted) await app.close();
   process.exitCode = await app.done;

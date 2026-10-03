@@ -64,7 +64,7 @@ export async function assertLogicalReplication(sql: Sql): Promise<void> {
   if (row?.wal_level !== "logical")
     throw new Error(
       `Postgres has wal_level = ${row?.wal_level ?? "unknown"}; the stream relay needs logical replication. ` +
-        "Set wal_level = logical and restart Postgres (`nylorun start` does this for the local stack; " +
+        "Set wal_level = logical and restart Postgres (`nylorun start` does this for a local Tenant; " +
         "on a managed Postgres, turn on its logical replication option). See DEPLOYMENT.md.",
     );
   if (!row.replicates)

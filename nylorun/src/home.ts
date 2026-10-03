@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
- * The Host root: an explicit home, `NYLORUN_HOME`, or `~/.nylorun`. The stack
+ * The Host root: an explicit home, `NYLORUN_HOME`, or `~/.nylorun`. Compose
  * bind-mounts it into the Runtime and Studio containers, and `@nylorun/admin`
  * reads `host.json` and the admin key from it.
  */

@@ -14,7 +14,7 @@ export type PinnedImage = "runtime" | "studio";
 /**
  * The version this CLI release pins for an image, from `cli/package.json`
  * `nylorun.runtime` or `nylorun.studio`: the tag of `ghcr.io/nylorun/<name>`
- * the stack runs unless `NYLORUN_RUNTIME_IMAGE` / `NYLORUN_STUDIO_IMAGE`
+ * a local Tenant runs unless `NYLORUN_RUNTIME_IMAGE` / `NYLORUN_STUDIO_IMAGE`
  * overrides it. The release tooling writes both pins.
  */
 export function pinnedVersion(name: PinnedImage): string {

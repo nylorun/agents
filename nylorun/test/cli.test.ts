@@ -24,7 +24,7 @@ function nylorun(args: string[], env: Record<string, string> = {}) {
       HOME: join(cwd, "user"),
       PATH: dirname(process.execPath),
       NYLORUN_HOME: "",
-      NYLORUN_STACK: "",
+      NYLORUN_TENANT: "",
       ...env,
     },
   });
@@ -32,22 +32,24 @@ function nylorun(args: string[], env: Record<string, string> = {}) {
 }
 
 describe("nylorun (the setup command)", () => {
-  it("lists up and down beside start and stop, and the stack commands", () => {
+  it("lists up and down beside start and stop, and the Tenant commands", () => {
     const { code, stdout } = nylorun(["--help"]);
     expect(code).toBe(0);
-    expect(stdout).toMatch(/up\|start/);
+    expect(stdout).toMatch(/up\|start \[--tenant <name>\]/);
     expect(stdout).toMatch(/down\|stop/);
     expect(stdout).toMatch(/^ {2}ls \[--json\]/m);
-    expect(stdout).toMatch(/^ {2}delete <stack> --yes/m);
-    expect(stdout).toMatch(/^ {2}legacy stop\|delete/m);
-    expect(stdout).not.toMatch(/\bdev\b|\btenant\b|configure/);
+    expect(stdout).toMatch(/^ {2}delete <tenant> --yes/m);
+    expect(stdout).toMatch(/^Local Tenants \(Docker Compose\), one per project:$/m);
+    expect(stdout).not.toMatch(/stack|legacy|--name|\bdev\b|configure/i);
   });
 
   it.each([
     [["dev"], /npx nylorun start/],
     [["dev", "--ephemeral"], /npx nylorun start/],
-    [["tenant", "list"], /Tenant commands were removed.*npx nylorun start.*npx @nylorun\/cli status\|reset\|endpoints/],
-    [["tenant", "create"], /a stack serves one Tenant/],
+    [["tenant", "list"], /^nylorun <up\|down\|start/],
+    [["legacy", "stop"], /^nylorun <up\|down\|start/],
+    [["stack", "start"], /^nylorun <up\|down\|start/],
+    [["doctor", "stack"], /Usage: nylorun doctor \[--json\]/],
     [["configure"], /npx @nylorun\/cli configure/],
     [["status", "--env"], /npx @nylorun\/cli env/],
     [["doctor", "sandbox"], /npx @nylorun\/cli doctor sandbox/],
@@ -57,14 +59,15 @@ describe("nylorun (the setup command)", () => {
     expect(stderr).toMatch(message);
   });
 
-  it("needs a stack outside a project, and lists none on an empty machine", () => {
+  it("acts on the default Tenant outside a project, and lists none on an empty machine", () => {
     const status = nylorun(["status"]);
-    expect(status.code).toBe(2);
-    expect(status.stderr).toMatch(/No stack selected/);
-    expect(nylorun(["start"]).stderr).toMatch(/--name <stack>/);
+    expect(status.code).toBe(3);
+    expect(status.stdout).toMatch(/^Tenant {6}default absent \(nothing under .*user\/\.nylorun\/tenants\/default; run "nylorun start"\)/);
+    expect(nylorun(["start"]).stderr).toMatch(/docker command was not found/);
+    expect(nylorun(["status", "--tenant", "tn_x"]).stderr).toMatch(/not a Tenant id/);
     const ls = nylorun(["ls"]);
     expect(ls.code).toBe(0);
-    expect(ls.stdout).toMatch(/^No stacks under .*user\/\.nylorun\/stacks\./);
+    expect(ls.stdout).toMatch(/^No Tenants on this machine\./);
     const deleted = nylorun(["delete", "nothing", "--yes"]);
     expect(deleted.code).toBe(3);
   });
