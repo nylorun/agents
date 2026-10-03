@@ -484,6 +484,11 @@ export const sandboxResources = nylorun.table("sandbox_resources", {
   reason: text(),
   /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
   retiring: textC(),
+  /**
+   * The id the engine keeps on the volume (`/harness/volume-id`), recorded at the first join:
+   * a join with another one means the volume was replaced (its files are gone), so `lost`.
+   */
+  volumeId: text(),
 });
 
 /**

@@ -56,7 +56,7 @@ export async function runHarness(
       log: (message, fields) => logger.info(message, fields),
     });
     logger.info("sandbox_network_policy_in_force", { sandboxId: config.pod.sandboxId, waitedMs });
-    pod = podHost(config.pod, logger);
+    pod = podHost(config.pod, logger, { volumeFile: join(config.root, "volume-id") });
   }
   const token = pod ? () => pod.token() : config.token;
   if (token === undefined) throw new Error("--service harness needs NYLORUN_HARNESS_TOKEN");

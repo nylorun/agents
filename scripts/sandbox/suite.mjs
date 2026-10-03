@@ -322,7 +322,12 @@ try {
       await api("POST", "/v1/sandboxes/pods%2Fone/reset");
       await observed("pods/one", "running", 420_000);
       await until("the old Sandbox is deleted", async () => !(await kubectl(["get", "sandbox", "-n", namespace, name], { check: false })));
-      const empty = await api("POST", "/v1/sessions/s1/sandbox/read", { path: "out.txt" });
+      // Ready first, then its engine joins: read once the new pod serves the workspace.
+      let empty;
+      await until("the new pod's engine serves the workspace", async () => {
+        empty = await api("POST", "/v1/sessions/s1/sandbox/read", { path: "out.txt" }, { ok: false });
+        return empty.status !== 409;
+      });
       assert.match(JSON.stringify(empty.body), /not_found|No file/, "a reset starts from an empty volume");
 
       step("PVC and pod deleted → sandbox.lost; turns refused until a reset");

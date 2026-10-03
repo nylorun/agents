@@ -10,4 +10,5 @@ ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "last_active_at" timestamp 
 ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "expires_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "started_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "reason" text;--> statement-breakpoint
-ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "retiring" text COLLATE "C";
+ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "retiring" text COLLATE "C";--> statement-breakpoint
+ALTER TABLE "nylorun"."sandbox_resources" ADD COLUMN "volume_id" text;

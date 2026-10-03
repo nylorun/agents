@@ -22,8 +22,10 @@
  *   `expiresAt`, and the next apply revives it with the later `shutdownTime`.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`sandbox.lost`): its host epoch moves, its Sandbox is deleted, and
- *   only a reset brings the sandbox back. A pod replaced on the same volume is not lost: the
- *   new pod's join bumps the epoch (`sandbox.relaunched`, `join.ts`).
+ *   only a reset brings the sandbox back. agent-sandbox recreates a deleted claim empty, so the
+ *   engine's join also checks the id it keeps on the volume (`join.ts`): a new volume is lost
+ *   too. A pod replaced on the same volume is not lost: the new pod's join bumps the epoch
+ *   (`sandbox.relaunched`).
  * - **Delete** (`desired: deleted`): the Sandbox is deleted, and the row once it is gone.
  * - **Reset** (`tenant/sandboxes.ts`) bumps the volume generation: a new name, so a new
  *   Sandbox and volume; the old name is `retiring` and deleted here.

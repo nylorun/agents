@@ -465,6 +465,7 @@ export async function resetSandbox(ctx: TenantContext, id: string, scope: AuthSc
         hostEpoch: epoch,
         joinTokenHash: null,
         podUid: null,
+        volumeId: null,
         startedAt: now,
         lastActiveAt: now,
         reason: null,

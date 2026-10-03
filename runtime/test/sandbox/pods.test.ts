@@ -286,6 +286,23 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     expect((await joinAs("lost/one", next)).epoch).toBeGreaterThan(lost.pod.hostEpoch);
   });
 
+  it("is lost when a pod joins from a replaced volume (a deleted claim recreated empty)", async () => {
+    const { name } = await createPod("lost/volume");
+    const join = (podUid: string, volumeId: string) =>
+      hosts.join({ sandboxId: "lost/volume", podUid, joinToken: fake.joinToken(name)!, volumeId });
+    const first = await join(fake.podUid(name)!, "vol-aaaa");
+    // A relaunch on the same volume joins.
+    const same = await join(fake.relaunch(name), "vol-aaaa");
+    expect(same.epoch).toBeGreaterThan(first.epoch);
+    // A pod on a new, empty volume does not.
+    await expect(join(fake.relaunch(name), "vol-bbbb")).rejects.toMatchObject({ status: 401 });
+    const lost = await view("lost/volume");
+    expect(lost.pod).toMatchObject({ observed: "lost", reason: "The sandbox's volume was replaced: its files are gone" });
+    expect(await events("lost/volume")).toContain("sandbox.lost");
+    await expect(hosts.renew(same.hostToken)).rejects.toBeInstanceOf(HostAuthError);
+    await until("the Sandbox is deleted", async () => fake.sandboxes.has(name), (has) => !has);
+  });
+
   it("deletes the Sandbox, then the row", async () => {
     const { name } = await createPod("gone/one");
     expect((await call("DELETE", path("gone/one"))).body).toEqual({ id: "gone/one", deleted: true });

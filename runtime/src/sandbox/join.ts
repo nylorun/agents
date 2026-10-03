@@ -10,7 +10,10 @@
  * 1. the hash matches, the sandbox is a pod sandbox that is neither deleted, lost nor expired;
  * 2. the UID is the pod the sandboxes service sees in the Sandbox now (a token copied to
  *    another pod is refused);
- * 3. the host epoch is bumped: tokens of the previous host stop working, and its connection is
+ * 3. the volume is the sandbox's: the engine keeps an id on the volume (`volumeId`), recorded
+ *    at the first join of an incarnation. agent-sandbox recreates a claim that was deleted, empty;
+ *    a join from such a volume finds the sandbox `lost` (`sandbox.lost`) and is refused;
+ * 4. the host epoch is bumped: tokens of the previous host stop working, and its connection is
  *    closed (`HarnessApiServer.revokeHost`), so its runs are given to the next advance. A pod
  *    other than the one that joined last records `sandbox.relaunched` (same volume, new pod);
  *    a first pod after a create, resume or reset records `sandbox.running`.
@@ -41,6 +44,8 @@ export interface HostJoinRequest {
   readonly sandboxId: string;
   readonly podUid: string;
   readonly joinToken: string;
+  /** The id the engine keeps on the volume (`/harness/volume-id`). */
+  readonly volumeId?: string;
 }
 
 /** What `join` and `renew` answer. */
@@ -113,14 +118,15 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
 
   return {
     async join(request) {
-      const { sandboxId, podUid, joinToken } = request;
+      const { sandboxId, podUid, joinToken, volumeId } = request;
       if (
         !isSandboxId(sandboxId) ||
         typeof podUid !== "string" ||
         !POD_UID.test(podUid) ||
         typeof joinToken !== "string" ||
         joinToken.length === 0 ||
-        joinToken.length > 512
+        joinToken.length > 512 ||
+        (volumeId !== undefined && (typeof volumeId !== "string" || !POD_UID.test(volumeId)))
       )
         throw new HostAuthError(400, "A join is { sandboxId, podUid, joinToken }");
       const pods = ctx.pods;
@@ -156,11 +162,19 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         if (pod.k8sName !== before.k8sName) refuse("the sandbox was reset during the join");
         const epoch = pod.hostEpoch + 1;
         const now = new Date().toISOString();
+        if (pod.volumeId !== undefined && volumeId !== pod.volumeId) {
+          // A new, empty volume under the same Sandbox: the sandbox's files are gone.
+          const reason = "The sandbox's volume was replaced: its files are gone";
+          await t.updateSandboxPod(sandboxId, { observed: "lost", reason, hostEpoch: epoch }, now);
+          await t.sandboxEvent(sandboxId, "sandbox.lost", { reason });
+          return { lost: epoch };
+        }
         await t.updateSandboxPod(
           sandboxId,
           {
             hostEpoch: epoch,
             podUid,
+            ...(pod.volumeId === undefined && volumeId !== undefined ? { volumeId } : {}),
             ...(pod.desired === "running" ? { observed: "running", reason: null } : {}),
           },
           now,
@@ -171,6 +185,12 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         }
         return epoch;
       });
+      if (typeof joined === "object") {
+        ctx.harness.revokeHost(sandboxId, joined.lost);
+        // Its Sandbox is deleted; only a reset brings the sandbox back.
+        await ctx.sandboxSignal(sandboxId, { kind: "reconcile" });
+        return refuse("the volume was replaced: the sandbox is lost");
+      }
       // The previous host's connection (an older epoch) serves nothing more.
       ctx.harness.revokeHost(sandboxId, joined);
       ctx.config.logger.info("sandbox host joined", { sandboxId, epoch: joined });

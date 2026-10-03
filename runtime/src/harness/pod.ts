@@ -6,7 +6,9 @@
  * is the password of the proxy every command gets (`proxyEnv`); both are renewed every
  * `RENEW_MS`, well inside their 15-minute life.
  */
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { PodHostConfig } from "../host/stack-config.js";
 
 /** How often the host and egress tokens are renewed. */
@@ -34,7 +36,12 @@ class Refused extends Error {}
 export function podHost(
   config: PodHostConfig,
   logger: { info(message: string, fields?: Record<string, unknown>): void; warn(message: string, fields?: Record<string, unknown>): void },
-  options: { fetch?: typeof fetch; renewMs?: number } = {},
+  options: {
+    fetch?: typeof fetch;
+    renewMs?: number;
+    /** Where the engine keeps the volume's id (on the volume): a new volume gets a new one. */
+    volumeFile?: string;
+  } = {},
 ): PodHost {
   const call = options.fetch ?? fetch;
   let held: Held | undefined;
@@ -61,10 +68,30 @@ export function podHost(
     };
   };
 
+  /** The volume's id, created on a volume that has none. */
+  const volumeId = async (): Promise<string | undefined> => {
+    const file = options.volumeFile;
+    if (!file) return undefined;
+    try {
+      return (await readFile(file, "utf8")).trim();
+    } catch {
+      const id = randomUUID();
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, `${id}\n`, { mode: 0o600 });
+      return id;
+    }
+  };
+
   const join = async (): Promise<Held> => {
     const joinToken = (await readFile(config.joinFile, "utf8")).trim();
+    const volume = await volumeId();
     held = await post("join", {
-      body: { sandboxId: config.sandboxId, podUid: config.podUid, joinToken },
+      body: {
+        sandboxId: config.sandboxId,
+        podUid: config.podUid,
+        joinToken,
+        ...(volume === undefined ? {} : { volumeId: volume }),
+      },
     });
     logger.info("sandbox_host_joined", { sandboxId: config.sandboxId, epoch: held.epoch });
     return held;

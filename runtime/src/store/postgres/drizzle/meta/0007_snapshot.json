@@ -1,5 +1,5 @@
 {
-  "id": "be25f59c-ac0a-4fca-9ab3-dade13f06895",
+  "id": "b74a56db-c167-4258-9585-7dc5316e4caf",
   "prevId": "139cf154-3d38-422b-8873-818543450aeb",
   "version": "7",
   "dialect": "postgresql",
@@ -1311,6 +1311,12 @@
         "retiring": {
           "name": "retiring",
           "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "volume_id": {
+          "name": "volume_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }

@@ -256,8 +256,13 @@ function parseJoin(text: string): HostJoinRequest {
   } catch {
     throw new HostAuthError(400, "A join is JSON: { sandboxId, podUid, joinToken }");
   }
-  const { sandboxId, podUid, joinToken } = (body ?? {}) as Record<string, unknown>;
-  if (typeof sandboxId !== "string" || typeof podUid !== "string" || typeof joinToken !== "string")
-    throw new HostAuthError(400, "A join is JSON: { sandboxId, podUid, joinToken }");
-  return { sandboxId, podUid, joinToken };
+  const { sandboxId, podUid, joinToken, volumeId } = (body ?? {}) as Record<string, unknown>;
+  if (
+    typeof sandboxId !== "string" ||
+    typeof podUid !== "string" ||
+    typeof joinToken !== "string" ||
+    (volumeId !== undefined && typeof volumeId !== "string")
+  )
+    throw new HostAuthError(400, "A join is JSON: { sandboxId, podUid, joinToken, volumeId? }");
+  return { sandboxId, podUid, joinToken, ...(volumeId === undefined ? {} : { volumeId }) };
 }

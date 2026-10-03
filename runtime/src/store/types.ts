@@ -231,6 +231,8 @@ export interface SandboxPodState {
   reason?: string;
   /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
   retiring?: string;
+  /** The id the engine keeps on the volume, from the first join. */
+  volumeId?: string;
 }
 
 /** A change to a pod's columns: `null` clears an optional one. */

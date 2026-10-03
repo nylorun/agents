@@ -354,6 +354,7 @@ function sandboxResourceOf(row: typeof sandboxResources.$inferSelect): SandboxRe
             ...(row.startedAt ? { startedAt: row.startedAt.toISOString() } : {}),
             ...(row.reason !== null ? { reason: row.reason } : {}),
             ...(row.retiring !== null ? { retiring: row.retiring } : {}),
+            ...(row.volumeId !== null ? { volumeId: row.volumeId } : {}),
           },
         }
       : {}),
@@ -378,6 +379,7 @@ function podColumns(patch: SandboxPodPatch): Partial<typeof sandboxResources.$in
     startedAt: date(patch.startedAt),
     reason: patch.reason,
     retiring: patch.retiring,
+    volumeId: patch.volumeId,
   };
   return Object.fromEntries(Object.entries(columns).filter(([, value]) => value !== undefined));
 }
