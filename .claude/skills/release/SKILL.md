@@ -66,7 +66,9 @@ what each workflow job does, and the Recovery table.
 6. **Verify.** For every package in `.release/plan.json` except Studio (image
    only), `npm view <package>@beta version` prints the plan's version, and
    `docker buildx imagetools inspect ghcr.io/nylorun/<runtime|studio>:<version>`
-   succeeds for each image the plan publishes. Done when every check matches.
+   succeeds for each image the plan publishes, and
+   `npm view nylorun@beta nylorun.runtime nylorun.studio` prints the plan's
+   Runtime and Studio versions. Done when every check matches.
    Report the versions, the PR and the run URL.
 
 ## Latest
@@ -77,4 +79,5 @@ Moving `latest` belongs to the user: they click **Actions → Promote to latest
 `latest` onto the versions on `main`, which must already be on beta. When the
 user asks for `latest`, finish any pending beta release first, then send them
 that link. Once they report it ran, verify with
-`npm view <package> dist-tags.latest`.
+`npm view <package> dist-tags.latest`, and Studio with
+`npm view nylorun@latest nylorun.studio`.

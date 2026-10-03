@@ -108,16 +108,12 @@ test("syncImagePins writes nylorun.runtime and nylorun.studio and keeps other fi
     );
   }));
 
-test("assertStudioImageOnly tolerates a public Studio unless strict", async () => {
+test("assertStudioImageOnly rejects a public Studio", async () => {
   await withRepo({ studioPrivate: false }, async (root) => {
-    assert.equal(await assertStudioImageOnly(root), false);
-    await assert.rejects(
-      () => assertStudioImageOnly(root, { strict: true }),
-      /"private": true/,
-    );
+    await assert.rejects(() => assertStudioImageOnly(root), /"private": true/);
   });
   await withRepo({ studioPrivate: true }, async (root) => {
-    assert.equal(await assertStudioImageOnly(root, { strict: true }), true);
+    await assertStudioImageOnly(root);
   });
 });
 

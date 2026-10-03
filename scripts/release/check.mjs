@@ -22,10 +22,7 @@ try {
   await validatePlan(plan, root);
   // The CLI's image pins name the Runtime and Studio this release ships.
   await assertRuntimePins(root, plan);
-  if (!(await assertStudioImageOnly(root)))
-    console.warn(
-      "Warning: @nylorun/studio is not private yet, so this release still publishes it to npm. Studio ships as the ghcr.io/nylorun/studio image.",
-    );
+  await assertStudioImageOnly(root);
   for (const [name, version] of Object.entries(plan.packages))
     await releaseNotes(root, name, version);
   if (!built) await node("scripts/validate.mjs", ["check"]);
