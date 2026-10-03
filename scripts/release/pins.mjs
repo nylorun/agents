@@ -76,15 +76,12 @@ export async function isImageOnly(repo, name) {
 }
 
 /**
- * Studio ships only as `ghcr.io/nylorun/studio` (Studio §9). Returns whether
- * `@nylorun/studio` is private. With `strict`, a public Studio fails; without
- * it the caller warns, until the Studio package change lands.
+ * Studio ships only as `ghcr.io/nylorun/studio` (Studio §9), so a public
+ * `@nylorun/studio` fails: it would publish Studio to npm again.
  */
-export async function assertStudioImageOnly(repo = root, { strict = false } = {}) {
-  const imageOnly = await isImageOnly(repo, "studio");
-  if (!imageOnly && strict)
+export async function assertStudioImageOnly(repo = root) {
+  if (!(await isImageOnly(repo, "studio")))
     throw new Error(
       'studio/package.json must be "private": true; Studio ships only as the ghcr.io/nylorun/studio image.',
     );
-  return imageOnly;
 }

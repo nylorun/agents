@@ -121,7 +121,7 @@ release plan controls publication.
 for changed packages and registry versions for unchanged pins. It also exercises
 CLI commands and production assets. An unavailable unchanged pin blocks release.
 It requires both image pins to equal the Runtime and Studio versions the plan
-publishes or keeps, and warns while `@nylorun/studio` is not yet private.
+publishes or keeps, and fails if `@nylorun/studio` is not private.
 Artifacts are saved under `.tmp/release-artifacts/` for inspection; a private
 package has no tarball there.
 
@@ -184,8 +184,13 @@ from the `release` environment.
 3. Check `npm view <package> dist-tags` for each package, and that a plain
    `npx nylorun up` (no `@beta`) starts the promoted Runtime image.
 
-Studio is image only and has no npm tag. Never move a tag backward: publish
-and promotion refuse to, and a newer `latest` means a newer release is needed instead.
+Studio is image only and has no npm tag. Its channel is nylorun's: each
+channel runs the Studio image that channel's nylorun pins, so
+`npm view nylorun@latest nylorun.studio` (or `nylorun@beta`) prints the Studio
+version developers get. The `@nylorun/studio` versions on npm (up to
+`0.9.0-beta`) predate the image, are deprecated, and are never updated. Never
+move a tag backward: publish and promotion refuse to, and a newer `latest`
+means a newer release is needed instead.
 
 ## Recovery
 
