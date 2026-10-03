@@ -131,6 +131,8 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         if (!row || row.kind !== "pod" || !pod) return refuse("no such pod sandbox");
         if (!pod.joinTokenHash || !sameHash(pod.joinTokenHash, hash)) return refuse("join token mismatch");
         if (pod.desired === "deleted") return refuse("the sandbox was deleted");
+        // A pod being stopped joins nothing: its sandbox runs again only when asked to.
+        if (pod.desired !== "running") return refuse("the sandbox is stopped");
         if (pod.observed === "lost" || pod.observed === "expired")
           return refuse(`the sandbox is ${pod.observed}`);
         return pod;
