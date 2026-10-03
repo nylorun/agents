@@ -13,9 +13,9 @@
 # bind-mounted Host root belong to the developer. Node and npx stay in the
 # image for stdio MCP servers.
 #
-# tini is PID 1 (`-g`: signals reach the whole process group). Sandbox pods (F7.2)
-# copy /usr/bin/tini-static, node and /app from this image into the pod and run
-# the engine with them (`--service harness`), so any glibc workload image can host it.
+# tini is installed for sandbox pods (F7.2): they copy /usr/bin/tini-static, node
+# and /app from this image into the pod and run the engine under it as PID 1
+# (`tini -g -- node ... --service harness`), so any glibc workload image can host it.
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 
@@ -83,5 +83,5 @@ COPY --from=build /app/runtime/dist runtime/dist
 RUN mkdir -p /nylorun /workspaces && chmod 1777 /nylorun /workspaces
 USER node
 EXPOSE 4000 4100 9080
-ENTRYPOINT ["/usr/bin/tini", "-g", "--", "node", "runtime/dist/host/main.js"]
+ENTRYPOINT ["node", "runtime/dist/host/main.js"]
 CMD ["--service", "core,loop"]
