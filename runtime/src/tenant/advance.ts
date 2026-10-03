@@ -76,7 +76,7 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
-import { dropRunGrant, grantRun, renewRunGrant } from "./run-grants.js";
+import { dropRunGrant, grantRun, renewRunGrant, type RunOf } from "./run-grants.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
 import {
@@ -146,12 +146,11 @@ export async function advance(
   else signal.addEventListener("abort", forward, { once: true });
   ctx.work.running.set(id, controller);
   ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
-  const heartbeat = startHeartbeat(ctx, lease, controller);
+  const run = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
+  const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
   try {
-    // A failed mint throws like any infrastructure error: the lease is released, and the
-    // execution retries the advance.
-    await grantRun(ctx, lease, taken.session);
+    await grantRun(ctx, lease, run);
     await runSegment(ctx, lease, taken.session, controller.signal);
   } catch (error) {
     if (error instanceof SegmentStopped && error.kind === "shutdown") {
@@ -269,7 +268,8 @@ export async function takeOver(
 function startHeartbeat(
   ctx: TenantContext,
   lease: Lease,
-  controller: AbortController
+  controller: AbortController,
+  run: RunOf
 ): { stop(): void } {
   const every = Math.max(10, Math.floor(ctx.ownerLeaseMs / 3));
   let stopped = false;
@@ -296,7 +296,7 @@ function startHeartbeat(
         return;
       }
       if (!stopped)
-        await renewRunGrant(ctx, lease).catch((error: unknown) =>
+        await renewRunGrant(ctx, lease, run, () => !stopped).catch((error: unknown) =>
           ctx.config.logger.warn("advance failed to renew its run token", {
             sessionId: lease.sessionId,
             message: error instanceof Error ? error.message : String(error),

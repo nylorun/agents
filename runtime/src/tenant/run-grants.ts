@@ -43,27 +43,50 @@ export function createRunGrants(): RunGrants {
 
 type GrantContext = Pick<TenantContext, "keys" | "config" | "runGrants">;
 
+/** What a run token names of the session: its root agent and the turn the advance runs. */
+export interface RunOf {
+  readonly agentId: string;
+  readonly activeTurnId: string | null;
+}
+
 /**
  * Mints and registers the run token of the advance that just took `lease`. Nothing when the
  * gates run in this process, or the session has no active turn (it makes no gate call).
+ *
+ * Never throws: an advance may make no gate call at all (a model the Tenant serves itself, a
+ * workflow step), so a keys service that does not answer must not stop it. Without a grant
+ * the session's model calls fail as when the gateway is down, its MCP requests use core's
+ * credential, and the heartbeat tries again (`renewRunGrant`).
  */
-export async function grantRun(
-  ctx: GrantContext,
-  lease: Lease,
-  session: { readonly agentId: string; readonly activeTurnId: string | null },
-): Promise<void> {
-  if (!ctx.runGrants || !session.activeTurnId) return;
-  ctx.runGrants.set(await mintRunToken(ctx, lease, session));
+export async function grantRun(ctx: GrantContext, lease: Lease, run: RunOf): Promise<void> {
+  if (!ctx.runGrants || !run.activeTurnId) return;
+  try {
+    ctx.runGrants.set(await mintRunToken(ctx, lease, run));
+  } catch (error) {
+    ctx.config.logger.warn("advance could not mint its run token", {
+      sessionId: lease.sessionId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
-/** Re-mints the grant of `lease` when less than `RUN_TOKEN_RENEW_SECONDS` remain. */
-export async function renewRunGrant(ctx: GrantContext, lease: Lease): Promise<void> {
-  const held = ctx.runGrants?.get(lease.sessionId);
-  if (!held || held.claims.epoch !== lease.epoch) return;
-  if (held.claims.expiresAt - Date.now() > RUN_TOKEN_RENEW_SECONDS * 1000) return;
-  ctx.runGrants!.set(
-    await mintRunToken(ctx, lease, { agentId: held.claims.agentId, activeTurnId: held.claims.turnId }),
-  );
+/**
+ * Re-mints the grant of `lease` when less than `RUN_TOKEN_RENEW_SECONDS` remain, or mints it
+ * when the first mint failed. `active` is false once the advance ended: a token minted after
+ * that is not registered.
+ */
+export async function renewRunGrant(
+  ctx: GrantContext,
+  lease: Lease,
+  run: RunOf,
+  active: () => boolean = () => true,
+): Promise<void> {
+  if (!ctx.runGrants || !run.activeTurnId) return;
+  const held = ctx.runGrants.get(lease.sessionId);
+  if (held && held.claims.epoch !== lease.epoch) return;
+  if (held && held.claims.expiresAt - Date.now() > RUN_TOKEN_RENEW_SECONDS * 1000) return;
+  const grant = await mintRunToken(ctx, lease, held ? { agentId: held.claims.agentId, activeTurnId: held.claims.turnId } : run);
+  if (active()) ctx.runGrants.set(grant);
 }
 
 /** Forgets the grant of `lease` (the advance ended, or lost the lease). */

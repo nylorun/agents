@@ -82,7 +82,7 @@ describe("httpModelGate", () => {
     });
   });
 
-  it("fails at once, sending nothing, for a session with no run token", async () => {
+  it("fails at once, sending nothing and never core's credential, for a session with no run token", async () => {
     let sent = false;
     const url = await gate((_req, res) => {
       sent = true;
@@ -92,7 +92,7 @@ describe("httpModelGate", () => {
       { ...request, sessionId: "session-2" },
       new AbortController().signal,
     );
-    expect(outcome).toMatchObject({ code: "auth", retryable: false, message: expect.stringMatching(/No run token/) });
+    expect(outcome).toMatchObject({ code: "transient", message: expect.stringMatching(/No run token/) });
     expect(sent).toBe(false);
   });
 

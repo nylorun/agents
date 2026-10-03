@@ -21,7 +21,7 @@ import {
   staleRun,
   verifyRunToken,
 } from "../../src/tenant/run-token.js";
-import { createRunGrants, renewRunGrant } from "../../src/tenant/run-grants.js";
+import { createRunGrants, grantRun, renewRunGrant } from "../../src/tenant/run-grants.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
 
 let runs: RunFixture;
@@ -182,14 +182,39 @@ describe("run grants", () => {
     const grant = await runs.run("grants-2");
     const lease = { sessionId: "grants-2", owner: "test-worker", epoch: grant.claims.epoch };
     const ctx = { keys: runs.keys, config: { tenantId: runs.tenantId }, runGrants: grants } as never;
+    const run = { agentId: "bot", activeTurnId: "turn-1" };
     grants.set(grant);
-    await renewRunGrant(ctx, lease);
+    await renewRunGrant(ctx, lease, run);
     expect(grants.get("grants-2")).toBe(grant);
     grants.set({ ...grant, claims: { ...grant.claims, expiresAt: Date.now() + 60_000 } });
-    await renewRunGrant(ctx, lease);
+    await renewRunGrant(ctx, lease, run);
     const renewed = grants.get("grants-2")!;
     expect(renewed.token).not.toBe(grant.token);
     expect(renewed.claims).toMatchObject({ sessionId: "grants-2", turnId: "turn-1", epoch: grant.claims.epoch });
     expect(await verify(renewed.token)).toMatchObject({ ok: true });
+    // Once the advance has ended, a token minted late is not registered.
+    grants.drop("grants-2", grant.claims.epoch);
+    await renewRunGrant(ctx, lease, run, () => false);
+    expect(grants.get("grants-2")).toBeUndefined();
+  });
+
+  it("never stops an advance whose mint fails; the heartbeat mints the grant later", async () => {
+    const grants = createRunGrants();
+    const grant = await runs.run("grants-3");
+    const lease = { sessionId: "grants-3", owner: "test-worker", epoch: grant.claims.epoch };
+    const run = { agentId: "bot", activeTurnId: "turn-1" };
+    const warnings: string[] = [];
+    const logger = { info() {}, warn: (message: string) => void warnings.push(message), error() {} };
+    const failing = {
+      keys: { sign: async () => Promise.reject(new Error("keys service down")) },
+      config: { tenantId: runs.tenantId, logger },
+      runGrants: grants,
+    } as never;
+    await expect(grantRun(failing, lease, run)).resolves.toBeUndefined();
+    expect(grants.get("grants-3")).toBeUndefined();
+    expect(warnings).toEqual(["advance could not mint its run token"]);
+    const ctx = { keys: runs.keys, config: { tenantId: runs.tenantId, logger }, runGrants: grants } as never;
+    await renewRunGrant(ctx, lease, run);
+    expect(grants.get("grants-3")?.claims).toMatchObject({ sessionId: "grants-3", epoch: grant.claims.epoch });
   });
 });

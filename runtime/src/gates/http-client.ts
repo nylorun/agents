@@ -85,11 +85,12 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
     async call(request, signal) {
       signal.throwIfAborted();
       const token = options.runTokens.token(request.sessionId);
+      // Never core's credential: like an unreachable gate, and the heartbeat mints it again.
       if (!token)
         return failure(
-          "auth",
-          `No run token for session ${request.sessionId}: only an advance that owns the session calls the model gate`,
-          false,
+          "transient",
+          `No run token for session ${request.sessionId}: the advance that owns it could not mint one, or the call came from outside an owned advance`,
+          true,
         );
       const body: ModelCallBody = {
         effectId: request.effectId,
