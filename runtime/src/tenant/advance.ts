@@ -73,6 +73,7 @@ import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
 import type { RunEnd } from "../harness-api/server.js";
+import { touchPodSandbox } from "./sandboxes.js";
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
@@ -125,6 +126,11 @@ class HarnessUnavailable extends Error {
 const DONE: AdvanceResult = { status: "done" };
 /** How soon an advance whose segment no harness took is tried again. */
 const UNAVAILABLE_RETRY_MS = 1000;
+/**
+ * How long a pod sandbox's segment waits for its engine (F7.2): a pod that is starting, or
+ * resuming, takes longer than a harness that is already connected.
+ */
+const POD_OFFER_WAIT_MS = 60_000;
 /** Shortest `busy` retry, so a lease about to lapse is not polled in a tight loop. */
 const MIN_RETRY_MS = 25;
 
@@ -165,9 +171,10 @@ export async function advance(
   const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
   let release = true;
+  const placed: Placed = {};
   try {
     await grantRun(ctx, lease, run);
-    await runRemoteSegment(ctx, lease, taken.session, controller, run, () => heartbeat.stop());
+    await runRemoteSegment(ctx, lease, taken.session, controller, run, () => heartbeat.stop(), placed);
   } catch (error) {
     if (error instanceof RunLost) {
       ctx.config.logger.warn("advance lost its harness; the lease lapses and the session is taken over", {
@@ -213,8 +220,28 @@ export async function advance(
           message: error instanceof Error ? error.message : String(error),
         })
       );
+    // A pod sandbox's idle time counts from the end of each segment (D34).
+    if (placed.pod !== undefined) await touchPodSandbox(ctx, placed.pod);
   }
   return result;
+}
+
+/** Where the segment ran: the pod sandbox whose engine took it, if any. */
+interface Placed {
+  pod?: string;
+}
+
+/** Why a pod sandbox cannot run a segment, or undefined when it can. */
+function podUnusable(ctx: TenantContext, segment: SegmentStart): string | undefined {
+  const pod = segment.pod;
+  if (!pod) return undefined;
+  if (!ctx.pods) return `Sandbox ${pod.id} is a pod sandbox, and this Runtime has no sandbox pods`;
+  const state = pod.pod;
+  if (state.desired === "deleted") return `Sandbox ${pod.id} was deleted`;
+  if (state.observed === "lost") return `Sandbox ${pod.id} was lost: ${state.reason ?? "its volume is gone"}`;
+  if (state.observed === "expired") return `Sandbox ${pod.id} expired`;
+  if (state.observed === "failed") return `Sandbox ${pod.id} failed to start: ${state.reason ?? "its pod was not ready"}`;
+  return undefined;
 }
 
 /**
@@ -299,12 +326,18 @@ async function runRemoteSegment(
   started: Session,
   controller: AbortController,
   run: RunOf,
-  onTaken: () => void
+  onTaken: () => void,
+  placed: Placed = {}
 ): Promise<void> {
   const { signal } = controller;
   let end: RunEnd | undefined;
   try {
     const segment = await startSegment(ctx, lease, { harness: true });
+    // A pod sandbox's segment runs in its pod (F7.2), or fails when the pod cannot run it.
+    const unusable = podUnusable(ctx, segment);
+    if (unusable) throw new Error(unusable);
+    const pod = segment.pod?.id;
+    if (pod !== undefined) placed.pod = pod;
     end = await ctx.harness.offer({
       lease,
       start: buildTurnStart(ctx, segment),
@@ -312,8 +345,13 @@ async function runRemoteSegment(
       transcript: segment.transcript,
       run,
       onTaken,
+      ...(pod === undefined ? {} : { pod, waitMs: POD_OFFER_WAIT_MS }),
     });
-    if (end.kind === "unavailable") throw new HarnessUnavailable();
+    if (end.kind === "unavailable") {
+      // A pod stopped, or not yet started: make sure it is asked to run.
+      if (pod !== undefined) await ctx.sandboxSignal(pod, { kind: "reconcile" }).catch(() => undefined);
+      throw new HarnessUnavailable();
+    }
     // Aborted before a harness took it: settled as an abort of the engine would be.
     if (end.kind === "aborted") throw signal.reason;
     // Checked before the abort: whatever core's signal says, the run's effects are unaccounted for.

@@ -178,5 +178,21 @@ describe(".env and compose.yaml with sandboxes", () => {
     expect(runtime).toContain("target: /nylorun/sandboxes");
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     expect(gateway).not.toContain("sandboxes");
+    // F7.2: pods reach the Harness API and the gates on the Docker host's address only.
+    expect(runtime).toContain(
+      '"${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun sandbox enable}:4200"',
+    );
+    expect(runtime).toContain(
+      "NYLORUN_HARNESS_ALLOWED_HOSTS: ${NYLORUN_SANDBOX_HOST_ADDRESS:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun sandbox enable}",
+    );
+    expect(runtime).toContain("NYLORUN_SANDBOX_HARNESS_IMAGE: ${NYLORUN_RUNTIME_IMAGE:?run nylorun start}");
+    expect(runtime).not.toContain("NYLORUN_HARNESS_TOKEN");
+    expect(gateway).toContain(
+      '"${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_GATES_PORT:?run nylorun sandbox enable}:4100"',
+    );
+    expect(gateway).toMatch(
+      /NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100,\$\{NYLORUN_SANDBOX_HOST_ADDRESS:\?run nylorun sandbox enable\}:\$\{NYLORUN_SANDBOX_GATES_PORT/,
+    );
+    expect(plain).not.toContain("4200");
   });
 });

@@ -451,6 +451,39 @@ export const sandboxResources = nylorun.table("sandbox_resources", {
   labels: jsonText().notNull(),
   createdAt: textC().notNull(),
   updatedAt: textC().notNull(),
+  // Kind `pod` (F7.2, D34): null for a virtual sandbox. `tenant/sandboxes.ts` and the
+  // `Sandbox` object's reconcile (`sandbox/pods/reconcile.ts`) are the only writers.
+  /** The agent-sandbox Sandbox's name, `sbx-<16 base32>-g<volume_gen>` (`podName`). */
+  k8sName: textC(),
+  /** Bumped by every reset: a new Sandbox on a new volume. */
+  volumeGen: integer().notNull().default(0),
+  /** `running`, `suspended` or `deleted`. */
+  desired: text({ enum: ["running", "suspended", "deleted"] }),
+  /** `creating`, `running`, `suspended`, `expired`, `lost`, `failed` or `deleting`. */
+  observed: text({
+    enum: ["creating", "running", "suspended", "expired", "lost", "failed", "deleting"],
+  }),
+  /** The UID of the pod that last joined. */
+  podUid: text(),
+  /**
+   * Bumped by every join (`host.join`), relaunch, loss and reset: host and egress tokens carry
+   * it (`epc`), and one of an older epoch is refused (egress-gate reads it too).
+   */
+  hostEpoch: integer().notNull().default(0),
+  /** sha256 (hex) of the incarnation's join token; the token itself is never stored. */
+  joinTokenHash: text(),
+  /** Bumped by every change the Runtime asks of the pod: the sandboxes service's `opId`. */
+  rev: integer().notNull().default(0),
+  /** When a turn last ended on it, for the idle timer. */
+  lastActiveAt: timestamp({ withTimezone: true }),
+  /** When its TTL passes (`createdAt + lifecycle.ttl`). */
+  expiresAt: timestamp({ withTimezone: true }),
+  /** When the current incarnation was asked to run, for the ready deadline. */
+  startedAt: timestamp({ withTimezone: true }),
+  /** Why it failed or was lost. */
+  reason: text(),
+  /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
+  retiring: textC(),
 });
 
 /**

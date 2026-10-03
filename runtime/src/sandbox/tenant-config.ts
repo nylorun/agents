@@ -6,6 +6,7 @@
 import {
   TenantSandboxConfigSchema,
   type SandboxInlineRequest,
+  type SandboxPlacementHost,
   type TenantSandboxConfig,
 } from "@nylorun/core/contracts";
 import { parseSandboxSize } from "@nylorun/core/define";
@@ -39,7 +40,13 @@ export interface EffectiveSandboxConfig {
     readonly idle: string;
     /** The most sandbox resources (`PUT /v1/sandboxes/{id}`) the Tenant may hold. */
     readonly sandboxes: number;
+    /** Pods: the longest `lifecycle.ttl`. */
+    readonly ttl?: string;
   };
+  /** Pods (F7.2, D36). */
+  readonly lifecycle: { readonly onExpiry: "retain" | "delete"; readonly stopGrace: string };
+  /** Where each harness may run (D38). */
+  readonly placement: Readonly<Record<string, { readonly hosts: readonly SandboxPlacementHost[] }>>;
 }
 
 interface SettingsReader {
@@ -80,7 +87,13 @@ export function effectiveSandboxConfig(config: TenantSandboxConfig): EffectiveSa
       }),
       idle: limits.idle ?? DEFAULT_SANDBOX_IDLE,
       sandboxes: limits.sandboxes ?? DEFAULT_MAX_SANDBOXES,
+      ...(limits.ttl === undefined ? {} : { ttl: limits.ttl }),
     },
+    lifecycle: {
+      onExpiry: config.lifecycle?.onExpiry ?? "retain",
+      stopGrace: config.lifecycle?.stopGrace ?? "10s",
+    },
+    placement: config.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } },
   };
 }
 

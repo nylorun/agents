@@ -2,6 +2,8 @@ import {
   WAKE_REASONS,
   sessionKey,
   type DurableExecution,
+  type SandboxSignal,
+  type SandboxTrigger,
   type Wake,
   type WorkerHandlers,
 } from "./types.js";
@@ -45,6 +47,18 @@ interface Sweep {
   running: boolean;
 }
 
+/** A pod sandbox's reconciles (one at a time) and timers (F7.2). */
+interface SandboxState {
+  tenantId: string;
+  sandboxId: string;
+  tail: Promise<void>;
+  /** Pending runs not yet on the tail (before `start`). */
+  pending: SandboxTrigger[];
+  attempts: number;
+  /** `idle`, `ttl` and the reconcile's own `retry`; a later time replaces an earlier one. */
+  timers: Map<"idle" | "ttl" | "retry", { at: number; handle?: NodeJS.Timeout }>;
+}
+
 /**
  * In-process `DurableExecution`. Not durable: wakes, timers and sweeps live in
  * memory. It keeps the seam's ordering guarantees within one process, which is
@@ -57,6 +71,7 @@ export class MemoryExecution implements DurableExecution {
   private readonly seen = new Map<string, number>();
   private readonly timers = new Map<string, PendingTimer>();
   private readonly sweeps = new Map<string, Sweep>();
+  private readonly sandboxes = new Map<string, SandboxState>();
   private readonly delayed = new Set<NodeJS.Timeout>();
   private readonly inflight = new Set<Promise<void>>();
   private readonly sweepIntervalMs: number;
@@ -96,6 +111,66 @@ export class MemoryExecution implements DurableExecution {
     this.enqueue("deliver", tenantId, actionId);
   }
 
+  async sandbox(tenantId: string, sandboxId: string, signal: SandboxSignal): Promise<void> {
+    const key = `${tenantId}\u0000${sandboxId}`;
+    let state = this.sandboxes.get(key);
+    if (!state)
+      this.sandboxes.set(
+        key,
+        (state = { tenantId, sandboxId, tail: Promise.resolve(), pending: [], attempts: 0, timers: new Map() }),
+      );
+    if (signal.kind === "arm") this.armSandbox(state, signal.timer, signal.at);
+    else this.runSandbox(state, "reconcile");
+  }
+
+  private armSandbox(state: SandboxState, timer: "idle" | "ttl" | "retry", at: number): void {
+    const existing = state.timers.get(timer);
+    if (existing?.handle) clearTimeout(existing.handle);
+    const entry: { at: number; handle?: NodeJS.Timeout } = { at };
+    state.timers.set(timer, entry);
+    if (!this.handlers) return;
+    entry.handle = setTimeout(
+      () => {
+        if (state.timers.get(timer) !== entry) return;
+        state.timers.delete(timer);
+        this.runSandbox(state, timer === "retry" ? "reconcile" : timer);
+      },
+      Math.max(0, at - Date.now()),
+    );
+  }
+
+  private runSandbox(state: SandboxState, trigger: SandboxTrigger): void {
+    const handlers = this.handlers;
+    if (!handlers) {
+      state.pending.push(trigger);
+      return;
+    }
+    const run = state.tail.then(async () => {
+      if (!this.handlers) return;
+      if (!handlers.sandbox) {
+        this.onError(new Error("WorkerHandlers.sandbox is required for sandbox reconciles"));
+        return;
+      }
+      const controller = new AbortController();
+      try {
+        const result = await handlers.sandbox(state.tenantId, state.sandboxId, trigger, controller.signal);
+        state.attempts = 0;
+        for (const item of result.arm ?? []) this.armSandbox(state, item.timer, item.at);
+        if (result.retryAfterMs !== undefined)
+          this.armSandbox(state, "retry", Date.now() + Math.max(0, result.retryAfterMs));
+      } catch (error) {
+        state.attempts += 1;
+        if (state.attempts >= this.maxAttempts) {
+          state.attempts = 0;
+          this.onError(error);
+        } else
+          this.armSandbox(state, "retry", Date.now() + this.retryDelayMs * 2 ** (state.attempts - 1));
+      }
+    });
+    state.tail = run.catch(() => undefined);
+    this.track(state.tail);
+  }
+
   async timer(tenantId: string, key: string, at: Date): Promise<void> {
     const id = `${tenantId}\u0000${key}`;
     const existing = this.timers.get(id);
@@ -126,6 +201,10 @@ export class MemoryExecution implements DurableExecution {
     for (const [id, timer] of this.timers) this.armTimer(id, timer);
     for (const [tenantId, sweep] of this.sweeps)
       this.scheduleSweep(tenantId, sweep, 0);
+    for (const state of this.sandboxes.values()) {
+      for (const [timer, entry] of state.timers) this.armSandbox(state, timer, entry.at);
+      for (const trigger of state.pending.splice(0)) this.runSandbox(state, trigger);
+    }
   }
 
   async stop(): Promise<void> {
@@ -136,6 +215,8 @@ export class MemoryExecution implements DurableExecution {
       if (timer.handle) clearTimeout(timer.handle);
     for (const sweep of this.sweeps.values())
       if (sweep.handle) clearTimeout(sweep.handle);
+    for (const state of this.sandboxes.values())
+      for (const entry of state.timers.values()) if (entry.handle) clearTimeout(entry.handle);
     for (const state of this.keys.values()) state.controller?.abort();
     while (this.inflight.size > 0) await Promise.allSettled(this.inflight);
   }

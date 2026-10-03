@@ -542,6 +542,10 @@ export type CredentialSelection = z.infer<typeof CredentialSelectionSchema>;
 const sandboxHostSchema = z.string().refine(isSandboxHostPattern, {
   message: "network.allow entries must be host names such as api.github.com or *.example.com",
 });
+const sandboxDurationSchema = (name: string) =>
+  z.string().refine((value) => parseSandboxDuration(value) !== undefined, {
+    message: `${name} must be a duration such as 30s, 15m or 1h`,
+  });
 const sandboxResourcesSchema = z
   .object({
     cpus: z.number().int().min(1).max(64).optional(),
@@ -638,18 +642,40 @@ export type SandboxLabels = z.infer<typeof SandboxLabelsSchema>;
 
 /**
  * `PUT /v1/sandboxes/{sandboxId}`: creates the sandbox, or finds the one with this id. The spec
- * (`kind`, `image`, `network`, `resources`) is checked against the Tenant's limits and fixed
- * once the sandbox exists; `labels`, when sent, replace the sandbox's labels.
+ * (`kind`, `image`, `network`, `resources`, `storage`) is checked against the Tenant's limits
+ * and fixed once the sandbox exists; `labels`, when sent, replace the sandbox's labels.
+ *
+ * Kind `pod` (Host feature `sandbox-pods`) is created at once on the Tenant's cluster. A `PUT`
+ * on an existing pod sandbox also starts it again when it was stopped, and one with a
+ * `lifecycle.ttl` other than its own sets a new expiry (counted from its creation), which
+ * revives an expired sandbox.
  */
 export const PutSandboxRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    /** Default `virtual`. `pod` needs sandbox pods, which arrive in F7.2. */
+    /** Default `virtual`. `pod` needs sandbox pods (`nylorun sandbox enable`). */
     kind: z.enum(SANDBOX_KINDS).optional(),
     labels: SandboxLabelsSchema.optional(),
+    /** Pods only: the workload image (default the Tenant's, else `python:3.13-slim`). */
     image: z.string().min(1).optional(),
+    /** Hosts the sandbox may reach; pods also take `*.suffix` patterns. */
     network: z.object({ allow: z.array(sandboxHostSchema).optional() }).strict().optional(),
     resources: sandboxResourcesSchema.optional(),
+    /** Pods only: the volume's size (default 5GiB), fixed once created. */
+    storage: z
+      .string()
+      .refine((value) => parseSandboxSize(value) !== undefined, {
+        message: "storage must be a size such as 5GiB",
+      })
+      .optional(),
+    /** Pods only. */
+    lifecycle: z
+      .object({
+        /** How long after its creation the sandbox expires; within the Tenant's `limits.ttl`. */
+        ttl: sandboxDurationSchema("lifecycle.ttl").optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type PutSandboxRequest = z.infer<typeof PutSandboxRequestSchema>;
@@ -658,6 +684,35 @@ export type PutSandboxRequest = z.infer<typeof PutSandboxRequestSchema>;
 export const SandboxSessionSchema = z
   .object({ id: z.string(), activeTurnId: z.string().nullable() })
   .strict();
+
+/** What the Runtime wants of a pod sandbox (`desired`) and what it last saw (`observed`). */
+export const SANDBOX_POD_DESIRED = ["running", "suspended", "deleted"] as const;
+export const SANDBOX_POD_OBSERVED = [
+  "creating",
+  "running",
+  "suspended",
+  "expired",
+  "lost",
+  "failed",
+  "deleting",
+] as const;
+export type SandboxPodDesired = (typeof SANDBOX_POD_DESIRED)[number];
+export type SandboxPodObserved = (typeof SANDBOX_POD_OBSERVED)[number];
+export const SandboxPodViewSchema = z
+  .object({
+    desired: z.enum(SANDBOX_POD_DESIRED),
+    observed: z.enum(SANDBOX_POD_OBSERVED),
+    /** Bumped by every reset: each generation has its own volume. */
+    volumeGeneration: z.number().int().nonnegative(),
+    /** Bumped each time a pod joins; a host token of an older epoch is refused. */
+    hostEpoch: z.number().int().nonnegative(),
+    /** When it expires (its TTL), if it has one. */
+    expiresAt: z.string().optional(),
+    /** Why it failed, or was lost. */
+    reason: z.string().optional(),
+  })
+  .strict();
+export type SandboxPodView = z.infer<typeof SandboxPodViewSchema>;
 
 /** `PUT` and `GET /v1/sandboxes/{sandboxId}`. */
 export const SandboxViewSchema = z
@@ -672,6 +727,8 @@ export const SandboxViewSchema = z
      * sandbox has nothing to stop: `stopped` means only that its turn queue is idle.
      */
     state: z.enum(["ready", "creating", "running", "stopped"]),
+    /** Kind `pod`: what the Runtime wants of the pod and what it last saw. */
+    pod: SandboxPodViewSchema.optional(),
     /** Sessions attached to it (acting for a subject, only the subject's own). */
     sessions: z.array(SandboxSessionSchema),
     createdAt: z.string(),
@@ -697,6 +754,14 @@ export const SANDBOX_EVENT_TYPES = [
   "sandbox.attached",
   "sandbox.detached",
   "sandbox.deleted",
+  // Kind `pod` (Host feature `sandbox-pods`).
+  "sandbox.running",
+  "sandbox.suspended",
+  "sandbox.expired",
+  "sandbox.relaunched",
+  "sandbox.lost",
+  "sandbox.reset",
+  "sandbox.failed",
 ] as const;
 export type SandboxEventType = (typeof SANDBOX_EVENT_TYPES)[number];
 /** The payload of each sandbox lifecycle event. */
@@ -709,6 +774,20 @@ export const SANDBOX_EVENT_PAYLOADS = {
     .object({ sessionId: z.string(), reason: z.enum(["reset"]) })
     .passthrough(),
   "sandbox.deleted": z.object({}).passthrough(),
+  /** A pod joined and serves the sandbox. */
+  "sandbox.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  /** Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again. */
+  "sandbox.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
+  /** Its TTL passed: turns are refused until a `PUT` sets a longer TTL. */
+  "sandbox.expired": z.object({ onExpiry: z.enum(["retain", "delete"]) }).passthrough(),
+  /** Its pod was replaced (same volume): the old pod's host token no longer works. */
+  "sandbox.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  /** Its volume or node is gone: turns are refused until a reset. */
+  "sandbox.lost": z.object({ reason: z.string() }).passthrough(),
+  /** Reset: a new pod on a new, empty volume. */
+  "sandbox.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
+  /** The pod did not become ready. */
+  "sandbox.failed": z.object({ reason: z.string() }).passthrough(),
 } as const satisfies Record<SandboxEventType, z.ZodType>;
 export type SandboxEventPayload<T extends SandboxEventType> = z.infer<
   (typeof SANDBOX_EVENT_PAYLOADS)[T]
@@ -755,6 +834,10 @@ export const PutSessionRequestSchema = z
     sandbox: SandboxRequestSchema.optional(),
   })
   .strict();
+/** The hosts a harness can run on (blueprint D38). */
+export const SANDBOX_PLACEMENT_HOSTS = ["harness-container", "sandbox"] as const;
+export type SandboxPlacementHost = (typeof SANDBOX_PLACEMENT_HOSTS)[number];
+
 /**
  * A Tenant's sandbox configuration (Tenant setting `sandbox.config`): what a session gets when
  * it names no sandbox, and the limits every session's sandbox must fit.
@@ -782,8 +865,36 @@ export const TenantSandboxConfigSchema = z
           .optional(),
         /** The most sandbox resources (`PUT /v1/sandboxes/{id}`) the Tenant may hold. Default 100. */
         sandboxes: z.number().int().min(0).max(100_000).optional(),
+        /** Pods: the longest `lifecycle.ttl` a sandbox may ask for. Default none (no limit). */
+        ttl: sandboxDurationSchema("limits.ttl").optional(),
       })
       .strict()
+      .optional(),
+    /** Pods: what happens at expiry and how long a pod has to stop. Read at every timer. */
+    lifecycle: z
+      .object({
+        /** `retain` (default) keeps the volume after the TTL; `delete` deletes the sandbox. */
+        onExpiry: z.enum(["retain", "delete"]).optional(),
+        /** The pod's grace period to stop, at most 30s. Default 10s. */
+        stopGrace: sandboxDurationSchema("lifecycle.stopGrace")
+          .refine((value) => (parseSandboxDuration(value) ?? 0) <= 30_000, {
+            message: "lifecycle.stopGrace is at most 30s",
+          })
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    /**
+     * Where each harness may run (blueprint D38), by harness id (`nylorun`, or `*` for the rest):
+     * `harness-container` (the Runtime's harness) and `sandbox` (the engine in a pod sandbox).
+     * Default `{ "*": { hosts: ["harness-container", "sandbox"] } }`. Checked when a session
+     * opens; a host left out is refused (`placement_refused`).
+     */
+    placement: z
+      .record(
+        z.string().min(1),
+        z.object({ hosts: z.array(z.enum(SANDBOX_PLACEMENT_HOSTS)).min(1) }).strict(),
+      )
       .optional(),
   })
   .strict();
@@ -2640,12 +2751,23 @@ export const EffectiveSandboxConfigSchema = z
         idle: z.string(),
         /** The most sandbox resources the Tenant may hold. */
         sandboxes: z.number().int().nonnegative().optional(),
+        /** Pods: the longest `lifecycle.ttl`, when the Tenant sets one. */
+        ttl: z.string().optional(),
       })
       .strict(),
+    /** Pods (Host feature `sandbox-pods`): what happens at expiry, and the pod's stop grace. */
+    lifecycle: z
+      .object({ onExpiry: z.enum(["retain", "delete"]), stopGrace: z.string() })
+      .strict()
+      .optional(),
+    /** Where each harness may run (D38). */
+    placement: z
+      .record(z.string(), z.object({ hosts: z.array(z.enum(SANDBOX_PLACEMENT_HOSTS)) }).strict())
+      .optional(),
   })
   .strict();
 export type EffectiveSandboxConfig = z.infer<typeof EffectiveSandboxConfigSchema>;
-const SandboxBackendNameSchema = z.enum(["virtual"]);
+const SandboxBackendNameSchema = z.enum(["virtual", "local"]);
 const SandboxIsolationSchema = z.enum(["process", "container"]);
 /** `GET` and `PUT /v1/tenant/sandbox`: the backend chosen, and the configuration in force. */
 export const TenantSandboxViewSchema = z
@@ -2667,6 +2789,20 @@ export const TenantSandboxViewSchema = z
     ),
     defaultImage: z.string(),
     config: EffectiveSandboxConfigSchema,
+    /**
+     * The Tenant's cluster for pod sandboxes (`nylorun sandbox enable`), as the sandboxes
+     * service reports it; null without one, or when the service does not answer.
+     */
+    cluster: z
+      .object({
+        namespace: z.string(),
+        context: z.string(),
+        ready: z.boolean(),
+        controllerVersion: z.string().optional(),
+        networkPolicy: z.object({ enforced: z.boolean(), probedAt: z.string().optional() }).optional(),
+      })
+      .nullable()
+      .optional(),
   })
   .strict();
 export type TenantSandboxView = z.infer<typeof TenantSandboxViewSchema>;

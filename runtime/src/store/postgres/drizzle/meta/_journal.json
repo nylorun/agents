@@ -50,6 +50,13 @@
       "when": 1791040679989,
       "tag": "0006_folder_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791045113618,
+      "tag": "0007_sandbox_pods",
+      "breakpoints": true
     }
   ]
 }

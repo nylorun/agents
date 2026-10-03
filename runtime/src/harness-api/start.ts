@@ -11,7 +11,7 @@ import type { DurableCheckpoint, FlowCheckpoint } from "@nylorun/harness/run";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { ownedTx } from "../store/ownership.js";
-import type { Tx } from "../store/types.js";
+import type { SandboxPodState, Tx } from "../store/types.js";
 import { sandboxLookup, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import {
   checkParity,
@@ -44,6 +44,8 @@ export interface SegmentStart {
   readonly outcomes: RecordedOutcome[];
   /** The tree's sandbox workspace: its owning session, and the sandbox resource it is attached to. */
   readonly sandbox: { readonly ownerId: string; readonly sandboxId?: string };
+  /** The sandbox is a pod sandbox (F7.2): its engine runs the segment. Its lifecycle state. */
+  readonly pod?: { readonly id: string; readonly pod: SandboxPodState };
 }
 
 /** The segment's starting transaction and fold. */
@@ -68,11 +70,14 @@ export async function startSegment(
       }
       const fixtureModel = await usesFixtureModel(t);
       if (!options.harness) return { current, fixtureModel, outcomes: [], sandbox: { ownerId: id } };
+      const sandbox = sandboxWorkspaceOf(current, await sandboxLookup(t, current.id));
+      const resource = sandbox.sandboxId === undefined ? undefined : await t.sandboxResource(sandbox.sandboxId);
       return {
         current,
         fixtureModel,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
-        sandbox: sandboxWorkspaceOf(current, await sandboxLookup(t, current.id)),
+        sandbox,
+        ...(resource?.pod ? { pod: { id: resource.id, pod: resource.pod } } : {}),
       };
     }
   );

@@ -100,6 +100,7 @@ import type {
   ResetScope,
   SandboxDoc,
   SandboxResource,
+  SandboxPodPatch,
   SessionActionFilter,
   SessionDoc,
   SessionEffectFilter,
@@ -337,7 +338,48 @@ function sandboxResourceOf(row: typeof sandboxResources.$inferSelect): SandboxRe
     labels: row.labels as Record<string, string>,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...(row.k8sName !== null && row.desired !== null && row.observed !== null
+      ? {
+          pod: {
+            k8sName: row.k8sName,
+            volumeGen: row.volumeGen,
+            desired: row.desired,
+            observed: row.observed,
+            ...(row.podUid !== null ? { podUid: row.podUid } : {}),
+            hostEpoch: row.hostEpoch,
+            ...(row.joinTokenHash !== null ? { joinTokenHash: row.joinTokenHash } : {}),
+            rev: row.rev,
+            ...(row.lastActiveAt ? { lastActiveAt: row.lastActiveAt.toISOString() } : {}),
+            ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
+            ...(row.startedAt ? { startedAt: row.startedAt.toISOString() } : {}),
+            ...(row.reason !== null ? { reason: row.reason } : {}),
+            ...(row.retiring !== null ? { retiring: row.retiring } : {}),
+          },
+        }
+      : {}),
   };
+}
+
+/** A pod patch as column values: ISO times become dates, `null` clears. */
+function podColumns(patch: SandboxPodPatch): Partial<typeof sandboxResources.$inferInsert> {
+  const date = (value: string | null | undefined) =>
+    value === undefined ? undefined : value === null ? null : new Date(value);
+  const columns: Partial<typeof sandboxResources.$inferInsert> = {
+    k8sName: patch.k8sName,
+    volumeGen: patch.volumeGen,
+    desired: patch.desired,
+    observed: patch.observed,
+    podUid: patch.podUid,
+    hostEpoch: patch.hostEpoch,
+    joinTokenHash: patch.joinTokenHash,
+    rev: patch.rev,
+    lastActiveAt: date(patch.lastActiveAt),
+    expiresAt: date(patch.expiresAt),
+    startedAt: date(patch.startedAt),
+    reason: patch.reason,
+    retiring: patch.retiring,
+  };
+  return Object.fromEntries(Object.entries(columns).filter(([, value]) => value !== undefined));
 }
 
 /** An endpoint row with its unset (null) columns left out, as `EndpointRow` has them. */
@@ -652,8 +694,22 @@ class PostgresTx implements Tx {
     if (found) return "exists";
     const [counted] = await this.db.select({ n: count() }).from(sandboxResources);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    await this.db.insert(sandboxResources).values(row);
+    const { pod, ...resource } = row;
+    await this.db.insert(sandboxResources).values({ ...resource, ...(pod ? podColumns(pod) : {}) });
     return "created";
+  }
+
+  async updateSandboxSpec(id: string, spec: SandboxResource["spec"], updatedAt: string): Promise<void> {
+    this.check();
+    await this.db.update(sandboxResources).set({ spec, updatedAt }).where(eq(sandboxResources.id, id));
+  }
+
+  async updateSandboxPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void> {
+    this.check();
+    await this.db
+      .update(sandboxResources)
+      .set({ ...podColumns(patch), updatedAt })
+      .where(eq(sandboxResources.id, id));
   }
 
   async updateSandboxLabels(

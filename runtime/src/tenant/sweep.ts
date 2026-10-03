@@ -52,6 +52,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
             (await ctx.store.tx((t) => t.sandboxResource(id))) !== undefined,
         }),
     ],
+    ["pods", () => reconcileStalePods(ctx, now)],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
     ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
@@ -97,4 +98,33 @@ export async function wakeOrphanedSessions(
   const ids = orphans.map((session) => session.id);
   for (const id of ids) await ctx.wake(id, { reason: "recover" });
   return ids;
+}
+
+/** A pod sandbox in a change this long without a reconcile gets one from the sweep. */
+const STALE_POD_MS = 60_000;
+
+/**
+ * Pod sandboxes (F7.2) whose change has not finished (creating, deleting, an old volume still
+ * to delete, an expiry not yet recorded) and whose row has not moved for a minute: a reconcile
+ * the `Sandbox` object lost (a send dropped while the Tenant closed) is sent again.
+ */
+async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> {
+  if (!ctx.pods) return;
+  const stale = await ctx.store.tx(async (t) =>
+    (await t.listSandboxResources()).filter((row) => {
+      const pod = row.pod;
+      if (!pod || now.getTime() - Date.parse(row.updatedAt) < STALE_POD_MS) return false;
+      const expiring =
+        pod.expiresAt !== undefined && Date.parse(pod.expiresAt) <= now.getTime() && pod.observed !== "expired";
+      return (
+        pod.desired === "deleted" ||
+        pod.retiring !== undefined ||
+        pod.observed === "creating" ||
+        pod.observed === "deleting" ||
+        expiring ||
+        (pod.desired === "suspended" && pod.observed !== "suspended")
+      );
+    }),
+  );
+  for (const row of stale) await ctx.sandboxSignal(row.id, { kind: "reconcile" });
 }

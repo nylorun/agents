@@ -231,7 +231,7 @@ export async function command(
           fail(409, "Session has active or unresolved work");
         // Every turn start on a sandbox: it exists, the token's `sbx` reaches it, and no other
         // session's turn holds it. Before the charge, so a refused turn costs nothing.
-        await checkSandboxTurn(t, s, scope);
+        await checkSandboxTurn(t, s, scope, ctx);
         // After the replay check above, so a retried message is never charged twice.
         if (scope.kind === "token" && scope.limits)
           await chargeTurn(t, scope.subject, scope.limits);
