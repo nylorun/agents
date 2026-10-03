@@ -2,10 +2,9 @@
   "version": 1,
   "channel": "beta",
   "packages": {
-    "runtime": "0.15.2-beta",
-    "studio": "0.17.0-beta",
-    "nylorun": "0.6.0-beta",
-    "create-agent": "0.13.1-beta"
+    "studio": "0.18.0-beta",
+    "nylorun": "0.7.0-beta",
+    "create-agent": "0.13.2-beta"
   },
   "compatibility": {
     "harness": "0.21.2-beta",
