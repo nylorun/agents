@@ -10,11 +10,11 @@ import type { StackPaths } from "./paths.js";
  * host.json and host-credentials.json (format 1), which `@nylorun/admin`,
  * Studio and the Runtime container all read.
  *
- * For the stack, host.json names the client-facing address: `localhost` and
+ * For a local Tenant, host.json names the client-facing address: `localhost` and
  * the published port. The container binds 0.0.0.0:4000 on its own.
  */
 
-/** Host name clients use for the stack. Studio's cookie is set on this name too. */
+/** Host name clients use for a local Tenant. Studio's cookie is set on this name too. */
 export const STACK_CLIENT_HOST = "localhost";
 
 const KNOWN_FORMAT = 1;
@@ -25,7 +25,7 @@ export interface HostConfigFile {
   hostId: string;
   host: string;
   port: number;
-  /** The operator listener's published port (the Admin API); absent on older stacks. */
+  /** The operator listener's published port (the Admin API); absent on older Host roots. */
   adminPort?: number;
   runtimeVersion?: string;
   [field: string]: unknown;
@@ -119,7 +119,7 @@ export async function readAdminKey(paths: StackPaths): Promise<string | undefine
 /**
  * The Tenant's vault key in `keys/vault-kek` (32 random bytes, base64, mode 0600), which only the
  * gateway container mounts (F4.2): created if missing, or moved from `tenant/vault-kek`, where a
- * stack before F4.2 kept it. The gateway never creates it.
+ * Host root before F4.2 kept it. The gateway never creates it.
  */
 export async function ensureVaultKey(paths: StackPaths): Promise<{ created: boolean; moved: boolean }> {
   await mkdir(paths.keys, { recursive: true, mode: 0o700 });

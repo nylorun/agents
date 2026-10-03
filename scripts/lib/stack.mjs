@@ -1,16 +1,17 @@
 /**
- * The local Docker stack for repository smokes, acceptance and `npm run dev`.
+ * A local Tenant (Docker Compose) for repository smokes, acceptance and
+ * `npm run dev`.
  *
  * - `ensureImages` builds the Runtime and Studio images from this checkout, or
  *   reuses the ones `NYLORUN_RUNTIME_IMAGE` / `NYLORUN_STUDIO_IMAGE` name (CI
  *   builds those with buildx before the smoke runs).
  * - `withStack` starts `nylorun start` under a temporary `NYLORUN_HOME` with a
- *   unique `NYLORUN_STACK` (and `NYLORUN_STACK_PROJECT`), hands the stack to a
- *   callback, and always ends with `nylorun reset --yes` (containers and
+ *   unique `NYLORUN_TENANT` (and `NYLORUN_COMPOSE_PROJECT`), hands the Tenant
+ *   to a callback, and always ends with `nylorun reset --yes` (containers and
  *   volumes) and removes the temporary Host root. Its commands run from the
  *   Host root, which is not a project, so `start` links nothing; a check that
  *   wants a Project link runs `nylorun start` in its project directory
- *   (`cwd`), which attaches to the same stack through `NYLORUN_STACK`.
+ *   (`cwd`), which attaches to the same Tenant through `NYLORUN_TENANT`.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -31,7 +32,7 @@ const IMAGE_ENV = { runtime: "NYLORUN_RUNTIME_IMAGE", studio: "NYLORUN_STUDIO_IM
 const DOCKERFILES = { runtime: "runtime/Dockerfile", studio: "studio/Dockerfile" };
 
 /** The workspace CLI (`npm run build` first). */
-/** The workspace `nylorun` (the stack); `@nylorun/cli` is the Runtime client, `nylo`. */
+/** The workspace `nylorun` (local Tenants); `@nylorun/cli` is the Runtime client, `nylo`. */
 export const WORKSPACE_CLI = join(root, "nylorun", "dist", "cli.js");
 export const WORKSPACE_NYLO = join(root, "cli", "dist", "cli.js");
 
@@ -48,7 +49,7 @@ export async function imageId(tag) {
 }
 
 /**
- * The Runtime and Studio images for a stack. An image named in the
+ * The Runtime and Studio images for a Tenant. An image named in the
  * environment is reused as is and must exist; otherwise the default tag is
  * built from this checkout with `docker build` (quick when nothing changed,
  * since the layers are cached).
@@ -67,7 +68,7 @@ export async function ensureImages({
         throw new Error(
           `${IMAGE_ENV[name]}=${named} is not a local image. Build it (docker build -f ${DOCKERFILES[name]} -t ${named} .) or unset ${IMAGE_ENV[name]}.`,
         );
-      log(`[stack] Using ${named} (${IMAGE_ENV[name]})`);
+      log(`[images] Using ${named} (${IMAGE_ENV[name]})`);
       images[name] = named;
       continue;
     }
@@ -78,14 +79,14 @@ export async function ensureImages({
 
 /** `docker build` one image from the repository root; returns the tag. */
 export async function buildImage(name, tag, { log = console.log } = {}) {
-  log(`[stack] Building ${tag} from ${DOCKERFILES[name]}`);
+  log(`[images] Building ${tag} from ${DOCKERFILES[name]}`);
   const started = Date.now();
   await run("docker", ["build", "--quiet", "--file", DOCKERFILES[name], "--tag", tag, "."], {
     cwd: root,
     capture: true,
     timeout: 1_200_000,
   });
-  log(`[stack] Built ${tag} in ${Math.round((Date.now() - started) / 1000)}s`);
+  log(`[images] Built ${tag} in ${Math.round((Date.now() - started) / 1000)}s`);
   return tag;
 }
 
@@ -110,22 +111,22 @@ function exec(command, args, { env, cwd = root, echo = true, timeout = 600_000 }
   });
 }
 
-/** A stack (and Compose project) name: `<prefix>-<random>`. */
+/** A Tenant (and Compose project) name: `<prefix>-<random>`. */
 export function stackProjectName(prefix) {
   const base = prefix.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[^a-z0-9]+/, "");
   return `${base || "nylorun"}-${randomBytes(3).toString("hex")}`;
 }
 
 /**
- * One stack under a temporary Host root. `cli` is the `nylorun` entry to
+ * One Tenant under a temporary Host root. `cli` is the `nylorun` entry to
  * drive it with and `nylo` the Runtime client's (the workspace builds by
  * default, or packed installs).
- * `baseEnv` replaces `process.env` as the environment the stack's commands
+ * `baseEnv` replaces `process.env` as the environment the Tenant's commands
  * start from (the release smoke passes one without publishing credentials).
- * The stack's name (`NYLORUN_STACK`) doubles as its Compose project.
+ * The Tenant's name (`NYLORUN_TENANT`) doubles as its Compose project.
  */
 export async function createStack({
-  name = "nylorun-stack",
+  name = "nylorun-tenant",
   cli = WORKSPACE_CLI,
   nylo = WORKSPACE_NYLO,
   images,
@@ -139,8 +140,8 @@ export async function createStack({
     ...baseEnv,
     ...extraEnv,
     NYLORUN_HOME: home,
-    NYLORUN_STACK: project,
-    NYLORUN_STACK_PROJECT: project,
+    NYLORUN_TENANT: project,
+    NYLORUN_COMPOSE_PROJECT: project,
     ...(images?.runtime ? { NYLORUN_RUNTIME_IMAGE: images.runtime } : {}),
     ...(images?.studio ? { NYLORUN_STUDIO_IMAGE: images.studio } : {}),
   };
@@ -162,7 +163,7 @@ export async function createStack({
     cli,
     runtimeUrl: undefined,
     /**
-     * Run `nylorun <args>` against this stack (`entry`: another CLI install).
+     * Run `nylorun <args>` against this Tenant (`entry`: another CLI install).
      * `cwd` defaults to the Host root, outside any project; pass a project
      * directory to link it.
      */
@@ -195,7 +196,7 @@ export async function createStack({
       stack.runtimeUrl = runtimeUrl;
       return { runtimeUrl, studioUrl: /^Studio\s+(\S+)/m.exec(stdout)?.[1] };
     },
-    /** `docker compose` on this stack's project; returns stdout. */
+    /** `docker compose` on this Tenant's Compose project; returns stdout. */
     async compose(args, { check = true, echo = false } = {}) {
       const result = await exec("docker", composeArgs(...args), { env, echo });
       if (check && result.code !== 0)
@@ -238,7 +239,7 @@ export async function createStack({
       const { createAdmin } = await import(module);
       return createAdmin({ home });
     },
-    /** The stack's one Tenant: its id and `project` key (see `hostTenant`). */
+    /** The Tenant's id and `project` key (see `hostTenant`). */
     async tenant(module) {
       return hostTenant(await stack.admin(module));
     },
@@ -265,14 +266,14 @@ export async function createStack({
 }
 
 /**
- * Run `fn(stack)` on a fresh stack and always reset it afterwards. With
+ * Run `fn(stack)` on a fresh Tenant and always reset it afterwards. With
  * `start: false` the callback starts it (e.g. `nylorun start` in a project). Logs
  * are printed when the callback fails; Ctrl-C still resets.
  */
 export async function withStack(options, fn) {
   const stack = await createStack(options);
   const interrupt = (signal) => {
-    console.error(`[stack] ${signal}: resetting ${stack.project}`);
+    console.error(`[tenant] ${signal}: resetting ${stack.project}`);
     void stack.dispose().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
   };
   const onInt = () => interrupt("SIGINT");

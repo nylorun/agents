@@ -25,12 +25,12 @@ const env: StackEnv = {
   restateIdentityKey: "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv",
   uid: 501,
   gid: 20,
-  hostRoot: "/Users/dev/.nylorun/stacks/shop",
+  hostRoot: "/Users/dev/.nylorun/tenants/shop",
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
   studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
   studioAnalyticsId: "G-K6RPDFH6Q6",
-  stackName: "shop",
+  tenantName: "shop",
   derivedPrincipals: "project,babai",
 };
 
@@ -54,10 +54,10 @@ describe("compose.yaml", () => {
     expect(compose).toMatchSnapshot();
   });
 
-  it("is the stack's own Compose project, whose Runtime creates the stack's Tenant", () => {
+  it("is the Tenant's own Compose project, whose Runtime creates the Tenant", () => {
     expect(compose).toMatch(/^name: nylorun-shop$/m);
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
-    expect(runtime).toContain("NYLORUN_TENANT_NAME: ${NYLORUN_STACK_NAME:?run nylorun start}");
+    expect(runtime).toContain("NYLORUN_TENANT_NAME: ${NYLORUN_TENANT_NAME:?run nylorun start}");
     expect(runtime).toContain("NYLORUN_DERIVED_PRINCIPALS: ${NYLORUN_DERIVED_PRINCIPALS:-project}");
     expect(runtime).not.toContain("NYLORUN_TENANT_ID");
   });
@@ -131,7 +131,7 @@ describe("compose.yaml", () => {
     expect(runtime).not.toContain("gateway: {");
   });
 
-  it("hides the vault key and the stack's secrets from the runtime container (F4.2)", () => {
+  it("hides the vault key and the Compose secrets from the runtime container (F4.2)", () => {
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
     for (const target of ["/nylorun/keys", "/nylorun/docker"])
       expect(runtime).toMatch(
@@ -192,9 +192,9 @@ describe(".env", () => {
   });
 
   it("quotes paths with spaces and refuses single quotes", () => {
-    const text = renderEnvFile({ ...env, hostRoot: "/Users/A Dev/.nylorun/stacks/shop" });
-    expect(text).toContain("NYLORUN_HOST_ROOT='/Users/A Dev/.nylorun/stacks/shop'");
-    expect(parseEnvLines(text).get("NYLORUN_HOST_ROOT")).toBe("/Users/A Dev/.nylorun/stacks/shop");
+    const text = renderEnvFile({ ...env, hostRoot: "/Users/A Dev/.nylorun/tenants/shop" });
+    expect(text).toContain("NYLORUN_HOST_ROOT='/Users/A Dev/.nylorun/tenants/shop'");
+    expect(parseEnvLines(text).get("NYLORUN_HOST_ROOT")).toBe("/Users/A Dev/.nylorun/tenants/shop");
     expect(() => renderEnvFile({ ...env, hostRoot: "/it's" })).toThrow(/single quote/);
   });
 
@@ -317,11 +317,11 @@ describe("prepareStack", () => {
     expect(await readFile(paths.compose, "utf8")).toBe(renderComposeFile("nylorun-shop"));
     expect(await mode(paths.tenant)).toBe(0o700);
     const written = parseEnvLines(await readFile(paths.env, "utf8"));
-    expect(written.get("NYLORUN_STACK_NAME")).toBe("shop");
+    expect(written.get("NYLORUN_TENANT_NAME")).toBe("shop");
     expect(written.get("NYLORUN_DERIVED_PRINCIPALS")).toBe("project");
   });
 
-  it("avoids ports other stacks keep for new ports only, and keeps derived principals", async () => {
+  it("avoids ports other Tenants keep for new ports only, and keeps derived principals", async () => {
     const home = await temporaryHome();
     const first = await prepare(home, fakePorts(), {
       reserved: [8787, 4161],

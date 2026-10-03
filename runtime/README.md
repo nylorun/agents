@@ -18,7 +18,7 @@ npm run build --workspace @nylorun/runtime
 ## Running the Runtime
 
 The Runtime runs as the `ghcr.io/nylorun/runtime` image, next to Postgres,
-Restate and S2: `nylorun start` runs that stack on a developer machine. The
+Restate and S2: `nylorun start` runs them, as a local Tenant, on a developer machine. The
 package is a library with no bin; its Host entry is `@nylorun/runtime/server`
 (`dist/host/main.js`), which requires `NYLORUN_DATABASE_URL`. For tests and
 ephemeral embeds, use `startEphemeralRuntime()` from `@nylorun/runtime/core`.
@@ -45,12 +45,12 @@ and `--service` picks what a process runs: `core` serves the Tenant API, Admin
 API and SSE and runs the stream relay, `loop` runs advances (the Worker), and
 `gates` is the Model Gate, the only process that reads a model credential and
 calls providers. `core` and `loop` may share a process; `gates` never joins
-them. The local stack packs `core,loop` into the `runtime` container and
+them. A local Tenant packs `core,loop` into the `runtime` container and
 `gates` into the `gateway` container (the combined packing). `--role
 api|worker|all` is the deprecated name of `--service core`, `loop` and
 `core,loop`.
 
-The container is configured by its environment, which the stack's Compose file
+The container is configured by its environment, which a local Tenant's Compose file
 sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_RESTATE_ADMIN_URL`, `NYLORUN_WORKER_URL` and
 `NYLORUN_RESTATE_IDENTITY_KEY` (Restate), `NYLORUN_S2_ENDPOINT` and
@@ -66,15 +66,15 @@ container it refuses to start without them. A `gates` process needs only
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it
 never writes; it serves the database's one Tenant. `NYLORUN_PACKING` (`combined` or `split`) is logged at startup.
 
-With an operator listener (the stack's default: container port 4001), the Host
+With an operator listener (a local Tenant's default: container port 4001), the Host
 serves two ports. The public one serves the Tenant API, to browsers too when
 browser access is on, and answers admin routes with the opaque `404`. The
 operator one serves the Admin API, Host shutdown and the Tenant API, never to
 browsers; keep it on loopback or a private network and never proxy it. Outside
 a container, `adminPort` in `host.json` does the same on loopback.
 
-The Host root is `NYLORUN_HOME` or `~/.nylorun` (bind-mounted at `/nylorun` in
-the stack). What stays on the Host is under `tenant/`.
+The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
+`~/.nylorun/tenants/<name>/`, bind-mounted at `/nylorun` in its containers). What stays on the Host is under `tenant/`.
 
 ## Layout
 
@@ -101,7 +101,7 @@ the stack). What stays on the Host is under `tenant/`.
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
 with `415 unsupported_media_type`. An `Origin` is `403 origin_rejected` on
 `/health`, `/ready`, admin routes, and everywhere when browser access is off.
-With browser access on (feature `browser-access`: the stack's default, or
+With browser access on (feature `browser-access`: a local Tenant's default, or
 `browserAccess` in `host.json`), the Host answers preflights for browser routes
 from the route alone, and the Tenant admits an `Origin` only with a publishable
 key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant keys
@@ -157,7 +157,7 @@ principal for `applicationKey`), and serves the Tenant a database already holds.
 data stays after `close()`; give each test Tenant its own database and drop it
 afterwards. Its
 streams and scheduling are in process and gone after `close()`. The smoke checks do
-not use it; they reset and seed the Tenant of a temporary Docker stack
+not use it; they reset and seed a temporary local Tenant
 (`scripts/lib/stack-tenant.mjs`).
 
 ```ts
@@ -198,8 +198,8 @@ Tenant owns each sandbox; backend names are prefixed `nylorun-<tenant-id>-`.
 ## Local Project workflow
 
 A project depends on `@nylorun/agents` only. `npx nylorun start` in the project
-runs its local stack (Docker), whose Runtime creates the stack's one Tenant, and
-writes the Project link; the project's `npm run dev` runs `src/main.ts` under
+runs its local Tenant (Docker), named after the project directory, and writes
+the Project link (outside a project it runs the Tenant `default`); the project's `npm run dev` runs `src/main.ts` under
 `tsx watch`; `npx nylorun studio` opens Studio on that Tenant.
 
 ## Troubleshooting
@@ -210,11 +210,11 @@ writes the Project link; the project's `npm run dev` runs `src/main.ts` under
 | `GET /ready` is 503 and `/v1/admin/status` names a `tenant.cause` | The Tenant could not be opened; every Tenant request is the opaque `404`. Follow the cause's `repair`, then restart the Runtime |
 | `corrupt` / `migration-failed` / `envelope-invalid` / `open-failed` / `open-timeout` | Follow the cause's `repair` string |
 | `schema-too-new` | Run a Runtime at least as new as the one that migrated the database |
-| `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime, or the `schema_version` tables of a pre-release one: point the Runtime at a new database (a new stack); the old one is left as it is |
+| `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime, or the `schema_version` tables of a pre-release one: point the Runtime at a new database (locally, a new Tenant: `nylorun start --tenant <new name>`); the old one is left as it is |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
 | `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
-| Port in use | Change `NYLORUN_PORT` in `~/.nylorun/stacks/<name>/docker/.env` and run `nylorun start` |
+| Port in use | Change `NYLORUN_PORT` in `~/.nylorun/tenants/<name>/docker/.env` and run `nylorun start` |
 | Logs | `nylorun logs runtime` |
 
 Definitions have no `agent.run()`; applications use `@nylorun/agents`.

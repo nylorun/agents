@@ -1,18 +1,18 @@
 import { PINNED_IMAGES } from "./images.js";
 
 /**
- * A local stack's Compose file (Runtime Architecture §14.3), written to
- * `<Host root>/docker/compose.yaml` by `nylorun start`. Each stack is one installation with
- * one Tenant (tenancy.md §6): its own Compose project (`nylorun-<name>`, the file's `name`),
- * volumes, network and ports. Everything else that varies (ports, the Postgres password,
- * UID/GID, the Host root, the images, the stack's name) comes from `docker/.env`.
+ * A local Tenant's Compose file (Runtime Architecture §14.3), written to
+ * `<Host root>/docker/compose.yaml` by `nylorun start`. Each local Tenant is one installation
+ * (tenancy.md §6): its own Compose project (`nylorun-<name>`, the file's `name`), volumes,
+ * network and ports. Everything else that varies (ports, the Postgres password, UID/GID, the
+ * Host root, the images, the Tenant's name) comes from `docker/.env`.
  *
- * The Tenant's state is the stack's Postgres database, executed through Restate, with its
+ * The Tenant's state is its Postgres database, executed through Restate, with its
  * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
  * database with C collation (`--locale=C`) and runs with `wal_level=logical`: the stream
  * relay feeds s2-lite from the record over logical replication (Durable Streams), and
  * `max_slot_wal_keep_size` caps the WAL a stuck relay can hold. The Runtime creates the
- * Tenant on its first start, named after the stack (`NYLORUN_TENANT_NAME`), with the derived
+ * Tenant on its first start, with its name (`NYLORUN_TENANT_NAME`) and the derived
  * principals of `NYLORUN_DERIVED_PRINCIPALS` (`project` for the Project link).
  *
  * Restate signs requests to the Worker endpoint with the private key in
@@ -127,7 +127,7 @@ services:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
-      NYLORUN_TENANT_NAME: \${NYLORUN_STACK_NAME:?run nylorun start}
+      NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
       NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
       # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
@@ -137,12 +137,12 @@ services:
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_LISTEN_HOST: 0.0.0.0
       NYLORUN_LISTEN_PORT: "4000"
-      # Host headers the Runtime accepts: the stack network name, and the
+      # Host headers the Runtime accepts: its name on the Compose network, and the
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
       NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
       # The Admin API on its own listener, published on loopback only; Studio reaches it on
-      # the stack network. Port 4000 serves the Tenant API alone.
+      # the Compose network. Port 4000 serves the Tenant API alone.
       NYLORUN_ADMIN_LISTEN_PORT: "4001"
       NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:\${NYLORUN_ADMIN_PORT},127.0.0.1:\${NYLORUN_ADMIN_PORT}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
@@ -159,7 +159,7 @@ services:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root
-      # Empty and read-only over the vault key (keys/) and the stack's secrets (docker/):
+      # Empty and read-only over the vault key (keys/) and the Compose secrets (docker/):
       # only the gateway reads the key, and only Restate its private key.
       - type: tmpfs
         target: /nylorun/keys

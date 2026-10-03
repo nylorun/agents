@@ -11,7 +11,7 @@ export async function printLinkedEnvExports(
   const credentials = await readCredentials(root);
   if (!link || !credentials) {
     console.log(
-      '# No Project link in this directory. Run "npx nylorun start" in this project to start its stack and link it.',
+      '# No Project link in this directory. Run "npx nylorun start" in this project to start its Tenant and link it.',
     );
     return;
   }

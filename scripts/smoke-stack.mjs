@@ -5,14 +5,14 @@
 //
 // Builds nylorun-runtime:local and nylorun-studio:local from this checkout
 // unless NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI).
-// Needs the CLI and @nylorun/admin built. Starts the stack outside any project
-// (no Project link), checks `nylorun status --json` and the Runtime's /ready
+// Needs the CLI and @nylorun/admin built. Starts the Tenant (NYLORUN_TENANT) outside
+// any project (no Project link), checks `nylorun status --json` and the Runtime's /ready
 // (Postgres, Restate, S2), checks that Studio is printed without a login
 // token, that the Admin API reports the Host's one open Tenant, mints a Studio
 // login that lands on it, embeds Studio the way Babai does (frame allowlist, a
 // Tenant-limited token, a bearer session), links a Project with `nylorun
-// start` in its directory (the same stack through NYLORUN_STACK), runs
-// `nylorun down` and `nylorun up` (the stack's files and the Tenant are kept),
+// start` in its directory (the same Tenant through NYLORUN_TENANT), runs
+// `nylorun down` and `nylorun up` (the Compose files and the Tenant's data are kept),
 // checks that every file in the Host root belongs to this user (the bind
 // mount's UID/GID), and always ends with `nylorun reset --yes`.
 import assert from "node:assert/strict";
@@ -67,7 +67,7 @@ try {
     const mounted = (await stack.compose(["exec", "-T", "gateway", "ls", "-A", "/nylorun"])).trim();
     assert.equal(mounted, "keys\ntenant", "the gateway mounts only the Tenant directory and the vault key");
 
-    // Custody (F4.2): the vault key and the stack's secrets are hidden from the runtime
+    // Custody (F4.2): the vault key and the Host root's secrets are hidden from the runtime
     // container, and no file it can read holds the key.
     const vaultKey = (await readFile(join(home, "keys", "vault-kek"), "utf8")).trim();
     assert.equal(Buffer.from(vaultKey, "base64").length, 32, "nylorun start wrote the vault key");
@@ -138,7 +138,7 @@ console.log(JSON.stringify(found));
       studioUrl: studio.origin,
       adminKey,
       tenant: tenant.id,
-      subject: "stack-smoke",
+      subject: "tenant-smoke",
     });
     assert.equal(login.tenant, tenant.id);
     const exchanged = await fetch(`${studio.origin}/_studio/sessions`, {
@@ -153,29 +153,30 @@ console.log(JSON.stringify(found));
     const others = await fetch(`${studio.origin}/_studio/tenants/tn_0000000000000000000000000z/runtime/v1/agents`, { headers: bearer });
     assert.equal(others.status, 404, "an embedded session reaches no other Tenant");
 
-    // `nylorun start` in a project attaches it to the running stack (NYLORUN_STACK)
-    // and links it to the stack's Tenant with the derived project key.
-    const project = await mkdtemp(join(tmpdir(), "nylorun-stack-project-"));
+    // `nylorun start` in a project attaches it to the running Tenant (NYLORUN_TENANT)
+    // and links it to that Tenant with the derived project key.
+    const project = await mkdtemp(join(tmpdir(), "nylorun-tenant-project-"));
     let link;
     let credentials;
     try {
       await mkdir(join(project, ".nylorun"), { recursive: true });
-      await writeFile(join(project, "package.json"), '{"name":"stack-project"}');
+      await writeFile(join(project, "package.json"), '{"name":"tenant-project"}');
       await stack.start([], { cwd: project });
       link = JSON.parse(await readFile(join(project, ".nylorun", "link.json"), "utf8"));
       credentials = JSON.parse(await readFile(join(project, ".nylorun", "credentials.json"), "utf8"));
     } finally {
       await rm(project, { recursive: true, force: true });
     }
-    assert.equal(link.format, 2);
-    assert.equal(link.stack, stack.env.NYLORUN_STACK);
+    assert.equal(link.format, 3);
+    assert.equal(link.tenant, stack.env.NYLORUN_TENANT);
+    assert.equal("stack" in link, false, "link format 3 has no stack field");
     assert.equal(link.hostUrl, runtimeUrl);
     assert.equal(link.tenantId, tenant.id);
     assert.equal(credentials.principalId, "project");
     assert.equal(credentials.applicationKey, tenant.key);
 
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
-    // `up` reuses the stack it set up, and the stopped volumes keep the Tenant.
+    // `up` reuses the Compose files it set up, and the stopped volumes keep the Tenant.
     const stackFiles = async () => [
       await readFile(join(home, "docker", "compose.yaml"), "utf8"),
       await readFile(join(home, "docker", ".env"), "utf8"),
@@ -188,7 +189,7 @@ console.log(JSON.stringify(found));
     assert.equal(JSON.parse(stopped.stdout).state, "stopped");
     const up = await stack.nylorun(["up"]);
     assert.match(up.stdout, /^Runtime\s+http:\/\/localhost:\d+$/m);
-    assert.deepEqual(await stackFiles(), before, "up reuses the stack's files");
+    assert.deepEqual(await stackFiles(), before, "up reuses the Compose files");
     assert.equal(JSON.parse((await stack.nylorun(["status", "--json"])).stdout).runtime.healthy, true);
     assert.equal((await admin.status()).tenant.id, tenant.id, "the Tenant survives down and up");
 
@@ -208,7 +209,7 @@ console.log(JSON.stringify(found));
       "reset deletes the Tenant's files",
     );
   });
-  console.log("Stack smoke passed.");
+  console.log("nylorun start smoke passed.");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

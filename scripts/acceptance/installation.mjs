@@ -1,28 +1,28 @@
 /**
- * Installation acceptance (I1–I9) on the local Docker stack: one Tenant per
+ * Installation acceptance (I1–I9) on a local Tenant (Docker Compose): one Tenant per
  * installation (protocol 5), driven by the packed nylorun, CLI and
  * @nylorun/admin as a developer installs them, under a temporary NYLORUN_HOME
- * and a unique stack (NYLORUN_STACK; never ~/.nylorun):
+ * and a unique Tenant name (NYLORUN_TENANT; never ~/.nylorun):
  *
  *   node scripts/acceptance/installation.mjs [--only I1,I3,...]
  *
  * Images: see scripts/lib/stack.mjs (built from this checkout, or named by
- * NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE). One stack serves the selected
- * cases and is reset at the end. I5 needs no stack.
+ * NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE). One Tenant serves the selected
+ * cases and is reset at the end. I5 needs no containers.
  *
  * I1  one Tenant per installation: the Admin API reports exactly one, open;
  *     Tenant API requests without Nylorun-Tenant work; /v1/admin/tenants is 404
  * I2  protocol 4 compatibility: Nylorun-Tenant naming the Host's Tenant works,
  *     naming another Tenant is the opaque 404
  * I3  a request outside the protocol range fails with 426 before any mutation
- * I4  a stack restart restores sessions and agents; a database whose schema is
+ * I4  a Tenant restart (stop, start) restores sessions and agents; a database whose schema is
  *     newer than the Runtime leaves the Tenant unavailable (schema-too-new)
  * I5  sandbox reconciliation stays inside the Tenant's prefix (packed Runtime library)
- * I6  concurrent `nylorun start` on a running stack changes nothing; a refused
- *     start (host.json from a newer CLI) leaves the stack running
- * I7  the stack keeps running after the installing Project deletes node_modules
- * I8  two Projects linked to one stack (`nylorun start` with NYLORUN_STACK)
- *     develop at once; stopping one keeps the stack and the other
+ * I6  concurrent `nylorun start` on a running Tenant changes nothing; a refused
+ *     start (host.json from a newer CLI) leaves the Tenant running
+ * I7  the Tenant keeps running after the installing Project deletes node_modules
+ * I8  two Projects linked to one Tenant (`nylorun start` with NYLORUN_TENANT)
+ *     develop at once; stopping one keeps the Tenant and the other
  * I9  Project link rules: a moved checkout keeps its link; clones and worktrees
  *     do not inherit it; `nylorun start` links a worktree to the same Tenant
  */
@@ -150,7 +150,7 @@ const readProject = async (project) => ({
   credentials: JSON.parse(await readFile(join(project, ".nylorun/credentials.json"), "utf8")),
 });
 
-// ── I5: sandbox reconciliation prefix isolation (no stack) ──
+// ── I5: sandbox reconciliation prefix isolation (no containers) ──
 async function i5(temporary, packed) {
   const runtimeRoot = join(temporary, "h5-runtime");
   await installProject(runtimeRoot, packed, ["core", "harness", "runtime"]);
@@ -208,7 +208,7 @@ async function i5(temporary, packed) {
     return { tx: async (fn) => fn(transaction) };
   };
 
-  // Two installations on one machine (two stacks) share its sandbox backends.
+  // Two installations on one machine (two Tenants) share its sandbox backends.
   const tenantA = "tn_0000000000000000000000000a";
   const tenantB = "tn_0000000000000000000000000b";
   const manager = new SandboxManager({
@@ -357,8 +357,8 @@ async function i9(url, stack, admin, temporary) {
   await writeFile(join(project, "package.json"), '{"name":"link-demo"}');
   await stack.start(["--no-studio"], { cwd: project });
   const linked = await readProject(project);
-  assert.equal(linked.link.format, 2);
-  assert.equal(linked.link.stack, stack.env.NYLORUN_STACK);
+  assert.equal(linked.link.format, 3);
+  assert.equal(linked.link.tenant, stack.env.NYLORUN_TENANT);
   assert.equal(linked.link.tenantId, id);
   assert.equal(linked.credentials.applicationKey, key, "the link carries the derived project key");
 
@@ -375,7 +375,7 @@ async function i9(url, stack, admin, temporary) {
     await writeFile(join(temporary, directory, "package.json"), '{"name":"link-demo"}');
     await assert.rejects(stat(join(temporary, directory, ".nylorun")));
   }
-  // `nylorun start` in the worktree (on the same stack) links it to the same Tenant.
+  // `nylorun start` in the worktree (on the same Tenant) links it to the same Tenant.
   const worktree = join(temporary, "project-i9-worktree");
   await stack.start(["--no-studio"], { cwd: worktree });
   const worktreeProject = await readProject(worktree);
@@ -384,7 +384,7 @@ async function i9(url, stack, admin, temporary) {
   pass("I9", "a moved checkout keeps its Project link; clone/worktree do not inherit; nylorun start links a worktree");
 }
 
-// ── I7: the stack outlives the installing Project's node_modules ──
+// ── I7: the Tenant outlives the installing Project's node_modules ──
 async function i7(url, stack, packed, temporary) {
   const project = join(temporary, "project-i7");
   await installProject(project, packed, ["core", "nylorun"]);
@@ -394,7 +394,7 @@ async function i7(url, stack, packed, temporary) {
   await rm(join(project, "node_modules"), { recursive: true, force: true });
   assert.equal((await fetch(`${url}/ready`)).status, 200);
   assert.equal((await (await fetch(`${url}/health`)).json()).service, "nylorun-runtime");
-  pass("I7", "the stack keeps running after the installing Project deletes node_modules");
+  pass("I7", "the Tenant keeps running after the installing Project deletes node_modules");
 }
 
 // ── I6: concurrent and refused starts ──
@@ -410,23 +410,23 @@ async function i6(url, stack) {
   assert.deepEqual(await containers(), before.containers, "no container was recreated");
   assert.equal(JSON.parse(await readFile(hostFile, "utf8")).hostId, JSON.parse(before.host).hostId);
 
-  // host.json written by a newer CLI: start refuses before touching the stack.
+  // host.json written by a newer CLI: start refuses before touching the containers.
   await writeFile(hostFile, JSON.stringify({ ...JSON.parse(before.host), format: 99 }, null, 2));
   const refused = await stack.nylorun(["start"], { check: false, echo: false });
   assert.notEqual(refused.code, 0, "start refuses a newer host.json");
-  assert.equal((await fetch(`${url}/ready`)).status, 200, "the stack keeps running");
+  assert.equal((await fetch(`${url}/ready`)).status, 200, "the Tenant keeps running");
   assert.deepEqual(await containers(), before.containers);
   await writeFile(hostFile, before.host, { mode: 0o600 });
-  pass("I6", "concurrent starts leave the running stack as it was; a refused start leaves it running");
+  pass("I6", "concurrent starts leave the running Tenant as it was; a refused start leaves it running");
 }
 
-// ── I8: two Projects linked to one stack run `npm run dev` at once ──
+// ── I8: two Projects linked to one Tenant run `npm run dev` at once ──
 async function i8(url, stack, admin, packed, temporary) {
   const makeProject = async (name) => {
     const project = join(temporary, `project-${name}`);
     await mkdir(join(project, "agents"), { recursive: true });
     await mkdir(join(project, "src"), { recursive: true });
-    // The Projects share the stack's one Tenant, so each serves its own agent id.
+    // The Projects share the one Tenant, so each serves its own agent id.
     await writeFile(
       join(project, "agents/index.ts"),
       `import { Agent } from "@nylorun/agents";\nexport const agents = [Agent({ id: "${name}", name: "${name}" })];\n`,
@@ -449,7 +449,7 @@ async function i8(url, stack, admin, packed, temporary) {
       name,
       extra: { tsx: "^4.20.0" },
     });
-    // NYLORUN_STACK names the running stack, so start attaches to it and links the Project.
+    // NYLORUN_TENANT names the running Tenant, so start attaches to it and links the Project.
     await stack.start(["--no-studio"], { cwd: project });
     return project;
   };
@@ -469,7 +469,7 @@ async function i8(url, stack, admin, packed, temporary) {
     for (const project of projects) {
       const { link, credentials } = await readProject(project);
       assert.equal(link.hostUrl, url, "both Projects use the one Runtime");
-      assert.equal(link.tenantId, id, "both Projects use the stack's Tenant");
+      assert.equal(link.tenantId, id, "both Projects use the one Tenant");
       assert.equal(credentials.applicationKey, key);
     }
     // The Runtime (in Docker) reaches each Project's Action endpoint on this machine.
@@ -479,14 +479,14 @@ async function i8(url, stack, admin, packed, temporary) {
       await eventually(() => connected(name), { message: `the Action endpoint of ${name}` });
 
     await devs[0].stop();
-    assert.equal((await fetch(`${url}/ready`)).status, 200, "the stack keeps running");
+    assert.equal((await fetch(`${url}/ready`)).status, 200, "the Tenant keeps running");
     await eventually(async () => !(await connected(names[0])), { message: "the stopped Project's endpoint to stop answering" });
     assert.equal(await connected(names[1]), true, "the other Project's endpoint still answers");
     await devs[1].stop();
   } finally {
     await group.close();
   }
-  pass("I8", "two Projects linked to one stack develop at once; stopping one leaves the stack and the other");
+  pass("I8", "two Projects linked to one Tenant develop at once; stopping one leaves the Tenant and the other");
 }
 
 // ── I4: restart restores sessions; a too-new schema leaves the Tenant unavailable ──
@@ -501,7 +501,7 @@ async function i4(stack, admin) {
   const agents = await runtimeGet(url, key, "/v1/agents");
   assert.ok(agents.agents.some((agent) => agent.manifest.name === "restart-agent-name"));
   assert.equal((await admin.status()).tenant.id, id, "the same Tenant after a restart");
-  pass("I4", "a stack restart restores sessions and agents");
+  pass("I4", "a Tenant restart restores sessions and agents");
 
   // The Runtime records the migrations it applied in Drizzle's journal,
   // nylorun.__drizzle_migrations (runtime/src/store/postgres/migrate.ts). A migration this
@@ -567,13 +567,13 @@ try {
         if (selected("I7")) await i7(url, stack, packed, temporary);
         if (selected("I6")) await i6(url, stack);
         if (selected("I8")) await i8(url, stack, admin, packed, temporary);
-        // Last: it restarts the stack and leaves its Tenant unavailable.
+        // Last: it restarts the Tenant and leaves its Tenant unavailable.
         if (selected("I4")) await i4(stack, admin);
       },
     );
   }
 
-  console.log(`\nInstallation acceptance on the stack${only ? ` (${[...only].join(",")})` : ""}:`);
+  console.log(`\nInstallation acceptance on a local Tenant${only ? ` (${[...only].join(",")})` : ""}:`);
   for (const item of results) console.log(`  ${item.status} ${item.id} ${item.message}`);
 } catch (error) {
   console.error(error);

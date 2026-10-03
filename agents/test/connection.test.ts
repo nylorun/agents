@@ -19,9 +19,9 @@ const envKeys = [
   "NYLORUN_TENANT",
   "NYLORUN_SERVER_KEY",
 ] as const;
-const STACK_LINK = {
-  format: 2,
-  stack: "my-app",
+const TENANT_LINK = {
+  format: 3,
+  tenant: "my-app",
   hostUrl: URL,
   hostId: "host_00000000000000000000000001",
   tenantId: TENANT,
@@ -43,7 +43,7 @@ async function writeProjectLink(
   await writeFile(
     join(dir, "link.json"),
     JSON.stringify(
-      options.link ?? STACK_LINK,
+      options.link ?? TENANT_LINK,
     ),
     { mode: 0o600 },
   );
@@ -86,7 +86,7 @@ describe("resolveConnection (C1)", () => {
     expect(resolved).toEqual({ url: URL, key: KEY, source: "environment" });
   });
 
-  it("ignores the removed NYLORUN_TENANT", async () => {
+  it("ignores NYLORUN_TENANT, which only nylorun reads", async () => {
     process.env.NYLORUN_TENANT = "tn_00000000000000000000000099";
     await expect(resolveConnection({ cwd: tmpdir() })).rejects.toMatchObject({
       code: "connection_missing",
@@ -129,10 +129,10 @@ describe("resolveConnection (C1)", () => {
     expect(resolved).toEqual({ url: URL, key: KEY, source: "project-link" });
   });
 
-  it("reads a format 2 link without a Tenant id and format-0 credentials", async () => {
+  it("reads a format 3 link without a Tenant id and format-0 credentials", async () => {
     const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
     await writeProjectLink(root, {
-      link: { format: 2, stack: "my-app", hostUrl: `${URL}/`, hostId: "host_1" },
+      link: { format: 3, tenant: "my-app", hostUrl: `${URL}/`, hostId: "host_1" },
       credentials: {
         applicationKey: KEY,
         principalId: "project",
@@ -143,12 +143,13 @@ describe("resolveConnection (C1)", () => {
     expect(resolved).toEqual({ url: URL, key: KEY, source: "project-link" });
   });
 
-  it("refuses a format 0 or 1 link, written for a multi-Tenant Host, naming nylorun start", async () => {
-    for (const format of [undefined, 0, 1]) {
+  it("refuses a link from an older nylorun (format 0 to 2), naming nylorun start", async () => {
+    for (const format of [undefined, 0, 1, 2]) {
       const root = await mkdtemp(join(tmpdir(), "nylorun-conn-"));
       await writeProjectLink(root, {
         link: {
           ...(format === undefined ? {} : { format }),
+          ...(format === 2 ? { stack: "my-app" } : {}),
           hostUrl: URL,
           hostId: "host_00000000000000000000000001",
           tenantId: TENANT,
@@ -156,7 +157,10 @@ describe("resolveConnection (C1)", () => {
       });
       const error = await resolveConnection({ cwd: root }).catch((e) => e);
       expect(error).toMatchObject({ code: "connection_missing" });
-      expect(String(error.message)).toMatch(/older Runtime.*npx nylorun start/s);
+      expect(String(error.message)).toBe(
+        `connection_missing: the Project link at ${join(root, ".nylorun", "link.json")} is from an older nylorun. ` +
+          `Run "npx nylorun start" in this project to link it again.`,
+      );
     }
   });
 

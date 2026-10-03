@@ -1,10 +1,10 @@
 import { createHmac } from "node:crypto";
 
-/** The derived principal a Project uses; the stack's Runtime registers it on its Tenant. */
+/** The derived principal a Project uses; the local Runtime registers it on its Tenant. */
 export const PROJECT_PRINCIPAL_ID = "project";
 
 /**
- * Key of a derived principal on the stack's Tenant, from the admin key. A copy of
+ * Key of a derived principal on the local Tenant, from the admin key. A copy of
  * `deriveTenantKey` in `@nylorun/admin` (nylorun depends on `@nylorun/core` only); both are
  * tested against the same fixed vector.
  */

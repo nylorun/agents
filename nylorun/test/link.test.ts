@@ -32,27 +32,28 @@ async function project(link?: unknown): Promise<string> {
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
 describe("the Project link", () => {
-  it("reads a format 2 link: the stack, its URL and Host, and the Tenant as information", async () => {
+  it("reads a format 3 link: the Tenant's name, its URL and Host, and the Tenant id as information", async () => {
     const root = await project({
-      format: 2,
-      stack: "shop",
+      format: 3,
+      tenant: "shop",
       hostUrl: "http://localhost:8787/",
       hostId: "host_x",
       tenantId: "tn_x",
     });
     expect(await readProjectLink(root)).toEqual({
-      format: 2,
-      stack: "shop",
+      format: 3,
+      tenant: "shop",
       hostUrl: "http://localhost:8787",
       hostId: "host_x",
       tenantId: "tn_x",
     });
   });
 
-  it("reads an older link (format 0 or 1) as such, so start replaces it", async () => {
+  it("reads an older link (format 0 to 2) as such, without a Tenant, so start replaces it", async () => {
     const root = await project({ format: 1, hostUrl: "http://localhost:8787", hostId: "host_x", tenantId: "tn_x" });
     expect(await readProjectLink(root)).toMatchObject({ format: 1, tenantId: "tn_x" });
-    expect((await readProjectLink(root))?.stack).toBeUndefined();
+    const two = await project({ format: 2, stack: "shop", hostUrl: "http://localhost:8787", hostId: "host_x" });
+    expect(await readProjectLink(two)).toEqual({ format: 2, hostUrl: "http://localhost:8787", hostId: "host_x" });
     const legacy = await project({ hostUrl: "http://localhost:8787", hostId: "host_x", tenantId: "tn_x" });
     expect((await readProjectLink(legacy))?.format).toBe(0);
   });
@@ -61,14 +62,14 @@ describe("the Project link", () => {
     expect(await readProjectLink(await project())).toBeUndefined();
     await expect(readProjectLink(await project("{"))).rejects.toThrow(/Invalid or newer Project link/);
     await expect(
-      readProjectLink(await project({ format: 3, hostUrl: "h", hostId: "x" })),
+      readProjectLink(await project({ format: 4, hostUrl: "h", hostId: "x" })),
     ).rejects.toThrow(/Upgrade nylorun/);
   });
 
   it("writes link.json and credentials.json (0600) in a private .nylorun/ ignored by git", async () => {
     const root = await project();
     await writeProjectLink(root, {
-      stack: "shop",
+      tenant: "shop",
       hostUrl: "http://localhost:8787/",
       hostId: "host_x",
       tenantId: "tn_x",
@@ -76,8 +77,8 @@ describe("the Project link", () => {
     await writeProjectCredentials(root, { applicationKey: "ab".repeat(32), principalId: "project" });
     const dir = join(root, ".nylorun");
     expect(JSON.parse(await readFile(join(dir, "link.json"), "utf8"))).toEqual({
-      format: 2,
-      stack: "shop",
+      format: 3,
+      tenant: "shop",
       hostUrl: "http://localhost:8787",
       hostId: "host_x",
       tenantId: "tn_x",

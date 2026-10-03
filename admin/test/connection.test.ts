@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAdmin, AdminError, stackHostRoot } from "../src/index.js";
+import { createAdmin, AdminError, tenantHostRoot } from "../src/index.js";
 import {
   ADMIN_KEY,
   healthBody,
@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe("B1 createAdmin connection resolution", () => {
   it("prefers explicit options over environment and local Host", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     process.env.NYLORUN_ADMIN_URL = "http://127.0.0.1:1";
     process.env.NYLORUN_ADMIN_KEY = "e".repeat(64);
     const server = await startStubServer((request, response) => {
@@ -58,7 +58,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("uses environment when options are omitted", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     const server = await startStubServer((request, response) => {
       if (request.url === "/health") {
         response.writeHead(200, { "content-type": "application/json" });
@@ -81,7 +81,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("falls back to local Host host.json and host-credentials.json", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     const server = await startStubServer((request, response) => {
       if (request.url === "/health") {
         response.writeHead(200, { "content-type": "application/json" });
@@ -104,7 +104,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("sends Admin API requests to the operator port when host.json names one", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     const seen: string[] = [];
     const server = await startStubServer((request, response) => {
       seen.push(request.url ?? "");
@@ -126,7 +126,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("accepts format 0 host.json (missing format field)", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_TENANT");
     const server = await startStubServer((request, response) => {
       if (request.url === "/health") {
         response.writeHead(200, { "content-type": "application/json" });
@@ -148,7 +148,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("fails a partial options pair and names every source tried", () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     expect(() => createAdmin({ url: "http://127.0.0.1:8787" })).toThrow(
       AdminError,
     );
@@ -166,7 +166,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("fails a partial environment pair and names every source tried", () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     process.env.NYLORUN_ADMIN_URL = "http://127.0.0.1:8787";
     expect(() => createAdmin()).toThrow(AdminError);
     try {
@@ -183,7 +183,7 @@ describe("B1 createAdmin connection resolution", () => {
   });
 
   it("throws connection_missing naming every source when nothing resolves", () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     process.env.NYLORUN_HOME = "/tmp/nylorun-admin-missing-home-xyz";
     expect(() => createAdmin()).toThrow(AdminError);
     try {
@@ -199,55 +199,77 @@ describe("B1 createAdmin connection resolution", () => {
   });
 });
 
-describe("B3 local stacks", () => {
-  it("reads the Host root of the stack a Project link names", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+describe("B3 local Tenants", () => {
+  it("reads the Host root of the Tenant a Project link names", async () => {
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     const project = await mkdtemp(join(tmpdir(), "nylorun-admin-project-"));
     try {
       await mkdir(join(project, ".nylorun"));
       await writeFile(
         join(project, ".nylorun", "link.json"),
-        JSON.stringify({ format: 2, stack: "admin-test-missing-stack", hostUrl: "http://127.0.0.1:1", hostId: "h" }),
+        JSON.stringify({ format: 3, tenant: "admin-test-missing-tenant", hostUrl: "http://127.0.0.1:1", hostId: "h" }),
       );
       await mkdir(join(project, "src"));
-      // The stack's Host root does not exist: the message names where it looked.
+      // The Tenant's Host root does not exist: the message names where it looked.
       expect(() => createAdmin({ cwd: join(project, "src") })).toThrow(
-        stackHostRoot("admin-test-missing-stack"),
+        tenantHostRoot("admin-test-missing-tenant"),
       );
     } finally {
       await rm(project, { recursive: true, force: true });
     }
   });
 
-  it("prefers the stack option, then NYLORUN_STACK, and NYLORUN_HOME over both", () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
-    expect(() => createAdmin({ stack: "one" })).toThrow(stackHostRoot("one"));
-    process.env.NYLORUN_STACK = "two";
-    expect(() => createAdmin()).toThrow(stackHostRoot("two"));
-    expect(() => createAdmin({ stack: "one" })).toThrow(stackHostRoot("one"));
-    process.env.NYLORUN_HOME = "/tmp/nylorun-admin-missing-home-xyz";
-    expect(() => createAdmin({ stack: "one" })).toThrow("/tmp/nylorun-admin-missing-home-xyz");
+  it("refuses a Project link from an older nylorun, unless something else names the Host", async () => {
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
+    const project = await realpath(await mkdtemp(join(tmpdir(), "nylorun-admin-project-")));
+    try {
+      await mkdir(join(project, ".nylorun"));
+      const linkPath = join(project, ".nylorun", "link.json");
+      await writeFile(
+        linkPath,
+        JSON.stringify({ format: 2, stack: "my-app", hostUrl: "http://127.0.0.1:1", hostId: "h" }),
+      );
+      expect(() => createAdmin({ cwd: project })).toThrow(
+        `The Project link at ${linkPath} is from an older nylorun. Run "npx nylorun start" in this project to link it again.`,
+      );
+      expect(() => createAdmin({ cwd: project, tenant: "one" })).toThrow(tenantHostRoot("one"));
+      expect(createAdmin({ cwd: project, url: "http://127.0.0.1:1", key: ADMIN_KEY }).source).toBe(
+        "options",
+      );
+    } finally {
+      await rm(project, { recursive: true, force: true });
+    }
   });
 
-  it("names how to pick a stack when nothing names one", async () => {
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_STACK");
+  it("prefers the tenant option, then NYLORUN_TENANT, and NYLORUN_HOME over both", () => {
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
+    expect(() => createAdmin({ tenant: "one" })).toThrow(tenantHostRoot("one"));
+    process.env.NYLORUN_TENANT = "two";
+    expect(() => createAdmin()).toThrow(tenantHostRoot("two"));
+    expect(() => createAdmin({ tenant: "one" })).toThrow(tenantHostRoot("one"));
+    process.env.NYLORUN_HOME = "/tmp/nylorun-admin-missing-home-xyz";
+    expect(() => createAdmin({ tenant: "one" })).toThrow("/tmp/nylorun-admin-missing-home-xyz");
+  });
+
+  it("names how to pick a Tenant when nothing names one", async () => {
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_HOME", "NYLORUN_TENANT");
     const outside = await mkdtemp(join(tmpdir(), "nylorun-admin-outside-"));
     try {
-      expect(() => createAdmin({ cwd: outside })).toThrow(/NYLORUN_STACK/);
+      expect(() => createAdmin({ cwd: outside })).toThrow(/NYLORUN_TENANT/);
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
   });
 
-  it("puts a stack's Host root under ~/.nylorun/stacks", () => {
-    expect(stackHostRoot("my-app")).toBe(join(homedir(), ".nylorun", "stacks", "my-app"));
+  it("puts a Tenant's Host root under ~/.nylorun/tenants", () => {
+    expect(tenantHostRoot("my-app")).toBe(join(homedir(), ".nylorun", "tenants", "my-app"));
   });
 });
 
 describe("B2 local Host credentials permissions", () => {
   it("rejects a group- or world-readable credentials file on POSIX", async () => {
     if (process.platform === "win32") return;
-    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_STACK");
+    stashEnv("NYLORUN_ADMIN_URL", "NYLORUN_ADMIN_KEY", "NYLORUN_TENANT");
     const home = await writeLocalHost({
       port: 8787,
       credentialsMode: 0o640,

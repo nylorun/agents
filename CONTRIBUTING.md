@@ -6,11 +6,11 @@
 | --------------- | ------------------------------------------------------- |
 | `core/`         | Shared definitions and contracts                        |
 | `harness/`      | Agent execution engine                                  |
-| `nylorun/`      | `nylorun`: sets up and runs the local Docker stack      |
+| `nylorun/`      | `nylorun`: sets up and runs local Tenants (Docker)      |
 | `cli/`          | `nylo`: the Runtime client (Tenants, Project link)      |
 | `runtime/`      | Runtime Host, execution and persistence (runtime image) |
-| `studio/`       | Studio server and dashboard (the `studio` stack image)  |
-| `create-agent/` | Starter, renderer, compatibility pins, and stack tests  |
+| `studio/`       | Studio server and dashboard (the `studio` image)        |
+| `create-agent/` | Starter, renderer, compatibility pins, and smoke tests  |
 | `examples/`     | Generated application shell and authored demonstrations |
 | `scripts/`      | Repository development, validation, and release tooling |
 
@@ -34,14 +34,14 @@ Setup installs both lockfiles and builds packages. The eight packages compile wi
 regenerate examples, or change local credentials/data. Package consumer Node
 support remains separate from the pinned contributor toolchain.
 
-`npm run dev` is the contributor loop on the local Docker stack:
+`npm run dev` is the contributor loop on a local Tenant:
 
 1. It builds the host packages, then the Runtime and Studio images from your
    checkout (`nylorun-runtime:dev`, `nylorun-studio:dev`; unchanged layers come
    from Docker's cache).
 2. It runs `nylorun start` in `examples/` on those images. That creates the
-   examples' own stack (Host root `~/.nylorun/stacks/examples/`, Compose project
-   `nylorun-examples`) with its one Tenant, writes the Project link in the
+   examples' own Tenant `examples` (Host root `~/.nylorun/tenants/examples/`,
+   Compose project `nylorun-examples`), writes the Project link in the
    git-ignored `examples/.nylorun/`, and outlives `npm run dev`.
 3. It signs the browser in to Studio on that Tenant (`nylorun studio`; `--no-open` prints a single-use login URL
    instead), and
@@ -50,7 +50,7 @@ support remains separate from the pinned contributor toolchain.
    and `studio`. An edit rebuilds that package and the packages that depend on it,
    rebuilds the images built from them (Compose then recreates only those
    containers), and restarts the examples runner. A compile error keeps the
-   stack and the runner as they were; fixing it resumes rebuilds.
+   Tenant and the runner as they were; fixing it resumes rebuilds.
 
 Agent edits in `examples/` restart the application through `tsx watch`; start a
 new session after definition changes. Stop development before changing
@@ -58,8 +58,9 @@ dependencies, then rerun setup. The examples model provider lives in the
 Tenant's vault: run `npm run configure` (or replace it from Studio).
 Vocabulary: [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
-To keep the dev stack apart from another one on the same machine, set
-`NYLORUN_HOME` (and `NYLORUN_STACK_PROJECT` for the Compose project name). Set
+To run the examples on another Tenant, set `NYLORUN_TENANT` (its Host root is
+`~/.nylorun/tenants/<name>/`), or `NYLORUN_HOME` (and `NYLORUN_COMPOSE_PROJECT`
+for the Compose project name) for a Host root elsewhere. Set
 `NYLORUN_RUNTIME_IMAGE` or `NYLORUN_STUDIO_IMAGE` to run an image you built
 yourself; `npm run dev` then neither builds nor rebuilds that image.
 
@@ -67,29 +68,29 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 
 | Command                                     | Use                                                                        |
 | ------------------------------------------- | -------------------------------------------------------------------------- |
-| `npm run dev`                               | The examples on the stack, with package and image rebuilds                 |
+| `npm run dev`                               | The examples on their Tenant, with package and image rebuilds              |
 | `npm run dev -- --no-open`                  | Keep the browser closed                                                    |
-| `npm run dev -- --no-studio`                | Start the stack without Studio                                             |
+| `npm run dev -- --no-studio`                | Start the Tenant without Studio                                            |
 | `npm run dev -- --no-watch`                 | Build and start once; no rebuilds                                          |
 | `npm run dev:starter`                       | The same loop on a fresh starter preview under `.tmp/`                     |
 | `npx nylorun studio` (in `examples/`)       | A fresh Studio login on the examples Tenant                                |
-| `npx nylorun status` / `npx nylorun logs`   | Stack services, endpoints and health; aggregated logs (`-f`, `<service>`)  |
+| `npx nylorun status` / `npx nylorun logs`   | The Tenant's services, endpoints and health; logs (`-f`, `<service>`)      |
 | `eval "$(npx nylo env)"` (in `examples/`)   | Export URL, key and Tenant for the linked Project                          |
-| `npx nylorun down` / `npx nylorun reset`    | Stop the stack (volumes kept) / delete its volumes and Tenants             |
+| `npx nylorun down` / `npx nylorun reset`    | Stop the Tenant (volumes kept) / delete its containers, volumes and data   |
 | `npm run build`                             | Build all eight packages                                                   |
 | `npm test`                                  | Run package, tooling, and examples tests after setup (needs Docker)        |
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
-| `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary stack                             |
-| `npm run test:starter`                      | Smoke the packed starter (`nylorun start` in the project, `npm run dev`, the stack's Tenant reset to the fixture model) on a temporary stack |
-| `npm run test:dev`                          | Smoke `npm run dev` on a temporary stack and a clean copy of `examples/`   |
-| `npm run test:acceptance [-- --only I1,I2]` | Installation acceptance (I1–I9) on a temporary stack                       |
+| `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary Tenant                            |
+| `npm run test:starter`                      | Smoke the packed starter (`nylorun start` in the project, `npm run dev`, the Tenant reset to the fixture model) on a temporary Tenant |
+| `npm run test:dev`                          | Smoke `npm run dev` on a temporary Tenant and a clean copy of `examples/`  |
+| `npm run test:acceptance [-- --only I1,I2]` | Installation acceptance (I1–I9) on a temporary Tenant                      |
 
-The stack smokes (`scripts/lib/stack.mjs`) build `nylorun-runtime:local`
+The Docker smokes (`scripts/lib/stack.mjs`) build `nylorun-runtime:local`
 and `nylorun-studio:local` from the checkout, or reuse the images
 `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` name. Each runs under a
 temporary `NYLORUN_HOME` with its own Compose project and always ends with
-`nylorun reset --yes`, so it never touches `~/.nylorun` or a running dev stack.
+`nylorun reset --yes`, so it never touches `~/.nylorun` or a running dev Tenant.
 
 Starter preview prints a retained directory under `.tmp/`. It has its own
 Project link and configuration. Rerun to preview template changes; existing
@@ -126,7 +127,7 @@ startup and refuses a database holding one it does not ship.
    with the new files.
 
 `npm run db:studio --workspace @nylorun/runtime` opens Drizzle Studio on the database in
-`NYLORUN_DATABASE_URL` (a stack's, or a test database on the test stack). drizzle-kit and
+`NYLORUN_DATABASE_URL` (a local Tenant's, or a test database on the test stack). drizzle-kit and
 `runtime/drizzle.config.ts` are for development only and are not published.
 
 The Runtime and Studio ship as the images `ghcr.io/nylorun/runtime` and
@@ -177,7 +178,7 @@ See [RELEASING.md](./RELEASING.md) for administrators and
 | Toolchain mismatch              | Use Node 24 and npm 11; setup prints the detected versions                                                                                                                      |
 | Docker missing or not running   | Start Docker Desktop, OrbStack or Colima; `npx nylorun doctor` reports what is missing                                                                                          |
 | Missing/stale package build     | Stop development and run `npm run setup`                                                                                                                                        |
-| Occupied port                   | The first `nylorun start` picks free loopback ports and keeps them in `~/.nylorun/stacks/<name>/docker/.env`; edit that file, or free the port, if another service takes one later          |
+| Occupied port                   | The first `nylorun start` picks free loopback ports and keeps them in `~/.nylorun/tenants/<name>/docker/.env`; edit that file, or free the port, if another service takes one later         |
 | Protocol `426`                  | Upgrade `nylorun` and run `nylorun up` (nylorun pins the Runtime image), or pin `@nylorun/agents` within the Runtime's protocol range                                          |
 | Quarantined Tenant              | `nylo tenant status` shows `code` and `repair` (`kek-missing`, `corrupt`, `schema-too-new`, `migration-failed`, `envelope-invalid`, `open-timeout`, `open-failed`)              |
 | Model setup error               | Run `npx nylorun up`, then `npm run configure` (`nylo configure`), or replace the vault credential from Studio                                                                 |

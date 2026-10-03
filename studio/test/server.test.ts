@@ -541,14 +541,14 @@ test("an unavailable Tenant is answered with its cause, and Studio asks again", 
     runtime.tenant.cause = {
       code: "schema-too-new",
       message: "The database was written by a newer Runtime.",
-      repair: "Upgrade the stack's Runtime.",
+      repair: "Upgrade the Runtime.",
     };
     const cookie = await session(port);
     const root = await send(port, { path: "/" });
     assert.equal(root.status, 503);
     assert.match(root.headers["content-type"] ?? "", /^text\/html/);
     assert.match(root.body, /Tenant unavailable/);
-    assert.match(root.body, /newer Runtime\. Upgrade the stack's Runtime\./);
+    assert.match(root.body, /newer Runtime\. Upgrade the Runtime\./);
     assert.match(root.body, /schema-too-new/);
 
     const hello = JSON.parse((await send(port, { path: "/_studio/hello", headers: { cookie } })).body);

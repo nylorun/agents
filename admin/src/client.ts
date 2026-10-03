@@ -36,11 +36,11 @@ export interface ResolvedAdmin {
 export interface AdminConnectionOptions {
   url?: string;
   key?: string;
-  /** The Host root itself (overrides `NYLORUN_HOME` and the stack). */
+  /** The Host root itself (overrides `NYLORUN_HOME` and the Tenant). */
   home?: string;
-  /** The local stack whose Host root (`~/.nylorun/stacks/<stack>/`) to read. */
-  stack?: string;
-  /** Where to look for a Project link naming the stack; defaults to the working directory. */
+  /** The local Tenant whose Host root (`~/.nylorun/tenants/<tenant>/`) to read. */
+  tenant?: string;
+  /** Where to look for a Project link naming the Tenant; defaults to the working directory. */
   cwd?: string;
 }
 
@@ -49,16 +49,17 @@ function env(name: string): string | undefined {
   return value === undefined || value.trim() === "" ? undefined : value;
 }
 
-/** A local stack's Host root: `~/.nylorun/stacks/<name>/`. */
-export function stackHostRoot(name: string): string {
-  return resolve(join(homedir(), ".nylorun", "stacks", name));
+/** A local Tenant's Host root: `~/.nylorun/tenants/<name>/`. */
+export function tenantHostRoot(name: string): string {
+  return resolve(join(homedir(), ".nylorun", "tenants", name));
 }
 
 /**
- * The stack a Project link names (`.nylorun/link.json`, format 2), from `cwd` upwards. The walk
- * stops at the home directory, which holds the stacks and is never a Project.
+ * The Tenant a Project link names (`.nylorun/link.json`, format 3), from `cwd` upwards, or the
+ * path of a link from an older nylorun. The walk stops at the home directory, which holds the
+ * Tenants and is never a Project.
  */
-function linkedStack(cwd: string): string | undefined {
+function linkedTenant(cwd: string): { tenant?: string; olderLink?: string } {
   const real = (path: string) => {
     try {
       return realpathSync(path);
@@ -70,39 +71,46 @@ function linkedStack(cwd: string): string | undefined {
   let directory = real(resolve(cwd));
   const root = parse(directory).root;
   while (directory !== stop) {
+    const path = join(directory, ".nylorun", "link.json");
     let raw: string | undefined;
     try {
-      raw = readFileSync(join(directory, ".nylorun", "link.json"), "utf8");
+      raw = readFileSync(path, "utf8");
     } catch {
       /* no link here */
     }
     if (raw !== undefined) {
       try {
-        return ProjectLinkFileSchema.parse(JSON.parse(raw)).stack;
+        const link = ProjectLinkFileSchema.parse(JSON.parse(raw));
+        return link.format < 3 ? { olderLink: path } : { tenant: link.tenant };
       } catch {
-        return undefined;
+        return {};
       }
     }
-    if (directory === root) return undefined;
+    if (directory === root) return {};
     directory = dirname(directory);
   }
-  return undefined;
+  return {};
 }
 
 /**
- * The Host root of the local Host: `options.home`, `NYLORUN_HOME`, or the Host root of the stack
- * named by `options.stack`, `NYLORUN_STACK` or the Project link. Undefined when none names one.
+ * The Host root of the local Host: `options.home`, `NYLORUN_HOME`, or the Host root of the
+ * Tenant named by `options.tenant`, `NYLORUN_TENANT` or the Project link. No `home` when none
+ * names one; `olderLink` when the Project link is from an older nylorun.
  */
-function resolveHome(options?: AdminConnectionOptions): string | undefined {
+function resolveHome(options?: AdminConnectionOptions): {
+  home?: string;
+  olderLink?: string;
+} {
   if (options?.home !== undefined && options.home.trim() !== "")
-    return resolve(options.home);
+    return { home: resolve(options.home) };
   const fromEnv = env("NYLORUN_HOME");
-  if (fromEnv) return resolve(fromEnv);
-  const stack =
-    options?.stack?.trim() ||
-    env("NYLORUN_STACK")?.trim() ||
-    linkedStack(options?.cwd ?? process.cwd());
-  return stack ? stackHostRoot(stack) : undefined;
+  if (fromEnv) return { home: resolve(fromEnv) };
+  const named = options?.tenant?.trim() || env("NYLORUN_TENANT")?.trim();
+  if (named) return { home: tenantHostRoot(named) };
+  const linked = linkedTenant(options?.cwd ?? process.cwd());
+  return linked.tenant
+    ? { home: tenantHostRoot(linked.tenant) }
+    : { olderLink: linked.olderLink };
 }
 
 function connectionMissing(message: string): never {
@@ -114,7 +122,7 @@ function sourcesTriedMessage(home: string | undefined): string {
     `Tried options (url + key), environment (NYLORUN_ADMIN_URL + NYLORUN_ADMIN_KEY), ` +
     (home
       ? `and local Host settings (host.json + host-credentials.json under ${home}).`
-      : "and local Host settings (no stack named: pass `stack`, set NYLORUN_STACK or " +
+      : "and local Host settings (no Tenant named: pass `tenant`, set NYLORUN_TENANT or " +
         "NYLORUN_HOME, or run in a Project that `npx nylorun start` linked).")
   );
 }
@@ -192,7 +200,7 @@ function readLocalHost(
 export function resolveAdminConnection(
   options?: AdminConnectionOptions,
 ): ResolvedAdmin {
-  const home = resolveHome(options);
+  const { home, olderLink } = resolveHome(options);
   const optionUrl = options?.url?.trim() || undefined;
   const optionKey = options?.key?.trim() || undefined;
   if (optionUrl || optionKey) {
@@ -225,6 +233,11 @@ export function resolveAdminConnection(
     };
   }
 
+  if (olderLink) {
+    connectionMissing(
+      `The Project link at ${olderLink} is from an older nylorun. Run "npx nylorun start" in this project to link it again.`,
+    );
+  }
   const local = home === undefined ? undefined : readLocalHost(home);
   if (local) {
     return {

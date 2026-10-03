@@ -104,12 +104,12 @@ export async function createProject(
 
 /**
  * After creation: `nylorun start` in the project creates and starts its
- * local stack, whose Runtime creates the stack's one Tenant, and links the
- * project to it; then develop. The creator runs neither; the project itself
+ * local Tenant (Runtime and Studio in Docker) and links the project to it;
+ * then develop. The creator runs neither; the project itself
  * depends only on @nylorun/agents.
  */
 const NEXT = [
-  "npx nylorun@beta start  # this project's stack, its Tenant and the link in .nylorun/ (Docker)",
+  "npx nylorun@beta start  # this project's Tenant (Docker) and the link in .nylorun/",
   "npm run dev",
 ];
 
@@ -122,7 +122,7 @@ const MIN_NODE_MAJOR = 24;
 
 /**
  * Prerequisites the developer installs before `npm run dev`: Node 24 and
- * Docker with Compose v2 (the local stack). The creator only reports them; it
+ * Docker with Compose v2 (local Tenants). The creator only reports them; it
  * never downloads or starts anything.
  */
 async function missingPrerequisites(

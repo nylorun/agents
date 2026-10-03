@@ -295,7 +295,7 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
       <StatusScreen title="Studio is unavailable">
         <p>{boot.message}</p>
         <p>
-          Check the stack with <code className={code}>nylorun status</code>.
+          Check the Tenant with <code className={code}>nylorun status</code>.
         </p>
       </StatusScreen>
     );
@@ -312,7 +312,7 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
       <StatusScreen title="Tenant unavailable">
         <p>{boot.message}</p>
         <p>
-          Check the stack with <code className={code}>npx nylorun status</code>.
+          Check the Tenant with <code className={code}>npx nylorun status</code>.
         </p>
         <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
           Try again
@@ -471,13 +471,13 @@ function ConnectYourCode({ tenant }: { tenant: StudioTenantInfo }) {
           )}
         </li>
         <li className="space-y-2">
-          <h2 className="font-medium">2. Start your project's stack</h2>
+          <h2 className="font-medium">2. Start your project's Tenant</h2>
           <p className="text-sm text-muted-foreground">
             In your project's directory, run:
           </p>
           <CommandLine command="npx nylorun start" />
           <p className="text-sm text-muted-foreground">
-            It creates the project's stack and its Tenant, and links the
+            It creates the project's Tenant and links the
             project to it. No project yet? Create one with{" "}
             <code className={code}>npm create @nylorun/agent@beta my-agent</code>,
             then run the command above inside it.

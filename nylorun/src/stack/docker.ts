@@ -82,7 +82,7 @@ export async function checkDocker(docker: DockerRunner): Promise<DockerChecks> {
       docker: {
         ok: false,
         problem:
-          "Docker is required for the Nylorun stack, and the docker command was not found. Install Docker Desktop, OrbStack, Colima or another Docker engine with Compose v2, then retry.",
+          "Docker is required for local Nylorun Tenants, and the docker command was not found. Install Docker Desktop, OrbStack, Colima or another Docker engine with Compose v2, then retry.",
       },
     };
   if (server.code !== 0)

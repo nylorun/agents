@@ -55,7 +55,7 @@ try {
       assert.equal(typeof toNodeListener, 'function');
     `
         : `
-      // The Host entry needs Postgres (and the rest of the stack), so here it
+      // The Host entry needs Postgres (and the rest of the Compose services), so here it
       // only has to load in isolation and refuse to start without a database.
       import assert from 'node:assert/strict';
       import { fork } from 'node:child_process';

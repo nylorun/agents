@@ -9,7 +9,7 @@ import { createAdmin } from "@nylorun/admin";
 
 // Resolution: explicit options → NYLORUN_ADMIN_URL + NYLORUN_ADMIN_KEY → local Host
 const admin = createAdmin();
-// or: createAdmin({ url, key }) / createAdmin({ stack: "my-app" }) / createAdmin({ home })
+// or: createAdmin({ url, key }) / createAdmin({ tenant: "my-app" }) / createAdmin({ home })
 
 const { tenant } = await admin.status();
 // tenant: { id, name, state: "open" | "unavailable", envelope, cause? }
@@ -38,10 +38,11 @@ so rotating the admin key rotates every derived key. `nylorun start` writes the
 `project` key into a Project's `.nylorun/credentials.json`.
 
 Local Host resolution reads `host.json` and `host-credentials.json` from the
-Host root: `options.home`, else `NYLORUN_HOME`, else the stack's Host root
-`~/.nylorun/stacks/<stack>/` for the stack named by `options.stack`,
-`NYLORUN_STACK` or the Project link (`stack` in `.nylorun/link.json`, found
-from `options.cwd` upwards). On POSIX the credentials file must be owned by the
+Host root: `options.home`, else `NYLORUN_HOME`, else the Tenant's Host root
+`~/.nylorun/tenants/<tenant>/` for the local Tenant named by `options.tenant`,
+`NYLORUN_TENANT` or the Project link (`tenant` in `.nylorun/link.json`, format
+3, found from `options.cwd` upwards; a link from an older nylorun throws
+`connection_missing`). On POSIX the credentials file must be owned by the
 user and not group- or world-readable. First use checks `/health`
 compatibility and throws `incompatible_host` on mismatch.
 
@@ -51,7 +52,7 @@ Tenant.
 
 Errors are `AdminError` with a registry `code` from `@nylorun/core`
 (`ERROR_CODES`). Re-exports: `PROTOCOL_FEATURES`, `ERROR_CODES`,
-`compareVersions`, `deriveStudioToken`, `deriveTenantKey`, `stackHostRoot`,
+`compareVersions`, `deriveStudioToken`, `deriveTenantKey`, `tenantHostRoot`,
 `PROJECT_PRINCIPAL_ID`.
 
 Developer applications do **not** depend on this package — only managing

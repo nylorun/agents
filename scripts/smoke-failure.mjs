@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Failures around a model call on a real `nylorun start` stack: a Worker killed
+// Failures around a model call on a real `nylorun start` Tenant: a Worker killed
 // during a model effect (Runtime architecture §11.4 and §17, case 3), and the
 // Model Gate's hop (the gateway container, blueprint P1.1):
 //
@@ -9,9 +9,9 @@
 // unless NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI).
 // Needs the CLI and @nylorun/admin built.
 //
-// 1. A stub OpenAI-compatible model runs in a container on the stack network,
+// 1. A stub OpenAI-compatible model runs in a container on the Compose network,
 //    from the Runtime image. It counts calls, and holds every call open until
-//    it is released. The stack's Tenant's model is pointed at it (`PUT /v1/tenant/model`,
+//    it is released. The Tenant's model is pointed at it (`PUT /v1/tenant/model`,
 //    provider `custom`), so no test hook is needed in the Runtime.
 // 2. A turn starts; its model effect is committed as `invoking` and the call
 //    reaches the stub, which holds it.
@@ -28,7 +28,7 @@
 //    uncertain, and once it is back the next turn completes.
 // 8. Gateway killed mid-call: the same, and the stub's request is closed.
 // 9. Cancel mid-call: the stub sees its request aborted within 2 s.
-// 10. The gateway refuses a caller without the stack's token.
+// 10. The gateway refuses a caller without the Host root's gateway token.
 // 11. A budget's cap is reached (P1.3): the turn fails with
 //     model.budget_exhausted and the stub sees no call.
 // 12. A remote MCP call through the Tool Gate (F4.1): a stub MCP server holds
@@ -40,7 +40,7 @@
 //     the call's crossing without an answer and answers uncertain, so the
 //     session is uncertain and the server never runs the tool a second time.
 //
-// The stack is always reset at the end.
+// The Tenant is always reset at the end.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
@@ -211,7 +211,7 @@ try {
   await withStack({ name: "nylorun-smoke-failure", images }, async (stack) => {
     const { runtimeUrl } = stack;
 
-    // The stub model on the stack network, reachable from the host for its counters.
+    // The stub model on the Compose network, reachable from the host for its counters.
     const stubName = `${stack.project}-${STUB_ALIAS}`;
     const mcpName = `${stack.project}-${MCP_ALIAS}`;
     await docker([
@@ -230,7 +230,7 @@ try {
       const stub = async () => (await fetch(`${stubUrl}/calls`)).json();
       await eventually(() => stub().then(() => true), { timeout: 30_000, message: "the stub model" });
 
-      // The stack's one Tenant; its state is in schema `nylorun`.
+      // The Host's one Tenant; its state is in schema `nylorun`.
       const tenant = await hostTenant(await stack.admin());
       const schema = "nylorun";
 
@@ -431,7 +431,7 @@ try {
       assert.equal((await settled()).status, "cancelled");
       await fetch(`${stubUrl}/release`, { method: "POST" });
 
-      // 10. The gateway refuses a caller without the stack's token.
+      // 10. The gateway refuses a caller without the Host root's gateway token.
       const refused = await stack.compose([
         "exec", "-T", "runtime", "node", "-e",
         "fetch('http://gateway:4100/nylorun/v1/model-calls',{method:'POST',headers:{authorization:'Bearer '+'00'.repeat(32)}}).then(r=>console.log(r.status))",

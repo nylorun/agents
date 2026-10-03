@@ -30,7 +30,7 @@ reads the Tenant's public keys. Mark a long tool
 posts the result. `npx @nylorun/cli endpoints` shows each endpoint and how its
 deliveries are doing.
 
-The URL must be one the Runtime can reach: `localhost` on the local stack
+The URL must be one the Runtime can reach: `localhost` on a local Tenant
 (its Runtime runs in Docker and maps `localhost` to this machine), a public URL
 in production, or a tunnel (ngrok, Cloudflare Tunnel) for a remote Runtime.
 
@@ -49,13 +49,14 @@ for upgrading from `nylorun serve`.
 2. Environment — if `NYLORUN_RUNTIME_URL` or `NYLORUN_SERVER_KEY` is set, both
    must be present
 3. Project link — `.nylorun/link.json` + `credentials.json` (the application
-   key), written by `npx nylorun start`. A link from before one Tenant per
-   installation (format 0 or 1) fails with `connection_missing`: run
-   `npx nylorun start` in the project again.
+   key), written by `npx nylorun start`. A link from an older nylorun
+   (format 0 to 2) fails with `connection_missing`: run `npx nylorun start` in
+   the project again.
 
 Sources never mix. Partial environment fails with `connection_missing`. A
-Runtime serves one Tenant, so nothing names it: the `tenant` option and
-`NYLORUN_TENANT` are gone (protocol 5).
+Runtime serves one Tenant, so nothing names it: the `tenant` option is gone
+(protocol 5), and `NYLORUN_TENANT`, which picks a local Tenant for `nylorun`,
+is ignored.
 
 ```ts
 import { Agent, createActionHandler, createClient, tool } from "@nylorun/agents";

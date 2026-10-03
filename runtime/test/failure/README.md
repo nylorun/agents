@@ -14,7 +14,7 @@ npm run test:stack:down -w @nylorun/runtime
 ```
 
 The files skip unless `NYLORUN_TEST_STACK=1`. CI runs them in the `integration`
-job. §17.3 also runs against a real `nylorun up` stack, where the `runtime`
+job. §17.3 also runs against a real local Tenant (`nylorun up`), where the `runtime`
 container is killed with `docker compose kill` (`npm run test:failure`,
 `scripts/smoke-failure.mjs`, in the `stack` job).
 
@@ -83,9 +83,9 @@ NYLORUN_TEST_STACK=1 NYLORUN_BENCH=1 npx vitest run -c vitest.integration.config
 
 ## Model Gate (blueprint P1)
 
-Model calls of the loop cross the gates service (the stack's `gateway` container). A failure
+Model calls of the loop cross the gates service (the `gateway` container). A failure
 of that hop is a failure outcome, never an uncertain effect, and cancel still reaches the
-provider. The real cases run on a `nylorun up` stack in `scripts/smoke-failure.mjs`
+provider. The real cases run on a local Tenant (`nylorun up`) in `scripts/smoke-failure.mjs`
 (`npm run test:failure`), after §17.3, with the stub model holding calls open:
 
 | Case | `scripts/smoke-failure.mjs` | Also covered by |

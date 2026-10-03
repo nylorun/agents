@@ -1,9 +1,9 @@
 # Runtime deployment
 
-This release supports one machine: the **local Docker stack** that
-`nylorun start` runs for a project (the Runtime, its gateway, Studio, Postgres,
-Restate and s2-lite, as Docker Compose project `nylorun-<stack>`), an
-installation that serves one **Tenant**, and the application's **Action
+This release supports one machine: the **local Tenant** that `nylorun start`
+runs for a project (the Runtime, its gateway, Studio, Postgres, Restate and
+s2-lite, as Docker Compose project `nylorun-<tenant>`), an installation that
+serves that one **Tenant**, and the application's **Action
 endpoints** (the tools it serves) on the same machine or reachable from it. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
 
@@ -14,33 +14,33 @@ eval "$(npx @nylorun/cli env)"
 npm start
 ```
 
-`nylorun start` in the project starts its stack (creating it, its Tenant and the
-Project link the first time), or leaves it running when it already is, and
+`nylorun start` in the project starts its Tenant (creating it and the Project
+link the first time), or leaves it running when it already is, and
 prints the Runtime and Studio URLs. `npm start` runs
 `node dist/src/main.js`, which serves the application's Action endpoint and
 registers it with the Runtime using two variables: `NYLORUN_RUNTIME_URL` and
 `NYLORUN_SERVER_KEY`, or through the Project link. The
 Runtime calls that endpoint for every tool call, so its URL
 (`NYLORUN_ACTIONS_URL` in the starter) must be reachable from the Runtime: the
-local stack maps `localhost` to this machine. `nylo env`
+local Tenant's containers map `localhost` to this machine. `nylo env`
 (`npx @nylorun/cli env`) prints them for the Project that `nylorun start`
 linked; a supervisor can set them directly instead. The application does not
-start the stack, Studio or a file watcher; start the stack first
+start the Tenant, Studio or a file watcher; start the Tenant first
 (`nylorun start`), under the same supervisor if you use one.
 
-Keep the stack's **Host root** (`~/.nylorun/stacks/<stack>/`, or `NYLORUN_HOME`)
-private and persistent across ordinary restarts: `host.json`, the admin key in
+Keep the Tenant's **Host root** (`~/.nylorun/tenants/<tenant>/`, or `NYLORUN_HOME`)
+private and persistent across ordinary restarts: `tenant.json`, `host.json`, the admin key in
 `host-credentials.json`, the Docker setup in `docker/` (`compose.yaml` and `.env`), the
 Tenant directory `tenant/`, and the vault key in `keys/vault-kek`. Back up the
 vault key with the Postgres volume: the Tenant's stored credentials cannot be
-read without it. The Tenant's data lives in the
-stack's Docker volumes: Postgres (its database, schemas `nylorun` and
+read without it. The Tenant's data lives in its
+Docker volumes: Postgres (its database, schemas `nylorun` and
 `nylorun_streams`), s2-lite (session history), Restate and the workspaces. Keep
 each Project's `.nylorun/link.json` and `credentials.json` private as well;
 model credentials live in the Tenant's vault. `nylorun stop` stops the
 containers and keeps the volumes; `nylorun reset` deletes the volumes, the
 Tenant directory and the vault key, so the next start creates a new Tenant; `nylorun delete
-<stack>` removes the stack altogether.
+<tenant>` removes its containers, volumes and Host root altogether.
 
 Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
@@ -59,8 +59,8 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
 
 - Keep the Runtime off the network. An app server on the same machine calls
   `http://localhost:<port>` (the URL `nylorun up` prints). An app server
-  container joins the stack's Compose network and calls `http://runtime:4000`,
-  which the stack already accepts as a `Host`. An app server on another
+  container joins the Tenant's Compose network and calls `http://runtime:4000`,
+  which the Runtime already accepts as a `Host`. An app server on another
   machine reaches it through a reverse proxy:
   [Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine).
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
@@ -95,8 +95,8 @@ short-lived subject token for each; the page ships a publishable key.
 4. In the page, `createBrowserClient` from `@nylorun/agents/browser` takes the
    Runtime URL, the publishable key and a function that calls the token route.
 
-The local stack allows browser requests (`NYLORUN_BROWSER_ACCESS`, on by
-default in the stack; `off` refuses every `Origin`). A Host started from
+A local Tenant allows browser requests (`NYLORUN_BROWSER_ACCESS`, on by
+default there; `off` refuses every `Origin`). A Host started from
 `host.json` allows them only with `"browserAccess": true`. With no publishable
 key, every request with an `Origin` is still refused. CORS headers come from the
 Runtime after it checks the key and its origins; a reverse proxy passes
@@ -107,14 +107,14 @@ served over HTTPS can only call a Runtime served over HTTPS.
 
 When your app server runs on another machine (a laptop reaching a Mac mini on
 the LAN, or a cloud backend reaching a server), put a reverse proxy in front of
-the Runtime on the Runtime's machine. The stack publishes the Runtime on
+the Runtime on the Runtime's machine. `nylorun start` publishes the Runtime on
 `127.0.0.1` only and accepts only its own `Host` names, so the proxy is the one
 way in. Nothing in the Runtime changes.
 
 | Proxy rule | Why |
 | --- | --- |
 | Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun start` prints) | The Tenant key travels on every request and controls the whole Tenant |
-| Rewrite `Host` to `localhost:<port>` | The stack answers `421` to any other `Host` |
+| Rewrite `Host` to `localhost:<port>` | The Runtime answers `421` to any other `Host` |
 | Forward to the Runtime port only (`NYLORUN_PORT`); never the operator port (`NYLORUN_ADMIN_PORT`), Studio or Restate | The Admin API is on its own port and stays on the machine |
 | Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
 | Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
@@ -139,7 +139,7 @@ runtime.example.com {
 	@api path /health /ready /v1/*
 	handle @api {
 		reverse_proxy 127.0.0.1:8787 {
-			# The stack answers only its own Host names.
+			# The Runtime answers only its own Host names.
 			header_up Host localhost:8787
 			# Event streams: flush every write.
 			flush_interval -1
@@ -202,16 +202,16 @@ image. `npx nylo doctor sandbox` reports the backend in use.
 ## Postgres for session events
 
 Postgres holds the record of every session event (`nylorun_streams.session_events`), and
-the Runtime's stream relay feeds s2-lite from it over **logical replication**. The local
-stack starts Postgres with the settings it needs; a Postgres you run yourself needs them
+the Runtime's stream relay feeds s2-lite from it over **logical replication**. A local
+Tenant starts Postgres with the settings it needs; a Postgres you run yourself needs them
 too:
 
 | Setting | Value | Why |
 | --- | --- | --- |
 | `wal_level` | `logical` | The relay reads committed events from a replication slot. Changing it restarts Postgres |
 | `max_replication_slots`, `max_wal_senders` | at least 2 (the default 10 is enough) | One slot, `nylorun_stream_relay` |
-| `max_slot_wal_keep_size` | a few GB (the stack uses 4GB) | A stuck relay cannot fill the disk; a lost slot only costs a reconciliation |
-| The Runtime's role | `REPLICATION`, plus read access to `nylorun_streams` | The relay reads the Tenant's events (the stack's `nylorun` role is a superuser) |
+| `max_slot_wal_keep_size` | a few GB (`nylorun start` uses 4GB) | A stuck relay cannot fill the disk; a lost slot only costs a reconciliation |
+| The Runtime's role | `REPLICATION`, plus read access to `nylorun_streams` | The relay reads the Tenant's events (a local Tenant's `nylorun` role is a superuser) |
 
 On a managed Postgres, turn on its logical replication option (for example
 `rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
@@ -219,21 +219,21 @@ WAL; the relay catches up in order when S2 returns.
 
 ## The gateway: model and tool calls
 
-The stack runs the Runtime image twice (the combined packing). The `runtime`
+A local Tenant runs the Runtime image twice (the combined packing). The `runtime`
 container runs the `core` and `loop` services: the APIs, Studio's backend and
 the agent loop. The `gateway` container runs `gates`, the Model Gate: it reads
 the Tenant's model credential from its vault and calls the provider. The loop
 sends every vault-backed model call to it (`NYLORUN_GATES_URL`) and never holds
 a model credential.
 
-- The gateway has no published port; only the runtime reaches it, on the stack
+- The gateway has no published port; only the runtime reaches it, on the Compose
   network, with `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up` generates
   the token once and keeps it.
 - It mounts only the Host root's `tenant/` and `keys/` directories, read-only
   (the Tenant's homes and its vault key), never `host-credentials.json`, and
   writes nothing there. It is not ready until `keys/vault-kek` is there;
-  `nylorun start` writes it once, and moves the key a stack before this release
-  kept in `tenant/vault-kek`.
+  `nylorun start` writes it once, and moves the key a Host root of an earlier
+  release kept in `tenant/vault-kek`.
 - It reaches model servers on this machine (Ollama, for example) at
   `host.docker.internal`.
 - While it is down, model calls fail with a retryable `transient` outcome and
@@ -282,7 +282,7 @@ container with empty read-only mounts. While the gateway is down, those
 requests answer `503 keys_unavailable`.
 
 The combined packing suits one developer on one machine: the gateway holds
-every secret of the stack in one process. Kubernetes splits it into separate
+every secret of the Tenant in one process. Kubernetes splits it into separate
 services in a later release.
 
 ## Container images

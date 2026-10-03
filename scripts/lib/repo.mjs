@@ -8,7 +8,7 @@ export const root = fileURLToPath(new URL("../../", import.meta.url));
 export const packages = ["core", "harness", "agents", "admin", "runtime", "studio", "nylorun", "cli", "create-agent"];
 /**
  * The npm name of a workspace directory. Every package is `@nylorun/<dir>`
- * except `nylorun`, the unscoped stack command (`npx nylorun start`).
+ * except `nylorun`, the unscoped local Tenant command (`npx nylorun start`).
  */
 export const packageName = (name) => (name === "nylorun" ? "nylorun" : `@nylorun/${name}`);
 /** The workspace directory of an npm name (the inverse of packageName). */

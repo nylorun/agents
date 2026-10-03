@@ -19,9 +19,9 @@ test("starter previews resolve local packages and never overwrite an earlier pre
       Object.keys(manifest.devDependencies).filter((name) => name.includes("nylorun")),
       [],
     );
-    // The Runtime runs in the stack's container; previews never install it.
+    // The Runtime runs in the Tenant's container; previews never install it.
     assert.equal(manifest.dependencies["@nylorun/runtime"], undefined);
-    // Studio runs in the Docker stack; previews never depend on it.
+    // Studio runs in the Tenant's containers; previews never depend on it.
     assert.equal(manifest.devDependencies["@nylorun/studio"], undefined);
     await writeFile(
       join(first, "agents/assistant/agent.ts"),

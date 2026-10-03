@@ -12,8 +12,8 @@ which nylorun pins.
 
 A release publishes two kinds of artifact:
 
-- **npm packages** under `@nylorun`, plus the unscoped `nylorun` (the stack
-  command, `npx nylorun up`). A package marked `"private": true` is not
+- **npm packages** under `@nylorun`, plus the unscoped `nylorun` (the local
+  Tenant command, `npx nylorun up`). A package marked `"private": true` is not
   published to npm. Studio is one: it ships only as its image.
 - **Container images** `ghcr.io/nylorun/runtime:<runtime version>` and
   `ghcr.io/nylorun/studio:<studio version>`, for `linux/amd64` and
@@ -155,15 +155,15 @@ The jobs run in this order:
 3. **publish** runs only after both images exist, because the nylorun it
    publishes pins them. It publishes the same tarballs on the `beta` tag
    (never `latest`): the engines first, then the creator. Then it smokes the
-   public quickstart on the Docker stack
+   public quickstart on a local Tenant
    (`scripts/release/smoke.mjs`): with no credentials and an empty npm config,
    `npm exec @nylorun/create-agent@<version>` creates a project; the published
    `nylorun start` in the project pulls its pinned `ghcr.io/nylorun/runtime` and
-   `ghcr.io/nylorun/studio` images, creates the project's stack and Tenant and
+   `ghcr.io/nylorun/studio` images, creates the project's Tenant and
    links the project, and its `npm run dev` connects. The smoke checks that the
-   stack runs exactly those images, that the Tenant is created and the starter's Action
+   Tenant runs exactly those images, that the Tenant is created and the starter's Action
    endpoint answers a ping, and that the Studio login works. It
-   makes no model calls, and it resets the stack's containers and volumes.
+   makes no model calls, and it resets the Tenant's containers and volumes.
 
 Tags use `@nylorun/<package>@<version>`, Studio's included, and
 `nylorun@<version>` for nylorun. Images carry only
@@ -222,7 +222,7 @@ After npm accepts a publication, the workflow polls visibility every five second
 for up to ten minutes. A registry timeout does not mean the publication failed:
 confirm the version's integrity before retrying the same reviewed release.
 
-`release:check` smokes the packed starter on the local Docker stack, so it
+`release:check` smokes the packed starter on a local Tenant, so it
 needs Docker with Compose v2. It builds `nylorun-runtime:local` and
 `nylorun-studio:local` from the checkout unless `NYLORUN_RUNTIME_IMAGE` and
 `NYLORUN_STUDIO_IMAGE` name images that are already built. The workflow's

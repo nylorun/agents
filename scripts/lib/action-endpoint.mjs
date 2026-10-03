@@ -1,6 +1,6 @@
 /**
  * An Action endpoint for the acceptance scripts: serves `agents` with `createActionHandler` on a
- * free port of this machine and registers it. On the local stack the Runtime runs in Docker and
+ * free port of this machine and registers it. On a local Tenant the Runtime runs in Docker and
  * maps `localhost` to this machine, so the server listens on every interface.
  */
 import { createServer } from "node:http";

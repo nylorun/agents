@@ -1,18 +1,18 @@
 # @nylorun/studio
 
 The Studio server: the session dashboard and the trusted Runtime proxy on one
-origin. It ships only as the `ghcr.io/nylorun/studio` image, which the local
-Docker stack runs as its `studio` service. This workspace package is private
+origin. It ships only as the `ghcr.io/nylorun/studio` image, which each local
+Tenant runs as its `studio` Compose service. This workspace package is private
 and is not published to npm. It depends only on `@nylorun/agents` and
 `@nylorun/admin` among Nylorun packages. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 ## Using Studio
 
-Developers never install this package. `nylorun` runs it in each stack:
+Developers never install this package. `nylorun` runs it for each Tenant:
 
 ```sh
-npx nylorun start      # starts the project's stack, including Studio, and opens it signed in
+npx nylorun start      # starts the project's Tenant, including Studio, and opens it signed in
 npx nylorun studio     # signs a browser in
 npx nylorun status     # reports Studio's health and URL
 npx nylorun logs studio
@@ -49,8 +49,8 @@ and the `tenant` claim of embed login tokens stay (the embed contract); they
 must name that Tenant, and any other id is an unknown Tenant (`404`).
 
 A Tenant with no agents shows **Connect your code**: the model provider,
-`npx nylorun start` in the project (it creates the project's stack and Tenant
-and links the project to it) and `npm run dev`, and it switches to the agent
+`npx nylorun start` in the project (it creates the project's Tenant and links
+the project to it) and `npm run dev`, and it switches to the agent
 list when the first agent registers. The dashboard calls the Tenant API through
 `/_studio/tenants/<id>/runtime/…`, which the server forwards with the Tenant's
 Studio key (derived from the admin key and the Tenant id in memory) and no
@@ -68,7 +68,7 @@ deferred.
 
 ```sh
 docker build -f studio/Dockerfile -t nylorun-studio:dev .   # from the repository root
-NYLORUN_STUDIO_IMAGE=nylorun-studio:dev nylorun start        # run it in the stack
+NYLORUN_STUDIO_IMAGE=nylorun-studio:dev nylorun start        # run it for the Tenant
 ```
 
 The container entry is `dist/server-main.js`:

@@ -31,7 +31,6 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
     throw new CliError("Usage: nylo status [--json]", 2);
   const root = projectRoot();
   const connection = await linkedConnection(root);
-  const stack = connection.link?.stack;
   let reason: unknown;
   try {
     const body = await clientFor(connection).transport.json<TenantStatusView>(
@@ -39,11 +38,10 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
       "GET",
     );
     if (json) {
-      console.log(JSON.stringify({ ...(stack ? { stack } : {}), ...body }, null, 2));
+      console.log(JSON.stringify(body, null, 2));
       return;
     }
     console.log(`${body.tenant.name}  ${body.tenant.id}`);
-    if (stack) console.log(`stack    ${stack}`);
     console.log(`runtime  ${connection.url}`);
     console.log(`path     ${body.path}`);
     console.log(
@@ -72,11 +70,10 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
     );
   }
   if (json) {
-    console.log(JSON.stringify({ ...(stack ? { stack } : {}), tenant }, null, 2));
+    console.log(JSON.stringify({ tenant }, null, 2));
     return;
   }
   console.log(`${tenant.name ?? "(unreadable)"}  ${tenant.id ?? "(unknown)"}  ${tenant.state}`);
-  if (stack) console.log(`stack    ${stack}`);
   console.log(`runtime  ${connection.url}`);
   if (tenant.cause) {
     console.log(`reason   ${tenant.cause.code}: ${tenant.cause.message}`);
@@ -97,11 +94,11 @@ export async function resetCommand(args: readonly string[]): Promise<void> {
     throw new CliError("Pass only one of --sessions, --sandboxes, --all.", 2);
   const scope = flags.length ? SCOPES[flags[0] as keyof typeof SCOPES] : "sessions";
   const connection = await linkedConnection(projectRoot());
-  const stack = connection.link?.stack;
-  const where = stack ? `stack ${stack} (${connection.url})` : connection.url;
+  const tenant = connection.link?.tenant;
+  const target = tenant ? `Tenant ${tenant} (${connection.url})` : `the Tenant on ${connection.url}`;
   if (scope === "all" && !yes)
     await confirmOrThrow(
-      `Reset ALL data of the Tenant on ${where}? The Project link and credentials are kept. [y/N] `,
+      `Reset ALL data of ${target}? The Project link and credentials are kept. [y/N] `,
     );
   try {
     await clientFor(connection).transport.json("/v1/tenant/reset", "POST", {
@@ -115,7 +112,7 @@ export async function resetCommand(args: readonly string[]): Promise<void> {
       1,
     );
   }
-  console.log(`Reset the Tenant on ${where} (${scope}).`);
+  console.log(`Reset ${target} (${scope}).`);
 }
 
 async function confirmOrThrow(prompt: string): Promise<void> {

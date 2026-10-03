@@ -8,7 +8,7 @@ import {
 import {
   AdminClient,
   resolveAdminConnection,
-  stackHostRoot,
+  tenantHostRoot,
   type AdminConnectionOptions,
 } from "./client.js";
 import {
@@ -21,7 +21,7 @@ import { AdminError } from "./errors.js";
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
-export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey, stackHostRoot };
+export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey, tenantHostRoot };
 export { mintStudioLoginToken } from "./studio-login.js";
 
 export interface Admin {
@@ -42,8 +42,8 @@ export interface Admin {
 
 /**
  * Resolution: explicit `url` + `key` → `NYLORUN_ADMIN_URL` + `NYLORUN_ADMIN_KEY` → the local
- * Host's settings in its Host root (`home`, `NYLORUN_HOME`, or the stack named by `stack`,
- * `NYLORUN_STACK` or the Project link under `cwd`: `~/.nylorun/stacks/<stack>/`).
+ * Host's settings in its Host root (`home`, `NYLORUN_HOME`, or the Tenant named by `tenant`,
+ * `NYLORUN_TENANT` or the Project link under `cwd`: `~/.nylorun/tenants/<tenant>/`).
  */
 export function createAdmin(options?: AdminConnectionOptions): Admin {
   return new AdminClient(resolveAdminConnection(options));

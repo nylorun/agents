@@ -1,5 +1,5 @@
 /**
- * Packed create-agent starter on the local Docker stack:
+ * Packed create-agent starter on a local Tenant:
  *
  *   node create-agent/scripts/smoke-starter.mjs
  *
@@ -7,16 +7,16 @@
  *   scaffolds the starter from the packed creator, installs it offline from
  *   the tarballs and builds it. Its only Nylorun dependencies are
  *   @nylorun/agents and @nylorun/core; it has no Nylorun devDependency.
- * - Installs nylorun (the stack) and @nylorun/cli (nylo, the Runtime client)
+ * - Installs nylorun (local Tenants) and @nylorun/cli (nylo, the Runtime client)
  *   from their tarballs into a separate tools directory, as `npx` would.
  * - Builds (or reuses, see scripts/lib/stack.mjs) the Runtime and Studio
  *   images and, under a temporary NYLORUN_HOME, runs `nylorun start` in the
- *   project with NYLORUN_STACK naming the test stack (the stack, its one
- *   Tenant and the Project link), then the project's `npm run dev`: the
+ *   project with NYLORUN_TENANT naming the test Tenant (its containers and
+ *   the Project link), then the project's `npm run dev`: the
  *   starter registers `assistant` and its Action endpoint, the Runtime in
  *   Docker reaches it (a ping), and `nylorun studio` lands on that Tenant
  *   (303 + cookie, /_studio/hello, the Tenant proxy).
- * - A source edit re-registers the agent; stopping dev keeps the stack; a
+ * - A source edit re-registers the agent; stopping dev keeps the Tenant running; a
  *   second dev reuses the link; the compiled `npm start` registers with the
  *   two Project variables.
  * - The Tenant, reset and seeded with the fixture model
@@ -185,16 +185,16 @@ try {
     async (stack) => {
       const { env } = stack;
 
-      // 1-2. `nylorun start` in the project sets up and starts the stack (named by
-      // NYLORUN_STACK), whose Runtime creates its one Tenant, and links the project.
+      // 1-2. `nylorun start` in the project sets up and starts the Tenant (named by
+      // NYLORUN_TENANT) and links the project.
       const { runtimeUrl } = await stack.start([], { cwd: project });
       assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/);
       const admin = await stack.admin(
         pathToFileURL(join(tools, "node_modules/@nylorun/admin/dist/index.js")).href,
       );
       const { link, credentials } = await readProject(project);
-      assert.equal(link.format, 2);
-      assert.equal(link.stack, env.NYLORUN_STACK, "the link names the stack");
+      assert.equal(link.format, 3);
+      assert.equal(link.tenant, env.NYLORUN_TENANT, "the link names the Tenant");
       assert.equal(link.hostUrl, runtimeUrl);
       assert.equal((await stat(join(project, ".nylorun/credentials.json"))).mode & 0o777, 0o600);
       const { tenant } = await admin.status();
@@ -286,10 +286,10 @@ try {
 
       // 6. Ctrl-C stops the Project only.
       await dev.stop();
-      assert.equal((await fetch(`${runtimeUrl}/ready`)).status, 200, "the stack keeps running");
+      assert.equal((await fetch(`${runtimeUrl}/ready`)).status, 200, "the Tenant keeps running");
       await disconnected();
 
-      // 7. A second dev reuses the running stack and the Project link.
+      // 7. A second dev reuses the running Tenant and the Project link.
       const again = group.start("dev-again", process.execPath, [npmCli(), "run", "dev"], {
         cwd: project,
         env,
@@ -387,7 +387,7 @@ try {
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on the stack: nylorun start in the project creates the stack, its Tenant and the link, npm run dev serves and registers the Action endpoint, nylorun studio lands on the Tenant, source restart, stack outlives dev, link reuse, compiled npm start, a fixture-model turn on the reset Tenant, Docker missing.",
+    "PASS: packed starter (agents + core only) on a local Tenant: nylorun start in the project creates the Tenant and the link, npm run dev serves and registers the Action endpoint, nylorun studio lands on the Tenant, source restart, Tenant outlives dev, link reuse, compiled npm start, a fixture-model turn on the reset Tenant, Docker missing.",
   );
 } catch (error) {
   console.error(error);

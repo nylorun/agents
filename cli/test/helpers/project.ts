@@ -32,10 +32,10 @@ export async function writeProjectLink(
     });
 }
 
-/** A format-2 link to `hostUrl` on stack `demo`. */
-export const link2 = (hostUrl: string, extra: Record<string, unknown> = {}) => ({
-  format: 2,
-  stack: "demo",
+/** A format-3 link to `hostUrl` on the local Tenant `demo`. */
+export const link3 = (hostUrl: string, extra: Record<string, unknown> = {}) => ({
+  format: 3,
+  tenant: "demo",
   hostUrl,
   hostId: HOST_ID,
   tenantId: "tn_00000000000000000000000000",

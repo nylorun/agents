@@ -8,31 +8,31 @@ import {
   type StackStatus,
 } from "./stack/index.js";
 
-/** Oldest Node the stack's tooling and the developer's application run on. */
+/** Oldest Node nylorun and the developer's application run on. */
 const MIN_NODE_MAJOR = 24;
 
 export interface StackDoctorReport {
   node: { version: string; ok: boolean };
   docker: Check;
   compose?: Check;
-  stack?: Pick<
+  tenant?: Pick<
     StackStatus,
     "name" | "project" | "home" | "state" | "runtime" | "tenant" | "studio" | "gateway"
   >;
-  /** Why no stack was checked: none is selected here (no link, NYLORUN_STACK or NYLORUN_HOME). */
-  noStack?: string;
+  /** Why no Tenant was checked: none is selected here (a project without a link). */
+  noTenant?: string;
 }
 
 /**
- * `nylorun doctor`: check the prerequisites of the local stack (Node 24+,
- * Docker, Compose v2) and, when they pass, the stack's health. Prints the fix
+ * `nylorun doctor`: check the prerequisites of a local Tenant (Node 24+,
+ * Docker, Compose v2) and, when they pass, the Tenant's health. Prints the fix
  * for each problem and returns 1 when a prerequisite is missing or a running
- * stack is unhealthy; installs and starts nothing.
+ * Tenant is unhealthy; installs and starts nothing.
  */
 export async function doctorStack(options: {
   json: boolean;
   env?: Readonly<Record<string, string | undefined>>;
-  /** Stack dependencies (tests). */
+  /** Command dependencies (tests). */
   deps?: StackDeps;
   log?: (line: string) => void;
 }): Promise<number> {
@@ -47,7 +47,7 @@ export async function doctorStack(options: {
   if (checks.docker.ok && checks.compose?.ok) {
     try {
       const status = await readStackStatus(deps);
-      report.stack = {
+      report.tenant = {
         name: status.name,
         project: status.project,
         home: status.home,
@@ -59,16 +59,16 @@ export async function doctorStack(options: {
       };
     } catch (error) {
       if (!(error instanceof CliError) || error.exitCode !== 2) throw error;
-      report.noStack = error.message;
+      report.noTenant = error.message;
     }
   }
-  const stackBroken =
-    report.stack?.state === "running" &&
-    (!report.stack.runtime.healthy ||
-      !report.stack.gateway.healthy ||
-      report.stack.tenant?.cause !== undefined);
+  const broken =
+    report.tenant?.state === "running" &&
+    (!report.tenant.runtime.healthy ||
+      !report.tenant.gateway.healthy ||
+      report.tenant.tenant?.cause !== undefined);
   const failed =
-    !nodeOk || !checks.docker.ok || checks.compose?.ok === false || stackBroken;
+    !nodeOk || !checks.docker.ok || checks.compose?.ok === false || broken;
   if (options.json) {
     log(JSON.stringify(report, null, 2));
     return failed ? 1 : 0;
@@ -89,40 +89,40 @@ export async function doctorStack(options: {
     ["docker", line(checks.docker)],
     ["compose", line(checks.compose)],
   ];
-  const stack = report.stack;
-  if (report.noStack) rows.push(["stack", `- ${report.noStack}`]);
-  if (stack) {
+  const local = report.tenant;
+  if (report.noTenant) rows.push(["tenant", `- ${report.noTenant}`]);
+  if (local) {
     rows.push([
-      "stack",
-      stack.state === "absent"
-        ? `- ${stack.name} not created under ${stack.home}: run nylorun up`
-        : stack.state === "stopped"
-          ? `- ${stack.name} stopped (Compose project ${stack.project}): run nylorun up`
-          : stack.runtime.healthy
-            ? `✓ ${stack.name} running (Compose project ${stack.project})`
-            : `✗ ${stack.name} running, but the Runtime does not answer: see nylorun status and nylorun logs runtime`,
+      "tenant",
+      local.state === "absent"
+        ? `- ${local.name} not created under ${local.home}: run nylorun up`
+        : local.state === "stopped"
+          ? `- ${local.name} stopped (Compose project ${local.project}): run nylorun up`
+          : local.runtime.healthy
+            ? `✓ ${local.name} running (Compose project ${local.project})`
+            : `✗ ${local.name} running, but the Runtime does not answer: see nylorun status and nylorun logs runtime`,
     ]);
-    if (stack.state === "running") {
+    if (local.state === "running") {
       rows.push([
         "runtime",
-        stack.runtime.healthy
-          ? `✓ ${stack.runtime.url ?? "?"} · ${stack.runtime.version ?? "?"}`
-          : `✗ ${stack.runtime.url ?? "?"} not answering`,
+        local.runtime.healthy
+          ? `✓ ${local.runtime.url ?? "?"} · ${local.runtime.version ?? "?"}`
+          : `✗ ${local.runtime.url ?? "?"} not answering`,
       ]);
       rows.push([
         "gateway",
-        stack.gateway.healthy
-          ? `✓ ${stack.gateway.state} · combined packing (runtime: core,loop; gateway: gates)`
-          : `✗ ${stack.gateway.state}: model calls fail; see nylorun logs gateway`,
+        local.gateway.healthy
+          ? `✓ ${local.gateway.state} · combined packing (runtime: core,loop; gateway: gates)`
+          : `✗ ${local.gateway.state}: model calls fail; see nylorun logs gateway`,
       ]);
-      if (stack.tenant)
+      if (local.tenant)
         rows.push([
-          "tenant",
-          stack.tenant.state === "open"
-            ? `✓ ${stack.tenant.id ?? "?"} open`
-            : `✗ ${stack.tenant.id ?? "?"} unavailable${stack.tenant.cause ? `: ${stack.tenant.cause.code}: ${stack.tenant.cause.repair}` : " (opening)"}`,
+          "tenant id",
+          local.tenant.state === "open"
+            ? `✓ ${local.tenant.id ?? "?"} open`
+            : `✗ ${local.tenant.id ?? "?"} unavailable${local.tenant.cause ? `: ${local.tenant.cause.code}: ${local.tenant.cause.repair}` : " (opening)"}`,
         ]);
-      rows.push(["studio", `${stack.studio.url ?? "?"} · ${stack.studio.state}`]);
+      rows.push(["studio", `${local.studio.url ?? "?"} · ${local.studio.state}`]);
     }
   }
   const width = Math.max(...rows.map(([key]) => key.length)) + 2;

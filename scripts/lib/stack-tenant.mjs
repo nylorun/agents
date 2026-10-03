@@ -1,6 +1,6 @@
 /**
- * The stack's one Tenant, reset for a smoke or acceptance check: a Host serves
- * one Tenant, so a check starts from a clean one instead of creating its own.
+ * The local Tenant, reset for a smoke or acceptance check: a Host serves one
+ * Tenant, so a check starts from a clean one instead of creating its own.
  * Reset through the Tenant API (`POST /v1/tenant/reset`, scope `all`, active
  * work cancelled: what `nylo reset --all` does), seeded with the Tenant-level
  * fixture model (no model credential), handed to `fn` as NYLORUN_RUNTIME_URL

@@ -1,6 +1,6 @@
 /**
- * Access acceptance (Phase 1) on the local Docker stack, under a temporary
- * NYLORUN_HOME and a unique stack project (never ~/.nylorun):
+ * Access acceptance (Phase 1) on a local Tenant, under a temporary
+ * NYLORUN_HOME and a unique Tenant name (never ~/.nylorun):
  *
  *   node scripts/acceptance/access.mjs
  *
@@ -349,7 +349,7 @@ try {
       }
     });
   });
-  console.log("\nAccess acceptance on the stack:");
+  console.log("\nAccess acceptance on a local Tenant:");
   for (const item of results) console.log(`  PASS ${item.id} ${item.message}`);
 } catch (error) {
   console.error(error);

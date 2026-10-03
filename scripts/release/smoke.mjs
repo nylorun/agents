@@ -1,5 +1,5 @@
 /**
- * Post-publication smoke: the public quickstart on the local Docker stack, as
+ * Post-publication smoke: the public quickstart on a local Tenant, as
  * a developer runs it on a machine with Node 24 and Docker.
  *
  * - `npm exec @nylorun/create-agent@<version> -- application --yes` from the
@@ -8,17 +8,17 @@
  *   @nylorun/agents) and starts nothing.
  * - The published `nylorun` and `@nylorun/cli`, installed from the registry
  *   beside the project (what `npx` runs): `nylorun start` in the project
- *   creates and starts its stack on the images it pins
+ *   creates and starts its Tenant on the images it pins
  *   (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from GHCR, never built
- *   here), whose Runtime creates its one Tenant, and links the project to it;
+ *   here), and links the project to it;
  *   the project's `npm run dev` serves and registers its Action endpoint.
- * - Checks: the stack runs exactly the pinned images; the Admin API reports
+ * - Checks: the Tenant runs exactly the pinned images; the Admin API reports
  *   the linked Tenant open; `assistant` is registered and the Runtime reaches
  *   its Action endpoint (a ping through the Runtime answers 200); the login
  *   from `nylorun studio` lands on the Tenant and Studio proxies its API.
  *
  * Runs under `withStack` (scripts/lib/stack.mjs): a temporary NYLORUN_HOME and
- * a unique stack name (NYLORUN_STACK), always reset (containers and volumes)
+ * a unique Tenant name (NYLORUN_TENANT), always reset (containers and volumes)
  * at the end.
  */
 import assert from "node:assert/strict";
@@ -158,14 +158,14 @@ export async function publicCreatorSmoke(versions, pins) {
             "the published nylorun pins this release's images",
           );
 
-          // Registry install is done; image pulls, the first stack start and the link.
+          // Registry install is done; image pulls, the Tenant's first start and the link.
           const up = (await stack.nylorun(["start"], { cwd: project, timeout: 900_000 })).stdout;
           const running = composeServices(await stack.compose(["ps", "--format", "json"]));
           for (const name of ["runtime", "studio"])
             assert.equal(
               running.find((service) => service.Service === name)?.Image,
               `ghcr.io/nylorun/${name}:${pins[name]}`,
-              `the stack runs the published ${name} image`,
+              `the Tenant runs the published ${name} image`,
             );
           const runtimeUrl = bannerField(up.split("\n"), "Runtime");
           assert.match(runtimeUrl ?? "", /^http:\/\/localhost:\d+$/, up);
@@ -228,10 +228,10 @@ export async function publicCreatorSmoke(versions, pins) {
           );
           assert.equal(proxied.status, 200, await proxied.clone().text());
           console.log(
-            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its stack's Tenant, Action endpoint reachable, Studio login works.`,
+            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its Tenant, Action endpoint reachable, Studio login works.`,
           );
         } finally {
-          // Stop the Project before the stack is reset.
+          // Stop the Project before the Tenant is reset.
           await group.close();
         }
       },

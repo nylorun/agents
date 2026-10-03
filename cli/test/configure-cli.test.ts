@@ -7,7 +7,7 @@ import {
   PROTOCOL_FEATURES,
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
-import { link2, project, writeProjectLink } from "./helpers/project.js";
+import { link3, project, writeProjectLink } from "./helpers/project.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const roots: string[] = [];
@@ -69,7 +69,7 @@ it(
     const root = await project("configure-cli-");
     roots.push(root);
     const host = await startHost();
-    await writeProjectLink(root, link2(host.url));
+    await writeProjectLink(root, link3(host.url));
     const child = spawn(process.execPath, [cli, "configure"], {
       cwd: root,
       stdio: ["pipe", "pipe", "pipe"],

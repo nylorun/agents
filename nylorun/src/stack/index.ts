@@ -29,7 +29,7 @@ function browserCommand(env: Readonly<Record<string, string | undefined>>): stri
  * environment must not override them when Compose interpolates the file.
  */
 const STACK_ENV_OWNED = [
-  "NYLORUN_STACK_NAME",
+  "NYLORUN_TENANT_NAME",
   "NYLORUN_DERIVED_PRINCIPALS",
   "NYLORUN_STUDIO_ANALYTICS_ID",
 ];
@@ -90,7 +90,7 @@ export function defaultStackDeps(
   };
 }
 
-/** Entry for `nylorun start|stop|status|logs|reset|studio|ls|delete|legacy`. */
+/** Entry for `nylorun start|stop|status|logs|reset|studio|ls|delete`. */
 export async function stackCommand(
   name: string,
   args: readonly string[],
@@ -99,7 +99,7 @@ export async function stackCommand(
   return await runStackCommand(name, args, defaultStackDeps(env));
 }
 
-/** `nylorun studio`, landing on `next` when given, else on the stack's Tenant. */
+/** `nylorun studio`, landing on `next` when given, else on the Tenant's page. */
 export async function studioCommand(
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>>,

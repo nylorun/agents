@@ -57,6 +57,6 @@ export function repairFor(code: TenantCause["code"]): string {
     case "open-failed":
       return "inspect the Runtime log, repair what it names, then restart the Runtime";
     case "database-layout-old":
-      return "this release starts fresh: point the Runtime at a new database (a new stack: `nylorun start`); the old database is left as it is";
+      return "this release starts fresh: point the Runtime at a new database (locally, a new Tenant: `nylorun start --tenant <new name>`); the old database is left as it is";
   }
 }

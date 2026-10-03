@@ -73,7 +73,7 @@ export async function mintStudioLoginToken(options: {
   if (!parsed.success)
     throw new AdminError(
       "incompatible_host",
-      "This Studio does not support login tokens limited to a Tenant; update the stack.",
+      "This Studio does not support login tokens limited to a Tenant; update Studio (npx nylorun@latest start).",
     );
   return parsed.data;
 }

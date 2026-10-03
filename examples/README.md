@@ -13,7 +13,7 @@ npm run setup
 npm run dev
 ```
 
-Root development rebuilds local packages and the Runtime and Studio images, runs them in the examples' own local Docker stack (Runtime on port 8787, Studio on port 4161 by default) with `nylorun start` in this directory, which creates the stack and its Tenant, links this directory to it, and on that first link seeds the model provider from `.env` into the Tenant's vault; then it runs these examples with their own `npm run dev`. Outside root development, run `npx nylorun start` here, then `npm run dev`. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the stack is running.
+Root development rebuilds local packages and the Runtime and Studio images, runs them as the examples' own local Tenant (Docker Compose; Runtime on port 8787, Studio on port 4161 by default) with `nylorun start` in this directory, which creates the Tenant, links this directory to it, and on that first link seeds the model provider from `.env` into the Tenant's vault; then it runs these examples with their own `npm run dev`. Outside root development, run `npx nylorun start` here, then `npm run dev`. Use `npm run dev -- --no-studio` without Studio. From this directory, `npx nylorun studio` opens a fresh Studio login on the examples Tenant; `npm run build` and `npm start` exercise production startup. `npm run configure` replaces the vault credential while the Tenant is running.
 
 `MODEL_PROVIDER`, `MODEL`, and `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_BASE_URL` for a custom endpoint) seed the vault once when they are already set. They are not the call-time store. An existing `.env/` directory must be migrated by hand (back it up, create a `.env` file with those variables, and move OAuth credentials to `.nylorun/auth.json`); local state is never moved automatically.
 
@@ -54,7 +54,7 @@ createServer(toNodeListener({ fetch })).listen(3000);
 await actions.register({ url: "http://localhost:3000/nylorun/actions" });
 ```
 
-Run it with the stack and the examples Tenant from `npm run dev`:
+Run it with the examples Tenant from `npm run dev` running:
 
 ```sh
 npm run ag-ui
@@ -98,7 +98,7 @@ the publishable key once. The page's side is
 npm run browser-direct
 ```
 
-The stack allows browser requests from `http://localhost:*` with that key.
+The local Tenant allows browser requests from `http://localhost:*` with that key.
 [`test/browser-direct.test.ts`](./test/browser-direct.test.ts) runs a chat with
 an approval from the page against an in-process Runtime, reloads it, and checks
 that the page never receives the application key.
@@ -269,4 +269,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-Sessions of the supported registry live in the examples' local Docker stack: its Tenant's Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx @nylorun/cli reset --all` empties the Tenant, and `npx nylorun reset` deletes the stack's data. Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx @nylorun/cli reset --all` empties the Tenant, and `npx nylorun reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.

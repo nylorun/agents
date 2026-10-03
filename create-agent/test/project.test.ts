@@ -169,7 +169,7 @@ it("renders a fresh project before installation, then installs and starts nothin
   expect(commands).toEqual([["npm", ["install", "--yes"], "/workspace/demo"]]);
 });
 
-it("prints the next steps: the stack with its Tenant and link, then development", async () => {
+it("prints the next steps: the Tenant and its link, then development", async () => {
   const deps = fixture();
   await createProject({ ...options, yes: true }, compatibility, deps);
   const next = deps.log.mock.calls.at(-1)?.[0] as string;

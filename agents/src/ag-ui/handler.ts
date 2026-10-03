@@ -128,7 +128,7 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
       if (missing.length > 0)
         throw new Problem(
           502,
-          `The Runtime does not support ${missing.join(", ")}; upgrade the stack (nylorun up).`,
+          `The Runtime does not support ${missing.join(", ")}; update the Runtime (npx nylorun@latest start).`,
           "runtime_feature_missing"
         );
       return client;

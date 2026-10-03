@@ -27,7 +27,7 @@
   "servers": [
     {
       "url": "{origin}",
-      "description": "The operator listener: the local stack's, or where yours runs",
+      "description": "The operator listener: a local Tenant's, or where yours runs",
       "variables": {
         "origin": {
           "default": "http://localhost:8788"

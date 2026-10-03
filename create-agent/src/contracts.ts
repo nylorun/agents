@@ -14,7 +14,7 @@ export type CreateOptions = Readonly<{
   notes?: readonly string[];
 }>;
 
-/** Docker and Compose v2, which the local stack needs. */
+/** Docker and Compose v2, which local Tenants need. */
 export type DockerCheck =
   | Readonly<{ ok: true }>
   | Readonly<{ ok: false; problem: string }>;
