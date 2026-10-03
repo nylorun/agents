@@ -311,6 +311,7 @@ export class TenantRuntime implements TenantHandle {
       else if (config.model.kind === "fixture")
         modelProvider = toolFixtureModel();
       else modelProvider = scriptedModel();
+      const blobs = hooks.blobs ?? createFsBlobStore({ root: paths.blobs });
       // With the gates service the loop never reads a model credential: only a Runtime
       // without one (embedding, the ephemeral Runtime, tests) reads it here.
       const modelGate =
@@ -320,6 +321,7 @@ export class TenantRuntime implements TenantHandle {
           kek: ensureKek,
           root: paths.home,
           logger: config.logger,
+          blobs,
           ...(config.modelCall ? { settings: config.modelCall } : {}),
         });
 
@@ -360,7 +362,7 @@ export class TenantRuntime implements TenantHandle {
         sessionStreams,
         signingKeys,
         keys,
-        blobs: hooks.blobs ?? createFsBlobStore({ root: paths.blobs }),
+        blobs,
         ...(hooks.runGrants ? { runGrants: hooks.runGrants } : {}),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,

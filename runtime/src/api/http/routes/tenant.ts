@@ -160,6 +160,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
           store: ctx.store,
           sandbox: ctx.sandbox,
           paths: ctx.config.paths,
+          blobs: ctx.blobs,
           clearSessionState: () => {
             clearWork(ctx);
             clearObservers(ctx.sessionStreams);

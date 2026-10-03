@@ -10,7 +10,9 @@ import type { Logger } from "../tenant/types.js";
 import { HostModelVault } from "../vault/host-model.js";
 import type { HostModelSecret } from "../vault/service.js";
 import { createMeter } from "./meter.js";
-import type { ModelGate } from "./model-gate.js";
+import type { ModelGate, ModelGateRequest } from "./model-gate.js";
+import { artifactFiles, type FileResolver } from "../artifacts/files.js";
+import type { BlobStore } from "../blob/index.js";
 
 export interface InProcessModelGateOptions {
   /** The Tenant's home: `piModel` redacts secrets it finds there from failure messages. */
@@ -19,6 +21,20 @@ export interface InProcessModelGateOptions {
   /** Writes back a credential pi-ai refreshed (OAuth). */
   readonly writeHostCredential: (credential: Credential) => Promise<void>;
   readonly settings?: ModelCallSettings;
+  /** Reads the files a call's prompt names (protocol 6): artifacts, for model-gate. */
+  readonly files?: (request: ModelGateRequest) => FileResolver;
+}
+
+/**
+ * The files a call names, from the Tenant's artifacts, limited to the call's session: in
+ * process, the loop's own request; over HTTP, the session of the run token's claims, which the
+ * gate's route puts on the request (F5). A request without a session reads no file at all.
+ */
+export function callFiles(
+  store: SessionStore,
+  blobs: BlobStore,
+): (request: Pick<ModelGateRequest, "sessionId">) => FileResolver {
+  return (request) => artifactFiles({ store, blobs, sessionId: request.sessionId });
 }
 
 /**
@@ -32,6 +48,8 @@ export function tenantModelGate(options: {
   readonly root: string;
   readonly logger: Logger;
   readonly settings?: ModelCallSettings;
+  /** The Tenant's Object store, for the files a prompt names. */
+  readonly blobs?: BlobStore;
 }): ModelGate {
   const vault = new HostModelVault({ store: options.store, kek: options.kek });
   const gate = inProcessModelGate({
@@ -39,6 +57,7 @@ export function tenantModelGate(options: {
     readHostModel: () => vault.readHostModel(),
     writeHostCredential: (credential) => vault.updateHostCredential(credential),
     ...(options.settings ? { settings: options.settings } : {}),
+    ...(options.blobs ? { files: callFiles(options.store, options.blobs) } : {}),
   });
   const meter = createMeter({ logger: options.logger });
   return {
@@ -55,6 +74,7 @@ export function inProcessModelGate(options: InProcessModelGateOptions): ModelGat
         readHostModel: options.readHostModel,
         writeHostCredential: options.writeHostCredential,
         ...(options.settings ? { settings: options.settings } : {}),
+        ...(options.files ? { files: options.files(request) } : {}),
       });
       return adapter(request.call, {
         // The Runtime never journals the provider request (harness `durable.ts`), and

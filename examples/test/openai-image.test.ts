@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ModelAdapterContext, ModelCall, ModelRequest } from "@nylorun/core/define";
 import { createOpenAIImageEditor } from "../agents/interior-design/image-editor.js";
-import { MediaStore, piModel } from "@nylorun/runtime/node";
+import { piModel } from "@nylorun/runtime/node";
 
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const encodedPng = Buffer.from(png).toString("base64");
@@ -73,15 +73,14 @@ describe("OpenAI image integrations", () => {
     }
   });
 
-  it("materializes opaque assets only in the provider wire request", async () => {
+  it("materializes file references only in the provider wire request", async () => {
     const root = await mkdtemp(join(tmpdir(), "openai-compatible-media-test-"));
-    const media = new MediaStore(root);
-    const asset = await media.saveInput(
-      "interior-design",
-      "room",
-      "image/png",
-      encodedPng,
-    );
+    // The Runtime resolves an artifact reference from its Object store; here, from memory.
+    const asset = { id: "af_00000000000000000000000001", version: 1 };
+    const files = async (reference: unknown) => {
+      expect(reference).toEqual({ artifactId: asset.id, version: asset.version });
+      return { name: "room.png", mediaType: "image/png", bytes: png };
+    };
     let requestBody = "";
     let prepared: unknown;
     vi.stubGlobal(
@@ -113,7 +112,7 @@ describe("OpenAI image integrations", () => {
             {
               type: "media",
               mediaType: "image/png",
-              reference: { agentId: "interior-design", assetId: asset.id },
+              reference: { artifactId: asset.id, version: asset.version },
             },
           ],
         },
@@ -123,7 +122,7 @@ describe("OpenAI image integrations", () => {
     try {
       const adapter = piModel({
         root,
-        media,
+        files,
         readHostModel: () => ({
           provider: "custom",
           model: "vision-test",

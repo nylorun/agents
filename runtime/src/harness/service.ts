@@ -10,7 +10,13 @@
  * (`event`): for the run that made the call, or the workspace request core sent.
  */
 import { join } from "node:path";
-import { HarnessApiError, type RequestHandler, type WorkspaceCall } from "@nylorun/core/harness-api";
+import {
+  HarnessApiError,
+  type RequestHandler,
+  type WorkspaceBytesCall,
+  type WorkspaceCall,
+  type WorkspaceSession,
+} from "@nylorun/core/harness-api";
 import type { CapabilityManifest, SandboxManifest, SandboxToolName } from "@nylorun/core/define";
 import type { HarnessOptions } from "@nylorun/harness/api";
 import type { ModelProvider } from "../core/provider.js";
@@ -74,6 +80,15 @@ export interface HarnessService {
   stop(waitMs?: number): Promise<void>;
 }
 
+/** The SandboxManager's view of the session a workspace request acts for. */
+function refOf(session: WorkspaceSession) {
+  return {
+    id: session.ownerId,
+    activeTurnId: session.activeTurnId,
+    ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
+  };
+}
+
 const noModel: ModelProvider = async () => {
   throw new Error("This harness calls models only through the gates service");
 };
@@ -122,15 +137,24 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       case "workspace.read":
       case "workspace.write":
       case "workspace.exec": {
+        if (method === "workspace.read" && "bytes" in (params as object)) {
+          const call = params as WorkspaceBytesCall;
+          const read = await sandbox().readBytes(
+            refOf(call.session),
+            { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+            call.bytes.path,
+            call.bytes.maxBytes,
+            signal
+          );
+          return read.kind === "read"
+            ? { kind: "read", path: read.path, base64: Buffer.from(read.bytes).toString("base64") }
+            : read;
+        }
         const call = params as WorkspaceCall;
         if (METHODS[call.tool as SandboxToolName] !== method)
           throw new HarnessApiError("invalid", `${method} does not run ${call.tool}`);
         return sandbox().run(
-          {
-            id: call.session.ownerId,
-            activeTurnId: call.session.activeTurnId,
-            ...(call.session.sandboxId === undefined ? {} : { sandboxId: call.session.sandboxId }),
-          },
+          refOf(call.session),
           { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
           call.tool as SandboxToolName,
           call.input,

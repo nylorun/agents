@@ -90,6 +90,19 @@ class SegmentStopped extends Error {
   }
 }
 
+/**
+ * The harness holding the run went away without giving it back (`connection.lost`): an effect
+ * it was running may still be running, or may have died with it. Like a Worker that died, the
+ * advance keeps the lease, which lapses, so the next advance takes the session over and marks
+ * what was `invoking` `uncertain` (§11.4). Never leaves `advance`.
+ */
+class RunLost extends Error {
+  override readonly name = "RunLost";
+  constructor() {
+    super("The harness holding the run went away");
+  }
+}
+
 /** Throws `SegmentStopped` when the signal aborted for a reason that must not settle. */
 function stopIfLeaving(signal: AbortSignal): void {
   const kind = abortKind(signal);
@@ -150,11 +163,19 @@ export async function advance(
   const run: RunOf = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
   const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
+  let release = true;
   try {
     await grantRun(ctx, lease, run);
     await runRemoteSegment(ctx, lease, taken.session, controller, run, () => heartbeat.stop());
   } catch (error) {
-    if (error instanceof HarnessUnavailable) {
+    if (error instanceof RunLost) {
+      ctx.config.logger.warn("advance lost its harness; the lease lapses and the session is taken over", {
+        sessionId: id,
+        epoch: lease.epoch,
+      });
+      release = false;
+      result = { status: "busy", retryAfterMs: ctx.ownerLeaseMs };
+    } else if (error instanceof HarnessUnavailable) {
       ctx.config.logger.warn("advance found no harness; session left for the next advance", {
         sessionId: id,
         epoch: lease.epoch,
@@ -182,7 +203,8 @@ export async function advance(
       ctx.work.runningTurns.delete(id);
     }
     // Best effort: a release that fails leaves a lease that simply expires.
-    await ctx.store
+    if (release)
+      await ctx.store
       .tx((t) => t.releaseOwnership(id, lease.owner, lease.epoch))
       .catch((error) =>
         ctx.config.logger.warn("advance failed to release ownership", {
@@ -293,6 +315,8 @@ async function runRemoteSegment(
     if (end.kind === "unavailable") throw new HarnessUnavailable();
     // Aborted before a harness took it: settled as an abort of the engine would be.
     if (end.kind === "aborted") throw signal.reason;
+    // Checked before the abort: whatever core's signal says, the run's effects are unaccounted for.
+    if (end.kind === "released" && end.reason === "connection.lost") throw new RunLost();
     stopIfLeaving(signal);
     if (end.kind === "released")
       throw new SegmentStopped(end.reason === "ownership.lost" ? "ownership.lost" : "shutdown");
@@ -320,7 +344,12 @@ async function runRemoteSegment(
     end.reply(cursor === undefined ? {} : { cursor });
   } catch (error) {
     if (end?.kind === "output") end.refuse(error);
-    if (isOwnershipLost(error) || error instanceof SegmentStopped || error instanceof HarnessUnavailable)
+    if (
+      isOwnershipLost(error) ||
+      error instanceof SegmentStopped ||
+      error instanceof HarnessUnavailable ||
+      error instanceof RunLost
+    )
       throw error;
     stopIfLeaving(signal);
     // A segment stopped by its deadline fails with the deadline, not the abort it caused.

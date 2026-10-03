@@ -255,13 +255,23 @@ export interface WorkspaceCall {
 }
 
 /**
+ * A file of a workspace read as bytes (`save_artifact`, F8.1), at most `maxBytes`. The answer is
+ * `{kind: "read", path, base64}`, `{kind: "missing", path}` or a failed tool outcome.
+ */
+export interface WorkspaceBytesCall {
+  readonly session: WorkspaceSession;
+  readonly spec: unknown;
+  readonly bytes: { readonly path: string; readonly maxBytes: number };
+}
+
+/**
  * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
  * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `sandbox.*` events
  * while the request is in flight. `workspace.read` stays generic: F8.2 exports outputs
  * through it.
  */
 export interface CoreRequests {
-  "workspace.read": { params: WorkspaceCall; result: Record<string, unknown> };
+  "workspace.read": { params: WorkspaceCall | WorkspaceBytesCall; result: Record<string, unknown> };
   "workspace.write": { params: WorkspaceCall; result: Record<string, unknown> };
   "workspace.exec": { params: WorkspaceCall; result: Record<string, unknown> };
   /** The harness's sandbox selection report (`GET /v1/tenant/sandbox`, Tenant status). */

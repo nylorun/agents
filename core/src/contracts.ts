@@ -976,7 +976,28 @@ const messageBase = {
   /** Optional turn manifest (Loop patch); validated as a variant of the pinned agent. */
   manifest: AgentManifestSchema.optional(),
 };
-/** Exactly one of `content` or `data`. Optional `manifest` for per-turn agent patches. */
+/** The most parts one message may carry (protocol 6). */
+export const MAX_MESSAGE_PARTS = 32;
+/**
+ * One part of a user message (protocol 6): text, or a file by artifact id. A file part without
+ * `version` means the artifact's latest version when the message is accepted; the Runtime pins
+ * it then. The model reads an image as an image, a text file as text, and refuses other files.
+ */
+export const MessagePartSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string().min(1) }).strict(),
+  z
+    .object({
+      type: z.literal("file"),
+      artifactId: z.string().min(1),
+      version: z.number().int().positive().optional(),
+    })
+    .strict(),
+]);
+export type MessagePart = z.infer<typeof MessagePartSchema>;
+/**
+ * Exactly one of `content`, `data` or `parts` (protocol 6). Optional `manifest` for per-turn
+ * agent patches.
+ */
 export const MessageEventBodySchema = z.union([
   z
     .object({
@@ -988,6 +1009,12 @@ export const MessageEventBodySchema = z.union([
     .object({
       ...messageBase,
       data: jsonValue,
+    })
+    .strict(),
+  z
+    .object({
+      ...messageBase,
+      parts: z.array(MessagePartSchema).min(1).max(MAX_MESSAGE_PARTS),
     })
     .strict(),
 ]);
@@ -1373,6 +1400,8 @@ export const CommandMessagePayloadSchema = z
     type: z.literal("message"),
     content: z.string().optional(),
     data: jsonValue.optional(),
+    /** Text and file parts (protocol 6), as sent: a file part names an artifact, never bytes. */
+    parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
   })
@@ -1507,6 +1536,32 @@ export const TranscriptUpdatedPayloadSchema = z
   })
   .passthrough();
 
+/** Where an artifact version's bytes came from: a client's upload, or our engine's `save_artifact`. */
+export const ArtifactSourceSchema = z.enum(["upload", "engine"]);
+export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
+/**
+ * `artifact.created` and `artifact.version.created` (protocol 6): a file artifact of the session,
+ * or a new version of one, committed. Ids, sizes and hashes, never bytes.
+ */
+export const ArtifactVersionPayloadSchema = z
+  .object({
+    artifactId: z.string(),
+    kind: z.literal("file"),
+    name: z.string(),
+    contentType: z.string(),
+    version: z.number().int().positive(),
+    size: z.number().int().nonnegative(),
+    sha256: z.string(),
+    source: ArtifactSourceSchema,
+    /** The tool call that saved it (`save_artifact`), when our engine did. */
+    callId: z.string().optional(),
+  })
+  .passthrough();
+/** `artifact.deleted`: the artifact and every version of it are gone. */
+export const ArtifactDeletedPayloadSchema = z
+  .object({ artifactId: z.string(), name: z.string() })
+  .passthrough();
+
 /**
  * The event catalog (Durable Streams §9.5): every session event type, its payload schema, its
  * payload schema version and who writes it. A type not listed here cannot be written. A type
@@ -1549,6 +1604,13 @@ export const EVENT_CATALOG = {
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
   "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1 },
   "loop.decided": { payload: LoopDecidedPayloadSchema, source: "api", version: 1 },
+  "artifact.created": { payload: ArtifactVersionPayloadSchema, source: "api", version: 1 },
+  "artifact.version.created": {
+    payload: ArtifactVersionPayloadSchema,
+    source: "api",
+    version: 1,
+  },
+  "artifact.deleted": { payload: ArtifactDeletedPayloadSchema, source: "api", version: 1 },
   "transcript.updated": {
     payload: TranscriptUpdatedPayloadSchema,
     source: "loop",
@@ -2960,3 +3022,125 @@ export function parseFrameAncestors(value: string): string[] {
       );
   return [...new Set(entries)];
 }
+
+// --- File artifacts (protocol 6, blueprint D35, F8.1) ----------------------------------------
+
+/** The JWT `typ` of a capability link's token (RFC 8725 explicit typing). */
+export const ARTIFACT_LINK_TOKEN_TYPE = "nylorun-artifact+jwt";
+/**
+ * A capability link lives no longer than a subject token: rotating signing keys revokes the
+ * previous key once the longest token it may have signed has expired.
+ */
+export const ARTIFACT_LINK_MAX_TTL_SECONDS = TOKEN_TTL_MAX_SECONDS;
+export const ARTIFACT_LINK_DEFAULT_TTL_SECONDS = 300;
+/** A Tenant's limits when it sets none: 100 MiB per file, 10 GiB in all. */
+export const ARTIFACT_FILE_BYTES_DEFAULT = 100 * 1024 * 1024;
+export const ARTIFACT_TOTAL_BYTES_DEFAULT = 10 * 1024 * 1024 * 1024;
+/** The longest artifact name, in characters. */
+export const ARTIFACT_NAME_MAX = 255;
+
+/** Labels: up to 32, keys 1–63 characters, values up to 256. */
+export const ArtifactLabelsSchema = z
+  .record(z.string().min(1).max(63), z.string().max(256))
+  .refine((labels) => Object.keys(labels).length <= 32, { message: "At most 32 labels" });
+
+/** One version of a file artifact: immutable once it exists. */
+export const ArtifactVersionViewSchema = z
+  .object({
+    version: z.number().int().positive(),
+    size: z.number().int().nonnegative(),
+    sha256: z.string().meta({ description: "SHA-256 of the bytes, lowercase hex" }),
+    contentType: z.string(),
+    source: ArtifactSourceSchema,
+    createdAt: z.string(),
+  })
+  .strict();
+export type ArtifactVersionView = z.infer<typeof ArtifactVersionViewSchema>;
+
+/** A file artifact: an id, a name and numbered versions, its bytes in the Object store. */
+export const ArtifactViewSchema = z
+  .object({
+    artifactId: z.string(),
+    kind: z.literal("file"),
+    name: z.string(),
+    contentType: z.string().meta({ description: "The latest version's media type" }),
+    /** The session it belongs to; absent for a Tenant-wide artifact an application made. */
+    sessionId: z.string().optional(),
+    latestVersion: z.number().int().positive(),
+    labels: z.record(z.string(), z.string()).optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    /** Every version, oldest first (`GET /v1/artifacts/{id}` only). */
+    versions: z.array(ArtifactVersionViewSchema).optional(),
+  })
+  .strict();
+export type ArtifactView = z.infer<typeof ArtifactViewSchema>;
+
+export const ListArtifactsResponseSchema = z
+  .object({ artifacts: z.array(ArtifactViewSchema) })
+  .strict();
+export type ListArtifactsResponse = z.infer<typeof ListArtifactsResponseSchema>;
+
+/** What an upload answers: the artifact, and the version the upload created. */
+export const UploadArtifactResponseSchema = z
+  .object({ artifact: ArtifactViewSchema, version: ArtifactVersionViewSchema })
+  .strict();
+export type UploadArtifactResponse = z.infer<typeof UploadArtifactResponseSchema>;
+
+export const DeleteArtifactResponseSchema = z
+  .object({ artifactId: z.string(), deleted: z.boolean() })
+  .strict();
+export type DeleteArtifactResponse = z.infer<typeof DeleteArtifactResponseSchema>;
+
+/** `POST /v1/artifacts/{id}/links`: a capability link to one version. */
+export const CreateArtifactLinkRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    /** The version to open. Default: the latest. */
+    version: z.number().int().positive().optional(),
+    /** Seconds until the link stops working. Default 300, at most 900. */
+    expiresIn: z.number().int().min(1).max(ARTIFACT_LINK_MAX_TTL_SECONDS).optional(),
+  })
+  .strict();
+export type CreateArtifactLinkRequest = z.infer<typeof CreateArtifactLinkRequestSchema>;
+
+/** A capability link: `GET` its path on the Runtime with no credential, until it expires. */
+export const ArtifactLinkSchema = z
+  .object({
+    /** `/v1/artifact-links/<token>`, on the Runtime that minted it. */
+    path: z.string(),
+    artifactId: z.string(),
+    version: z.number().int().positive(),
+    expiresAt: z.string(),
+  })
+  .strict();
+export type ArtifactLink = z.infer<typeof ArtifactLinkSchema>;
+
+/** A Tenant's artifact limits, stored as Tenant setting `artifacts.config`. */
+export const TenantArtifactsConfigSchema = z
+  .object({
+    limits: z
+      .object({
+        /** The largest file one upload may store, in bytes. Default 100 MiB. */
+        fileBytes: z.number().int().positive().optional(),
+        /** The most bytes every artifact version together may hold. Default 10 GiB. */
+        totalBytes: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type TenantArtifactsConfig = z.infer<typeof TenantArtifactsConfigSchema>;
+/** `PUT /v1/tenant/artifacts`: replaces the Tenant's artifact configuration. */
+export const PutTenantArtifactsRequestSchema = TenantArtifactsConfigSchema.extend({
+  requestId: RequestIdSchema.optional(),
+}).strict();
+export type PutTenantArtifactsRequest = z.infer<typeof PutTenantArtifactsRequestSchema>;
+export const TenantArtifactsViewSchema = z
+  .object({
+    limits: z.object({ fileBytes: z.number().int(), totalBytes: z.number().int() }).strict(),
+    /** Bytes every artifact version holds now. */
+    usedBytes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type TenantArtifactsView = z.infer<typeof TenantArtifactsViewSchema>;

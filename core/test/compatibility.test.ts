@@ -7,8 +7,10 @@ import {
   PRINCIPAL_ID_PATTERN,
   checkCompatibility,
   compareVersions,
+  isArtifactId,
   isPrincipalId,
   isTenantId,
+  newArtifactId,
   newPrincipalId,
   newTenantId,
 } from "../src/compatibility.js";
@@ -178,14 +180,28 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 4 and 5 clients; protocol 5 clients no longer require runtime-tenants", () => {
-    expect(PROTOCOL_VERSION).toBe(5);
+  it("serves protocol 4, 5 and 6 clients; protocol 6 clients require artifacts", () => {
+    expect(PROTOCOL_VERSION).toBe(6);
     expect(PROTOCOL_FEATURES).not.toContain("runtime-tenants");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 5 });
+    expect(PROTOCOL_FEATURES).toContain("artifacts");
+    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 6 });
     // The window: a protocol 4 client requires runtime-tenants, and the Host still has it.
     expect(
       checkCompatibility({ version: 4, required: ["runtime-tenants"] }, HOST_PROTOCOL),
     ).toEqual({ ok: true });
+    // A protocol 5 client still works.
+    expect(
+      checkCompatibility(
+        { version: 5, required: ["admin-status", "studio-principal", "action-endpoints"] },
+        HOST_PROTOCOL,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("makes artifact ids that match their pattern", () => {
+    const id = newArtifactId();
+    expect(isArtifactId(id)).toBe(true);
+    expect(isArtifactId("af_short")).toBe(false);
   });
 
   it("accepts a client inside the host range with required features", () => {

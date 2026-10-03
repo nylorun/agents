@@ -191,13 +191,18 @@ export function pathnameIsLogged(rawUrl: string | undefined): boolean {
   return pathname !== "/health" && pathname !== "/ready";
 }
 
-/** Redact path parameters after `/v1/sessions/` for Host logs. */
+/**
+ * Redact path parameters after `/v1/sessions/` for Host logs, and a capability link's token
+ * (a credential) after `/v1/artifact-links/`.
+ */
 export function redactRoutePath(pathname: string): string {
   const parts = pathname.split("/");
   // ["", "v1", "sessions", "<id>", ...]
   if (parts[1] === "v1" && parts[2] === "sessions" && parts.length > 3) {
     return `/v1/sessions/:id${parts.length > 4 ? "/…" : ""}`;
   }
+  if (parts[1] === "v1" && parts[2] === "artifact-links" && parts.length > 3)
+    return "/v1/artifact-links/:token";
   return pathname;
 }
 

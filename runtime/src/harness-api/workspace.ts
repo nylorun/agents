@@ -39,6 +39,14 @@ export interface WorkspacePort {
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome>;
+  /** Reads a file of the workspace of `session` as bytes, at most `maxBytes` (`save_artifact`). */
+  readBytes(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    path: string,
+    maxBytes: number,
+    signal: AbortSignal
+  ): ReturnType<SandboxManager["readBytes"]>;
   report(): Promise<WorkspaceReport>;
   /** One Tenant sweep pass: stop idle workspaces, remove those whose owner is gone. */
   sweep(options: { now?: number; sessionExists: Exists; sandboxExists: Exists }): Promise<void>;
@@ -54,6 +62,8 @@ export function localWorkspace(manager: SandboxManager): WorkspacePort {
   return {
     run: (session, capability, toolName, input, signal) =>
       manager.run(session, capability, toolName, input, signal),
+    readBytes: (session, capability, path, maxBytes, signal) =>
+      manager.readBytes(session, capability, path, maxBytes, signal),
     report: () => manager.report(),
     sweep: (options) => manager.sweep(options),
     removeSandbox: (sandboxId) => manager.removeSandbox(sandboxId),
@@ -77,6 +87,14 @@ export interface RemoteWorkspaceOptions {
   readonly logger: Logger;
   /** The sandbox backend preference, reported while no harness serves workspaces. */
   readonly preference: string;
+}
+
+function sessionOf(session: SandboxSessionRef) {
+  return {
+    ownerId: session.id,
+    ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
+    activeTurnId: session.activeTurnId,
+  };
 }
 
 /** The workspaces of the harness that serves them. */
@@ -125,11 +143,7 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
         return (await options.server.workspace(
           METHODS[toolName],
           {
-            session: {
-              ownerId: session.id,
-              ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
-              activeTurnId: session.activeTurnId,
-            },
+            session: sessionOf(session),
             spec: capability.sandbox ?? {},
             tool: toolName,
             input: input ?? {},
@@ -143,6 +157,27 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
           return fail(503, `The harness serving workspaces went away: ${error.message}`, {
             code: "request_rejected",
           });
+        throw error;
+      }
+    },
+    async readBytes(session, capability, path, maxBytes, signal) {
+      try {
+        const answer = (await options.server.workspace(
+          "workspace.read",
+          {
+            session: sessionOf(session),
+            spec: capability.sandbox ?? {},
+            bytes: { path, maxBytes },
+          },
+          signal
+        )) as { kind: string; path?: string; base64?: string; code?: string; message?: string };
+        if (answer.kind === "read")
+          return { kind: "read", path: String(answer.path), bytes: new Uint8Array(Buffer.from(String(answer.base64), "base64")) };
+        if (answer.kind === "missing") return { kind: "missing", path: String(answer.path) };
+        return { kind: "failed", code: String(answer.code), message: String(answer.message) };
+      } catch (error) {
+        if (error instanceof NoWorkspaceHarness)
+          return { kind: "failed", code: "sandbox.unavailable", message: error.message };
         throw error;
       }
     },

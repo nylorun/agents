@@ -17,7 +17,7 @@
  * (`NYLORUN_OBJECT_STORE_*`) the Tenant's blobs go to it through the `s3` BlobStore, and a
  * process running core creates its bucket; without one they stay on disk (`fs`). A process
  * running the gates service (the local stack's `gateway` container) starts only the gate (`runGates`): it needs
- * neither host.json nor host-credentials.json. A process running the harness service (`--service harness`, F6.2)
+ * neither host.json nor host-credentials.json, and reads the files a prompt names from the Object store. A process running the harness service (`--service harness`, F6.2)
  * starts only the harness (`harness/main.ts`), which connects to core's Harness API. With `NYLORUN_HARNESS=remote`
  * the Tenant runs no harness of its own: core starts the Harness API listener (`NYLORUN_HARNESS_LISTEN_*`) and
  * harnesses that present `NYLORUN_HARNESS_TOKEN` run its segments and hold its workspaces. See the startup order
@@ -98,8 +98,8 @@ function objectStore(config: ObjectStoreConfig): S3BlobStore {
 
 /**
  * Creates the Object store's bucket unless it exists, retrying while the store starts. In the
- * background: nothing uses the store yet (F8.1b), so a store that stays down is logged and
- * does not hold up the Host.
+ * background: only artifacts use the store, so a store that stays down is logged (artifact
+ * uploads and downloads fail meanwhile) and does not hold up the Host.
  */
 async function ensureBucket(
   store: S3BlobStore,
@@ -159,6 +159,8 @@ async function runGates(stack: StackConfig): Promise<void> {
       logger,
       ...(stack.delivery ? { delivery: stack.delivery } : {}),
       ...(stack.services.has("keys") ? { keys: true } : {}),
+      // Model-gate reads the files a prompt names from the Object store (protocol 6).
+      ...(stack.objectStore ? { blobs: objectStore(stack.objectStore) } : {}),
     });
   } catch (error) {
     await database.end({ timeout: 5 });

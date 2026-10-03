@@ -13,7 +13,12 @@
  * reconcile once per process, as the Tenant sweep does in core's process.
  */
 import type { EventPayload } from "@nylorun/core/contracts";
-import type { AgentManifest, CapabilityManifest, SandboxToolName } from "@nylorun/core/define";
+import {
+  SANDBOX_WORKSPACE,
+  type AgentManifest,
+  type CapabilityManifest,
+  type SandboxToolName,
+} from "@nylorun/core/define";
 import {
   sandboxWorkspaceKey,
   sessionWorkspaceKey,
@@ -37,8 +42,18 @@ import {
   type SandboxSelection,
   type SandboxSelectionReport,
 } from "./select.js";
-import { runSandboxTool, type SandboxToolOutcome, type SandboxToolReport } from "./tools.js";
-import type { SandboxBackend, SandboxHandle, SandboxSpec } from "./types.js";
+import {
+  resolveSandboxPath,
+  runSandboxTool,
+  type SandboxToolOutcome,
+  type SandboxToolReport,
+} from "./tools.js";
+import {
+  SandboxFileTooLargeError,
+  type SandboxBackend,
+  type SandboxHandle,
+  type SandboxSpec,
+} from "./types.js";
 
 export { sandboxCapabilityOf } from "./capability.js";
 export type { SandboxRecord, SandboxRecords, SandboxState } from "./records.js";
@@ -223,6 +238,85 @@ export class SandboxManager {
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome> {
+    const prepared = await this.prepare(session, capability);
+    if ("kind" in prepared) return prepared;
+    const { live: entry, spec } = prepared;
+    const task = entry.tail.then(() => this.execute(entry, session, spec, toolName, input, signal));
+    entry.tail = task.catch(() => undefined);
+    return task;
+  }
+
+  /**
+   * The bytes of one file in the session's sandbox, for `save_artifact` (F8.1), in the same queue
+   * as its tool calls: `missing` when there is no such file, a failed outcome when the sandbox
+   * cannot open or the file is larger than `maxBytes`. Relative paths resolve in the workspace.
+   */
+  async readBytes(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    path: string,
+    maxBytes: number,
+    signal: AbortSignal
+  ): Promise<
+    | { kind: "read"; path: string; bytes: Uint8Array }
+    | { kind: "missing"; path: string }
+    | Extract<SandboxToolOutcome, { kind: "failed" }>
+  > {
+    const prepared = await this.prepare(session, capability);
+    if ("kind" in prepared) return prepared;
+    const { live, spec } = prepared;
+    const task = live.tail.then(async () => {
+      if (signal.aborted) throw new Error("Turn cancelled");
+      if (this.closing) throw new Error("Runtime is shutting down");
+      live.active += 1;
+      try {
+        if (!live.handle) {
+          try {
+            live.handle = await this.open(live, session, spec);
+          } catch (error) {
+            return {
+              kind: "failed" as const,
+              code: "sandbox.start_failed",
+              message: `The sandbox could not start: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        }
+        const handle = live.handle;
+        const resolved = resolveSandboxPath(path, handle.workspace ?? SANDBOX_WORKSPACE);
+        if (!handle.readBytes)
+          return {
+            kind: "failed" as const,
+            code: "sandbox.unsupported",
+            message: `The ${live.backend.name} backend cannot read files as bytes`,
+          };
+        try {
+          const bytes = await handle.readBytes(resolved, maxBytes);
+          return bytes === undefined
+            ? { kind: "missing" as const, path: resolved }
+            : { kind: "read" as const, path: resolved, bytes };
+        } catch (error) {
+          if (error instanceof SandboxFileTooLargeError)
+            return {
+              kind: "failed" as const,
+              code: "artifact.too_large",
+              message: `${resolved} is ${error.size} bytes; an artifact may hold at most ${maxBytes}`,
+            };
+          throw error;
+        }
+      } finally {
+        live.active -= 1;
+        live.lastUsedAt = Date.now();
+      }
+    });
+    live.tail = task.catch(() => undefined);
+    return task;
+  }
+
+  /** The session's live sandbox entry and spec, or why it cannot run here. */
+  private async prepare(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest
+  ): Promise<{ live: Live; spec: SandboxSpec } | Extract<SandboxToolOutcome, { kind: "failed" }>> {
     const selection = await this.ready;
     const backend = selection.backend;
     if (!backend)
@@ -259,10 +353,7 @@ export class SandboxManager {
       };
       this.live.set(key, live);
     }
-    const entry = live;
-    const task = entry.tail.then(() => this.execute(entry, session, spec, toolName, input, signal));
-    entry.tail = task.catch(() => undefined);
-    return task;
+    return { live, spec };
   }
 
   private async execute(

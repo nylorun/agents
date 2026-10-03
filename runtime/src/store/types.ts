@@ -69,6 +69,8 @@ import type {
 import type { SandboxManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type {
+  ArtifactRow,
+  ArtifactVersionRow,
   ModelBudgetRow,
   ModelUsageRow,
   PrincipalRow,
@@ -293,6 +295,8 @@ export type EndpointHealthUpdate =
  * ledger and a model budget.
  */
 export type {
+  ArtifactRow,
+  ArtifactVersionRow,
   ModelBudgetRow,
   ModelUsageRow,
   ToolCrossingRow,
@@ -749,6 +753,34 @@ export interface Tx {
   /** Deletes rows that settled before `before`; returns how many. */
   pruneToolCrossings(before: string): Promise<number>;
 
+  // --- file artifacts (blueprint D35, F8.1) ----------------------------------
+
+  /** The artifact `id`; with `lock`, its row is locked until the transaction ends. */
+  artifact(id: string, options?: { lock?: boolean }): Promise<ArtifactRow | undefined>;
+  /** Artifacts by creation time, then id: those of one session when `sessionId` is given. */
+  listArtifacts(filter?: { sessionId?: string }): Promise<ArtifactRow[]>;
+  /** Writes a new artifact with its first version. Rejects on a duplicate id. */
+  insertArtifact(row: ArtifactRow, version: ArtifactVersionRow): Promise<void>;
+  /**
+   * Adds the next version of a locked artifact and makes it the latest (its content type and
+   * `updatedAt` follow the version).
+   */
+  insertArtifactVersion(version: ArtifactVersionRow): Promise<void>;
+  /** One version, or every version oldest first. */
+  artifactVersion(artifactId: string, version: number): Promise<ArtifactVersionRow | undefined>;
+  artifactVersions(artifactId: string): Promise<ArtifactVersionRow[]>;
+  /** Deletes the artifact and its versions; returns the versions' blob keys (empty when none). */
+  deleteArtifact(id: string): Promise<string[]>;
+  /**
+   * Serializes the Tenant's artifact writes: held until the transaction ends. Take it before
+   * reading the total a new version must fit under.
+   */
+  lockArtifactQuota(): Promise<void>;
+  /** The bytes every artifact version holds. */
+  artifactBytes(): Promise<number>;
+  /** The blob keys of every artifact version: of session artifacts only, or of all of them. */
+  artifactBlobKeys(scope: "sessions" | "all"): Promise<string[]>;
+
   // --- tenant settings (non-secret) -----------------------------------------
 
   getSetting(key: string): Promise<string | undefined>;
@@ -759,12 +791,13 @@ export interface Tx {
   /**
    * Deletes Tenant state by scope, in this transaction:
    * - `sessions`: sessions, commands, effects, actions, links, subject turn
-   *   buckets and the Tenant's record rows and log heads. The Tenant moves to the next basin
+   *   buckets, the artifacts of sessions (their blobs are the caller's to delete) and the
+   *   Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
    * - `sandboxes`: sandbox records, sandbox resources and their lifecycle streams;
    * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials,
-   *   the model usage ledger and the model budgets. The host vault, principals, signing keys, subject epochs,
+   *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys, subject epochs,
    *   publishable keys, settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;

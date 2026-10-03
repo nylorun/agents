@@ -68,6 +68,15 @@ import {
   ListSandboxesResponseSchema,
   DeleteSandboxResponseSchema,
   ListSandboxEventsResponseSchema,
+  ArtifactViewSchema,
+  ArtifactVersionViewSchema,
+  ListArtifactsResponseSchema,
+  UploadArtifactResponseSchema,
+  DeleteArtifactResponseSchema,
+  CreateArtifactLinkRequestSchema,
+  ArtifactLinkSchema,
+  PutTenantArtifactsRequestSchema,
+  TenantArtifactsViewSchema,
   SessionCommandSchema,
   AdminStatusSchema,
   HostShutdownResponseSchema,
@@ -96,6 +105,21 @@ export const ListSandboxEventsResponse = named(
   "ListSandboxEventsResponse",
   ListSandboxEventsResponseSchema,
 );
+export const ArtifactVersionView = named("ArtifactVersionView", ArtifactVersionViewSchema);
+export const ArtifactView = named("ArtifactView", ArtifactViewSchema);
+export const ListArtifactsResponse = named("ListArtifactsResponse", ListArtifactsResponseSchema);
+export const UploadArtifactResponse = named("UploadArtifactResponse", UploadArtifactResponseSchema);
+export const DeleteArtifactResponse = named("DeleteArtifactResponse", DeleteArtifactResponseSchema);
+export const CreateArtifactLinkRequest = named(
+  "CreateArtifactLinkRequest",
+  CreateArtifactLinkRequestSchema,
+);
+export const ArtifactLink = named("ArtifactLink", ArtifactLinkSchema);
+export const PutTenantArtifactsRequest = named(
+  "PutTenantArtifactsRequest",
+  PutTenantArtifactsRequestSchema,
+);
+export const TenantArtifactsView = named("TenantArtifactsView", TenantArtifactsViewSchema);
 export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
 export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
 export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);

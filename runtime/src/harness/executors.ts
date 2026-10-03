@@ -20,6 +20,7 @@ import {
   callSandboxTool,
   invokeModel,
   isRemoteMcpCall,
+  isSaveArtifactCall,
   type ModelRoute,
   type ToolRouting,
 } from "./calls.js";

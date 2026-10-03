@@ -6,12 +6,13 @@
     "description": "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 5,
+      "max": 6,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
         "action-endpoints",
+        "artifacts",
         "tenant-fixture-model",
         "transcript-events",
         "derived-principals",
@@ -7108,6 +7109,403 @@
               "type": {
                 "type": "string",
                 "enum": [
+                  "message"
+                ]
+              },
+              "manifest": {
+                "type": "object",
+                "properties": {
+                  "manifestSchemaVersion": {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "capabilities": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "agent",
+                            "agent-plugin"
+                          ]
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "instructions": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "skills": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "description": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "description"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "tools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "inputSchema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "outputSchema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "agent": {
+                                "$ref": "#/components/schemas/ToolAgentManifest"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "inputSchema"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "mcpServers": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "stdio"
+                                    ]
+                                  },
+                                  "command": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "args": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "env": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "cwd": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "type",
+                                  "command"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "streamable-http"
+                                    ]
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "headers": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "type",
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "sse"
+                                    ]
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "headers": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "type",
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "sandbox": {
+                          "type": "object",
+                          "properties": {
+                            "image": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "network": {
+                              "type": "object",
+                              "properties": {
+                                "preset": {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "dev",
+                                    "open"
+                                  ]
+                                },
+                                "allow": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "resources": {
+                              "type": "object",
+                              "properties": {
+                                "cpus": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 64
+                                },
+                                "memory": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "idle": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "hooks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "at": {
+                                "type": "string",
+                                "enum": [
+                                  "before",
+                                  "after"
+                                ]
+                              },
+                              "scope": {
+                                "type": "string",
+                                "enum": [
+                                  "turn",
+                                  "step"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "at",
+                              "scope"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "runtime": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "manifestSchemaVersion",
+                  "id",
+                  "capabilities"
+                ],
+                "additionalProperties": false
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text"
+                          ]
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "file"
+                          ]
+                        },
+                        "artifactId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "artifactId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32
+              }
+            },
+            "required": [
+              "requestId",
+              "idempotencyKey",
+              "type",
+              "parts"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "type": {
+                "type": "string",
+                "enum": [
                   "approve"
                 ]
               },
@@ -10423,6 +10821,15 @@
             "$ref": "#/components/schemas/LoopDecidedEvent"
           },
           {
+            "$ref": "#/components/schemas/ArtifactCreatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ArtifactVersionCreatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ArtifactDeletedEvent"
+          },
+          {
             "$ref": "#/components/schemas/TranscriptUpdatedEvent"
           }
         ],
@@ -10456,6 +10863,9 @@
             "loop.iteration": "#/components/schemas/LoopIterationEvent",
             "loop.verified": "#/components/schemas/LoopVerifiedEvent",
             "loop.decided": "#/components/schemas/LoopDecidedEvent",
+            "artifact.created": "#/components/schemas/ArtifactCreatedEvent",
+            "artifact.version.created": "#/components/schemas/ArtifactVersionCreatedEvent",
+            "artifact.deleted": "#/components/schemas/ArtifactDeletedEvent",
             "transcript.updated": "#/components/schemas/TranscriptUpdatedEvent"
           }
         }
@@ -10616,6 +11026,57 @@
               },
               "data": {
                 "$ref": "#/components/schemas/JsonValue"
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text"
+                          ]
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "file"
+                          ]
+                        },
+                        "artifactId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "version": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "artifactId"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
               },
               "manifest": {}
             },
@@ -15584,6 +16045,591 @@
           "payload"
         ]
       },
+      "ArtifactCreatedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "artifact.created"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "artifactId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "upload",
+                  "engine"
+                ]
+              },
+              "callId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "artifactId",
+              "kind",
+              "name",
+              "contentType",
+              "version",
+              "size",
+              "sha256",
+              "source"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ArtifactVersionCreatedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "artifact.version.created"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "artifactId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "upload",
+                  "engine"
+                ]
+              },
+              "callId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "artifactId",
+              "kind",
+              "name",
+              "contentType",
+              "version",
+              "size",
+              "sha256",
+              "source"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ArtifactDeletedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "artifact.deleted"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "artifactId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "artifactId",
+              "name"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
       "TranscriptUpdatedEvent": {
         "type": "object",
         "properties": {
@@ -16067,6 +17113,457 @@
           "id",
           "deleted"
         ],
+        "additionalProperties": false
+      },
+      "UploadArtifactResponse": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "object",
+            "properties": {
+              "artifactId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string",
+                "description": "The latest version's media type"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "latestVersion": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "labels": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "versions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "description": "SHA-256 of the bytes, lowercase hex"
+                    },
+                    "contentType": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "upload",
+                        "engine"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "size",
+                    "sha256",
+                    "contentType",
+                    "source",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "artifactId",
+              "kind",
+              "name",
+              "contentType",
+              "latestVersion",
+              "createdAt",
+              "updatedAt"
+            ],
+            "additionalProperties": false
+          },
+          "version": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sha256": {
+                "type": "string",
+                "description": "SHA-256 of the bytes, lowercase hex"
+              },
+              "contentType": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "upload",
+                  "engine"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "size",
+              "sha256",
+              "contentType",
+              "source",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "artifact",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "ListArtifactsResponse": {
+        "type": "object",
+        "properties": {
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "artifactId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "file"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string",
+                  "description": "The latest version's media type"
+                },
+                "sessionId": {
+                  "type": "string"
+                },
+                "latestVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "labels": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "description": "SHA-256 of the bytes, lowercase hex"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "upload",
+                          "engine"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "size",
+                      "sha256",
+                      "contentType",
+                      "source",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "artifactId",
+                "kind",
+                "name",
+                "contentType",
+                "latestVersion",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "artifacts"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactView": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "The latest version's media type"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "latestVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "SHA-256 of the bytes, lowercase hex"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "upload",
+                    "engine"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "version",
+                "size",
+                "sha256",
+                "contentType",
+                "source",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "artifactId",
+          "kind",
+          "name",
+          "contentType",
+          "latestVersion",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactLink": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "artifactId",
+          "version",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "CreateArtifactLinkRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "expiresIn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 900
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeleteArtifactResponse": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "artifactId",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
+      "TenantArtifactsView": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "object",
+            "properties": {
+              "fileBytes": {
+                "type": "integer"
+              },
+              "totalBytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "fileBytes",
+              "totalBytes"
+            ],
+            "additionalProperties": false
+          },
+          "usedBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "limits",
+          "usedBytes"
+        ],
+        "additionalProperties": false
+      },
+      "PutTenantArtifactsRequest": {
+        "type": "object",
+        "properties": {
+          "limits": {
+            "type": "object",
+            "properties": {
+              "fileBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "totalBytes": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "additionalProperties": false
       },
       "TenantStatus": {
@@ -19113,10 +20610,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19230,10 +20727,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19341,10 +20838,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -19487,10 +20984,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19578,10 +21075,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19689,10 +21186,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19783,10 +21280,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19880,10 +21377,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -19998,10 +21495,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20158,10 +21655,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20296,10 +21793,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20444,10 +21941,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20602,10 +22099,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20769,10 +22266,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -20927,10 +22424,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21042,6 +22539,15 @@
                     },
                     {
                       "$ref": "#/components/schemas/LoopDecidedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactCreatedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactVersionCreatedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactDeletedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/TranscriptUpdatedEvent"
@@ -21172,10 +22678,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21309,10 +22815,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21459,10 +22965,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21621,10 +23127,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21769,10 +23275,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21933,10 +23439,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22045,6 +23551,1656 @@
         }
       }
     },
+    "/v1/artifacts": {
+      "post": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Upload a file as a new artifact",
+        "description": "Streams the body to the Object store in one request, up to the Tenant's per-file limit and within its total; a body past either stores nothing (`413 limit_exceeded`). Its `Content-Type` is the file's media type (default: from the name). Acting for a person, the artifact belongs to one of their sessions. A session's artifact appears in its history as `artifact.created`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The file's name, e.g. `brief.pdf`"
+            },
+            "required": true,
+            "description": "The file's name, e.g. `brief.pdf`",
+            "name": "name",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The session it belongs to"
+            },
+            "required": false,
+            "description": "The session it belongs to",
+            "name": "sessionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "`key=value`; repeat it for several labels"
+            },
+            "required": false,
+            "description": "`key=value`; repeat it for several labels",
+            "name": "label",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The file's bytes; `Content-Type` is its media type",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The artifact and its first version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadArtifactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Larger than the per-file limit, or past the Tenant's total (`limit_exceeded`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "List artifacts",
+        "description": "Oldest first: of one session, or of every session the caller reaches (an application key: every artifact).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only this session's"
+            },
+            "required": false,
+            "description": "Only this session's",
+            "name": "sessionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The artifacts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListArtifactsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}/versions": {
+      "post": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Upload a new version of an artifact",
+        "description": "Streams the body as the artifact's next version, with the same limits as a new artifact. A session's artifact gets `artifact.version.created` in its history.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The file's bytes; `Content-Type` is its media type",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The artifact and the version the upload created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadArtifactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Larger than the per-file limit, or past the Tenant's total (`limit_exceeded`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Get an artifact",
+        "description": "Its metadata and every version, oldest first.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The artifact",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Delete an artifact",
+        "description": "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteArtifactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}/versions/{version}/content": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Download a version of an artifact",
+        "description": "Streams the bytes through the Runtime. One `Range: bytes=…` gives `206` with `Content-Range`; several ranges give the whole file.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A version number, or `latest`"
+            },
+            "required": true,
+            "description": "A version number, or `latest`",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The bytes the `Range` header asked for",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The `Range` starts past the end of the file"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}/links": {
+      "post": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Mint a capability link",
+        "description": "A short-lived path that downloads one version, with Range, with no other credential: for `<img>` tags, UIs and sharing. Signed by the Runtime with the Tenant's signing key; at most 15 minutes; it opens nothing once the artifact is deleted.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArtifactLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactLink"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifact-links/{token}": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Open a capability link",
+        "description": "Downloads the version the link names, with Range, until it expires (`401 token_expired`). Needs no credential and no `Nylorun-Protocol`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          },
+          {
+            "publishableKey": []
+          },
+          {}
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token",
+          "publishable"
+        ],
+        "x-nylorun-scopes": "any",
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "token",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": false,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A publishable key, from a browser page on an allowed origin"
+            },
+            "required": false,
+            "description": "A publishable key, from a browser page on an allowed origin",
+            "name": "Nylorun-Key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The bytes the `Range` header asked for",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The `Range` starts past the end of the file"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/artifacts": {
+      "get": {
+        "tags": [
+          "Tenant"
+        ],
+        "summary": "Get the Tenant's artifact limits",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "tenant:settings"
+        ],
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The limits in force and the bytes used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantArtifactsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tenant"
+        ],
+        "summary": "Set the Tenant's artifact limits",
+        "description": "The largest file one upload may store, and the most bytes all artifacts may hold. Unset limits take the defaults (100 MiB and 10 GiB).",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "tenant:settings"
+        ],
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTenantArtifactsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The limits now in force",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantArtifactsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tenant": {
       "get": {
         "tags": [
@@ -22068,10 +25224,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22181,10 +25337,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22284,10 +25440,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22390,10 +25546,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22505,10 +25661,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22619,10 +25775,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22782,10 +25938,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22897,10 +26053,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23011,10 +26167,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23137,10 +26293,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23252,10 +26408,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23365,10 +26521,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23490,10 +26646,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23619,10 +26775,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23779,10 +26935,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23926,10 +27082,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24071,10 +27227,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24219,10 +27375,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24374,10 +27530,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24529,10 +27685,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24682,10 +27838,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24848,10 +28004,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24991,10 +28147,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25134,10 +28290,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25236,10 +28392,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25326,10 +28482,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25428,10 +28584,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25521,10 +28677,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25634,10 +28790,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25739,10 +28895,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25830,10 +28986,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -25943,10 +29099,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -26051,10 +29207,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -26144,10 +29300,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -26261,10 +29417,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26425,10 +29581,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26601,10 +29757,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26758,10 +29914,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26903,10 +30059,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27064,10 +30220,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `5`"
+              "description": "The protocol version, `6`"
             },
             "required": true,
-            "description": "The protocol version, `5`",
+            "description": "The protocol version, `6`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },

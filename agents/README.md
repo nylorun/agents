@@ -107,7 +107,7 @@ eval "$(npx @nylorun/cli env)"
 # → NYLORUN_RUNTIME_URL, NYLORUN_SERVER_KEY
 ```
 
-Every request sets `Nylorun-Protocol` (5) and no `Nylorun-Tenant`: the Runtime
+Every request sets `Nylorun-Protocol` (6) and no `Nylorun-Tenant`: the Runtime
 serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
@@ -442,6 +442,34 @@ What the Runtime answers (Host feature `a2a-endpoint`):
   no header the partner chose except `A2A-Version` and `A2A-Extensions`. Without
   `a2a-endpoint` on the Runtime it answers `502` (`runtime_feature_missing`).
 
+## Files: artifacts and message parts
+
+Files users upload or agents make are **artifacts** (protocol 6): an id, a name and
+numbered versions, kept by the Runtime. `client.artifacts` uploads a file in one
+streamed request, lists, downloads with Range, mints capability links and deletes;
+a message names files in its `parts`, and the model reads an image as an image and
+a text file as text:
+
+```ts
+const { artifact } = await client.artifacts.upload(file, { name: "room.png", sessionId });
+await session.inputParts(
+  [{ type: "text", text: "Redesign this room" }, { type: "file", artifactId: artifact.artifactId }],
+  { idempotencyKey: crypto.randomUUID() },
+);
+
+const files = await client.artifacts.list({ sessionId }); // what the user and the agent saved
+const part = await client.artifacts.download(files[0].artifactId, { range: { start: 0, end: 1023 } });
+const { url } = await client.artifacts.link(files[0].artifactId); // no credential needed, 5 minutes
+```
+
+A session with a sandbox gives the agent `save_artifact`, which saves a file it
+made as an artifact of the session; each new artifact or version appears in the
+session's events as `artifact.created` or `artifact.version.created`. The Tenant's
+limits (`PUT /v1/tenant/artifacts`: 100 MiB per file and 10 GiB in all by default)
+refuse a larger upload with `413 limit_exceeded`, and nothing is stored. Acting for
+a person (`as()`, a subject token), a client reaches only the artifacts of that
+person's sessions, and an upload names one of them.
+
 ## Acting for a person (app servers)
 
 A server that signs people in and calls the Runtime for them (an "app server")
@@ -467,7 +495,7 @@ compatibility check, so calling `as()` per request is cheap.
 
 | Scope | Allows |
 | --- | --- |
-| `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel |
+| `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel; and their artifacts |
 | `vaults:own` | The person's own vaults and credentials |
 | `agents:read` | Listing the Tenant's agents |
 | `agents:write` | Saving agents; listing agents, models and providers |

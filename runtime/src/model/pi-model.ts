@@ -23,7 +23,12 @@ import type {
   RuntimeModelCandidate,
 } from "../contracts.js";
 import type { ModelFailureOutcome } from "@nylorun/core/define";
-import type { RuntimeMedia } from "../adapters/media.js";
+import {
+  FileUnavailableError,
+  type FileResolver,
+  type ResolvedFile,
+} from "../artifacts/files.js";
+import { essence, isModelImage, isText } from "../artifacts/media-types.js";
 import { scrub } from "../redact.js";
 import type { HostModelSecret } from "../vault/service.js";
 import { classifyAssistantError, failure } from "./classify.js";
@@ -50,7 +55,11 @@ export interface ModelCallSettings {
 export interface PiModelOptions {
   readonly root?: string;
   readonly onPreview?: (preview: ModelPreview) => void;
-  readonly media?: Pick<RuntimeMedia, "dataUrl">;
+  /**
+   * Resolves the files a prompt names (media parts whose reference is an artifact version) to
+   * their bytes. Model-gate passes one over the Tenant's artifacts (`artifactFiles`).
+   */
+  readonly files?: FileResolver;
   readonly readHostModel?: () =>
     | HostModelSecret
     | undefined
@@ -321,35 +330,42 @@ async function buildContext(
     for (const part of parts) {
       if (part.type === "text") result.push({ type: "text", text: part.text });
       else if (part.type === "media") {
-        if (!selected.input.includes("image"))
-          throw new InvalidRequest("The configured model does not accept images.");
-        const ref = part.reference;
-        if (
-          !ref ||
-          typeof ref !== "object" ||
-          Array.isArray(ref) ||
-          !("agentId" in ref) ||
-          !("assetId" in ref) ||
-          typeof ref.agentId !== "string" ||
-          typeof ref.assetId !== "string"
-        )
-          throw new InvalidRequest("Expected a local media reference.");
-        const asset = await options.media?.dataUrl(
-          { agentId: ref.agentId, assetId: ref.assetId },
-          "sessionId" in ref && typeof ref.sessionId === "string"
-            ? ref.sessionId
-            : call.executionId,
-        );
-        if (!asset)
+        // A file the message named by artifact (protocol 6): its bytes go only into the
+        // provider request built here, never into the transcript or the journal.
+        if (!options.files)
           throw new InvalidRequest(
-            "Media is unavailable; pass the shared media adapter to piModel({ media }).",
+            "Files are unavailable; pass a file resolver to piModel({ files }).",
           );
-        const comma = asset.url.indexOf(",");
-        result.push({
-          type: "image",
-          data: asset.url.slice(comma + 1),
-          mimeType: asset.asset.mediaType,
-        });
+        let file: ResolvedFile;
+        try {
+          file = await options.files(part.reference);
+        } catch (error) {
+          if (error instanceof FileUnavailableError) throw new InvalidRequest(error.message);
+          throw error;
+        }
+        if (isModelImage(file.mediaType)) {
+          if (!selected.input.includes("image"))
+            throw new InvalidRequest("The configured model does not accept images.");
+          result.push({
+            type: "image",
+            data: Buffer.from(file.bytes).toString("base64"),
+            mimeType: essence(file.mediaType),
+          });
+        } else if (isText(file.mediaType)) {
+          let text: string;
+          try {
+            text = new TextDecoder("utf-8", { fatal: true }).decode(file.bytes);
+          } catch {
+            throw new InvalidRequest(`${file.name} is not UTF-8 text.`);
+          }
+          result.push({
+            type: "text",
+            text: `<file name=${JSON.stringify(file.name)} type=${JSON.stringify(essence(file.mediaType))}>\n${text}\n</file>`,
+          });
+        } else
+          throw new InvalidRequest(
+            `The model reads images and text files; ${file.name} is ${essence(file.mediaType)}.`,
+          );
       }
     }
     return result;
