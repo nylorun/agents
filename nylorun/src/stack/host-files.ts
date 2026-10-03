@@ -44,7 +44,17 @@ async function writeAtomic(path: string, text: string): Promise<void> {
 
 /** The Host root layout, mode 0700. */
 export async function ensureHostLayout(paths: StackPaths): Promise<void> {
-  for (const dir of [paths.root, paths.home, paths.tmp, paths.tenant, paths.keys, paths.docker])
+  // The harness container's mounts exist before Compose binds them (else Docker makes them as root).
+  for (const dir of [
+    paths.root,
+    paths.home,
+    paths.tmp,
+    paths.tenant,
+    ...Object.values(paths.harness),
+    paths.plugins,
+    paths.keys,
+    paths.docker,
+  ])
     await mkdir(dir, { recursive: true, mode: 0o700 });
 }
 

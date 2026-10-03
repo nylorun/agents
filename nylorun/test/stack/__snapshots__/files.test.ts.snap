@@ -9,13 +9,22 @@ exports[`.env > renders every setting, including the Restate identity public key
 NYLORUN_PORT=8787
 NYLORUN_ADMIN_PORT=8788
 NYLORUN_STUDIO_PORT=4161
+# Restate's UI and admin (unauthenticated) are published only with
+# nylorun start --restate-ui (or NYLORUN_RESTATE_UI=1); decided on every start.
 NYLORUN_RESTATE_PORT=9070
+NYLORUN_RESTATE_UI=0
 
 NYLORUN_POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef
 
 # The runtime presents this token to the gateway (the Model Gate) with every
 # model call.
 NYLORUN_GATES_TOKEN=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+
+# The harness container presents this token to the runtime's Harness API; it
+# holds no other credential. NYLORUN_HARNESS=in-process runs agent turns, MCP
+# servers and workspaces in the runtime container instead (rollback); kept.
+NYLORUN_HARNESS_TOKEN=a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4
+NYLORUN_HARNESS=remote
 
 # RustFS (the Object store) accepts this secret key; only the runtime and the
 # gateway receive it.
@@ -71,6 +80,7 @@ services:
       POSTGRES_INITDB_ARGS: "--locale=C" # C collation for the whole database
     volumes:
       - postgres:/var/lib/postgresql/data
+    networks: [store]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nylorun -d nylorun"]
       interval: 2s
@@ -88,8 +98,7 @@ services:
     volumes:
       - restate:/restate-data
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
-    ports:
-      - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
+    networks: [store] # admin and UI not published: nylorun start --restate-ui
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9070/health"]
       interval: 2s
@@ -107,6 +116,7 @@ services:
     # (e.g. /data) is root-owned and s2-lite cannot write it.
     volumes:
       - s2-lite:/home/nonroot
+    networks: [store]
     # The s2 image has no shell or HTTP client, so it has no health check;
     # the Runtime's /ready covers it.
     restart: unless-stopped
@@ -123,6 +133,7 @@ services:
     # The image runs as uid 10001 and owns /data, which Docker copies into the new volume.
     volumes:
       - rustfs:/data
+    networks: [store]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
       interval: 2s
@@ -157,6 +168,8 @@ services:
       # The Tenant's homes and its vault key only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/keys:/nylorun/keys:ro
+    # Egress and the stores; the harness reaches its gates on \`harness\`.
+    networks: [default, store, harness]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
@@ -211,6 +224,12 @@ services:
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      # Agent turns, MCP servers and workspaces run in the harness container, which connects to
+      # this listener with NYLORUN_HARNESS_TOKEN. NYLORUN_HARNESS=in-process in .env rolls back.
+      NYLORUN_HARNESS: \${NYLORUN_HARNESS:-remote}
+      NYLORUN_HARNESS_LISTEN_PORT: "4200"
+      NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
@@ -226,6 +245,9 @@ services:
         read_only: true
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
+      # Plugin roots on this machine, at their own path (as for the harness), for NYLORUN_HARNESS=in-process.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
+    networks: [default, store, harness]
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
       - "127.0.0.1:\${NYLORUN_ADMIN_PORT:?run nylorun start}:4001" # Admin API (operators only)
@@ -258,6 +280,7 @@ services:
       NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
+    networks: [default]
     ports:
       - "127.0.0.1:\${NYLORUN_STUDIO_PORT:?run nylorun start}:3000" # opened as http://localhost:<port>
     healthcheck: # /healthz needs no session; Host studio:3000 is accepted
@@ -267,9 +290,46 @@ services:
       retries: 30
     restart: unless-stopped
 
+  harness: # agent turns, MCP servers and workspaces; holds only the harness token; not published
+    image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
+    container_name: nylorun-shop-harness
+    labels: *tenant
+    command: ["--service", "harness"]
+    user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
+    depends_on:
+      runtime: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    environment:
+      NYLORUN_HARNESS_URL: ws://runtime:4200/nylorun/harness/v1
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
+      NYLORUN_GATES_URL: http://gateway:4100
+      NYLORUN_HARNESS_ROOT: /harness
+    volumes:
+      # The Tenant's workspaces, plugin data and the homes of MCP stdio servers; nothing else.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/sandboxes:/harness/sandboxes
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/plugin-data:/harness/plugin-data
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/home:/harness/home
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/tmp:/harness/tmp
+      # Plugin roots on this machine, read-only, at their own path: agents name them so.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
+    networks: [harness]
+    healthcheck: # healthy once connected to core's Harness API
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/health').then(r=>r.json()).then(b=>process.exit(b.connected?0:1),()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+    restart: unless-stopped
+
 networks:
   default:
     name: nylorun-shop
+    labels: *tenant
+  store: # the stores: no egress, no published port
+    name: nylorun-shop-store
+    internal: true
+    labels: *tenant
+  harness: # the harness reaches the runtime's Harness API and the gateway only (egress for MCP servers and bash)
+    name: nylorun-shop-harness
     labels: *tenant
 
 volumes:

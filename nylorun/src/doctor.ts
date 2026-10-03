@@ -17,7 +17,7 @@ export interface StackDoctorReport {
   compose?: Check;
   tenant?: Pick<
     StackStatus,
-    "name" | "project" | "home" | "state" | "runtime" | "tenant" | "studio" | "gateway"
+    "name" | "project" | "home" | "state" | "runtime" | "tenant" | "studio" | "gateway" | "harness"
   >;
   /** Why no Tenant was checked: none is selected here (a project without a link). */
   noTenant?: string;
@@ -56,6 +56,7 @@ export async function doctorStack(options: {
         ...(status.tenant ? { tenant: status.tenant } : {}),
         studio: status.studio,
         gateway: status.gateway,
+        harness: status.harness,
       };
     } catch (error) {
       if (!(error instanceof CliError) || error.exitCode !== 2) throw error;
@@ -66,6 +67,7 @@ export async function doctorStack(options: {
     report.tenant?.state === "running" &&
     (!report.tenant.runtime.healthy ||
       !report.tenant.gateway.healthy ||
+      (report.tenant.harness.mode === "remote" && !report.tenant.harness.healthy) ||
       report.tenant.tenant?.cause !== undefined);
   const failed =
     !nodeOk || !checks.docker.ok || checks.compose?.ok === false || broken;
@@ -114,6 +116,14 @@ export async function doctorStack(options: {
         local.gateway.healthy
           ? `✓ ${local.gateway.state} · combined packing (runtime: core,loop; gateway: gates)`
           : `✗ ${local.gateway.state}: model calls fail; see nylorun logs gateway`,
+      ]);
+      rows.push([
+        "harness",
+        local.harness.mode === "in-process"
+          ? "- in-process (NYLORUN_HARNESS=in-process in .env)"
+          : local.harness.healthy
+            ? `✓ ${local.harness.state} · remote (agent turns, MCP servers, workspaces)`
+            : `✗ ${local.harness.state}: turns do not run; see nylorun logs harness`,
       ]);
       if (local.tenant)
         rows.push([

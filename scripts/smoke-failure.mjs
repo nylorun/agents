@@ -21,7 +21,11 @@
 //    session over once the dead Worker's lease lapses, re-sends the journaled
 //    call and joins it: the turn completes, nothing is `uncertain`, and the stub
 //    saw one call.
+//    The harness (F6.2) runs the turn and connects again to the restarted Runtime.
 // 5. The same for a graceful stop (SIGTERM) mid-call.
+// 5a. The harness killed (kill -9) mid model call: the gateway keeps the call; the
+//     restarted harness re-sends and joins it, so the stub saw one call.
+// 5b. The harness killed mid `bash`: the effect is uncertain, the session waits.
 // 6. Every call crossed the gateway (one model_call line per call); the
 //    runtime runs with the gate.
 // 7. Gateway stopped: the turn fails with model.transient, nothing becomes
@@ -53,71 +57,8 @@ import {
   withStack,
 } from "./lib/stack.mjs";
 import { run } from "./lib/repo.mjs";
+import { startStubModel } from "./lib/stub-model.mjs";
 
-/** The stub model, run with `node -e` in the Runtime image. */
-const STUB_MODEL = String.raw`
-const http = require("node:http");
-let calls = 0;
-let aborted = 0;
-let hold = true;
-const held = new Set();
-function answer(res) {
-  const base = { id: "stub", object: "chat.completion.chunk", created: 0, model: "stub" };
-  const chunk = (body) => res.write("data: " + JSON.stringify({ ...base, ...body }) + "\n\n");
-  res.writeHead(200, { "content-type": "text/event-stream" });
-  chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "stub answer" }, finish_reason: null }] });
-  chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
-  chunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
-  res.end("data: [DONE]\n\n");
-}
-/** A tool call to the MCP tool when the request offers it and no tool result came back yet. */
-function toolCall(res) {
-  const base = { id: "stub", object: "chat.completion.chunk", created: 0, model: "stub" };
-  const chunk = (body) => res.write("data: " + JSON.stringify({ ...base, ...body }) + "\n\n");
-  res.writeHead(200, { "content-type": "text/event-stream" });
-  chunk({ choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_mcp", type: "function", function: { name: "remote__slow", arguments: "{\"value\":1}" } }] }, finish_reason: null }] });
-  chunk({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
-  chunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
-  res.end("data: [DONE]\n\n");
-}
-http.createServer((req, res) => {
-  if (req.method === "GET" && req.url === "/calls") {
-    res.setHeader("content-type", "application/json");
-    return res.end(JSON.stringify({ calls, held: held.size, aborted }));
-  }
-  if (req.method === "POST" && req.url === "/hold") {
-    hold = true;
-    return res.end("{}");
-  }
-  if (req.method === "POST" && req.url === "/release") {
-    hold = false;
-    for (const pending of held) answer(pending);
-    held.clear();
-    return res.end("{}");
-  }
-  if (req.method === "POST" && req.url.endsWith("/chat/completions")) {
-    let raw = "";
-    req.on("data", (chunk) => (raw += chunk));
-    req.on("end", () => {
-      calls += 1;
-      const body = JSON.parse(raw || "{}");
-      const offered = (body.tools ?? []).some((tool) => tool.function?.name === "remote__slow");
-      if (offered && body.messages?.at(-1)?.role !== "tool") return toolCall(res);
-      if (!hold) return answer(res);
-      held.add(res);
-      // Closed before it was answered: the caller (the gateway) aborted it.
-      res.on("close", () => {
-        if (held.delete(res)) aborted += 1;
-      });
-    });
-    return;
-  }
-  res.statusCode = 404;
-  res.end();
-}).listen(8080, "0.0.0.0");
-`;
-
-const STUB_ALIAS = "failure-model";
 
 /**
  * The stub MCP server (F4.1), run with `node -e` in the Runtime image: Streamable HTTP with JSON
@@ -212,24 +153,13 @@ try {
   await withStack({ name: "nylorun-smoke-failure", images }, async (stack) => {
     const { runtimeUrl } = stack;
 
-    // The stub model on the Compose network, reachable from the host for its counters.
-    const stubName = `${stack.project}-${STUB_ALIAS}`;
+    // The stub model on the Compose network, reachable from the host for its counters; it
+    // holds every answer until released.
     const mcpName = `${stack.project}-${MCP_ALIAS}`;
-    await docker([
-      "run", "--detach", "--rm",
-      "--name", stubName,
-      "--network", stack.project, // the Tenant's network is named after its Compose project
-      "--network-alias", STUB_ALIAS,
-      "--publish", "127.0.0.1::8080",
-      "--entrypoint", "node",
-      images.runtime,
-      "-e", STUB_MODEL,
-    ]);
+    const model = await startStubModel(stack, images.runtime, { hold: true });
     try {
-      const published = (await docker(["port", stubName, "8080/tcp"])).split("\n")[0].trim();
-      const stubUrl = `http://${published}`;
-      const stub = async () => (await fetch(`${stubUrl}/calls`)).json();
-      await eventually(() => stub().then(() => true), { timeout: 30_000, message: "the stub model" });
+      const stubUrl = model.url;
+      const stub = model.stats;
 
       // The Host's one Tenant; its state is in schema `nylorun`.
       const tenant = await hostTenant(await stack.admin());
@@ -237,15 +167,7 @@ try {
 
       await request(runtimeUrl, tenant, "/v1/tenant/model", {
         method: "PUT",
-        body: {
-          requestId: randomUUID(),
-          idempotencyKey: randomUUID(),
-          provider: "custom",
-          model: "stub",
-          baseUrl: `http://${STUB_ALIAS}:8080/v1`,
-          // The stub ignores it; the custom provider needs a key.
-          auth: { type: "api_key", key: "stub-model-key" },
-        },
+        body: { requestId: randomUUID(), idempotencyKey: randomUUID(), ...model.model },
       });
       await request(runtimeUrl, tenant, "/v1/agents/bot", {
         method: "PUT",
@@ -280,6 +202,10 @@ try {
       console.log(`[failure] model call in flight under ${owner} (${elapsed()})`);
 
       // Kill the Runtime mid-call: the gateway keeps the call, keyed by the effect id (P1.2).
+      // The harness (F6.2) runs the turn; it stays up and connects again.
+      const harnessStarted = () =>
+        docker(["inspect", "--format", "{{.State.StartedAt}} {{.RestartCount}}", `${stack.project}-harness`]);
+      const harnessBefore = await harnessStarted();
       await stack.compose(["kill", "runtime"]);
       await new Promise((resolve) => setTimeout(resolve, 2000));
       assert.equal((await stub()).held, 1, "the gateway kept the provider call after the Runtime died");
@@ -291,6 +217,14 @@ try {
         );
       await ready();
       console.log(`[failure] Runtime killed and restarted (${elapsed()})`);
+      const admin = await stack.admin();
+      await eventually(async () => (await admin.status()).aggregate?.harness?.connected === 1, {
+        timeout: 120_000,
+        interval: 500,
+        message: "the harness to connect to the restarted Runtime",
+      });
+      assert.equal(await harnessStarted(), harnessBefore, "the harness container kept running");
+      assert.equal((await admin.status()).aggregate.harness.mode, "remote");
 
       // The restarted Worker takes the session over once the dead lease lapses, re-sends the
       // journaled call and joins it: the turn completes with one provider call.
@@ -343,6 +277,77 @@ try {
       assert.equal(count(restarted, "turn.completed"), 2);
       assert.deepEqual(await stub(), { calls: 2, held: 0, aborted: 0 }, "one call per turn");
       console.log(`[failure] graceful stop mid-call: recovered with one provider call (${elapsed()})`);
+
+      // 5a. The harness (F6.2) killed mid model call: core loses the connection, the gateway
+      // keeps the call; the restarted harness re-sends it and joins it. One provider call.
+      const harnessHealthy = () =>
+        eventually(
+          async () =>
+            (await stack.compose(["ps", "--format", "{{.Health}}", "harness"])).trim() === "healthy",
+          { timeout: 120_000, interval: 1000, message: "the harness to be healthy (connected)" },
+        );
+      await fetch(`${stubUrl}/hold`, { method: "POST" });
+      const beforeHarness = (await stub()).calls;
+      await message(20);
+      await eventually(async () => (await stub()).held === 1, {
+        timeout: 60_000,
+        message: "the model call to reach the stub from the harness",
+      });
+      await stack.compose(["kill", "harness"]);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      assert.equal((await stub()).held, 1, "the gateway kept the provider call after the harness died");
+      await stack.compose(["start", "harness"]);
+      await harnessHealthy();
+      await fetch(`${stubUrl}/release`, { method: "POST" });
+      await eventually(async () => (await session()).status === "completed", {
+        timeout: 180_000,
+        interval: 1000,
+        message: "the turn to complete after the harness came back",
+      });
+      const afterHarness = await history();
+      assert.equal(count(afterHarness, "effect.uncertain"), 0, types(afterHarness).join(", "));
+      assert.equal(count(afterHarness, "turn.completed"), 3);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.deepEqual(
+        await stub(),
+        { calls: beforeHarness + 1, held: 0, aborted: 0 },
+        "one provider call: the restarted harness joined the call the gateway kept",
+      );
+      console.log(`[failure] harness killed mid model call: one provider call (${elapsed()})`);
+
+      // 5b. The harness killed mid `bash`: the workspace call is lost with it, so the effect is
+      // uncertain and the session waits for a decision; nothing runs it twice.
+      await request(runtimeUrl, tenant, "/v1/sessions/s3", {
+        method: "PUT",
+        body: { requestId: randomUUID(), agentId: "bot", ownerUserId: "failure-smoke", sandbox: {} },
+      });
+      await request(runtimeUrl, tenant, "/v1/sessions/s3/commands", {
+        method: "POST",
+        body: { type: "message", requestId: "b1", idempotencyKey: "b1", content: 'call bash {"command":"sleep 120"}' },
+      });
+      await eventually(
+        async () =>
+          (await stack.psql(
+            `SELECT count(*) FROM ${schema}.effects WHERE session_id = 's3' AND kind = 'tool' AND status = 'invoking'`,
+          )) === "1",
+        { timeout: 60_000, interval: 250, message: "bash to be running in the harness" },
+      );
+      await stack.compose(["kill", "harness"]);
+      await stack.compose(["start", "harness"]);
+      await harnessHealthy();
+      const bashed = await eventually(
+        async () => {
+          const view = await runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s3");
+          return ["completed", "failed", "cancelled", "uncertain"].includes(view.status) ? view : undefined;
+        },
+        { timeout: 180_000, interval: 1000, message: "the bash turn to settle" },
+      );
+      assert.equal(bashed.status, "uncertain", JSON.stringify(bashed));
+      assert.equal(bashed.uncertainEffects.length, 1, JSON.stringify(bashed.uncertainEffects));
+      const bashHistory = await runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s3/items");
+      assert.equal(count(bashHistory, "effect.uncertain"), 1, types(bashHistory).join(", "));
+      assert.equal(count(bashHistory, "tool.completed"), 0, "bash never completed");
+      console.log(`[failure] harness killed mid bash: the effect is uncertain (${elapsed()})`);
 
       // 6. Every call crossed the gateway, and the runtime runs with it.
       const gatewayLogs = (await stack.compose(["logs", "--no-log-prefix", "gateway"])).split("\n");
@@ -520,7 +525,7 @@ try {
       const toolMessage = (n) =>
         request(runtimeUrl, tenant, "/v1/sessions/s2/commands", {
           method: "POST",
-          body: { type: "message", requestId: `t${n}`, idempotencyKey: `t${n}`, content: "use the tool" },
+          body: { type: "message", requestId: `t${n}`, idempotencyKey: `t${n}`, content: 'call remote__slow {"value":1}' },
         });
       const toolSettled = () =>
         eventually(
@@ -579,7 +584,7 @@ try {
       console.log(`[failure] runtime and gateway killed mid MCP call: uncertain, run once (${elapsed()})`);
       console.log(`[failure] Tool Gate cases passed (${elapsed()})`);
     } finally {
-      await docker(["rm", "--force", stubName]).catch(() => {});
+      await model.remove();
       await docker(["rm", "--force", mcpName]).catch(() => {});
     }
   });

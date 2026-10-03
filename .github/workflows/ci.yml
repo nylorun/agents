@@ -214,13 +214,16 @@ jobs:
   # parallel, architecture §17 case 3 on its own stack (test:failure): the
   # runtime container killed mid model call (`docker compose kill`), then
   # started; the effect must become uncertain with no second model call
-  # (scripts/smoke-failure.mjs). test:acceptance:access: subjects, scopes and
-  # owner isolation on one Tenant, through app.as(...) (scripts/acceptance/access.mjs).
+  # (scripts/smoke-failure.mjs), and the harness container killed mid model call
+  # and mid bash. test:acceptance:access: subjects, scopes and owner isolation on
+  # one Tenant, through app.as(...) (scripts/acceptance/access.mjs).
+  # test:redteam: what code in the harness container can reach, from a container
+  # of the harness service's own definition (scripts/smoke-redteam.mjs).
   stack:
     strategy:
       fail-fast: false
       matrix:
-        smoke: ["test:stack", "test:failure", "test:acceptance:access"]
+        smoke: ["test:stack", "test:failure", "test:acceptance:access", "test:redteam"]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

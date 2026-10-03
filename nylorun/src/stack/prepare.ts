@@ -57,7 +57,8 @@ export async function readStackEnv(paths: Pick<StackPaths, "env">) {
  * Write everything `docker compose up` needs under the Host root:
  * host.json, host-credentials.json (0600), docker/compose.yaml,
  * docker/.env (0600) and docker/restate-identity.pem (0600). Ports and the
- * Postgres password persist in .env; the identity key persists in its PEM.
+ * Postgres password persist in .env; the identity key persists in its PEM. The harness token
+ * and mode persist too; whether Restate's UI is published is decided on every start.
  */
 export async function prepareStack(input: {
   paths: StackPaths;
@@ -86,6 +87,8 @@ export async function prepareStack(input: {
    * Undefined keeps the persisted ones while `sandboxes/cluster.json` exists.
    */
   sandboxes?: SandboxStackEnv | null;
+  /** Publish Restate's UI and admin port (`start --restate-ui`); undefined keeps the last start's choice. */
+  restateUi?: boolean;
 }): Promise<PreparedStack> {
   const { paths } = input;
   await ensureHostLayout(paths);
@@ -130,6 +133,10 @@ export async function prepareStack(input: {
     postgresPassword: persisted.postgresPassword ?? randomBytes(24).toString("hex"),
     // Kept across starts: a new token would recreate the runtime and gateway containers.
     gatesToken: persisted.gatesToken ?? randomBytes(32).toString("hex"),
+    // Kept across starts: a new token would recreate the runtime and harness containers.
+    harnessToken: persisted.harnessToken ?? randomBytes(32).toString("hex"),
+    harness: persisted.harness ?? "remote",
+    restateUi: input.restateUi ?? persisted.restateUi ?? false,
     // Kept across starts: a new key would recreate the runtime, gateway and rustfs containers.
     objectStoreSecretKey: persisted.objectStoreSecretKey ?? randomBytes(32).toString("hex"),
     restateIdentityKey: identity.publicKey,
@@ -164,7 +171,11 @@ export async function prepareStack(input: {
   await writeFileMode(paths.env, renderEnvFile(env), 0o600);
   await writeFileMode(
     paths.compose,
-    renderComposeFile(input.project, input.name, env.sandboxes ? { sandboxes: true } : {}),
+    renderComposeFile(input.project, input.name, {
+      harness: env.harness,
+      ...(env.sandboxes ? { sandboxes: true } : {}),
+      ...(env.restateUi ? { restateUi: true } : {}),
+    }),
     0o644,
   );
   return { env, host, adminKey, firstRun };

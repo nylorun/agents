@@ -27,8 +27,8 @@ import { PINNED_IMAGES } from "./images.js";
  * which alone reads model credentials, and the Tool Gate (F4.1), which alone
  * holds remote MCP connections and their credentials and POSTs every Action
  * delivery. Every model call, remote MCP call and delivery of the loop crosses it
- * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`); stdio MCP servers
- * still run in the runtime container. The gateway also runs keys (F4.2): the only
+ * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`, or a run's token from the
+ * harness); MCP stdio servers run in the harness container. The gateway also runs keys (F4.2): the only
  * holder of the vault key, it runs every vault write that touches a secret and signs
  * every token (NYLORUN_KEYS_URL). The gateway mounts only the Host's Tenant directory
  * (`tenant/`) and its keys directory (`keys/`, the vault key), read-only: never
@@ -50,13 +50,30 @@ import { PINNED_IMAGES } from "./images.js";
  * NYLORUN_SANDBOXES_TOKEN. The runtime gets an empty read-only mount over that directory.
  * The gateway then also runs egress-gate (`--service gates,keys,egress`), pods' CONNECT proxy to
  * the hosts their spec allows, published on NYLORUN_SANDBOX_BIND at NYLORUN_SANDBOX_EGRESS_PORT.
+ *
+ * The harness (F6.2, `harness: "remote"`, the default) runs every agent turn, MCP stdio server
+ * and workspace in its own container: the runtime image with `--service harness`, connected to
+ * core's Harness API (`ws://runtime:4200/nylorun/harness/v1`) with NYLORUN_HARNESS_TOKEN, its
+ * only credential, and calling models and remote MCP servers through the gateway with each
+ * run's token. It mounts only the Tenant's `sandboxes/`, `plugin-data/`, `home/` and `tmp/`
+ * under `/harness`, and the Host root's `plugins/` read-only at its own path (plugin roots name
+ * paths on this machine; the runtime mounts it there too). NYLORUN_HARNESS=in-process in `.env`
+ * rolls back to turns in the runtime container, without the harness service.
+ *
+ * Three networks: `store` (internal: no egress) joins Postgres, s2-lite, Restate and RustFS to
+ * the runtime and the gateway; `harness` joins the harness to the runtime and the gateway only;
+ * `default` carries egress and the published ports (runtime, gateway, Studio, sandboxes).
+ * Restate's admin port (its UI, unauthenticated) is published, and Restate joins `default`,
+ * only with `restateUi` (`nylorun start --restate-ui`).
  */
 export function renderComposeFile(
   project: string,
   name: string,
-  options: { sandboxes?: true } = {},
+  options: { sandboxes?: true; harness?: "remote" | "in-process"; restateUi?: true } = {},
 ): string {
   const sandboxes = options.sandboxes === true;
+  const remote = (options.harness ?? "remote") === "remote";
+  const restateUi = options.restateUi === true;
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
 name: ${project}
 
@@ -77,6 +94,7 @@ services:
       POSTGRES_INITDB_ARGS: "--locale=C" # C collation for the whole database
     volumes:
       - postgres:/var/lib/postgresql/data
+    networks: [store]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nylorun -d nylorun"]
       interval: 2s
@@ -94,9 +112,7 @@ services:
     volumes:
       - restate:/restate-data
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
-    ports:
-      - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin, for debugging
-    healthcheck:
+${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9070/health"]
       interval: 2s
       timeout: 5s
@@ -113,6 +129,7 @@ services:
     # (e.g. /data) is root-owned and s2-lite cannot write it.
     volumes:
       - s2-lite:/home/nonroot
+    networks: [store]
     # The s2 image has no shell or HTTP client, so it has no health check;
     # the Runtime's /ready covers it.
     restart: unless-stopped
@@ -129,6 +146,7 @@ services:
     # The image runs as uid 10001 and owns /data, which Docker copies into the new volume.
     volumes:
       - rustfs:/data
+    networks: [store]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
       interval: 2s
@@ -163,6 +181,8 @@ services:
       # The Tenant's homes and its vault key only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/keys:/nylorun/keys:ro
+    # Egress and the stores; the harness reaches its gates on \`harness\`.
+    networks: [default, store, harness]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 2s
@@ -216,7 +236,13 @@ services:
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
-      NYLORUN_ENDPOINT_LOOPBACK: docker-host${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      # Agent turns, MCP servers and workspaces run in the harness container, which connects to
+      # this listener with NYLORUN_HARNESS_TOKEN. NYLORUN_HARNESS=in-process in .env rolls back.
+      NYLORUN_HARNESS: \${NYLORUN_HARNESS:-remote}
+      NYLORUN_HARNESS_LISTEN_PORT: "4200"
+      NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
@@ -232,6 +258,9 @@ services:
         read_only: true
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user${sandboxes ? SANDBOXES_RUNTIME_MOUNT : ""}
       - workspaces:/workspaces
+      # Plugin roots on this machine, at their own path (as for the harness), for NYLORUN_HARNESS=in-process.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
+    networks: [default, store, harness]
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
       - "127.0.0.1:\${NYLORUN_ADMIN_PORT:?run nylorun start}:4001" # Admin API (operators only)
@@ -264,6 +293,7 @@ services:
       NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
+    networks: [default]
     ports:
       - "127.0.0.1:\${NYLORUN_STUDIO_PORT:?run nylorun start}:3000" # opened as http://localhost:<port>
     healthcheck: # /healthz needs no session; Host studio:3000 is accepted
@@ -272,10 +302,17 @@ services:
       timeout: 5s
       retries: 30
     restart: unless-stopped
-${sandboxes ? sandboxesService(project) : ""}
+${remote ? harnessService(project) : ""}${sandboxes ? sandboxesService(project) : ""}
 networks:
   default:
     name: ${project}
+    labels: *tenant
+  store: # the stores: no egress, no published port
+    name: ${project}-store
+    internal: true
+    labels: *tenant
+  harness: # the harness reaches the runtime's Harness API and the gateway only (egress for MCP servers and bash)
+    name: ${project}-harness
     labels: *tenant
 
 volumes:
@@ -284,6 +321,55 @@ volumes:
   s2-lite: { name: ${project}-s2-lite, labels: *tenant }
   rustfs: { name: ${project}-rustfs, labels: *tenant }
   workspaces: { name: ${project}-workspaces, labels: *tenant }
+`;
+}
+
+/** Restate on the stores' network only: its admin port (the UI) is not published. */
+const RESTATE_CLOSED = `    networks: [store] # admin and UI not published: nylorun start --restate-ui
+`;
+
+/** Restate's admin port and UI on loopback (`--restate-ui`): it must join `default` to be published. */
+const RESTATE_UI = `    networks: [store, default]
+    ports:
+      - "127.0.0.1:\${NYLORUN_RESTATE_PORT:?run nylorun start}:9070" # Restate UI and admin (unauthenticated): nylorun start --restate-ui
+`;
+
+/**
+ * The harness service (F6.2): agent turns, MCP stdio servers and workspaces, apart from core.
+ * It holds the harness token only; models and remote MCP servers are reached through the
+ * gateway with each run's token. Healthy once connected to core's Harness API.
+ */
+function harnessService(project: string): string {
+  return `
+  harness: # agent turns, MCP servers and workspaces; holds only the harness token; not published
+    image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
+    container_name: ${project}-harness
+    labels: *tenant
+    command: ["--service", "harness"]
+    user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
+    depends_on:
+      runtime: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    environment:
+      NYLORUN_HARNESS_URL: ws://runtime:4200/nylorun/harness/v1
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
+      NYLORUN_GATES_URL: http://gateway:4100
+      NYLORUN_HARNESS_ROOT: /harness
+    volumes:
+      # The Tenant's workspaces, plugin data and the homes of MCP stdio servers; nothing else.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/sandboxes:/harness/sandboxes
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/plugin-data:/harness/plugin-data
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/home:/harness/home
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/tmp:/harness/tmp
+      # Plugin roots on this machine, read-only, at their own path: agents name them so.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
+    networks: [harness]
+    healthcheck: # healthy once connected to core's Harness API
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/health').then(r=>r.json()).then(b=>process.exit(b.connected?0:1),()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+    restart: unless-stopped
 `;
 }
 
@@ -331,6 +417,7 @@ function sandboxesService(project: string): string {
     volumes:
       # cluster.json (API server, CA, namespace) and the ServiceAccount token, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/sandboxes:/run/nylorun/sandboxes:ro
+    networks: [default] # the cluster's API server, through host.docker.internal
     healthcheck: # /ready: informers synced and the API server answers
       test: ["CMD", "/sandboxes", "healthcheck"]
       interval: 5s

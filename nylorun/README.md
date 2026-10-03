@@ -34,11 +34,12 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the Tenan
 ## Commands
 
 ```sh
-nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
+nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
                                    # create (first run) and start the Tenant; link the project; print the URLs; open Studio signed in
+                                   # --restate-ui (or NYLORUN_RESTATE_UI=1): publish Restate's UI on loopback for this start
 nylorun down|stop [--tenant <name> | --all]   # stop the containers (--all: every Tenant's); keep volumes
 nylorun status [--tenant <name>] [--json]   # the Tenant, its Host root and id, services, endpoints, Runtime health
-nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, studio, sandboxes
+nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, harness, studio, sandboxes
 nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on the Tenant; starts it if needed
 nylorun reset [--tenant <name>] [--yes]        # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
 nylorun ls [--json]                # the Tenants on this machine, with their state, memory and URLs
@@ -162,15 +163,24 @@ The Runtime registers the derived principals of `NYLORUN_DERIVED_PRINCIPALS`
 `nylorun start` writes `compose.yaml` and `.env` (mode 0600) under
 `~/.nylorun/tenants/<name>/docker/` on every start; `.env` keeps the ports and
 secrets chosen on the first run. The services are `postgres`, `restate`,
-`s2-lite`, `gateway`, `runtime` and `studio`. Container, network and volume
+`s2-lite`, `rustfs`, `gateway`, `runtime`, `harness` and `studio`. Container, network and volume
 names are global on the Docker engine, so each carries the Tenant's Compose
 project, and each has the label `dev.nylorun.tenant: <name>`. For Tenant `shop`:
 
 | Thing | Name |
 | --- | --- |
-| Containers | `nylorun-shop-postgres`, `nylorun-shop-restate`, `nylorun-shop-s2-lite`, `nylorun-shop-gateway`, `nylorun-shop-runtime`, `nylorun-shop-studio` |
-| Network | `nylorun-shop` |
-| Volumes | `nylorun-shop-postgres`, `nylorun-shop-restate`, `nylorun-shop-s2-lite`, `nylorun-shop-workspaces` |
+| Containers | `nylorun-shop-postgres`, `nylorun-shop-restate`, `nylorun-shop-s2-lite`, `nylorun-shop-rustfs`, `nylorun-shop-gateway`, `nylorun-shop-runtime`, `nylorun-shop-harness`, `nylorun-shop-studio` |
+| Networks | `nylorun-shop` (egress, published ports), `nylorun-shop-store` (internal: the stores), `nylorun-shop-harness` (the harness, the runtime and the gateway) |
+| Volumes | `nylorun-shop-postgres`, `nylorun-shop-restate`, `nylorun-shop-s2-lite`, `nylorun-shop-rustfs`, `nylorun-shop-workspaces` |
+
+The `harness` container (the Runtime image as `--service harness`) runs agent
+turns, stdio MCP servers and workspaces, apart from the `runtime` container. It
+holds only the harness token (`NYLORUN_HARNESS_TOKEN` in `.env`), mounts only
+the Tenant directory's `sandboxes/`, `plugin-data/`, `home/` and `tmp/`, and the
+Host root's `plugins/` read-only at its own path: put a plugin whose stdio MCP
+server the agent runs under `~/.nylorun/tenants/<name>/plugins/` and load it from
+there. `NYLORUN_HARNESS=in-process` in `.env` rolls back to running them in the
+`runtime` container (no `harness` container); `nylorun status` shows which.
 
 Postgres initialises the Tenant's database with C collation. Restate runs with
 its own defaults. A running Tenant uses about 1.2 GB, most of it Restate; stop
@@ -178,9 +188,11 @@ the Tenants you are not using (`nylorun stop`, or `nylorun stop --all`). The Run
 this release (`package.json` `nylorun.runtime` and `nylorun.studio`);
 `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them (local builds,
 CI). Ports publish on loopback only: the Runtime on `8787`, its operator
-listener (Admin API) on `8788`, Studio on `4161` and the Restate UI on `9070`,
-or free ports chosen on the Tenant's first start, avoiding the ports other
-Tenants keep, and kept in its `.env`.
+listener (Admin API) on `8788` and Studio on `4161`, or free ports chosen on the
+Tenant's first start, avoiding the ports other Tenants keep, and kept in its
+`.env`. Restate's UI and admin API (unauthenticated) are not published; `nylorun
+start --restate-ui` (or `NYLORUN_RESTATE_UI=1`) publishes them for that start on
+`9070` (or the port kept in `.env`), and the next start without it closes them.
 
 `start`, `status`, `ls` and `nylorun studio` give Studio as
 `http://localhost:<port>` (`studio.url` in `status --json`). Studio has no

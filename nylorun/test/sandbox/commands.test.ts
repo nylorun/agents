@@ -101,7 +101,7 @@ describe("nylorun sandbox", () => {
       uid: 1001, gid: 1002, runtimeVersion: undefined, ports: fakePorts(),
     });
     expect(dropped.env.sandboxes).toBeUndefined();
-    expect(await readFile(stackPaths(home).compose, "utf8")).not.toContain("sandboxes:");
+    expect(await readFile(stackPaths(home).compose, "utf8")).not.toContain("\n  sandboxes:");
   });
 
   it("disable removes the service and the cluster files, keeping the namespace", async () => {
@@ -116,7 +116,7 @@ describe("nylorun sandbox", () => {
     expect(docker.calls.map((args) => args.slice(7).join(" "))).toContain("rm --stop --force sandboxes");
     expect(existsSync(sandboxesDir(stackPaths(home).root))).toBe(false);
     expect((await readStackEnv(stackPaths(home)))?.sandboxes).toBeUndefined();
-    expect(await readFile(stackPaths(home).compose, "utf8")).not.toContain("sandboxes:");
+    expect(await readFile(stackPaths(home).compose, "utf8")).not.toContain("\n  sandboxes:");
     expect(stack.lines.join("\n")).toMatch(/Namespace nylorun-sbx-home-root in docker-desktop is kept/);
     expect(kubectl.calls.some((c) => c.args.includes("delete") && c.args.includes("nylorun-sbx-home-root"))).toBe(false);
 
@@ -148,7 +148,8 @@ describe("nylorun sandbox", () => {
 describe(".env and compose.yaml with sandboxes", () => {
   const env: StackEnv = {
     runtimePort: 8787, adminPort: 8788, studioPort: 4161, restatePort: 9070,
-    postgresPassword: "0123456789abcdef0123456789abcdef", gatesToken: "ab".repeat(32),
+    restateUi: false, postgresPassword: "0123456789abcdef0123456789abcdef", gatesToken: "ab".repeat(32),
+    harnessToken: "ef".repeat(32), harness: "remote", objectStoreSecretKey: "12".repeat(32),
     restateIdentityKey: "publickeyv1_x", uid: 501, gid: 20, hostRoot: "/h", runtimeImage: "r",
     studioImage: "s", studioFrameAncestors: "", studioAnalyticsId: "", tenantName: "shop",
     derivedPrincipals: "project",
@@ -167,8 +168,9 @@ describe(".env and compose.yaml with sandboxes", () => {
   it("adds the service, the runtime's URL and token, and hides the credentials from the runtime", () => {
     const plain = renderComposeFile("nylorun-shop", "shop");
     const compose = renderComposeFile("nylorun-shop", "shop", { sandboxes: true });
-    expect(plain).not.toMatch(/sandboxes/i);
-    const service = compose.slice(compose.indexOf("  sandboxes:"), compose.indexOf("networks:"));
+    // The harness mounts the Tenant's own sandboxes/ (workspaces); nothing of the service.
+    expect(plain).not.toMatch(/\n {2}sandboxes:|SANDBOXES|\/run\/nylorun\/sandboxes|\/nylorun\/sandboxes/);
+    const service = compose.slice(compose.indexOf("\n  sandboxes:"), compose.indexOf("\nnetworks:"));
     expect(service).toContain("container_name: nylorun-shop-sandboxes");
     expect(service).toContain("${NYLORUN_HOST_ROOT:?run nylorun start}/sandboxes:/run/nylorun/sandboxes:ro");
     expect(service).toContain('test: ["CMD", "/sandboxes", "healthcheck"]');
@@ -184,7 +186,7 @@ describe(".env and compose.yaml with sandboxes", () => {
     const gatewayOf = (compose: string) => compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     const plain = gatewayOf(renderComposeFile("nylorun-shop", "shop"));
     expect(plain).toContain('command: ["--service", "gates,keys"]');
-    expect(plain).not.toMatch(/egress|ports:/i);
+    expect(plain).not.toMatch(/gates,keys,egress|NYLORUN_EGRESS_|SANDBOX_EGRESS_PORT|^\s+ports:/m);
     const gateway = gatewayOf(renderComposeFile("nylorun-shop", "shop", { sandboxes: true }));
     expect(gateway).toContain('command: ["--service", "gates,keys,egress"]');
     expect(gateway).toContain('NYLORUN_EGRESS_LISTEN_PORT: "4200"');
