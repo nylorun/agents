@@ -100,7 +100,7 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
     } finally {
       connected = false;
       // The connection is gone: its runs were aborted with it; let them wind down.
-      await harness.stop(5_000);
+      if (!stopped) await harness.stop(5_000);
       channel.close("reconnecting");
       current = undefined;
     }
