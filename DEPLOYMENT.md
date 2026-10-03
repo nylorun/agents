@@ -1,7 +1,7 @@
 # Runtime deployment
 
 This release supports one machine: the **local Tenant** that `nylorun start`
-runs for a project (the Runtime, its gateway, Studio, Postgres, Restate,
+runs for a project (the Runtime, its gateway and harness, Studio, Postgres, Restate,
 s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
 serves that one **Tenant**, and the application's **Action
 endpoints** (the tools it serves) on the same machine or reachable from it. Vocabulary:
@@ -65,7 +65,8 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   machine reaches it through a reverse proxy:
   [Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine).
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
-  Studio for operators (loopback or an SSH tunnel). Leave
+  Studio for operators (loopback or an SSH tunnel). Restate's UI is not
+  published at all unless you ask for it (`nylorun start --restate-ui`). Leave
   `NYLORUN_STUDIO_FRAME_ANCESTORS` unset on servers: no page may frame Studio.
 - The app server drops every `Nylorun-*` header its own clients send, never
   forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
@@ -251,8 +252,8 @@ the Tenant's model credential from its vault and calls the provider. The loop
 sends every vault-backed model call to it (`NYLORUN_GATES_URL`) and never holds
 a model credential.
 
-- The gateway has no published port; only the runtime reaches it, on the Compose
-  network. It accepts two credentials:
+- The gateway has no published port; only the runtime and the harness reach it,
+  on the Compose networks. It accepts two credentials:
   - **Core's credential**, `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up`
     generates it once and keeps it, and only the runtime container holds it. It
     is the only credential for vault writes and token signing, Action
@@ -299,7 +300,7 @@ the runtime container never holds an MCP credential or calls a tool's server:
   connection, authorizes it from the session's attached vaults (OAuth refresh
   included) and runs `tools/list` and `tools/call`. `nylorun logs gateway`
   shows one `mcp_request` line per request, never arguments, results or
-  credentials. Stdio MCP servers still run in the runtime container.
+  credentials. Stdio MCP servers run in the harness container (below).
 - **Action deliveries**: the gateway POSTs every delivery and endpoint ping, so
   it carries `NYLORUN_ENDPOINT_LOOPBACK` (and any other `NYLORUN_ENDPOINT_*`
   setting) and reaches Action endpoints on this machine at
@@ -323,6 +324,58 @@ The combined packing suits one developer on one machine: the gateway holds
 every secret of the Tenant in one process. Kubernetes splits it into separate
 services in a later release.
 
+## The harness: agent turns, MCP servers and workspaces
+
+The `harness` container runs the Runtime image a third time, as `--service
+harness`. It runs every agent turn's engine, the session's stdio MCP servers and
+its workspace (`bash`, `read`, `write` and the other sandbox tools), apart from
+the runtime container, which keeps the Tenant's state and schedules the turns.
+The runtime container runs no turn, no MCP server and no workspace command.
+
+- It connects to the runtime's Harness API (`ws://runtime:4200/nylorun/harness/v1`)
+  with the harness token, `NYLORUN_HARNESS_TOKEN` from `docker/.env`, which
+  `nylorun start` generates once and keeps. Only the runtime (which checks it)
+  and the harness hold it; the Tenant API, the Admin API and the gateway refuse
+  it. The harness holds no other credential: no database, no Restate, no vault
+  key, no gates token. Its model and remote MCP calls go to the gateway with the
+  run token of the turn they belong to.
+- It mounts only the Tenant directory's `sandboxes/` (the workspaces),
+  `plugin-data/`, `home/` and `tmp/` under `/harness`, and the Host root's
+  `plugins/` read-only (below). It publishes no port and is healthy once it is
+  connected (`nylorun status` shows `Harness  running, healthy, remote, 1
+  connected`; `nylorun logs harness` shows its log).
+- **Plugin roots.** A stdio MCP server from a plugin runs from the plugin's
+  directory, which the agent names by its absolute path on the machine that
+  deployed it. In a local Tenant, put such plugins under the Host root's
+  `plugins/` directory (`~/.nylorun/tenants/<tenant>/plugins/<plugin>`) and load
+  them from there: Compose mounts that directory read-only, at the same path, into
+  the harness and runtime containers, so the paths resolve. A plugin elsewhere on
+  the machine is not visible in the containers.
+- If the harness container is killed mid model call, the gateway keeps the call
+  and the restarted harness picks up its answer. A workspace command or stdio MCP
+  call in flight is lost with the container, so its effect becomes `uncertain`
+  and the session waits for a decision; nothing runs it twice. If the runtime
+  restarts, the harness connects again and the turn finishes.
+- **Rollback.** Set `NYLORUN_HARNESS=in-process` in `docker/.env` and run
+  `nylorun start`: the runtime container runs turns, MCP servers and workspaces
+  itself again, and the harness container is removed. `NYLORUN_HARNESS=remote`
+  (the default) brings it back; the setting is kept across starts.
+
+## Networks and Restate's UI
+
+A local Tenant has three Compose networks:
+
+| Network | Members | Purpose |
+| --- | --- | --- |
+| `<project>-store` (internal: no egress) | postgres, s2-lite, restate, rustfs, runtime, gateway | The stores and Restate, reached only by the runtime and the gateway |
+| `<project>-harness` | harness, runtime, gateway | The harness reaches the Harness API and the gateway, nothing else; it keeps egress for MCP servers and `bash` |
+| `<project>` (default) | runtime, gateway, studio, sandboxes | Egress and the published ports |
+
+Restate's admin API and UI (port 9070) have no authentication, so they are not
+published. `nylorun start --restate-ui` (or `NYLORUN_RESTATE_UI=1 nylorun
+start`) publishes them for that start on `127.0.0.1:<NYLORUN_RESTATE_PORT>` and
+prints the URL; the next start without the flag closes them again.
+
 ## Container images
 
 Each release publishes the Runtime and Studio as multi-arch images
@@ -330,7 +383,7 @@ Each release publishes the Runtime and Studio as multi-arch images
 
 | Image | Built from |
 | --- | --- |
-| `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` (the `runtime` and `gateway` containers) |
+| `ghcr.io/nylorun/runtime:<runtime version>` | `runtime/Dockerfile` (the `runtime`, `gateway` and `harness` containers) |
 | `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
 
 `nylorun up` runs the versions its release pins (`nylorun/package.json`

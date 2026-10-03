@@ -33,7 +33,7 @@ import {
   type ComposeService,
   type DockerRunner,
 } from "./docker.js";
-import type { SandboxStackEnv } from "./env-file.js";
+import type { HarnessMode, SandboxStackEnv } from "./env-file.js";
 import { readAdminKey, readHostConfig, STACK_CLIENT_HOST } from "./host-files.js";
 import { runtimeImageOverridden, stackImages } from "./images.js";
 import { stackPaths, type StackPaths } from "./paths.js";
@@ -55,14 +55,29 @@ import {
 } from "./stacks.js";
 import { mintStudioLogin, studioOrigin, type FetchLike } from "./studio-login.js";
 
-export const STACK_SERVICES = ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "studio"] as const;
-const CORE_SERVICES = ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime"] as const;
+export const STACK_SERVICES = [
+  "postgres",
+  "restate",
+  "s2-lite",
+  "rustfs",
+  "gateway",
+  "runtime",
+  "harness",
+  "studio",
+] as const;
+const CORE_SERVICES = ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "harness"] as const;
 
-export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
+/** The services `start` waits for: the harness only while it runs turns (`NYLORUN_HARNESS=remote`). */
+function coreServices(harness: HarnessMode): string[] {
+  return CORE_SERVICES.filter((service) => service !== "harness" || harness === "remote");
+}
+
+export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
                                       start the project's Tenant, creating it and the Project link (.nylorun/link.json,
                                       credentials.json) on the first run; print the Runtime and Studio URLs and open Studio
                                       signed in (in a terminal). --tenant attaches to (or creates) a named Tenant; --no-link
-                                      starts the default Tenant (or --tenant's) without linking the current directory
+                                      starts the default Tenant (or --tenant's) without linking the current directory;
+                                      --restate-ui (or NYLORUN_RESTATE_UI=1) publishes Restate's UI on loopback for debugging
   down|stop [--tenant <name> | --all] stop the Tenant's containers (--all: every Tenant's); keep volumes
   status [--tenant <name>] [--json]   the Tenant, its id, services, endpoints and Runtime health
   logs [service] [--tenant <name>] [-f] [--tail <n>]
@@ -356,12 +371,18 @@ async function waitForHealth(
 /** The Host's one Tenant as `/v1/admin/status` reports it (no envelope). */
 export type StackTenant = Pick<HostTenant, "id" | "name" | "state" | "cause">;
 
-/** `/v1/admin/status`'s Tenant on the operator listener; undefined when it does not answer. */
-async function fetchTenant(
+/** `/v1/admin/status` on the operator listener: the Tenant, and its harnesses (F6.2). */
+interface StackAdminStatus {
+  tenant: StackTenant;
+  harness?: { mode: HarnessMode; connected: number };
+}
+
+/** `/v1/admin/status` on the operator listener; undefined when it does not answer. */
+async function fetchAdminStatus(
   deps: StackDeps,
   adminUrl: string,
   adminKey: string | undefined,
-): Promise<StackTenant | undefined> {
+): Promise<StackAdminStatus | undefined> {
   if (!adminKey) return undefined;
   try {
     const response = await deps.fetch(`${adminUrl}/v1/admin/status`, {
@@ -374,17 +395,37 @@ async function fetchTenant(
       redirect: "error",
     });
     if (!response.ok) return undefined;
-    const tenant = ((await response.json()) as { tenant?: Partial<HostTenant> }).tenant;
+    const body = (await response.json()) as {
+      tenant?: Partial<HostTenant>;
+      aggregate?: { harness?: { mode?: unknown; connected?: unknown } };
+    };
+    const tenant = body.tenant;
     if (!tenant || (tenant.state !== "open" && tenant.state !== "unavailable")) return undefined;
+    const harness = body.aggregate?.harness;
     return {
-      id: typeof tenant.id === "string" ? tenant.id : null,
-      name: typeof tenant.name === "string" ? tenant.name : null,
-      state: tenant.state,
-      ...(tenant.cause ? { cause: tenant.cause } : {}),
+      tenant: {
+        id: typeof tenant.id === "string" ? tenant.id : null,
+        name: typeof tenant.name === "string" ? tenant.name : null,
+        state: tenant.state,
+        ...(tenant.cause ? { cause: tenant.cause } : {}),
+      },
+      ...((harness?.mode === "remote" || harness?.mode === "in-process") &&
+      typeof harness.connected === "number"
+        ? { harness: { mode: harness.mode, connected: harness.connected } }
+        : {}),
     };
   } catch {
     return undefined;
   }
+}
+
+/** `/v1/admin/status`'s Tenant on the operator listener; undefined when it does not answer. */
+async function fetchTenant(
+  deps: StackDeps,
+  adminUrl: string,
+  adminKey: string | undefined,
+): Promise<StackTenant | undefined> {
+  return (await fetchAdminStatus(deps, adminUrl, adminKey))?.tenant;
 }
 
 /** Why the Tenant is unavailable, with the repair the Runtime names. */
@@ -524,6 +565,8 @@ interface Started {
   studioUrl: string;
   studioStarted: boolean;
   adminKey: string;
+  /** Restate's UI, when this start published it (`--restate-ui`). */
+  restateUrl?: string;
 }
 
 async function bringUp(
@@ -534,6 +577,8 @@ async function bringUp(
     studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
     /** `nylorun sandbox enable|disable`: set or remove the sandboxes settings. */
     sandboxes?: SandboxStackEnv | null;
+    /** `start`: publish Restate's UI or not; other callers keep what the last start chose. */
+    restateUi?: boolean;
   },
 ): Promise<Started> {
   const { deps } = ctx;
@@ -569,6 +614,7 @@ async function bringUp(
     ...(options.studioEmbedOrigins ? { studioEmbedOrigins: options.studioEmbedOrigins } : {}),
     ...(analytics ? { studioAnalyticsId: STUDIO_ANALYTICS_ID } : {}),
     ...(options.sandboxes !== undefined ? { sandboxes: options.sandboxes } : {}),
+    ...(options.restateUi !== undefined ? { restateUi: options.restateUi } : {}),
   });
   if (analytics && options.studio && telemetry.noticeShown === undefined) {
     deps.err(TELEMETRY_NOTICE);
@@ -585,14 +631,25 @@ async function bringUp(
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.runtimePort}`;
   const adminUrl = `http://${STACK_CLIENT_HOST}:${prepared.env.adminPort}`;
   const up = await deps.docker.stream(
-    composeArgs(ctx, "up", "--detach", "--wait", "--wait-timeout", "300", ...CORE_SERVICES),
+    // --remove-orphans: a service this start's file no longer has (the harness after a rollback
+    // to NYLORUN_HARNESS=in-process, sandboxes after disable) is removed, not left running.
+    composeArgs(
+      ctx,
+      "up",
+      "--detach",
+      "--wait",
+      "--wait-timeout",
+      "300",
+      "--remove-orphans",
+      ...coreServices(prepared.env.harness),
+    ),
   );
   if (up !== 0) {
     // A Runtime whose Tenant cannot open fails readiness; its status names the cause.
     const tenant = await fetchTenant(deps, adminUrl, prepared.adminKey);
     if (tenant?.cause) throw new CliError(tenantCauseMessage(ctx, tenant), 7);
     throw new CliError(
-      `docker compose up failed (exit ${up}). See "nylorun logs runtime", "nylorun logs gateway" and "nylorun status".`,
+      `docker compose up failed (exit ${up}). See "nylorun logs runtime", "nylorun logs gateway", "nylorun logs harness" and "nylorun status".`,
       7,
     );
   }
@@ -623,6 +680,9 @@ async function bringUp(
     studioUrl: studioOrigin(prepared.env.studioPort),
     studioStarted,
     adminKey: prepared.adminKey,
+    ...(prepared.env.restateUi
+      ? { restateUrl: `http://${STACK_CLIENT_HOST}:${prepared.env.restatePort}` }
+      : {}),
   };
 }
 
@@ -723,7 +783,7 @@ async function linkProject(
 }
 
 const START_USAGE =
-  "nylorun start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]";
+  "nylorun start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]";
 
 async function start(deps: StackDeps, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
@@ -735,6 +795,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
         "--no-link",
         "--allow-downgrade",
         "--studio-embed-origin-reset",
+        "--restate-ui",
       ],
       values: ["--tenant"],
       lists: ["--studio-embed-origin"],
@@ -753,6 +814,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
   const started = await bringUp(ctx, {
     studio: !flags.booleans.has("--no-studio"),
     allowDowngrade: flags.booleans.has("--allow-downgrade"),
+    restateUi: flags.booleans.has("--restate-ui") || deps.env.NYLORUN_RESTATE_UI?.trim() === "1",
     ...(embedOrigins.length || resetEmbed
       ? { studioEmbedOrigins: { add: embedOrigins, reset: resetEmbed } }
       : {}),
@@ -761,6 +823,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
   if (ctx.projectDir) await linkProject({ ...ctx, projectDir: ctx.projectDir }, started, tenant.id);
   deps.out(`Tenant    ${ctx.name}  (${tenant.id})`);
   deps.out(`Runtime   ${started.runtimeUrl}`);
+  if (started.restateUrl) deps.out(`Restate   ${started.restateUrl}  (UI and admin, unauthenticated; for debugging)`);
   if (started.studioStarted) {
     deps.out(`Studio    ${started.studioUrl}`);
     if (opensBrowser(deps, flags)) {
@@ -860,9 +923,16 @@ export interface StackStatus {
     /** Exact origins that may show Studio in a frame (Studio §8.9). */
     embedOrigins?: string[];
   };
-  restate: { url?: string };
+  /** Restate's UI: `url` only while published (`nylorun start --restate-ui`). */
+  restate: { url?: string; published: boolean };
   /** The gateway container (the Model Gate), in the combined packing. */
   gateway: { state: string; healthy: boolean };
+  /**
+   * Where agent turns, MCP servers and workspaces run (F6.2): `remote`, the harness container,
+   * or `in-process`, the runtime container (`NYLORUN_HARNESS` in .env). `connected` counts the
+   * harnesses attached to the Tenant, as the Runtime reports them.
+   */
+  harness: { mode: HarnessMode; state: string; healthy: boolean; connected?: number };
   services: ComposeService[];
 }
 
@@ -874,8 +944,9 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     state: "absent",
     runtime: { healthy: false },
     studio: { state: "absent" },
-    restate: {},
+    restate: { published: false },
     gateway: { state: "absent", healthy: false },
+    harness: { mode: "remote", state: "absent", healthy: false },
     services: [],
   };
   if (!existsSync(ctx.paths.compose) || !existsSync(ctx.paths.env)) return base;
@@ -893,12 +964,15 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
   const adminUrl = persisted.adminPort
     ? `http://${STACK_CLIENT_HOST}:${persisted.adminPort}`
     : runtimeUrl;
-  const tenant =
+  const answered =
     healthy && adminUrl
-      ? await fetchTenant(ctx.deps, adminUrl, await readAdminKey(ctx.paths))
+      ? await fetchAdminStatus(ctx.deps, adminUrl, await readAdminKey(ctx.paths))
       : undefined;
+  const tenant = answered?.tenant;
   const studio = services.find((s) => s.service === "studio");
   const gateway = services.find((s) => s.service === "gateway");
+  const harness = services.find((s) => s.service === "harness");
+  const harnessMode = persisted.harness ?? "remote";
   return {
     ...base,
     state: services.some((s) => s.state === "running") ? "running" : "stopped",
@@ -917,12 +991,19 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
         ? { embedOrigins: persisted.studioFrameAncestors }
         : {}),
     },
-    restate: persisted.restatePort
-      ? { url: `http://${STACK_CLIENT_HOST}:${persisted.restatePort}` }
-      : {},
+    restate:
+      persisted.restatePort && persisted.restateUi
+        ? { url: `http://${STACK_CLIENT_HOST}:${persisted.restatePort}`, published: true }
+        : { published: false },
     gateway: {
       state: gateway ? [gateway.state, gateway.health].filter(Boolean).join(", ") : "absent",
       healthy: isUp(services, "gateway"),
+    },
+    harness: {
+      mode: answered?.harness?.mode ?? harnessMode,
+      state: harness ? [harness.state, harness.health].filter(Boolean).join(", ") : "absent",
+      healthy: isUp(services, "harness"),
+      ...(answered?.harness ? { connected: answered.harness.connected } : {}),
     },
     services,
   };
@@ -971,7 +1052,18 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
     out(
       `Gateway     ${result.gateway.state} (the Model Gate; model calls fail while it is down)`,
     );
-    if (result.restate.url) out(`Restate UI  ${result.restate.url}`);
+    out(
+      result.harness.mode === "remote"
+        ? `Harness     ${result.harness.state}, remote${
+            result.harness.connected === undefined ? "" : `, ${result.harness.connected} connected`
+          } (agent turns, MCP servers and workspaces; "nylorun logs harness")`
+        : `Harness     in-process (NYLORUN_HARNESS=in-process in .env: turns run in the runtime container)`,
+    );
+    out(
+      result.restate.url
+        ? `Restate UI  ${result.restate.url}  (unauthenticated; published by --restate-ui)`
+        : `Restate UI  not published (nylorun start --restate-ui)`,
+    );
     const sandboxes = result.services.find((s) => s.service === "sandboxes");
     if (sandboxes)
       out(
@@ -1208,6 +1300,8 @@ async function runningStack(
   if (typeof host?.hostId !== "string") return undefined;
   const services = await composePs(ctx);
   if (!isUp(services, "runtime") || !isUp(services, "gateway")) return undefined;
+  // An older Tenant without the harness container is brought up again (remote is the default).
+  if ((persisted.harness ?? "remote") === "remote" && !isUp(services, "harness")) return undefined;
   const studioUp = isUp(services, "studio");
   if (options.studio && !studioUp) return undefined;
   const runtimeUrl = `http://${STACK_CLIENT_HOST}:${persisted.runtimePort}`;

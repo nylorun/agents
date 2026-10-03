@@ -22,11 +22,27 @@ export interface StackEnv {
   adminPort: number;
   /** Published Studio port (loopback). */
   studioPort: number;
-  /** Published Restate UI and admin port (loopback). */
+  /** Restate UI and admin port (loopback), published only with `restateUi`. */
   restatePort: number;
+  /**
+   * `NYLORUN_RESTATE_UI`: `1` publishes Restate's UI and admin port (unauthenticated) for this
+   * start (`nylorun start --restate-ui`); `0` keeps it closed. Decided again on every start.
+   */
+  restateUi: boolean;
   postgresPassword: string;
   /** The token the runtime presents to the gateway (`NYLORUN_GATES_TOKEN`), 32 bytes as hex. */
   gatesToken: string;
+  /**
+   * The harness's credential for core's Harness API (`NYLORUN_HARNESS_TOKEN`), 32 bytes as hex:
+   * given only to the runtime (which checks it) and the harness.
+   */
+  harnessToken: string;
+  /**
+   * `NYLORUN_HARNESS`: `remote` (the harness container runs agent turns, MCP servers and
+   * workspaces) or `in-process` (the runtime does, without a harness container). Kept across
+   * starts; edit `.env` to roll back.
+   */
+  harness: HarnessMode;
   /**
    * RustFS's secret key (`NYLORUN_OBJECT_STORE_SECRET_KEY`), 32 bytes as hex: the Object store's
    * credential, given only to the runtime and the gateway.
@@ -76,6 +92,8 @@ export interface SandboxStackEnv {
   bind: string;
 }
 
+export type HarnessMode = "remote" | "in-process";
+
 const SANDBOX_KEYS = {
   token: "NYLORUN_SANDBOXES_TOKEN",
   image: "NYLORUN_SANDBOXES_IMAGE",
@@ -91,8 +109,11 @@ const KEYS = {
   adminPort: "NYLORUN_ADMIN_PORT",
   studioPort: "NYLORUN_STUDIO_PORT",
   restatePort: "NYLORUN_RESTATE_PORT",
+  restateUi: "NYLORUN_RESTATE_UI",
   postgresPassword: "NYLORUN_POSTGRES_PASSWORD",
   gatesToken: "NYLORUN_GATES_TOKEN",
+  harnessToken: "NYLORUN_HARNESS_TOKEN",
+  harness: "NYLORUN_HARNESS",
   objectStoreSecretKey: "NYLORUN_OBJECT_STORE_SECRET_KEY",
   restateIdentityKey: "NYLORUN_RESTATE_IDENTITY_KEY",
   uid: "NYLORUN_UID",
@@ -125,8 +146,10 @@ function unquote(value: string): string {
 }
 
 export function renderEnvFile(env: StackEnv): string {
-  const line = (field: keyof typeof KEYS) =>
-    `${KEYS[field]}=${quote(KEYS[field], String(env[field]))}`;
+  const line = (field: keyof typeof KEYS) => {
+    const value = env[field];
+    return `${KEYS[field]}=${quote(KEYS[field], typeof value === "boolean" ? (value ? "1" : "0") : String(value))}`;
+  };
   const sandboxes = env.sandboxes;
   const sandboxLine = (field: keyof SandboxStackEnv) =>
     `${SANDBOX_KEYS[field]}=${quote(SANDBOX_KEYS[field], String(sandboxes![field]))}`;
@@ -139,13 +162,22 @@ export function renderEnvFile(env: StackEnv): string {
     line("runtimePort"),
     line("adminPort"),
     line("studioPort"),
+    "# Restate's UI and admin (unauthenticated) are published only with",
+    "# nylorun start --restate-ui (or NYLORUN_RESTATE_UI=1); decided on every start.",
     line("restatePort"),
+    line("restateUi"),
     "",
     line("postgresPassword"),
     "",
     "# The runtime presents this token to the gateway (the Model Gate) with every",
     "# model call.",
     line("gatesToken"),
+    "",
+    "# The harness container presents this token to the runtime's Harness API; it",
+    "# holds no other credential. NYLORUN_HARNESS=in-process runs agent turns, MCP",
+    "# servers and workspaces in the runtime container instead (rollback); kept.",
+    line("harnessToken"),
+    line("harness"),
     "",
     "# RustFS (the Object store) accepts this secret key; only the runtime and the",
     "# gateway receive it.",
@@ -238,8 +270,12 @@ export interface PersistedStackEnv {
   adminPort?: number;
   studioPort?: number;
   restatePort?: number;
+  /** Whether the last start published Restate's UI (`NYLORUN_RESTATE_UI=1`). */
+  restateUi?: boolean;
   postgresPassword?: string;
   gatesToken?: string;
+  harnessToken?: string;
+  harness?: HarnessMode;
   objectStoreSecretKey?: string;
   /** Validated origins; absent when the line is missing (an older .env). */
   studioFrameAncestors?: string[];
@@ -275,11 +311,16 @@ export function parsePersisted(text: string): PersistedStackEnv {
   if (studioPort) out.studioPort = studioPort;
   const restatePort = port(values.get(KEYS.restatePort));
   if (restatePort) out.restatePort = restatePort;
+  if (values.get(KEYS.restateUi) === "1") out.restateUi = true;
   const password = values.get(KEYS.postgresPassword);
   if (password && /^[A-Za-z0-9]{16,}$/.test(password))
     out.postgresPassword = password;
   const gatesToken = values.get(KEYS.gatesToken);
   if (gatesToken && /^[0-9a-f]{64,}$/i.test(gatesToken)) out.gatesToken = gatesToken;
+  const harnessToken = values.get(KEYS.harnessToken);
+  if (harnessToken && /^[0-9a-f]{64,}$/i.test(harnessToken)) out.harnessToken = harnessToken;
+  const harness = values.get(KEYS.harness);
+  if (harness === "remote" || harness === "in-process") out.harness = harness;
   const objectStoreSecretKey = values.get(KEYS.objectStoreSecretKey);
   if (objectStoreSecretKey && /^[0-9a-f]{64}$/i.test(objectStoreSecretKey))
     out.objectStoreSecretKey = objectStoreSecretKey;

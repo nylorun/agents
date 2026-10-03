@@ -20,8 +20,11 @@ const env: StackEnv = {
   adminPort: 8788,
   studioPort: 4161,
   restatePort: 9070,
+  restateUi: false,
   postgresPassword: "0123456789abcdef0123456789abcdef0123456789abcdef",
   gatesToken: "fedcba9876543210".repeat(4),
+  harnessToken: "a1b2c3d4".repeat(8),
+  harness: "remote",
   objectStoreSecretKey: "0123abcd".repeat(8),
   restateIdentityKey: "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv",
   uid: 501,
@@ -67,14 +70,85 @@ describe("compose.yaml", () => {
     expect(compose).toContain('POSTGRES_INITDB_ARGS: "--locale=C"');
   });
 
-  it("publishes only the Runtime, its operator port, Studio and Restate UI, all on loopback", () => {
-    const published = [...compose.matchAll(/^\s+- "([^"]+):(\d+)"/gm)].map((m) => `${m[1]}:${m[2]}`);
-    expect(published).toEqual([
-      "127.0.0.1:${NYLORUN_RESTATE_PORT:?run nylorun start}:9070",
+  const publishedOf = (text: string) =>
+    [...text.matchAll(/^\s+- "([^"]+):(\d+)"/gm)].map((m) => `${m[1]}:${m[2]}`);
+
+  it("publishes only the Runtime, its operator port and Studio, all on loopback", () => {
+    expect(publishedOf(compose)).toEqual([
       "127.0.0.1:${NYLORUN_PORT:?run nylorun start}:4000",
       "127.0.0.1:${NYLORUN_ADMIN_PORT:?run nylorun start}:4001",
       "127.0.0.1:${NYLORUN_STUDIO_PORT:?run nylorun start}:3000",
     ]);
+  });
+
+  it("publishes Restate's UI on loopback only with restateUi, joining it to the default network", () => {
+    const restate = (text: string) => text.slice(text.indexOf("\n  restate:"), text.indexOf("\n  s2-lite:"));
+    expect(restate(compose)).toContain("    networks: [store] #");
+    expect(restate(compose)).not.toMatch(/^\s+ports:/m);
+    const debug = renderComposeFile("nylorun-shop", "shop", { restateUi: true });
+    expect(publishedOf(debug)[0]).toBe("127.0.0.1:${NYLORUN_RESTATE_PORT:?run nylorun start}:9070");
+    expect(restate(debug)).toContain("    networks: [store, default]\n");
+  });
+
+  /** A service's block, from its key to the next service's. */
+  const service = (text: string, name: string) => {
+    const start = text.indexOf(`\n  ${name}:`);
+    const end = text.indexOf("\n  ", text.indexOf("\n    restart:", start) + 1);
+    return text.slice(start, end === -1 ? undefined : end);
+  };
+
+  it("splits the networks: the stores on an internal one, the harness on its own (F6.2)", () => {
+    expect(compose).toContain("  store: # the stores: no egress, no published port\n    name: nylorun-shop-store\n    internal: true\n");
+    expect(compose).toMatch(/\n {2}harness: #[^\n]*\n {4}name: nylorun-shop-harness\n {4}labels/);
+    const networks = (name: string) => /\n {4}networks: \[([^\]]*)\]/.exec(service(compose, name))?.[1];
+    expect(networks("postgres")).toBe("store");
+    expect(networks("s2-lite")).toBe("store");
+    expect(networks("rustfs")).toBe("store");
+    expect(networks("restate")).toBe("store");
+    expect(networks("gateway")).toBe("default, store, harness");
+    expect(networks("runtime")).toBe("default, store, harness");
+    expect(networks("studio")).toBe("default");
+    expect(networks("harness")).toBe("harness");
+    const sandboxes = renderComposeFile("nylorun-shop", "shop", { sandboxes: true });
+    expect(/\n {4}networks: \[([^\]]*)\]/.exec(service(sandboxes, "sandboxes"))?.[1]).toBe("default");
+  });
+
+  it("runs the harness from the runtime image with only its token and its own directories", () => {
+    const harness = service(compose, "harness");
+    expect(harness).toContain("image: ${NYLORUN_RUNTIME_IMAGE:?run nylorun start}\n");
+    expect(harness).toContain('command: ["--service", "harness"]');
+    expect(harness).toContain('user: "${NYLORUN_UID:?run nylorun start}:${NYLORUN_GID:?run nylorun start}"');
+    expect(harness).toContain("runtime: { condition: service_healthy }");
+    expect(harness).toContain("gateway: { condition: service_healthy }");
+    expect(harness).toContain("NYLORUN_HARNESS_URL: ws://runtime:4200/nylorun/harness/v1\n");
+    expect(harness).toContain("NYLORUN_HARNESS_TOKEN: ${NYLORUN_HARNESS_TOKEN:?run nylorun start}\n");
+    expect(harness).toContain("NYLORUN_GATES_URL: http://gateway:4100\n");
+    expect(harness).toContain("NYLORUN_HARNESS_ROOT: /harness\n");
+    expect(harness).toContain("http://127.0.0.1:4300/health");
+    expect(harness).not.toMatch(/^\s+ports:|GATES_TOKEN|DATABASE_URL|KEYS_URL|RESTATE|OBJECT_STORE|POSTGRES|extra_hosts/m);
+    const mounts = [...harness.matchAll(/^ {6}- (.+)$/gm)].map((m) => m[1]);
+    expect(mounts).toEqual([
+      ...["sandboxes", "plugin-data", "home", "tmp"].map(
+        (dir) => `\${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/${dir}:/harness/${dir}`,
+      ),
+      "${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro",
+    ]);
+    // The harness token reaches the runtime (which checks it) and the harness, nothing else.
+    expect(compose.match(/\$\{NYLORUN_HARNESS_TOKEN/g)).toHaveLength(2);
+    expect(service(compose, "gateway")).not.toContain("HARNESS");
+  });
+
+  it("starts core's Harness API listener, remote unless .env says in-process", () => {
+    const runtime = service(compose, "runtime");
+    expect(runtime).toContain("NYLORUN_HARNESS: ${NYLORUN_HARNESS:-remote}\n");
+    expect(runtime).toContain('NYLORUN_HARNESS_LISTEN_PORT: "4200"\n');
+    expect(runtime).toContain("NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200\n");
+    expect(runtime).toContain(
+      "- ${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro",
+    );
+    const rollback = renderComposeFile("nylorun-shop", "shop", { harness: "in-process" });
+    expect(rollback).not.toContain("container_name: nylorun-shop-harness");
+    expect(rollback).toContain("NYLORUN_HARNESS: ${NYLORUN_HARNESS:-remote}\n");
   });
 
   it("lets the Runtime deliver Actions to endpoints on this machine", () => {
@@ -155,12 +229,12 @@ describe("compose.yaml", () => {
   it("names every container, the network and every volume after the Compose project, with the Tenant's label", () => {
     const names = [...compose.matchAll(/^ {4}container_name: (\S+)$/gm)].map((m) => m[1]);
     expect(names).toEqual(
-      ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "studio"].map(
+      ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "studio", "harness"].map(
         (role) => `nylorun-shop-${role}`,
       ),
     );
     expect(compose).toContain('x-tenant: &tenant\n  dev.nylorun.tenant: "shop"\n');
-    expect(compose.match(/^ {4}labels: \*tenant$/gm)).toHaveLength(8); // seven services and the network
+    expect(compose.match(/^ {4}labels: \*tenant$/gm)).toHaveLength(11); // eight services and three networks
     expect(compose).toContain("networks:\n  default:\n    name: nylorun-shop\n");
     for (const volume of ["postgres", "restate", "s2-lite", "rustfs", "workspaces"])
       expect(compose).toContain(`  ${volume}: { name: nylorun-shop-${volume}, labels: *tenant }\n`);
@@ -230,6 +304,8 @@ describe(".env", () => {
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
       gatesToken: env.gatesToken,
+      harnessToken: env.harnessToken,
+      harness: "remote",
       objectStoreSecretKey: env.objectStoreSecretKey,
       studioFrameAncestors: ["nylorun://localhost", "http://nylorun.localhost"],
       derivedPrincipals: ["project", "babai"],
@@ -237,6 +313,9 @@ describe(".env", () => {
     expect(renderEnvFile(env)).toContain(
       "NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'",
     );
+    // Restate's UI is decided on every start; the last choice is read back for status.
+    expect(parsePersisted(renderEnvFile({ ...env, restateUi: true })).restateUi).toBe(true);
+    expect(parsePersisted('NYLORUN_HARNESS=sideways\n').harness).toBeUndefined();
   });
 
   it("refuses a persisted frame allowlist with a wildcard", () => {
@@ -406,11 +485,24 @@ describe("prepareStack", () => {
     expect(second.env.postgresPassword).toBe(first.env.postgresPassword);
     expect(second.env.gatesToken).toBe(first.env.gatesToken);
     expect(second.env.objectStoreSecretKey).toBe(first.env.objectStoreSecretKey);
+    expect(first.env.harnessToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.env.harnessToken).not.toBe(first.env.gatesToken);
+    expect(second.env.harnessToken).toBe(first.env.harnessToken);
+    expect(second.env.harness).toBe("remote");
     expect(second.env.restateIdentityKey).toBe(first.env.restateIdentityKey);
     expect(second.env.uid).toBe(777);
     expect(second.env.runtimeImage).toBe("nylorun-runtime:dev");
     expect(second.adminKey).toBe(first.adminKey);
     expect(second.host.hostId).toBe(first.host.hostId);
+  });
+
+  it("makes the harness container's directories and the plugins directory before Compose binds them", async () => {
+    const home = await temporaryHome();
+    await prepare(home, fakePorts());
+    const paths = stackPaths(home);
+    for (const dir of [...Object.values(paths.harness), paths.plugins])
+      expect(await mode(dir)).toBe(0o700);
+    expect(paths.plugins).toBe(`${paths.root}/plugins`);
   });
 
   it("keeps a launcher host.json's hostId and unknown fields, and fixes credential modes", async () => {
