@@ -1,8 +1,12 @@
 /**
  * The Tool Gate's wire format (blueprint §12, F4.1): the routes the loop calls on the gates
  * service for remote MCP servers and Action deliveries. Internal, like the model call route
- * (`contract.ts`): same token, same optional Tenant header, not in the published OpenAPI
- * documents.
+ * (`contract.ts`): same optional Tenant header, not in the published OpenAPI documents.
+ *
+ * Credentials (F5). A session's MCP requests carry its run token, and the gate takes the
+ * session from it: `server.sessionId` is then absent (or the token's). Core's credential
+ * (`NYLORUN_GATES_TOKEN`) is accepted too, for requests made outside a run, and then
+ * `server.sessionId` names the session. Deliveries accept core's credential only.
  *
  * Remote MCP. The gate holds the connection and the vault credential; the loop names the
  * server, never a URL or a credential, and the gate finds it in the session's pinned manifest.
@@ -12,7 +16,8 @@
  * - `POST /nylorun/v1/tool-calls` `{server, effectId, name, arguments}`: one
  *   `tools/call`. With an `Idempotency-Key` (the effect id) the call outlives its client and runs
  *   once (G3); a re-send joins it or gets its outcome.
- * - `POST /nylorun/v1/tool-calls/{key}/cancel`: aborts a keyed call; `204` either way.
+ * - `POST /nylorun/v1/tool-calls/{key}/cancel`: aborts a keyed call; `204` either way, `403
+ *   gate_forbidden` for another session's call under a run token.
  * - `POST /nylorun/v1/mcp/close` `{server}`: closes the server's connection; `204`.
  * Each answers `200 {ok: true, result}` or `200 {ok: false, error}`: an MCP failure is an
  * answer, not a gate error. A keyed call whose earlier attempt was lost with the gateway answers
@@ -45,7 +50,8 @@ export const DELIVERY_HEADERS: ReadonlySet<string> = new Set([
 ]);
 
 export const McpServerRefSchema = z.object({
-  sessionId: z.string().min(1),
+  /** Required with core's credential; a run token names the session itself. */
+  sessionId: z.string().min(1).optional(),
   agentId: z.string().min(1).optional(),
   capabilityId: z.string().min(1),
   serverName: z.string().min(1),

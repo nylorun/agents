@@ -3,7 +3,7 @@
  * `Keys` per request, run with the vault key of the gateway's Tenant. Errors keep their status,
  * code and details. Logs the operation and its outcome, never an argument or a result.
  */
-import type { Hono, MiddlewareHandler } from "hono";
+import type { Env, Hono, MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HttpError } from "../../tenant/http.js";
 import type { Logger } from "../../tenant/types.js";
@@ -11,10 +11,11 @@ import { VaultError } from "../../vault/error.js";
 import { KEYS_PATH, MAX_KEYS_BODY_BYTES, type KeysAnswer, type KeysError } from "../../keys/contract.js";
 import { KEYS_OPERATIONS, type Keys, type KeysOperation } from "../../keys/keys.js";
 
-export function mountKeysRoutes(
-  app: Hono,
+export function mountKeysRoutes<E extends Env>(
+  app: Hono<E>,
   options: {
-    readonly authorized: MiddlewareHandler;
+    /** Core's credential: no run token reaches the keys (F5). */
+    readonly authorized: MiddlewareHandler<E>;
     /** The gateway's Tenant's keys; rejects when the Tenant is not ready. */
     readonly keys: () => Promise<Keys>;
     readonly logger: Logger;

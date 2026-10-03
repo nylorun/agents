@@ -15,7 +15,12 @@
  */
 import type { McpServerRef } from "../mcp/pool.js";
 import type { Logger } from "../tenant/types.js";
-import { createInflightCalls, InflightConflict, type InflightCallsOptions } from "./inflight.js";
+import {
+  createInflightCalls,
+  InflightConflict,
+  type InflightCallsOptions,
+  type InflightOwner,
+} from "./inflight.js";
 import type { McpHandler } from "./mcp-handler.js";
 import type { TenantVaults } from "./tenant-vaults.js";
 import type { McpAnswer } from "./tool-contract.js";
@@ -35,11 +40,21 @@ export interface ToolCallRequest {
 export interface ToolCalls {
   /**
    * Runs, joins or answers the call under `key`. Rejects with `InflightConflict` when a
-   * different request already ran under it.
+   * different request already ran under it, and as `InflightCalls.run` does for `owner`, the
+   * run that sends it (F5).
    */
-  run(tenantId: string | undefined, key: string, hash: string, request: ToolCallRequest): Promise<ToolCallAnswer>;
-  /** Aborts the call under `key`; it is never run again under that key. */
-  cancel(key: string): void;
+  run(
+    tenantId: string | undefined,
+    key: string,
+    hash: string,
+    request: ToolCallRequest,
+    owner?: InflightOwner,
+  ): Promise<ToolCallAnswer>;
+  /**
+   * Aborts the call under `key`; it is never run again under that key. With `sessionId`, false
+   * when the running call is another session's (nothing is aborted).
+   */
+  cancel(key: string, sessionId?: string): boolean;
   /** Aborts every running call (gateway shutdown). */
   close(): void;
   /** Deletes crossings settled more than `TOOL_CROSSING_TTL_MS` ago. */
@@ -70,8 +85,8 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
   const iso = () => new Date(now()).toISOString();
 
   return {
-    async run(tenantId, key, hash, request) {
-      if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST));
+    async run(tenantId, key, hash, request, owner) {
+      if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST), owner);
       const vault = await vaults.open(tenantId);
       const store = vault.store;
       const row = await store.tx((t) => t.toolCrossing(key));
@@ -79,7 +94,7 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
         if (row.hash !== hash) throw new InflightConflict(`A different request already ran under ${key}`);
         if (row.answer !== null && row.answer !== undefined) return row.answer as ToolCallAnswer;
         // Started here a moment ago, or lost with an earlier gateway.
-        if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST));
+        if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(LOST), owner);
         return LOST;
       }
       return inflight.run(key, hash, async (signal) => {
@@ -100,9 +115,9 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
             }),
           );
         return answer;
-      });
+      }, owner);
     },
-    cancel: (key) => inflight.cancel(key),
+    cancel: (key, sessionId) => inflight.cancel(key, sessionId),
     close: () => inflight.close(),
     async prune() {
       try {

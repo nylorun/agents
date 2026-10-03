@@ -8,6 +8,10 @@
  * In memory, one gateway only (M2): a gateway restart loses these, and a re-sent call runs
  * again (the ledger flags the duplicate). Outcomes are kept `ttlMs` after they settle; a call
  * that throws (an abort) is not kept.
+ *
+ * A call sent under a run token (F5) records the session and lease epoch that started it. A
+ * re-send joins it only for the same session at the same or a newer epoch (the new owner after
+ * a takeover, G4), and a cancel stops it only for the same session.
  */
 import type { ModelGateOutcome } from "./model-gate.js";
 
@@ -16,20 +20,38 @@ export class InflightConflict extends Error {
   override readonly name = "InflightConflict";
 }
 
+/** A re-send under an older lease epoch than the call's: never joins (G4). */
+export class InflightStale extends Error {
+  override readonly name = "InflightStale";
+}
+
+/** The run a keyed call belongs to: its session and the lease epoch that sent it. */
+export interface InflightOwner {
+  readonly sessionId: string;
+  readonly epoch: number;
+}
+
 export interface InflightCalls<T = ModelGateOutcome> {
   /**
    * Joins the call under `key`, or starts it with `start` under the entry's own signal.
-   * Rejects with `InflightConflict` when `hash` differs from the running call's.
+   * Rejects with `InflightConflict` when `hash` differs from the running call's, or `owner`
+   * names another session than the call's, and with `InflightStale` when `owner`'s epoch is
+   * older than the call's. A call started without an owner (core's credential) is joined by
+   * hash alone.
    */
   run(
     key: string,
     hash: string,
     start: (signal: AbortSignal) => Promise<T>,
+    owner?: InflightOwner,
   ): Promise<T>;
   /** True while a call runs under `key`, or its outcome is still kept. */
   has(key: string): boolean;
-  /** Aborts the call under `key` and forgets it; nothing when there is none. */
-  cancel(key: string): void;
+  /**
+   * Aborts the call under `key` and forgets it; nothing when there is none. With `sessionId`
+   * (a run's cancel), returns false and leaves the call alone when it is another session's.
+   */
+  cancel(key: string, sessionId?: string): boolean;
   /** Aborts every running call (gateway shutdown). */
   close(): void;
   /** Entries held: running, or settled within the TTL. */
@@ -38,6 +60,8 @@ export interface InflightCalls<T = ModelGateOutcome> {
 
 interface Entry<T> {
   readonly hash: string;
+  /** The run that started the call, then the newest that joined it. */
+  owner?: InflightOwner;
   readonly controller: AbortController;
   readonly promise: Promise<T>;
   settledAt?: number;
@@ -72,7 +96,7 @@ export function createInflightCalls<T = ModelGateOutcome>(
   }
 
   return {
-    run(key, hash, start) {
+    run(key, hash, start, owner) {
       prune();
       const existing = entries.get(key);
       if (existing) {
@@ -80,6 +104,15 @@ export function createInflightCalls<T = ModelGateOutcome>(
           return Promise.reject(
             new InflightConflict(`A different request is already running under ${key}`),
           );
+        if (owner && existing.owner) {
+          if (owner.sessionId !== existing.owner.sessionId)
+            return Promise.reject(new InflightConflict(`The call under ${key} is another session's`));
+          if (owner.epoch < existing.owner.epoch)
+            return Promise.reject(
+              new InflightStale(`A newer owner of the session holds the call under ${key}`),
+            );
+          existing.owner = owner;
+        }
         return existing.promise;
       }
       const controller = new AbortController();
@@ -95,7 +128,7 @@ export function createInflightCalls<T = ModelGateOutcome>(
       );
       // Nobody may be waiting (the client went away); a rejection is not an unhandled one.
       promise.catch(() => {});
-      const entry: Entry<T> = { hash, controller, promise };
+      const entry: Entry<T> = { hash, controller, promise, ...(owner ? { owner } : {}) };
       entries.set(key, entry);
       return promise;
     },
@@ -103,11 +136,13 @@ export function createInflightCalls<T = ModelGateOutcome>(
       prune();
       return entries.has(key);
     },
-    cancel(key) {
+    cancel(key, sessionId) {
       const entry = entries.get(key);
-      if (!entry) return;
+      if (!entry) return true;
+      if (sessionId !== undefined && entry.owner && entry.owner.sessionId !== sessionId) return false;
       entries.delete(key);
       entry.controller.abort(new Error("The caller cancelled the call"));
+      return true;
     },
     close() {
       for (const entry of entries.values())

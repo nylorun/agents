@@ -3,7 +3,8 @@
  * the Tool Gate's routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's
  * listeners.
  * It opens no Tenant runtime, no Restate endpoint and no stream relay, and runs no migration;
- * it needs only the Postgres pool and the Host's tenant directory (read-only).
+ * it needs only the Postgres pool and the Host's tenant directory (read-only). Run tokens (F5)
+ * verify against the Tenant's public keys and session rows in that database.
  *
  * Nothing is written while a model call runs, so the server's request timeout sits above the
  * gate's longest call. Closing stops accepting calls, lets running ones finish for up to
@@ -21,6 +22,7 @@ import type { openMcpServer } from "../mcp/connect.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
 import { existsSync } from "node:fs";
 import { tenantPaths } from "../tenant/paths.js";
+import { staleRun, verifyRunToken, type RunTokenKeyCache } from "../tenant/run-token.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { probeDatabase } from "../infra/database.js";
@@ -95,8 +97,18 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
   sweep.unref();
   const prune = setInterval(() => void toolCalls.prune(), 60 * 60_000);
   prune.unref();
+  // Run tokens verify against the Tenant's public keys and session rows (F5): the same
+  // database the ledger and `tool_crossings` use.
+  const publicKeys: RunTokenKeyCache = new Map();
   const app = createGatesApp({
     token: gates.token,
+    runs: {
+      async verify(raw) {
+        const vault = await vaults.open();
+        return verifyRunToken(vault.store, vault.tenantId, raw, publicKeys);
+      },
+      stale: async (claims) => staleRun((await vaults.open()).store, claims),
+    },
     inflight,
     modelGate: createModelCallHandler({
       vaults,
