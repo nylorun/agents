@@ -76,6 +76,7 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
+import { exportOutputs } from "../artifacts/export.js";
 import { dropRunGrant, grantRun, renewRunGrant, type RunOf } from "./run-grants.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
@@ -406,6 +407,8 @@ async function runSegment(
           : undefined;
       const updates = state ? transcriptUpdates(startTranscript, transcriptOf(state)) : [];
       await settle(ctx, lease, started, result, updates);
+      // F8.2: once the turn has committed, export its sandbox outputs. Never throws.
+      if (result.status === "completed") await exportOutputs(ctx, id, started.activeTurnId, signal);
     }
   } catch (error) {
     if (isOwnershipLost(error) || error instanceof SegmentStopped) throw error;

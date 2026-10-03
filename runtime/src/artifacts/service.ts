@@ -1,6 +1,7 @@
 /**
  * File artifacts (blueprint D35, F8.1): an opaque id, a name, numbered immutable versions,
- * metadata in Postgres and bytes in the Object store behind the `BlobStore` seam.
+ * metadata in Postgres and bytes in the Object store behind the `BlobStore` seam. Folders
+ * (F8.2) are written by the turn-end export (`./export.ts`, `./folders.ts`) and read here.
  *
  * - **Uploads stream.** The body goes to the store as it arrives, at a fresh random key, counted
  *   against the per-file cap and what is left of the Tenant total (`maxBytes`): nothing is
@@ -20,6 +21,7 @@ import type {
   ArtifactSource,
   ArtifactVersionView,
   ArtifactView,
+  FolderManifest,
 } from "@nylorun/core/contracts";
 import { ARTIFACT_NAME_MAX } from "@nylorun/core/contracts";
 import { isArtifactId, newArtifactId } from "@nylorun/core/compatibility";
@@ -34,6 +36,7 @@ import {
 } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
 import { readArtifactLimits, type ArtifactLimits } from "./config.js";
+import { collectContent, readManifest } from "./folders.js";
 import { contentTypeFor } from "./media-types.js";
 
 /** What the caller may reach: undefined for the whole Tenant (an application principal). */
@@ -177,6 +180,8 @@ export async function uploadArtifact(
     let fileName = name;
     if (input.artifactId !== undefined) {
       const prior = await readableArtifact(t, input.artifactId, access);
+      if (prior.kind !== "file")
+        fail(400, `Artifact ${prior.id} is a folder; its versions come from turn-end exports`);
       sessionId = prior.sessionId;
       fileName = prior.name;
     } else {
@@ -350,9 +355,23 @@ export async function artifactContent(
   });
 }
 
+/** One version's row, its artifact and, for a folder, its manifest; a file is a 400. */
+export async function folderContent(
+  ctx: TenantContext,
+  id: string,
+  version: number | undefined,
+  access: ArtifactAccess,
+): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; manifest: FolderManifest }> {
+  const found = await artifactContent(ctx, id, version, access);
+  if (found.artifact.kind !== "folder")
+    fail(400, `Artifact ${found.artifact.id} is a file; download its content`);
+  return { ...found, manifest: await readManifest(ctx.blobs, found.version) };
+}
+
 /**
  * Deletes the artifact and every version: its rows and, for a session's artifact, its
- * `artifact.deleted` event in one transaction, then its bytes.
+ * `artifact.deleted` event in one transaction, then its bytes. A folder's content-addressed
+ * files go too, those no other version names, under the quota lock (`folders.ts`).
  */
 export async function deleteArtifact(
   ctx: TenantContext,
@@ -362,8 +381,11 @@ export async function deleteArtifact(
   const keys = await ctx.store.tx(async (t) => {
     const found = await readableArtifact(t, id, access);
     if (found.sessionId !== null) await lockedSession(t, found.sessionId, access);
+    if (found.kind === "folder") await t.lockArtifactQuota();
     const row = await readableArtifact(t, id, access, { lock: true });
+    const content = row.kind === "folder" ? await t.artifactContentShas({ artifactId: row.id }) : [];
     const keys = await t.deleteArtifact(row.id);
+    await collectContent(ctx.blobs, t, content);
     if (row.sessionId !== null)
       await t.event(row.sessionId, null, "artifact.deleted", { artifactId: row.id, name: row.name });
     return keys;

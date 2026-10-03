@@ -76,3 +76,18 @@ it("downloads a range and turns a link's path into a URL", async () => {
   expect(link.url).toBe(`${URL_}/v1/artifact-links/a.b.c`);
   expect(JSON.parse(String(calls[1]!.body))).toEqual({ expiresIn: 60 });
 });
+
+it("reads a folder: tree, one file by path with Range, diff, zip and a file's link", async () => {
+  const { client, calls } = fake();
+  await client.artifacts.tree("af_1");
+  expect(calls[0]!.url).toBe(`${URL_}/v1/artifacts/af_1/versions/latest/tree`);
+  await client.artifacts.file("af_1", "app/src/main file.js", { version: 2, range: { start: 0, end: 9 } });
+  expect(calls[1]!.url).toBe(`${URL_}/v1/artifacts/af_1/versions/2/files/app%2Fsrc%2Fmain%20file.js`);
+  expect(calls[1]!.headers.get("range")).toBe("bytes=0-9");
+  await client.artifacts.diff("af_1", { version: 3, from: 1 });
+  expect(calls[2]!.url).toBe(`${URL_}/v1/artifacts/af_1/versions/3/diff?from=1`);
+  await client.artifacts.zip("af_1", { version: 3 });
+  expect(calls[3]!.url).toBe(`${URL_}/v1/artifacts/af_1/versions/3/zip`);
+  await client.artifacts.link("af_1", { file: "app/index.html" });
+  expect(JSON.parse(String(calls[4]!.body))).toEqual({ file: "app/index.html" });
+});

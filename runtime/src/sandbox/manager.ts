@@ -44,6 +44,7 @@ import {
   SandboxFileTooLargeError,
   type SandboxBackend,
   type SandboxHandle,
+  type SandboxListing,
   type SandboxSpec,
 } from "./types.js";
 
@@ -256,6 +257,74 @@ export class SandboxManager {
     | { kind: "missing"; path: string }
     | Extract<SandboxToolOutcome, { kind: "failed" }>
   > {
+    return this.withHandle(session, capability, signal, async (handle, live) => {
+      const resolved = resolveSandboxPath(path, handle.workspace ?? SANDBOX_WORKSPACE);
+      if (!handle.readBytes)
+        return {
+          kind: "failed" as const,
+          code: "sandbox.unsupported",
+          message: `The ${live.backend.name} backend cannot read files as bytes`,
+        };
+      try {
+        const bytes = await handle.readBytes(resolved, maxBytes);
+        return bytes === undefined
+          ? { kind: "missing" as const, path: resolved }
+          : { kind: "read" as const, path: resolved, bytes };
+      } catch (error) {
+        if (error instanceof SandboxFileTooLargeError)
+          return {
+            kind: "failed" as const,
+            code: "artifact.too_large",
+            message: `${resolved} is ${error.size} bytes; an artifact may hold at most ${maxBytes}`,
+          };
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * The files under directory `dir` of the session's sandbox, for the turn-end export (F8.2), in
+   * the same queue as its tool calls. `missing` when the sandbox was never created (nothing is
+   * started to look) or `dir` is not a directory. Relative paths resolve in the workspace.
+   */
+  async listFiles(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    dir: string,
+    maxEntries: number,
+    signal: AbortSignal
+  ): Promise<
+    | { kind: "listed"; path: string; listing: SandboxListing }
+    | { kind: "missing"; path: string }
+    | Extract<SandboxToolOutcome, { kind: "failed" }>
+  > {
+    const key = this.keyFor(session);
+    if (!this.live.get(key)?.handle) {
+      const record = await this.options.store.tx((t) => t.get<SandboxRecord>("sandboxes", key));
+      if (!record) return { kind: "missing", path: dir };
+    }
+    return this.withHandle(session, capability, signal, async (handle, live) => {
+      const resolved = resolveSandboxPath(dir, handle.workspace ?? SANDBOX_WORKSPACE);
+      if (!handle.listFiles)
+        return {
+          kind: "failed" as const,
+          code: "sandbox.unsupported",
+          message: `The ${live.backend.name} backend cannot list files`,
+        };
+      const listing = await handle.listFiles(resolved, maxEntries);
+      return listing === undefined
+        ? { kind: "missing" as const, path: resolved }
+        : { kind: "listed" as const, path: resolved, listing };
+    });
+  }
+
+  /** Runs `use` on the session's sandbox in its queue, starting it first when it is stopped. */
+  private async withHandle<T>(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    signal: AbortSignal,
+    use: (handle: SandboxHandle, live: Live) => Promise<T>
+  ): Promise<T | Extract<SandboxToolOutcome, { kind: "failed" }>> {
     const prepared = await this.prepare(session, capability);
     if ("kind" in prepared) return prepared;
     const { live, spec } = prepared;
@@ -275,28 +344,7 @@ export class SandboxManager {
             };
           }
         }
-        const handle = live.handle;
-        const resolved = resolveSandboxPath(path, handle.workspace ?? SANDBOX_WORKSPACE);
-        if (!handle.readBytes)
-          return {
-            kind: "failed" as const,
-            code: "sandbox.unsupported",
-            message: `The ${live.backend.name} backend cannot read files as bytes`,
-          };
-        try {
-          const bytes = await handle.readBytes(resolved, maxBytes);
-          return bytes === undefined
-            ? { kind: "missing" as const, path: resolved }
-            : { kind: "read" as const, path: resolved, bytes };
-        } catch (error) {
-          if (error instanceof SandboxFileTooLargeError)
-            return {
-              kind: "failed" as const,
-              code: "artifact.too_large",
-              message: `${resolved} is ${error.size} bytes; an artifact may hold at most ${maxBytes}`,
-            };
-          throw error;
-        }
+        return await use(live.handle, live);
       } finally {
         live.active -= 1;
         live.lastUsedAt = Date.now();

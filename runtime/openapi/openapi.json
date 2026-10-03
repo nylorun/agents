@@ -10830,6 +10830,12 @@
             "$ref": "#/components/schemas/ArtifactDeletedEvent"
           },
           {
+            "$ref": "#/components/schemas/ArtifactExportSkippedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ArtifactExportFailedEvent"
+          },
+          {
             "$ref": "#/components/schemas/TranscriptUpdatedEvent"
           }
         ],
@@ -10866,6 +10872,8 @@
             "artifact.created": "#/components/schemas/ArtifactCreatedEvent",
             "artifact.version.created": "#/components/schemas/ArtifactVersionCreatedEvent",
             "artifact.deleted": "#/components/schemas/ArtifactDeletedEvent",
+            "artifact.export.skipped": "#/components/schemas/ArtifactExportSkippedEvent",
+            "artifact.export.failed": "#/components/schemas/ArtifactExportFailedEvent",
             "transcript.updated": "#/components/schemas/TranscriptUpdatedEvent"
           }
         }
@@ -16187,7 +16195,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "file"
+                  "file",
+                  "folder"
                 ]
               },
               "name": {
@@ -16211,11 +16220,19 @@
                 "type": "string",
                 "enum": [
                   "upload",
-                  "engine"
+                  "engine",
+                  "export"
                 ]
               },
               "callId": {
                 "type": "string"
+              },
+              "fileCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claimed": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -16394,7 +16411,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "file"
+                  "file",
+                  "folder"
                 ]
               },
               "name": {
@@ -16418,11 +16436,19 @@
                 "type": "string",
                 "enum": [
                   "upload",
-                  "engine"
+                  "engine",
+                  "export"
                 ]
               },
               "callId": {
                 "type": "string"
+              },
+              "fileCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claimed": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -16605,6 +16631,365 @@
             "required": [
               "artifactId",
               "name"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ArtifactExportSkippedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "artifact.export.skipped"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "too_many_files",
+                  "file_too_large",
+                  "too_large",
+                  "tenant_total"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "reason",
+              "message"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "ArtifactExportFailedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "artifact.export.failed"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "message"
             ],
             "additionalProperties": {}
           }
@@ -17127,7 +17512,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "file"
+                  "file",
+                  "folder"
                 ]
               },
               "name": {
@@ -17171,7 +17557,7 @@
                     },
                     "sha256": {
                       "type": "string",
-                      "description": "SHA-256 of the bytes, lowercase hex"
+                      "description": "SHA-256 of the bytes (a folder: of its manifest), lowercase hex"
                     },
                     "contentType": {
                       "type": "string"
@@ -17180,7 +17566,8 @@
                       "type": "string",
                       "enum": [
                         "upload",
-                        "engine"
+                        "engine",
+                        "export"
                       ]
                     },
                     "createdAt": {
@@ -17223,7 +17610,7 @@
               },
               "sha256": {
                 "type": "string",
-                "description": "SHA-256 of the bytes, lowercase hex"
+                "description": "SHA-256 of the bytes (a folder: of its manifest), lowercase hex"
               },
               "contentType": {
                 "type": "string"
@@ -17232,7 +17619,8 @@
                 "type": "string",
                 "enum": [
                   "upload",
-                  "engine"
+                  "engine",
+                  "export"
                 ]
               },
               "createdAt": {
@@ -17270,7 +17658,8 @@
                 "kind": {
                   "type": "string",
                   "enum": [
-                    "file"
+                    "file",
+                    "folder"
                   ]
                 },
                 "name": {
@@ -17314,7 +17703,7 @@
                       },
                       "sha256": {
                         "type": "string",
-                        "description": "SHA-256 of the bytes, lowercase hex"
+                        "description": "SHA-256 of the bytes (a folder: of its manifest), lowercase hex"
                       },
                       "contentType": {
                         "type": "string"
@@ -17323,7 +17712,8 @@
                         "type": "string",
                         "enum": [
                           "upload",
-                          "engine"
+                          "engine",
+                          "export"
                         ]
                       },
                       "createdAt": {
@@ -17369,7 +17759,8 @@
           "kind": {
             "type": "string",
             "enum": [
-              "file"
+              "file",
+              "folder"
             ]
           },
           "name": {
@@ -17413,7 +17804,7 @@
                 },
                 "sha256": {
                   "type": "string",
-                  "description": "SHA-256 of the bytes, lowercase hex"
+                  "description": "SHA-256 of the bytes (a folder: of its manifest), lowercase hex"
                 },
                 "contentType": {
                   "type": "string"
@@ -17422,7 +17813,8 @@
                   "type": "string",
                   "enum": [
                     "upload",
-                    "engine"
+                    "engine",
+                    "export"
                   ]
                 },
                 "createdAt": {
@@ -17452,6 +17844,214 @@
         ],
         "additionalProperties": false
       },
+      "ArtifactTree": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "SHA-256 of the file's bytes, lowercase hex"
+                },
+                "contentType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256",
+                "contentType"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "artifactId",
+          "version",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "ArtifactDiff": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "from": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "to": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "SHA-256 of the file's bytes, lowercase hex"
+                },
+                "contentType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256",
+                "contentType"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "description": "SHA-256 of the file's bytes, lowercase hex"
+                },
+                "contentType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256",
+                "contentType"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "description": "SHA-256 of the file's bytes, lowercase hex"
+                    },
+                    "contentType": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "size",
+                    "sha256",
+                    "contentType"
+                  ],
+                  "additionalProperties": false
+                },
+                "to": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "description": "SHA-256 of the file's bytes, lowercase hex"
+                    },
+                    "contentType": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "size",
+                    "sha256",
+                    "contentType"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "path",
+                "from",
+                "to"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "artifactId",
+          "to",
+          "added",
+          "removed",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
       "ArtifactLink": {
         "type": "object",
         "properties": {
@@ -17464,6 +18064,9 @@
           "version": {
             "type": "integer",
             "exclusiveMinimum": 0
+          },
+          "file": {
+            "type": "string"
           },
           "expiresAt": {
             "type": "string"
@@ -17492,6 +18095,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 900
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
           }
         },
         "additionalProperties": false
@@ -22550,6 +23158,12 @@
                       "$ref": "#/components/schemas/ArtifactDeletedEvent"
                     },
                     {
+                      "$ref": "#/components/schemas/ArtifactExportSkippedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ArtifactExportFailedEvent"
+                    },
+                    {
                       "$ref": "#/components/schemas/TranscriptUpdatedEvent"
                     },
                     {
@@ -24357,7 +24971,7 @@
           "Artifacts"
         ],
         "summary": "Download a version of an artifact",
-        "description": "Streams the bytes through the Runtime. One `Range: bytes=…` gives `206` with `Content-Range`; several ranges give the whole file.",
+        "description": "Streams the bytes through the Runtime. One `Range: bytes=…` gives `206` with `Content-Range`; several ranges give the whole file. A folder is a `400`: read its tree, its files or its zip.",
         "security": [
           {
             "applicationKey": []
@@ -24576,13 +25190,733 @@
         }
       }
     },
+    "/v1/artifacts/{artifactId}/versions/{version}/tree": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "List a folder version's files",
+        "description": "The folder version's manifest: every file's path, size, SHA-256 and media type, sorted by path. A file artifact is a `400`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A version number, or `latest`"
+            },
+            "required": true,
+            "description": "A version number, or `latest`",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactTree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}/versions/{version}/files/{path}": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Download one file of a folder version",
+        "description": "Streams the file at `path` (its path in the folder, with `/` percent-encoded as `%2F`) through the Runtime, with Range as for a file artifact.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A version number, or `latest`"
+            },
+            "required": true,
+            "description": "A version number, or `latest`",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The file's path in the folder, percent-encoded"
+            },
+            "required": true,
+            "description": "The file's path in the folder, percent-encoded",
+            "name": "path",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The bytes the `Range` header asked for",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The `Range` starts past the end of the file"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}/versions/{version}/diff": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Compare two folder versions",
+        "description": "The files added, removed and changed from version `from` (default: the one before) to this one. Version 1 without `from` lists every file as added.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A version number, or `latest`"
+            },
+            "required": true,
+            "description": "A version number, or `latest`",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version to compare against"
+            },
+            "required": false,
+            "description": "The version to compare against",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactDiff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{artifactId}/versions/{version}/zip": {
+      "get": {
+        "tags": [
+          "Artifacts"
+        ],
+        "summary": "Download a folder version as a zip",
+        "description": "Streams the folder's files as one zip archive (deflated, UTF-8 names), read from the Object store as it goes. A file artifact is a `400`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A version number, or `latest`"
+            },
+            "required": true,
+            "description": "A version number, or `latest`",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The zip archive",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/artifacts/{artifactId}/links": {
       "post": {
         "tags": [
           "Artifacts"
         ],
         "summary": "Mint a capability link",
-        "description": "A short-lived path that downloads one version, with Range, with no other credential: for `<img>` tags, UIs and sharing. Signed by the Runtime with the Tenant's signing key; at most 15 minutes; it opens nothing once the artifact is deleted.",
+        "description": "A short-lived path that downloads one version, with Range, with no other credential: for `<img>` tags, UIs and sharing. Signed by the Runtime with the Tenant's signing key; at most 15 minutes; it opens nothing once the artifact is deleted. A folder's link opens its zip, or with `file` that one file.",
         "security": [
           {
             "applicationKey": []
@@ -24740,7 +26074,7 @@
           "Artifacts"
         ],
         "summary": "Open a capability link",
-        "description": "Downloads the version the link names, with Range, until it expires (`401 token_expired`). Needs no credential and no `Nylorun-Protocol`.",
+        "description": "Downloads the version the link names, with Range, until it expires (`401 token_expired`): a file, a folder's file, or a folder's zip. Needs no credential and no `Nylorun-Protocol`.",
         "security": [
           {
             "applicationKey": []

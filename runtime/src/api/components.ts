@@ -77,6 +77,8 @@ import {
   ArtifactLinkSchema,
   PutTenantArtifactsRequestSchema,
   TenantArtifactsViewSchema,
+  ArtifactTreeSchema,
+  ArtifactDiffSchema,
   SessionCommandSchema,
   AdminStatusSchema,
   HostShutdownResponseSchema,
@@ -120,6 +122,8 @@ export const PutTenantArtifactsRequest = named(
   PutTenantArtifactsRequestSchema,
 );
 export const TenantArtifactsView = named("TenantArtifactsView", TenantArtifactsViewSchema);
+export const ArtifactTree = named("ArtifactTree", ArtifactTreeSchema);
+export const ArtifactDiff = named("ArtifactDiff", ArtifactDiffSchema);
 export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
 export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
 export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);
