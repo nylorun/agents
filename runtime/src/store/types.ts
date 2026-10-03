@@ -143,6 +143,13 @@ export interface SessionOwnership {
   ownerExpiresAt: string | null;
 }
 
+/** A session's lease epoch, status and active turn: what a run token must still match. */
+export interface SessionRunState {
+  readonly epoch: number;
+  readonly status: string;
+  readonly activeTurnId: string | null;
+}
+
 /**
  * The fields of a session document that the store indexes. The
  * Runtime's own session type extends this; everything else in the body is
@@ -491,6 +498,12 @@ export interface Tx {
     sessionId: string,
     epoch: number,
   ): Promise<StoredSession<T>>;
+
+  /**
+   * What a run token's live check reads of a session (F5 gate trust): its lease epoch, status
+   * and active turn, without the body. Undefined when the session is gone. Does not lock.
+   */
+  runState(sessionId: string): Promise<SessionRunState | undefined>;
 
   // --- typed queries (ordered by id unless stated) -------------------------
 

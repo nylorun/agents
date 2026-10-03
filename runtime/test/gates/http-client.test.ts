@@ -1,7 +1,8 @@
 /**
  * The loop's HTTP client of the gates service (`gates/http-client.ts`): what it sends, and the
  * failure outcome each kind of hop failure becomes. Never a throw, except when the caller
- * aborts: `resolveEffect` would mark a throw `uncertain`.
+ * aborts: `resolveEffect` would mark a throw `uncertain`. The credential is the session's run
+ * token (F5); the body names no session, turn or agent.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -9,8 +10,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { httpModelGate } from "../../src/gates/http-client.js";
 import type { ModelGateRequest } from "../../src/gates/model-gate.js";
+import type { RunTokens } from "../../src/tenant/run-grants.js";
 
-const token = "ab".repeat(32);
+/** Stands in for session-1's run token. */
+const token = "run.token.session-1";
+const runTokens: RunTokens = { token: (sessionId) => (sessionId === "session-1" ? token : undefined) };
 const request: ModelGateRequest = {
   tenantId: newTenantId(),
   sessionId: "session-1",
@@ -53,10 +57,10 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
 };
 
 const call = (url: string, signal = new AbortController().signal, timeoutMs?: number) =>
-  httpModelGate({ url, token, ...(timeoutMs ? { timeoutMs } : {}) }).call(request, signal);
+  httpModelGate({ url, runTokens, ...(timeoutMs ? { timeoutMs } : {}) }).call(request, signal);
 
 describe("httpModelGate", () => {
-  it("sends the call with the token, the Tenant and the effect id, and returns the outcome", async () => {
+  it("sends the call with the session's run token, the Tenant and the effect id, and returns the outcome", async () => {
     let seen: { headers: IncomingMessage["headers"]; url?: string; body: unknown } | undefined;
     const outcome = { output: [{ type: "text", text: "ok" }], finishReason: "stop" };
     const url = await gate((req, res, body) => {
@@ -70,14 +74,26 @@ describe("httpModelGate", () => {
       "nylorun-tenant": request.tenantId,
       "idempotency-key": request.effectId,
     });
+    // Session, turn and agent travel in the token, not the body.
     expect(seen?.body).toEqual({
-      sessionId: request.sessionId,
-      turnId: request.turnId,
-      agentId: request.agentId,
       effectId: request.effectId,
       invocationId: request.invocationId,
       call: request.call,
     });
+  });
+
+  it("fails at once, sending nothing and never core's credential, for a session with no run token", async () => {
+    let sent = false;
+    const url = await gate((_req, res) => {
+      sent = true;
+      json(res, 200, {});
+    });
+    const outcome = await httpModelGate({ url, runTokens }).call(
+      { ...request, sessionId: "session-2" },
+      new AbortController().signal,
+    );
+    expect(outcome).toMatchObject({ code: "transient", message: expect.stringMatching(/No run token/) });
+    expect(sent).toBe(false);
   });
 
   it("returns a gate's failure outcome as it is", async () => {
@@ -98,14 +114,25 @@ describe("httpModelGate", () => {
     });
   });
 
-  it("is an auth failure naming NYLORUN_GATES_TOKEN when the gate refuses the token", async () => {
+  it("is an auth failure when the gate refuses the run token", async () => {
     const url = await gate((_req, res) =>
       json(res, 401, { error: { code: "gate_unauthorized", message: "nope" } }),
     );
     expect(await call(url)).toMatchObject({
       code: "auth",
       retryable: false,
-      message: expect.stringMatching(/NYLORUN_GATES_TOKEN/),
+      message: expect.stringMatching(/refused the run token: nope/),
+    });
+  });
+
+  it("is a non-retryable failure when the gate finds the run stale (409 run_stale)", async () => {
+    const url = await gate((_req, res) =>
+      json(res, 409, { error: { code: "run_stale", message: "the turn has ended" } }),
+    );
+    expect(await call(url)).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+      message: expect.stringMatching(/stale run: .*the turn has ended/),
     });
   });
 
@@ -162,9 +189,9 @@ describe("httpModelGate", () => {
       res.writeHead(204);
       res.end();
     });
-    const gateClient = httpModelGate({ url, token });
+    const gateClient = httpModelGate({ url, runTokens });
     expect(gateClient.recovers).toBe(true);
-    await gateClient.cancel!({ tenantId: request.tenantId, effectId: request.effectId });
+    await gateClient.cancel!(request);
     expect(seen?.url).toBe(`/nylorun/v1/model-calls/${encodeURIComponent(request.effectId)}/cancel`);
     expect(seen?.headers).toMatchObject({
       authorization: `Bearer ${token}`,
@@ -177,11 +204,19 @@ describe("httpModelGate", () => {
     const port = new URL(url).port;
     await afterEachClose();
     await expect(
-      httpModelGate({ url: `http://127.0.0.1:${port}`, token }).cancel!({
-        tenantId: request.tenantId,
-        effectId: request.effectId,
-      }),
+      httpModelGate({ url: `http://127.0.0.1:${port}`, runTokens }).cancel!(request),
     ).resolves.toBeUndefined();
+  });
+
+  it("sends no cancel for a session with no run token", async () => {
+    let sent = false;
+    const url = await gate((_req, res) => {
+      sent = true;
+      res.writeHead(204);
+      res.end();
+    });
+    await httpModelGate({ url, runTokens }).cancel!({ ...request, sessionId: "session-2" });
+    expect(sent).toBe(false);
   });
 
   it("throws when the caller aborts, and closes the connection", async () => {

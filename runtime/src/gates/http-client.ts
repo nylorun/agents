@@ -10,6 +10,10 @@
  * A failure of the hop is a failure outcome, never a throw: `resolveEffect` marks anything
  * thrown `uncertain`. Only an abort of the caller's signal throws. The client never retries;
  * the gate retries the provider.
+ *
+ * The credential is the session's run token (F5), read per request from the advance's grant:
+ * the gate takes session, turn and agent from it, so the body no longer names them. A call for
+ * a session without a grant fails at once; it never falls back to core's credential.
  */
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -22,6 +26,7 @@ import {
   type ModelCallBody,
 } from "./contract.js";
 import type { ModelGate, ModelGateOutcome } from "./model-gate.js";
+import type { RunTokens } from "../tenant/run-grants.js";
 
 /** How long a cancel may take; the call it stops ends with the provider timeout anyway. */
 const CANCEL_TIMEOUT_MS = 2_000;
@@ -32,8 +37,8 @@ export const GATE_CLIENT_TIMEOUT_MS = 630_000;
 export interface HttpModelGateOptions {
   /** The gates service, e.g. `http://gateway:4100` (`NYLORUN_GATES_URL`). */
   readonly url: string;
-  /** `NYLORUN_GATES_TOKEN`. */
-  readonly token: string;
+  /** The run token of each session an advance of this process owns: a call's credential. */
+  readonly runTokens: RunTokens;
   /** How long the connection may stay silent. Default `GATE_CLIENT_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
 }
@@ -47,6 +52,9 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
   return {
     recovers: true,
     async cancel(request) {
+      const token = options.runTokens.token(request.sessionId);
+      // Without a grant there is no run whose call to stop.
+      if (!token) return;
       const url = new URL(
         `${MODEL_CALLS_PATH}/${encodeURIComponent(request.effectId)}/cancel`,
         options.url,
@@ -57,7 +65,7 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
           {
             method: "POST",
             headers: {
-              authorization: `Bearer ${options.token}`,
+              authorization: `Bearer ${token}`,
               [TENANT_HEADER]: request.tenantId,
               "content-length": 0,
             },
@@ -76,10 +84,15 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
     },
     async call(request, signal) {
       signal.throwIfAborted();
+      const token = options.runTokens.token(request.sessionId);
+      // Never core's credential: like an unreachable gate, and the heartbeat mints it again.
+      if (!token)
+        return failure(
+          "transient",
+          `No run token for session ${request.sessionId}: the advance that owns it could not mint one, or the call came from outside an owned advance`,
+          true,
+        );
       const body: ModelCallBody = {
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        agentId: request.agentId,
         effectId: request.effectId,
         invocationId: request.invocationId,
         call: request.call as unknown as ModelCallBody["call"],
@@ -126,7 +139,7 @@ export function httpModelGate(options: HttpModelGateOptions): ModelGate {
           {
             method: "POST",
             headers: {
-              authorization: `Bearer ${options.token}`,
+              authorization: `Bearer ${token}`,
               "content-type": "application/json",
               "content-length": payload.byteLength,
               [TENANT_HEADER]: request.tenantId,
@@ -194,7 +207,13 @@ function answer(status: number, text: string): ModelGateOutcome | ModelFailureOu
   if (status === 401)
     return failure(
       "auth",
-      "The model gate refused this Runtime's token: the runtime and gateway containers must share NYLORUN_GATES_TOKEN",
+      `The model gate refused the run token${message ? `: ${message}` : ""}`,
+      false,
+    );
+  if (status === 409 && (parsed as GateErrorBody | undefined)?.error?.code === "run_stale")
+    return failure(
+      "invalid_request",
+      `The model gate refused a stale run${message ? `: ${message}` : ""}`,
       false,
     );
   if (status === 409)

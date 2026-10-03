@@ -168,6 +168,8 @@ it("finishes a turn whose owner died mid MCP call: the next advance re-sends the
   const worker = workerOf(runtime);
   const stale = worker.advance("s1", new AbortController().signal);
   await remote.started; // the MCP effect is `invoking` under worker-a, and held at the gate
+  const staleToken = runtime.gate!.runGrants.token("s1")!;
+  expect(staleToken).toBeDefined();
 
   // Another Worker took the session over and died too: its lease already expired.
   const other = await openTestSessionStore(runtime);
@@ -186,6 +188,15 @@ it("finishes a turn whose owner died mid MCP call: the next advance re-sends the
 
   const next = worker.advance("s1", new AbortController().signal);
   await vi.waitFor(async () => expect((await view(runtime)).status).toBe("running"));
+  // The new owner's run token replaced the old owner's, which is stale at the gate (F5, G4).
+  await vi.waitFor(() => expect(runtime.gate!.runGrants.token("s1")).not.toBe(staleToken));
+  const refused = await fetch(`${runtime.gate!.url}/nylorun/v1/tool-calls`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${staleToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ server: { capabilityId: "c", serverName: "s" }, effectId: "late", name: "slow", arguments: {} }),
+  });
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ error: { code: "run_stale" } });
   remote.release();
   expect(await next).toEqual({ status: "done" });
   await stale;

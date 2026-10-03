@@ -13,7 +13,11 @@ import type { RuntimeModelAdapter, RuntimeModelCall } from "../contracts.js";
 
 export type { ModelCallSettings } from "../model/pi-model.js";
 
-/** One model call, as the loop hands it to the gate. JSON-safe: it crosses the network. */
+/**
+ * One model call, as the loop hands it to the gate. JSON-safe: it crosses the network. Over
+ * HTTP the session, turn and agent travel in the run token, not the body (F5): the gate's route
+ * fills them in from its claims.
+ */
 export interface ModelGateRequest {
   readonly tenantId: string;
   readonly sessionId: string;
@@ -45,5 +49,5 @@ export interface ModelGate {
    * Stops a call that outlives its caller (a user cancel). Best-effort: never rejects. Only a
    * gate that `recovers` needs it; for the others aborting `signal` already stops the call.
    */
-  cancel?(request: Pick<ModelGateRequest, "tenantId" | "effectId">): Promise<void>;
+  cancel?(request: Pick<ModelGateRequest, "tenantId" | "sessionId" | "effectId">): Promise<void>;
 }

@@ -1,7 +1,8 @@
 /**
  * The gates service's listener (`host/gates.ts`, `api/gate/routes.ts`) on 127.0.0.1:0, with
- * stub Tenant vaults (the ledger on the file's database) and the provider stubbed as the global `fetch`. Requests to the gate
- * use the real `fetch`, captured before any stub.
+ * stub Tenant vaults (the ledger, signing keys and sessions on the file's database) and the
+ * provider stubbed as the global `fetch`. Requests to the gate use the real `fetch`, captured
+ * before any stub. Model calls carry a session's run token (F5), minted as an advance would.
  */
 import { request } from "node:http";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -10,13 +11,14 @@ import { MODEL_CALLS_PATH } from "../../src/gates/contract.js";
 import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { failure } from "../../src/model/classify.js";
 import { GATES_REQUEST_TIMEOUT_MS, startGates, type GatesServer } from "../../src/host/gates.js";
-import type { SessionStore } from "../../src/store/types.js";
-import { createTestSessionStore } from "../support/store.js";
+import { KEYS_PATH } from "../../src/keys/contract.js";
+import { DELIVERIES_PATH } from "../../src/gates/tool-contract.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
+import type { RunGrant } from "../../src/tenant/run-token.js";
+import { runFixture, type RunFixture } from "../support/run-tokens.js";
 
 const realFetch = globalThis.fetch;
 const token = "cd".repeat(32);
-const tenantId = newTenantId();
 const secret: HostModelSecret = {
   provider: "custom",
   model: "test-model",
@@ -25,9 +27,6 @@ const secret: HostModelSecret = {
   credential: { type: "api_key", key: "gate-host-secret" },
 };
 const body = {
-  sessionId: "session-1",
-  turnId: "turn-1",
-  agentId: "bot",
   effectId: "turn-1:0:model:1",
   invocationId: "1",
   call: {
@@ -37,11 +36,17 @@ const body = {
   },
 };
 
-// The usage ledger: a Session Store on the test file's database.
-let ledger: SessionStore;
+// The ledger, the signing keys and the sessions: a Session Store on the test file's database.
+let runs: RunFixture;
+let tenantId: string;
 beforeAll(async () => {
-  ledger = await createTestSessionStore(tenantId);
+  runs = await runFixture();
+  tenantId = runs.tenantId;
 });
+/** A session running turn-1 under a fresh lease, and its run token. */
+let sessions = 0;
+const running = (options: { agentId?: string } = {}) => runs.run(`session-${++sessions}`, options);
+
 const vaults: TenantVaults = {
   async open(id) {
     if (id !== undefined && id !== tenantId)
@@ -50,18 +55,19 @@ const vaults: TenantVaults = {
       );
     return {
       tenantId,
-      store: ledger,
+      store: runs.store,
       root: "/nonexistent-tenant-home",
       readHostModel: async () => secret,
       writeHostCredential: async () => {},
-    };
+      keys: () => runs.keys,
+    } as never;
   },
 };
 
 const logs: { message: string; fields?: Record<string, unknown> }[] = [];
 const logger = {
   info: (message: string, fields?: Record<string, unknown>) => void logs.push({ message, fields }),
-  warn: () => {},
+  warn: (message: string, fields?: Record<string, unknown>) => void logs.push({ message, fields }),
   error: () => {},
 };
 
@@ -76,6 +82,7 @@ async function gate(options: { maxBodyBytes?: number } = {}) {
     vaults,
     settings: { retryBaseDelayMs: 1 },
     drainMs: 200,
+    keys: true,
     ...options,
   });
   servers.push(server);
@@ -84,6 +91,7 @@ async function gate(options: { maxBodyBytes?: number } = {}) {
 
 function post(
   server: GatesServer,
+  grant: RunGrant | undefined,
   init: {
     body?: unknown;
     headers?: Record<string, string>;
@@ -95,7 +103,7 @@ function post(
   return realFetch(`${server.url}${MODEL_CALLS_PATH}`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
+      ...(grant ? { authorization: `Bearer ${grant.token}` } : {}),
       "nylorun-tenant": tenantId,
       ...(init.keyed === false ? {} : { "idempotency-key": body.effectId }),
       "content-type": "application/json",
@@ -106,11 +114,17 @@ function post(
   });
 }
 
-function completion(text: string): Response {
-  const chunk = (delta: unknown, finish: string | null) =>
-    `data: ${JSON.stringify({ id: "t", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+const cancel = (server: GatesServer, bearer: string | undefined, key = body.effectId) =>
+  realFetch(`${server.url}${MODEL_CALLS_PATH}/${encodeURIComponent(key)}/cancel`, {
+    method: "POST",
+    headers: { ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), "nylorun-tenant": tenantId },
+  });
+
+function completion(text: string, usage?: unknown): Response {
+  const chunk = (delta: unknown, finish: string | null, extra = {}) =>
+    `data: ${JSON.stringify({ id: "t", choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`;
   return new Response(
-    `${chunk({ role: "assistant", content: text }, null)}${chunk({}, "stop")}data: [DONE]\n\n`,
+    `${chunk({ role: "assistant", content: text }, null)}${chunk({}, "stop", usage ? { usage } : {})}data: [DONE]\n\n`,
     { headers: { "content-type": "text/event-stream" } },
   );
 }
@@ -125,26 +139,34 @@ describe("the gates service", () => {
   it("serves a model call and answers {outcome} once it has finished", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => completion("from the gate")));
     const server = await gate();
-    const response = await post(server);
+    const grant = await running();
+    const response = await post(server, grant);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       outcome: { output: [{ type: "text", text: "from the gate" }] },
     });
     expect(logs).toContainEqual({
       message: "model_call",
-      fields: expect.objectContaining({ tenant: tenantId, effect: body.effectId, outcome: "ok" }),
+      fields: expect.objectContaining({
+        tenant: tenantId,
+        session: grant.claims.sessionId,
+        effect: body.effectId,
+        outcome: "ok",
+      }),
     });
     expect(JSON.stringify(logs)).not.toContain("gate-host-secret");
     expect(JSON.stringify(logs)).not.toContain("from the gate");
+    expect(JSON.stringify(logs)).not.toContain(grant.token);
   });
 
-  it("serves a call that names no Tenant: the gate's database holds one", async () => {
+  it("serves a call that names no Tenant: the run token names it", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => completion("unnamed")));
     const server = await gate();
+    const grant = await running();
     const response = await realFetch(`${server.url}${MODEL_CALLS_PATH}`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${token}`,
+        authorization: `Bearer ${grant.token}`,
         "idempotency-key": body.effectId,
         "content-type": "application/json",
       },
@@ -160,13 +182,103 @@ describe("the gates service", () => {
     });
   });
 
-  it("refuses a missing or wrong token with 401 gate_unauthorized", async () => {
+  it("scopes the ledger by the token's agent; a body that names a scope is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => completion("metered", { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 })),
+    );
     const server = await gate();
-    for (const authorization of ["", `Bearer ${"ef".repeat(32)}`]) {
-      const response = await post(server, { headers: { authorization } });
-      expect(response.status).toBe(401);
-      expect(await response.json()).toMatchObject({ error: { code: "gate_unauthorized" } });
+    const grant = await running({ agentId: "capped" });
+    for (const named of [{ agentId: "uncapped" }, { sessionId: "session-x" }, { turnId: "turn-x" }]) {
+      const refused = await post(server, grant, { body: { ...body, ...named } });
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toMatchObject({ error: { code: "invalid_request" } });
     }
+    expect((await post(server, grant)).status).toBe(200);
+    const spent = (agentId: string) =>
+      runs.store.tx((t) => t.modelUsageTotals({ scope: "agent", id: agentId }));
+    expect((await spent("capped")).calls).toBe(1);
+    expect((await spent("uncapped")).calls).toBe(0);
+    expect((await runs.store.tx((t) => t.modelUsageTotals({ scope: "turn", id: "turn-1" }))).calls).toBeGreaterThan(0);
+  });
+
+  describe("credentials (F5)", () => {
+    it("refuses a model call with no credential, core's credential or a bad token: 401 gate_unauthorized", async () => {
+      const provider = vi.fn();
+      vi.stubGlobal("fetch", provider);
+      const server = await gate();
+      const grant = await running();
+      const [header, payload] = grant.token.split(".");
+      const forged = `${header}.${payload}.${"A".repeat(86)}`;
+      for (const authorization of ["", `Bearer ${token}`, `Bearer ${"ef".repeat(32)}`, `Bearer ${forged}`, "Bearer a.b.c"]) {
+        const response = await post(server, undefined, { headers: { authorization } });
+        expect(response.status).toBe(401);
+        expect(await response.json()).toMatchObject({ error: { code: "gate_unauthorized" } });
+      }
+      expect(provider).not.toHaveBeenCalled();
+    });
+
+    it("refuses another Tenant's run token", async () => {
+      const server = await gate();
+      const other = await runFixture();
+      const foreign = await other.run("session-foreign");
+      const response = await post(server, foreign, { headers: { "nylorun-tenant": other.tenantId } });
+      expect(response.status).toBe(401);
+      const unnamed = await post(server, foreign, { headers: { "nylorun-tenant": tenantId } });
+      expect(unnamed.status).toBe(401);
+    });
+
+    it("refuses a Tenant header that is not the token's", async () => {
+      const server = await gate();
+      const grant = await running();
+      const response = await post(server, grant, { headers: { "nylorun-tenant": newTenantId() } });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "invalid_request" } });
+    });
+
+    it("refuses a run token on the keys and deliveries routes", async () => {
+      const server = await gate();
+      const grant = await running();
+      for (const path of [`${KEYS_PATH}/sign`, DELIVERIES_PATH]) {
+        const response = await realFetch(`${server.url}${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${grant.token}`, "content-type": "application/json" },
+          body: JSON.stringify(
+            path === DELIVERIES_PATH
+              ? { url: "http://127.0.0.1:9/x", body: "{}", headers: {}, timeoutMs: 1_000 }
+              : { args: [{ typ: "nylorun-run+jwt", claims: {} }] },
+          ),
+        });
+        expect(response.status).toBe(401);
+        expect(await response.json()).toMatchObject({ error: { code: "gate_unauthorized" } });
+      }
+      // Core's credential still reaches the keys.
+      const keys = await realFetch(`${server.url}${KEYS_PATH}/ensureSigningKeys`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ args: [] }),
+      });
+      expect(keys.status).toBe(200);
+    });
+
+    it("answers 409 run_stale after a cancel, a new turn or a takeover", async () => {
+      const provider = vi.fn(async () => completion("late"));
+      vi.stubGlobal("fetch", provider);
+      const server = await gate();
+      const cancelled = await running();
+      await runs.update(cancelled.claims.sessionId, { status: "cancelled", activeTurnId: null });
+      const newTurn = await running();
+      await runs.update(newTurn.claims.sessionId, { activeTurnId: "turn-2" });
+      const takenOver = await running();
+      await runs.takeOver(takenOver.claims.sessionId);
+      for (const grant of [cancelled, newTurn, takenOver]) {
+        const response = await post(server, grant);
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ error: { code: "run_stale" } });
+      }
+      expect(provider).not.toHaveBeenCalled();
+      expect(logs).toContainEqual({ message: "gate_run_stale", fields: expect.objectContaining({ session: takenOver.claims.sessionId }) });
+    });
   });
 
   it("answers 421 to a Host it doesn't serve, and serves the configured one", async () => {
@@ -186,29 +298,18 @@ describe("the gates service", () => {
 
   it("refuses a bad Tenant header, malformed JSON, a malformed call and an oversized body", async () => {
     const server = await gate({ maxBodyBytes: 2048 });
-    const cases: [Parameters<typeof post>[1], RegExp][] = [
+    const grant = await running();
+    const cases: [Parameters<typeof post>[2], RegExp][] = [
       [{ headers: { "nylorun-tenant": "../../etc" } }, /must name a Tenant/],
       [{ body: "{not json" }, /must be JSON/],
       [{ body: { ...body, call: { tools: [] } } }, /Invalid model call/],
       [{ body: { ...body, padding: "x".repeat(4096) } }, /at most 2048 bytes/],
     ];
     for (const [init, message] of cases) {
-      const response = await post(server, init);
+      const response = await post(server, grant, init);
       expect(response.status).toBe(400);
       expect((await response.json()).error.message).toMatch(message);
     }
-  });
-
-  it("refuses a call naming another Tenant with its failure outcome, without calling the provider", async () => {
-    const provider = vi.fn();
-    vi.stubGlobal("fetch", provider);
-    const server = await gate();
-    const response = await post(server, { headers: { "nylorun-tenant": newTenantId() } });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      outcome: { kind: "failed", code: "invalid_request", retryable: false },
-    });
-    expect(provider).not.toHaveBeenCalled();
   });
 
   it("aborts the provider request when the caller of an unkeyed call goes away", async () => {
@@ -228,8 +329,9 @@ describe("the gates service", () => {
       }),
     );
     const server = await gate();
+    const grant = await running();
     const caller = new AbortController();
-    const pending = post(server, { signal: caller.signal, keyed: false }).catch(() => undefined);
+    const pending = post(server, grant, { signal: caller.signal, keyed: false }).catch(() => undefined);
     await vi.waitFor(() => expect(upstream).toBeDefined());
     caller.abort();
     await pending;
@@ -263,14 +365,15 @@ describe("the gates service", () => {
     it("keeps a call running after its caller goes away; a re-send gets its outcome", async () => {
       const provider = heldProvider();
       const server = await gate();
+      const grant = await running();
       const caller = new AbortController();
-      const first = post(server, { signal: caller.signal }).catch(() => undefined);
+      const first = post(server, grant, { signal: caller.signal }).catch(() => undefined);
       await vi.waitFor(() => expect(provider.calls()).toBe(1));
       caller.abort();
       await first;
       expect(provider.upstream()?.aborted).toBe(false);
       provider.release();
-      const resent = await post(server);
+      const resent = await post(server, grant);
       expect(resent.status).toBe(200);
       expect(await resent.json()).toMatchObject({
         outcome: { output: [{ type: "text", text: "survived" }] },
@@ -281,44 +384,82 @@ describe("the gates service", () => {
     it("joins a call still running when the same request is re-sent", async () => {
       const provider = heldProvider();
       const server = await gate();
-      const first = post(server);
+      const grant = await running();
+      const first = post(server, grant);
       await vi.waitFor(() => expect(provider.calls()).toBe(1));
-      const second = post(server);
+      const second = post(server, grant);
       provider.release();
       expect((await (await first).json()).outcome.output[0].text).toBe("survived");
       expect((await (await second).json()).outcome.output[0].text).toBe("survived");
       expect(provider.calls()).toBe(1);
     });
 
+    it("lets the new owner join after a takeover; the old owner's re-send is stale", async () => {
+      const provider = heldProvider();
+      const server = await gate();
+      const old = await running();
+      const first = post(server, old).catch(() => undefined);
+      await vi.waitFor(() => expect(provider.calls()).toBe(1));
+      const owner = await runs.takeOver(old.claims.sessionId);
+      expect(owner.claims.epoch).toBeGreaterThan(old.claims.epoch);
+      const stale = await post(server, old);
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({ error: { code: "run_stale" } });
+      const joined = post(server, owner);
+      provider.release();
+      expect((await (await joined).json()).outcome.output[0].text).toBe("survived");
+      await first;
+      expect(provider.calls()).toBe(1);
+    });
+
+    it("never joins another session's call under the same key", async () => {
+      const provider = heldProvider();
+      const server = await gate();
+      const mine = await running();
+      const theirs = await running();
+      const first = post(server, mine);
+      await vi.waitFor(() => expect(provider.calls()).toBe(1));
+      const other = await post(server, theirs);
+      expect(other.status).toBe(409);
+      expect(await other.json()).toMatchObject({ error: { code: "gate_conflict" } });
+      provider.release();
+      await first;
+      expect(provider.calls()).toBe(1);
+    });
+
     it("answers 409 gate_conflict to a different request under the same key", async () => {
       const provider = heldProvider();
       const server = await gate();
-      const first = post(server);
+      const grant = await running();
+      const first = post(server, grant);
       await vi.waitFor(() => expect(provider.calls()).toBe(1));
-      const changed = await post(server, { body: { ...body, invocationId: "2" } });
+      const changed = await post(server, grant, { body: { ...body, invocationId: "2" } });
       expect(changed.status).toBe(409);
       expect(await changed.json()).toMatchObject({ error: { code: "gate_conflict" } });
       provider.release();
       await first;
     });
 
-    it("cancels a keyed call by effect id, aborting the provider request", async () => {
+    it("cancels a keyed call by effect id with its session's token, even once the run is stale", async () => {
       const provider = heldProvider();
       const server = await gate();
-      const first = post(server).catch(() => undefined);
+      const grant = await running();
+      const other = await running();
+      const first = post(server, grant).catch(() => undefined);
       await vi.waitFor(() => expect(provider.calls()).toBe(1));
-      const cancelled = await realFetch(
-        `${server.url}${MODEL_CALLS_PATH}/${encodeURIComponent(body.effectId)}/cancel`,
-        { method: "POST", headers: { authorization: `Bearer ${token}`, "nylorun-tenant": tenantId } },
-      );
+      // Another session's token, and core's credential, cannot cancel it.
+      const forbidden = await cancel(server, other.token);
+      expect(forbidden.status).toBe(403);
+      expect(await forbidden.json()).toMatchObject({ error: { code: "gate_forbidden" } });
+      expect((await cancel(server, token)).status).toBe(401);
+      expect((await cancel(server, undefined)).status).toBe(401);
+      expect(provider.upstream()?.aborted).toBe(false);
+      // A user cancel makes the run stale; its cancel still stops the call.
+      await runs.update(grant.claims.sessionId, { status: "cancelled", activeTurnId: null });
+      const cancelled = await cancel(server, grant.token);
       expect(cancelled.status).toBe(204);
       await vi.waitFor(() => expect(provider.upstream()?.aborted).toBe(true));
       await first;
-      const unauthorized = await realFetch(
-        `${server.url}${MODEL_CALLS_PATH}/x/cancel`,
-        { method: "POST", headers: { "nylorun-tenant": tenantId } },
-      );
-      expect(unauthorized.status).toBe(401);
     });
   });
 

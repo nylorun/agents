@@ -4,7 +4,7 @@
  * conflict, and outcomes expire.
  */
 import { describe, expect, it } from "vitest";
-import { createInflightCalls, InflightConflict } from "../../src/gates/inflight.js";
+import { createInflightCalls, InflightConflict, InflightStale } from "../../src/gates/inflight.js";
 import type { ModelGateOutcome } from "../../src/gates/model-gate.js";
 
 const answer = (text: string): ModelGateOutcome => ({
@@ -95,6 +95,35 @@ describe("InflightCalls", () => {
     void calls.run("d", "h", held().start);
     expect(calls.size).toBe(3);
     running.settle(answer("c"));
+  });
+
+  it("joins a run's call only for its session, at the same or a newer epoch (F5, G4)", async () => {
+    const calls = createInflightCalls();
+    const call = held();
+    const first = calls.run("t:e1", "h1", call.start, { sessionId: "s1", epoch: 2 });
+    await expect(calls.run("t:e1", "h1", call.start, { sessionId: "s2", epoch: 9 })).rejects.toThrow(
+      InflightConflict,
+    );
+    // The new owner after a takeover joins; from then on the old owner is behind.
+    const joined = calls.run("t:e1", "h1", call.start, { sessionId: "s1", epoch: 3 });
+    await expect(calls.run("t:e1", "h1", call.start, { sessionId: "s1", epoch: 2 })).rejects.toThrow(
+      InflightStale,
+    );
+    call.settle(answer("once"));
+    expect(await first).toEqual(answer("once"));
+    expect(await joined).toEqual(answer("once"));
+    expect(call.starts()).toBe(1);
+  });
+
+  it("cancels a run's call only for its own session", async () => {
+    const calls = createInflightCalls();
+    const call = held();
+    const running = calls.run("t:e1", "h1", call.start, { sessionId: "s1", epoch: 1 });
+    expect(calls.cancel("t:e1", "s2")).toBe(false);
+    expect(call.signal().aborted).toBe(false);
+    expect(calls.cancel("t:e1", "s1")).toBe(true);
+    await expect(running).rejects.toThrow(/cancelled/);
+    expect(calls.cancel("t:missing", "s2")).toBe(true);
   });
 
   it("aborts running calls on close", async () => {

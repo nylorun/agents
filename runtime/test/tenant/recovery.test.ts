@@ -138,6 +138,8 @@ it("finishes a turn whose owner died mid-call: the next advance re-sends the cal
   const worker = workerOf(runtime);
   const stale = worker.advance("s1", new AbortController().signal);
   await provider.started; // the model effect is `invoking` under worker-a, and held at the gate
+  const staleToken = runtime.gate!.runGrants.token("s1")!;
+  expect(staleToken).toBeDefined();
 
   // Another Worker took the session over and died too: its lease already expired.
   const other = await openTestSessionStore(runtime);
@@ -156,6 +158,16 @@ it("finishes a turn whose owner died mid-call: the next advance re-sends the cal
 
   const next = worker.advance("s1", new AbortController().signal);
   await vi.waitFor(async () => expect((await view(runtime)).status).toBe("running"));
+  // The new owner re-sent the call under its own run token and joined it (F5, G4); the old
+  // owner's token is stale now.
+  await vi.waitFor(() => expect(runtime.gate!.runGrants.token("s1")).not.toBe(staleToken));
+  const refused = await realFetch(`${runtime.gate!.url}/nylorun/v1/model-calls`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${staleToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ effectId: "late", invocationId: "1", call: { prompt: [], tools: [] } }),
+  });
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ error: { code: "run_stale" } });
   provider.release();
   expect(await next).toEqual({ status: "done" });
   await stale;

@@ -16,6 +16,9 @@
  *   mismatch throws `ownership.lost` with no write; the advance stops and returns `done`.
  * - **Heartbeat.** While the segment runs, a timer scoped to the advance renews the lease
  *   (a column update). A failed renewal aborts the segment.
+ * - **Run token** (F5). Right after taking the lease the advance mints the run token its
+ *   gate calls present (`run-grants.ts`); the heartbeat re-mints it before it expires, and it
+ *   is dropped when the lease is lost or released.
  * - **Release** when the advance ends, whatever the outcome.
  *
  * Session outcomes never throw out of `advance`: a segment that throws is settled as a
@@ -73,6 +76,7 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
+import { dropRunGrant, grantRun, renewRunGrant, type RunOf } from "./run-grants.js";
 import { usesFixtureModel } from "./model-setting.js";
 import { toolFixtureModel } from "../core/provider.js";
 import {
@@ -142,9 +146,11 @@ export async function advance(
   else signal.addEventListener("abort", forward, { once: true });
   ctx.work.running.set(id, controller);
   ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
-  const heartbeat = startHeartbeat(ctx, lease, controller);
+  const run = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
+  const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
   try {
+    await grantRun(ctx, lease, run);
     await runSegment(ctx, lease, taken.session, controller.signal);
   } catch (error) {
     if (error instanceof SegmentStopped && error.kind === "shutdown") {
@@ -162,6 +168,7 @@ export async function advance(
     else throw error;
   } finally {
     heartbeat.stop();
+    dropRunGrant(ctx, lease);
     signal.removeEventListener("abort", forward);
     if (ctx.work.running.get(id) === controller) {
       ctx.work.running.delete(id);
@@ -253,14 +260,16 @@ export async function takeOver(
 }
 
 /**
- * Renews the lease every third of its length while the advance runs; aborts it when lost.
+ * Renews the lease every third of its length while the advance runs, and the run token when
+ * it nears its end; aborts the advance when the lease is lost.
  * Stops renewing once the advance is aborted (cancel, deadline, Worker stop): an advance that
  * does not wind down within the lease is taken over when it lapses (`worker.ts`).
  */
 function startHeartbeat(
   ctx: TenantContext,
   lease: Lease,
-  controller: AbortController
+  controller: AbortController,
+  run: RunOf
 ): { stop(): void } {
   const every = Math.max(10, Math.floor(ctx.ownerLeaseMs / 3));
   let stopped = false;
@@ -281,9 +290,18 @@ function startHeartbeat(
       );
       if (!renewed && !stopped) {
         stopped = true;
+        // Calls under the lost lease are stale at the gate anyway; make no more of them.
+        dropRunGrant(ctx, lease);
         controller.abort(new AdvanceAbort("ownership.lost", "Ownership lost"));
         return;
       }
+      if (!stopped)
+        await renewRunGrant(ctx, lease, run, () => !stopped).catch((error: unknown) =>
+          ctx.config.logger.warn("advance failed to renew its run token", {
+            sessionId: lease.sessionId,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        );
     } catch (error) {
       if (!stopped)
         ctx.config.logger.warn("advance heartbeat failed", {

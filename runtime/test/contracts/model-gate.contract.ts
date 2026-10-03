@@ -17,6 +17,11 @@ export interface ModelGateHost {
 
 export interface ModelGateHarness {
   gate: ModelGate;
+  /**
+   * Who the calls are for, when the gate serves only that (the HTTP gate serves the sessions
+   * its run tokens name, F5): merged into every request.
+   */
+  scope?: Partial<Pick<ModelGateRequest, "tenantId" | "sessionId" | "turnId" | "agentId">>;
   dispose?(): Promise<void>;
 }
 
@@ -88,7 +93,13 @@ export function modelGateContract(name: string, factory: ModelGateFactory) {
         settings: host.settings ?? fast,
       });
       harnesses.push(harness);
-      return harness.gate;
+      const { gate, scope = {} } = harness;
+      const scoped: ModelGate = {
+        ...gate,
+        call: (request, signal) => gate.call({ ...request, ...scope }, signal),
+        ...(gate.cancel ? { cancel: (request) => gate.cancel!({ ...request, ...scope }) } : {}),
+      };
+      return scoped;
     };
     afterEach(async () => {
       vi.unstubAllGlobals();

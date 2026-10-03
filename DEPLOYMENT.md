@@ -252,8 +252,21 @@ sends every vault-backed model call to it (`NYLORUN_GATES_URL`) and never holds
 a model credential.
 
 - The gateway has no published port; only the runtime reaches it, on the Compose
-  network, with `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up` generates
-  the token once and keeps it.
+  network. It accepts two credentials:
+  - **Core's credential**, `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up`
+    generates it once and keeps it, and only the runtime container holds it. It
+    is the only credential for vault writes and token signing, Action
+    deliveries and endpoint pings, and it covers MCP requests the runtime makes
+    outside a turn (closing a connection, for example).
+  - **Run tokens**, the credential of the agent loop. Each time the runtime
+    takes a session to advance it, it mints a short-lived token (15 minutes,
+    renewed while the advance runs) naming that session, its turn and agent,
+    and its ownership lease. Model calls accept only a run token, and the
+    gateway takes the call's session, turn and agent from it, never from the
+    request. Remote MCP calls use it too. Once the turn is cancelled, a new turn
+    starts or another runtime takes the session over, the gateway refuses calls
+    under the old token with `409 run_stale`. A run token never reaches vault
+    writes, token signing or deliveries.
 - It mounts only the Host root's `tenant/` and `keys/` directories, read-only
   (the Tenant's homes and its vault key), never `host-credentials.json`, and
   writes nothing there. It is not ready until `keys/vault-kek` is there;

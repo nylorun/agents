@@ -73,6 +73,7 @@ import {
 import { authorize } from "./effects.js";
 import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
+import type { RunGrants } from "./run-grants.js";
 import { tenantApi } from "../api/http/app.js";
 import { createFsBlobStore, type BlobStore } from "../blob/index.js";
 
@@ -94,6 +95,11 @@ export type TenantOpenHooks = {
    * process never reads, creates or holds the vault key. Without one, it does them here.
    */
   keys?: Keys;
+  /**
+   * The run grants the gates service's clients read (F5): each advance mints its session's
+   * run token into them. Give the same object to `modelGate` and `toolGate`.
+   */
+  runGrants?: RunGrants;
   vaultKek?: Buffer | string | null;
   /** When true, create the KEK file on first vault write (tests / new Tenants). */
   createKekIfMissing?: boolean;
@@ -304,6 +310,7 @@ export class TenantRuntime implements TenantHandle {
         signingKeys,
         keys,
         blobs: hooks.blobs ?? createFsBlobStore({ root: paths.blobs }),
+        ...(hooks.runGrants ? { runGrants: hooks.runGrants } : {}),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
         wake: async (sessionId, wake) => {
