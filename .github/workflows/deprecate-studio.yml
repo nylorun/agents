@@ -1,0 +1,40 @@
+name: Deprecate npm Studio (temporary)
+# Temporary, removed once it has run: deprecates every @nylorun/studio
+# version on npm. Studio ships only as ghcr.io/nylorun/studio since #136.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: npm-publication
+  cancel-in-progress: false
+jobs:
+  deprecate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0
+      - run: npm deprecate @nylorun/studio "$MESSAGE"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_LATEST_TOKEN }}
+          MESSAGE: "Studio now ships only as the ghcr.io/nylorun/studio image, which nylorun runs. Use: npx nylorun studio"
+      - name: Verify every version is deprecated
+        run: |
+          sleep 20
+          npm view @nylorun/studio versions --json | node -e '
+            const versions = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            const { execFileSync } = require("child_process");
+            let missing = 0;
+            for (const v of versions) {
+              const d = execFileSync("npm", ["view", `@nylorun/studio@${v}`, "deprecated"], { encoding: "utf8" }).trim();
+              console.log(`${v}: ${d || "NOT DEPRECATED"}`);
+              if (!d) missing++;
+            }
+            process.exit(missing ? 1 : 0);'
