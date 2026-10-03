@@ -1,10 +1,12 @@
 /**
- * Turn latency with and without the Harness API (F6.1 H1). Not part of `npm test`:
+ * Turn latency of the in-process harness and of a harness over a loopback WebSocket (F6.1 H1,
+ * F6.2). Not part of `npm test`:
  *
  *   (cd runtime && npx vitest bench --run test/bench)
  *
- * Each scenario runs `BENCH_TURNS` (default 200) turns on a Tenant with `harnessApi: false`
- * and one with the in-process harness, interleaved, timing the advances themselves (the
+ * Each scenario runs `BENCH_TURNS` (default 200) turns on a Tenant with the in-process
+ * harness (`memory`) and one with a harness service over WebSocket (`ws`), interleaved,
+ * timing the advances themselves (the
  * execution is never started; the bench calls the Tenant's worker): (a) one model call;
  * (b) ten steps alternating model calls and sandbox `bash`; (c) an Action tool answered by a
  * local endpoint, resumed by replay; (d) a warm resume over a 300-entry transcript. Then the
@@ -68,11 +70,12 @@ const models: Record<string, ModelProvider> = {
 
 type Bench = Awaited<ReturnType<typeof open>>;
 
-async function open(harnessApi: boolean, extra: Partial<StartTestTenantOptions> = {}) {
+async function open(harness: "memory" | "ws", extra: Partial<StartTestTenantOptions> = {}) {
   const runtime = await startTestTenant({
     applicationKey: APP,
-    harnessApi,
-    harness: "memory",
+    harness,
+    // The bench delivers Actions itself, after the advance: a run must not wait for them.
+    actionHoldMs: 0,
     sandbox: { backend: "virtual" },
     sweepIntervalMs: 600_000,
     modelProvider: (effect, signal) => models[effect.agentId]!(effect, signal),
@@ -192,15 +195,15 @@ const percentile = (samples: number[], p: number) => {
 const delta = (on: number, off: number) => `${on >= off ? "+" : ""}${(((on - off) / off) * 100).toFixed(1)}%`;
 
 afterAll(() => {
-  console.log(["", "Turn latency (ms), harness API off vs on:", ...results].join("\n"));
+  console.log(["", "Turn latency (ms), in-process harness (off) vs WebSocket harness (on):", ...results].join("\n"));
 });
 
 describe("turn latency", () => {
   test(
     "interleaved off/on",
     async () => {
-      const off = await open(false);
-      const on = await open(true);
+      const off = await open("memory");
+      const on = await open("ws");
       try {
         results.push("| scenario | off p50 | on p50 | Δp50 | off p95 | on p95 | Δp95 |", "|---|---|---|---|---|---|---|");
         for (const [name, turn] of Object.entries(scenarios)) {
@@ -245,7 +248,7 @@ describe("turn latency", () => {
           if (frame.m === "transcript.read") counts.reads += 1;
         }
       };
-      const b = await open(true, { harness: "json", harnessTap: tap });
+      const b = await open("memory", { harness: "json", harnessTap: tap });
       const turns = 20;
       try {
         for (let i = 0; i < turns; i += 1) await scenarios["(c) Action tool, resumed by replay"]!(b, new Map());
@@ -266,16 +269,16 @@ describe("turn latency", () => {
     "heap after 500 sessions",
     async () => {
       const gc = (globalThis as { gc?: () => void }).gc;
-      for (const harnessApi of [false, true]) {
+      for (const harness of ["memory", "ws"] as const) {
         gc?.();
         const before = process.memoryUsage();
-        const b = await open(harnessApi);
+        const b = await open(harness);
         try {
           for (let i = 0; i < 500; i += 1) await scenarios["(a) one model call"]!(b, new Map());
           gc?.();
           const after = process.memoryUsage();
           results.push(
-            `${harnessApi ? "on " : "off"}: 500 sessions, heap +${((after.heapUsed - before.heapUsed) / 2 ** 20).toFixed(1)} MiB, ` +
+            `${harness}: 500 sessions, heap +${((after.heapUsed - before.heapUsed) / 2 ** 20).toFixed(1)} MiB, ` +
               `rss ${(after.rss / 2 ** 20).toFixed(0)} MiB${gc ? "" : " (no --expose-gc)"}`,
           );
         } finally {

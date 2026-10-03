@@ -47,8 +47,12 @@ const DELIVERY_SLACK_MS = 30_000;
 export interface HttpToolGateOptions {
   /** The gates service, e.g. `http://gateway:4100` (`NYLORUN_GATES_URL`). */
   readonly url: string;
-  /** `NYLORUN_GATES_TOKEN`: core's credential, for deliveries and MCP requests outside a run. */
-  readonly token: string;
+  /**
+   * `NYLORUN_GATES_TOKEN`: core's credential, for deliveries and MCP requests outside a run. A
+   * harness has none (F6.2): its requests outside a run carry the session's last run token, or
+   * nothing, and the gate refuses them.
+   */
+  readonly token?: string;
   /** The run token of each session an advance of this process owns. Without it, core's only. */
   readonly runTokens?: RunTokens;
   /** Sent as `Nylorun-Tenant`; the gate checks it against its database's Tenant. */
@@ -117,7 +121,9 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
         {
           method: "POST",
           headers: {
-            authorization: `Bearer ${request.bearer ?? options.token}`,
+            ...((request.bearer ?? options.token)
+              ? { authorization: `Bearer ${request.bearer ?? options.token}` }
+              : {}),
             "content-type": "application/json",
             "content-length": payload.byteLength,
             ...(options.tenantId ? { [TENANT_HEADER]: options.tenantId } : {}),

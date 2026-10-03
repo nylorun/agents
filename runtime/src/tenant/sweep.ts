@@ -9,9 +9,10 @@
  * 2. **Orphaned sessions.** `running` or `runnable` sessions with no owner, or an owner whose
  *    lease expired, are woken with reason `recover`: a wake lost between commit and send, or
  *    a Worker that died mid-advance (the advance then takes over, §11.4).
- * 3. **Sandboxes.** Idle sandboxes are stopped, records of compute this process no longer
- *    holds are marked stopped, and sandboxes whose session is gone are removed. Idle MCP
- *    connections are closed.
+ * 3. **Sandboxes.** Idle sandboxes are stopped, records of compute no longer held are marked
+ *    stopped, and sandboxes whose session or sandbox resource is gone are removed, by the
+ *    workspace capability (`harness-api/workspace.ts`: here, or in the harness that serves
+ *    workspaces). Idle MCP connections of the in-process harness are closed.
  * 4. **Hooks.** Callbacks registered with `ctx.onSweep`.
  * 5. **Deliveries.** Deliveries to Action endpoints whose deadline passed without an answer are
  *    lost (`delivery.ts` `loseAction`), and pending Actions of agents with an endpoint are sent
@@ -47,9 +48,12 @@ export async function sweep(ctx: TenantContext): Promise<void> {
           now: now.getTime(),
           sessionExists: async (id) =>
             !!(await ctx.store.tx((t) => t.get("sessions", id))),
+          sandboxExists: async (id) =>
+            (await ctx.store.tx((t) => t.sandboxResource(id))) !== undefined,
         }),
     ],
-    ["mcp", () => ctx.mcp.sweep()],
+    // A harness elsewhere closes its own idle MCP connections.
+    ["mcp", async () => ctx.mcp?.sweep()],
     ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
   ];
   let failure: { error: unknown } | undefined;

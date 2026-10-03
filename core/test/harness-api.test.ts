@@ -60,7 +60,7 @@ describe("memory channel", () => {
         const { harness, core } = memoryChannels({ json, tap: (frame) => frames.push(frame) });
         core.handle(async (method, params) => {
           if (method === "hello")
-            return { api: HARNESS_API_VERSION, sandbox: { backend: null }, renewEveryMs: 10 };
+            return { api: HARNESS_API_VERSION, tenantId: "tn_test", sandbox: { backend: null }, renewEveryMs: 10 };
           if (method === "lease.renew") throw new HarnessApiError("run_not_held", `${(params as any).runId} is not held`);
           throw new Error("boom");
         });

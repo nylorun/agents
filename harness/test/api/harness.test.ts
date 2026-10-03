@@ -59,7 +59,7 @@ function fakeCore(options: {
     if (custom !== undefined) return custom;
     switch (method) {
       case "hello":
-        return { api: 1, sandbox: { backend: null }, renewEveryMs: options.renewEveryMs ?? 1000 };
+        return { api: 1, tenantId: "tn_test", sandbox: { backend: null }, renewEveryMs: options.renewEveryMs ?? 1000 };
       case "lease":
         return new Promise((resolve) => {
           leases.push(resolve);

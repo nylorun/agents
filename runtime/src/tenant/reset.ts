@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { ResetScope, SessionStore } from "../store/types.js";
-import type { SandboxManager } from "../sandbox/manager.js";
+import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantPaths } from "./types.js";
 import { detachAllSessions } from "./sandboxes.js";
 
@@ -15,7 +15,7 @@ export type { ResetScope } from "../store/types.js";
 
 export interface ResetTenantContext {
   store: SessionStore;
-  sandbox: SandboxManager;
+  sandbox: WorkspacePort;
   paths: TenantPaths;
   /** Clear in-memory session observers after the store wipe. */
   clearSessionState: () => void;
@@ -62,7 +62,7 @@ export async function resetTenant(
   const clearAll = scope === "all";
 
   if (clearSandboxes) {
-    await ctx.sandbox.reconcile(() => false, () => false);
+    await ctx.sandbox.removeAll();
   }
 
   await ctx.store.tx(async (t) => {

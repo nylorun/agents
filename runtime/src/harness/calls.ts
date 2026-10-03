@@ -1,8 +1,7 @@
 /**
  * The calls a harness executes, as pure helpers over what routes them: the Model Gate (or the
  * Tenant's provider), the MCP pool, the SandboxManager. No store, no record: the session's
- * routing comes with the run (`TurnStart.routing`), or from the session row on the
- * `NYLORUN_HARNESS_API=0` path.
+ * routing comes with the run (`TurnStart.routing`).
  */
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
@@ -35,6 +34,8 @@ export interface ToolRouting {
   readonly sandboxOwnerId: string;
   readonly sandboxId?: string;
   readonly activeTurnId: string | null;
+  /** Who the sandbox call's events are claimed for: the run's id. */
+  readonly claim?: string;
 }
 
 /**
@@ -150,6 +151,7 @@ export async function callSandboxTool(
       activeTurnId: routing.activeTurnId,
       manifest: routing.rootManifest,
       ...(routing.sandboxId === undefined ? {} : { sandboxId: routing.sandboxId }),
+      ...(routing.claim === undefined ? {} : { claim: routing.claim }),
     },
     capability,
     request.toolName as never,

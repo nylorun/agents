@@ -204,6 +204,7 @@ export function createTenantModule(options: CreateTenantModuleOptions): TenantMo
         pendingActions: summary?.pendingActions ?? 0,
         uncertainEffects: summary?.uncertainEffects ?? 0,
         ...(relay ? { relay } : {}),
+        ...(summary?.harness ? { harness: summary.harness } : {}),
       };
     },
 

@@ -22,7 +22,10 @@ export const ABORT_REASONS: readonly AbortReason[] = [
 /** Why a harness gave a run back without an output. */
 export type ReleaseReason = "shutdown" | "ownership.lost" | "connection.lost";
 
-/** Events a harness may claim for a run it holds. */
+/**
+ * Events a harness may claim: for a run it holds, or for a workspace request core sent it. A
+ * `sandbox.state` claim carries the workspace's compute record, which core keeps.
+ */
 export const HARNESS_CLAIMS = ["sandbox.state", "sandbox.exec"] as const;
 export type HarnessClaim = (typeof HARNESS_CLAIMS)[number];
 
@@ -104,6 +107,11 @@ export interface TurnStart {
     readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
     readonly flowLimits?: unknown;
     readonly fixtureModel: boolean;
+    /**
+     * How long the run may wait for a pending Action's outcome in its lease (F6.2,
+     * `effect.resolved`) before the segment ends as waiting. 0 or absent: it never waits.
+     */
+    readonly holdMs?: number;
   };
   readonly routing: RunRouting;
 }
@@ -148,6 +156,11 @@ export type OutcomeAnswer =
 
 /** Requests a harness sends to core, with their answers. */
 export interface HarnessRequests {
+  /**
+   * `capabilities.workspace` declares that the harness serves the Tenant's workspaces (F6.2):
+   * core then sends it the `workspace.*` requests. The answer names the Tenant (its workspace
+   * keys are scoped by it) and the sandbox backend preference the harness selects with.
+   */
   hello: {
     params: {
       api: number;
@@ -155,7 +168,12 @@ export interface HarnessRequests {
       version: string;
       capabilities: { workspace?: unknown };
     };
-    result: { api: number; sandbox: { backend: string | null }; renewEveryMs: number };
+    result: {
+      api: number;
+      tenantId: string;
+      sandbox: { backend: string | null };
+      renewEveryMs: number;
+    };
   };
   lease: {
     params: { slots?: number };
@@ -190,6 +208,8 @@ export interface HarnessRequests {
       turnId: string | null;
       type: HarnessClaim;
       payload: unknown;
+      /** With `sandbox.state`: the workspace's compute record as it is now. */
+      record?: WorkspaceRecord;
     };
     result: Record<string, never>;
   };
@@ -205,6 +225,56 @@ export interface HarnessRequests {
   checkpoint: { params: TurnOutput; result: { cursor?: number } };
 }
 
+/** The session a workspace request acts for: the workspace's owner and its sandbox resource. */
+export interface WorkspaceSession {
+  /** The session that owns the workspace: its log records the workspace's events. */
+  readonly ownerId: string;
+  readonly sandboxId?: string;
+  readonly activeTurnId: string | null;
+}
+
+/** A workspace's compute record, as the harness keeps it. */
+export interface WorkspaceRecord {
+  readonly key: string;
+  readonly sessionId: string;
+  readonly sandboxId?: string;
+  readonly backend: string;
+  readonly image: string;
+  readonly state: "creating" | "running" | "stopped";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** A sandbox tool call core sends to the harness that serves workspaces. */
+export interface WorkspaceCall {
+  readonly session: WorkspaceSession;
+  /** The sandbox spec the workspace runs (`SandboxManifest`). */
+  readonly spec: unknown;
+  readonly tool: string;
+  readonly input: unknown;
+}
+
+/**
+ * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
+ * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `sandbox.*` events
+ * while the request is in flight. `workspace.read` stays generic: F8.2 exports outputs
+ * through it.
+ */
+export interface CoreRequests {
+  "workspace.read": { params: WorkspaceCall; result: Record<string, unknown> };
+  "workspace.write": { params: WorkspaceCall; result: Record<string, unknown> };
+  "workspace.exec": { params: WorkspaceCall; result: Record<string, unknown> };
+  /** The harness's sandbox selection report (`GET /v1/tenant/sandbox`, Tenant status). */
+  "workspace.report": { params: Record<string, never>; result: Record<string, unknown> };
+  /** Stops idle workspaces, then lists every workspace the harness keeps. */
+  "workspace.sweep": { params: { now?: number }; result: { workspaces: WorkspaceRecord[] } };
+  /** Deletes workspaces with their files: by key, by sandbox resource, or all of them. */
+  "workspace.remove": {
+    params: { keys?: string[]; sandboxIds?: string[]; all?: true };
+    result: Record<string, never>;
+  };
+}
+
 /** Messages core sends to a harness, without an answer. */
 export interface CoreMessages {
   /** `message` is core's abort message, which the run's executors see as theirs. */
@@ -214,6 +284,8 @@ export interface CoreMessages {
 }
 
 export type HarnessMethod = keyof HarnessRequests;
+export type CoreMethod = keyof CoreRequests;
 export type CoreMessage = keyof CoreMessages;
-export type ParamsOf<M extends HarnessMethod> = HarnessRequests[M]["params"];
-export type ResultOf<M extends HarnessMethod> = HarnessRequests[M]["result"];
+type Requests = HarnessRequests & CoreRequests;
+export type ParamsOf<M extends keyof Requests> = Requests[M]["params"];
+export type ResultOf<M extends keyof Requests> = Requests[M]["result"];

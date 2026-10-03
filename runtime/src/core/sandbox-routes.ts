@@ -8,7 +8,8 @@ import {
   type SandboxToolName,
 } from "@nylorun/core/define";
 import type { Action } from "@nylorun/core/contracts";
-import type { SandboxManager, SandboxSessionRef } from "../sandbox/manager.js";
+import type { SandboxSessionRef } from "../sandbox/manager.js";
+import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { SandboxToolOutcome } from "../sandbox/tools.js";
 import {
   capabilityForSandbox,
@@ -42,7 +43,7 @@ export type SandboxRouteRead = {
 };
 
 export type SandboxRouteDeps = {
-  readonly sandbox: SandboxManager;
+  readonly sandbox: Pick<WorkspacePort, "run">;
   /** The session (rejects when missing) and its owner chain, read in one transaction. */
   readonly session: (id: string) => Promise<SandboxRouteRead>;
   readonly getAction: (id: string) => Promise<Action | undefined>;

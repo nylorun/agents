@@ -26,7 +26,7 @@ function attach(runtime: Started): HarnessChannel {
 const hello = { api: 1, name: "test", version: "0", capabilities: {} };
 
 it("binds a run to its connection, and offers it again when that connection is lost", async () => {
-  const runtime = await boot({ harnessApi: true, harness: "remote" });
+  const runtime = await boot({ harness: "remote" });
   cleanups.push(() => runtime.close());
   const holder = attach(runtime);
   const other = attach(runtime);

@@ -23,9 +23,9 @@
  * - **Release** when the advance ends, whatever the outcome.
  *
  * The segment runs in a harness (Harness API v1, `harness-api/`): the advance offers it with
- * its `turn.start`, the in-process harness (or one attached to the Tenant) runs the engine and
- * reports how it ended, and the advance settles that exactly as it settled the engine's result.
- * With `NYLORUN_HARNESS_API=0` the engine runs here instead (`runSegment`), until F6.2.
+ * its `turn.start`, the in-process harness (or one attached to the Tenant) readies the
+ * session's MCP servers, runs the engine and reports how it ended, and the advance settles
+ * that exactly as it settled the engine's result.
  *
  * Session outcomes never throw out of `advance`: a segment that throws is settled as a
  * failed turn. Only infrastructure errors (the Session Store is unreachable) throw, and the
@@ -43,8 +43,6 @@ import {
   runDurable,
   runFlowDurable,
   type DurableCheckpoint,
-  type FlowCheckpoint,
-  type HostEffect,
 } from "@nylorun/harness/run";
 import type { JsonValue } from "@nylorun/core/define";
 import type { LiveEvent } from "@nylorun/core/contracts";
@@ -59,34 +57,20 @@ import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { Lease, Session, TenantContext } from "./context.js";
-import { linkedAgentOutput, sessionToolsOf, turnManifestOf } from "./session.js";
-import {
-  isRemoteMcpEffect,
-  prepareMcp,
-  recoversMcpCalls,
-  recoversModelCalls,
-} from "./effects.js";
-import { resolveEffect } from "./resolve.js";
+import { linkedAgentOutput } from "./session.js";
+import { isRemoteMcpEffect, recoversMcpCalls, recoversModelCalls } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
 import {
   applyUpdates,
   leanState,
-  transcriptOf,
   transcriptShadow,
-  transcriptUpdates,
   withTranscript,
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
 import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
-import { toolFixtureModel } from "../core/provider.js";
 import { startHeartbeat } from "../harness-api/renew.js";
-import {
-  buildTurnStart,
-  startSegment,
-  yieldAfterOf,
-  type SegmentStart,
-} from "../harness-api/start.js";
+import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
 import type { RunEnd } from "../harness-api/server.js";
 import {
   AdvanceAbort,
@@ -94,9 +78,6 @@ import {
   abortKind,
   type AdvanceAbortKind,
 } from "./worker.js";
-
-/** The model of Tenants with the fixture-model setting (`model-setting.ts`). Stateless. */
-const fixture = toolFixtureModel();
 
 /**
  * A segment stopped by a `shutdown` or `ownership.lost` abort before it settled. Never
@@ -171,9 +152,7 @@ export async function advance(
   let result = DONE;
   try {
     await grantRun(ctx, lease, run);
-    if (ctx.config.harnessApi !== false)
-      await runRemoteSegment(ctx, lease, taken.session, controller, run, () => heartbeat.stop());
-    else await runSegment(ctx, lease, taken.session, controller.signal);
+    await runRemoteSegment(ctx, lease, taken.session, controller, run, () => heartbeat.stop());
   } catch (error) {
     if (error instanceof HarnessUnavailable) {
       ctx.config.logger.warn("advance found no harness; session left for the next advance", {
@@ -302,8 +281,6 @@ async function runRemoteSegment(
   const { signal } = controller;
   let end: RunEnd | undefined;
   try {
-    // prepareMcp mutates the session's mcpSnapshot; read current after it.
-    if (!isWorkflowManifest(started.manifest)) await prepareMcp(ctx, lease, signal);
     const segment = await startSegment(ctx, lease, { harness: true });
     end = await ctx.harness.offer({
       lease,
@@ -394,72 +371,6 @@ function resultOf(output: TurnOutput, segment: SegmentStart): SegmentResult {
     },
     ...(output.cancelEffectIds ? { cancelEffectIds: output.cancelEffectIds } : {}),
   } as SegmentResult;
-}
-
-/** Runs one segment and settles it. Throws only `ownership.lost` and infrastructure errors. */
-async function runSegment(
-  ctx: TenantContext,
-  lease: Lease,
-  started: Session,
-  signal: AbortSignal
-): Promise<void> {
-  try {
-    // prepareMcp mutates the session's mcpSnapshot; read current after it.
-    if (!isWorkflowManifest(started.manifest))
-      await prepareMcp(ctx, lease, signal);
-    const { current, fixtureModel, transcript: startTranscript } = await startSegment(ctx, lease);
-    const cp = current.checkpoint as DurableCheckpoint | undefined;
-    const engineCheckpoint =
-      !isWorkflowManifest(current.manifest) && cp?.state
-        ? { ...cp, state: withTranscript(cp.state, startTranscript) }
-        : current.checkpoint;
-    const segment = fixtureModel ? { model: fixture } : {};
-    const host = {
-      resolveEffect: (e: HostEffect) =>
-        resolveEffect(ctx, e, signal, lease, segment),
-    };
-    const result = isWorkflowManifest(current.manifest)
-      ? await runFlowDurable({
-          manifest: current.manifest,
-          checkpoint: current.checkpoint as FlowCheckpoint,
-          signal,
-          host,
-          limits: ctx.flowLimits,
-        })
-      : await runDurable({
-          manifest: turnManifestOf(current),
-          checkpoint: engineCheckpoint as DurableCheckpoint,
-          signal,
-          sessionTools: sessionToolsOf(current.mcpSnapshot),
-          host,
-          yieldAfter: yieldAfterOf(ctx),
-        });
-    // The engine turns an abort into a `cancelled` (agents) or `failed` (workflows) result;
-    // only a user cancel may settle that, and it already did.
-    stopIfLeaving(signal);
-    if (
-      signal.reason instanceof AdvanceDeadlineError &&
-      (result.status === "cancelled" || result.status === "failed")
-    )
-      await settleFailure(ctx, lease, started, signal.reason);
-    else {
-      const state =
-        !isWorkflowManifest(current.manifest) &&
-        (result.status === "yielded" || result.status === "completed" || result.status === "paused") &&
-        "result" in result
-          ? (result.result as { state?: unknown } | undefined)?.state
-          : undefined;
-      const updates = state ? transcriptUpdates(startTranscript, transcriptOf(state)) : [];
-      await settle(ctx, lease, started, result, updates);
-    }
-  } catch (error) {
-    if (isOwnershipLost(error) || error instanceof SegmentStopped) throw error;
-    stopIfLeaving(signal);
-    // A segment stopped by its deadline fails with the deadline, not the abort it caused.
-    const deadline =
-      signal.aborted && signal.reason instanceof AdvanceDeadlineError;
-    await settleFailure(ctx, lease, started, deadline ? signal.reason : error);
-  }
 }
 
 /** Wake the workflow a linked agent belongs to, in the agent's settle transaction. */

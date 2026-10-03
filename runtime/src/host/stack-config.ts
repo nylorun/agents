@@ -15,6 +15,13 @@
  * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
  * process must never hold a model credential.
  *
+ * `harness` (F6.2) runs alone: it holds the harness credential and nothing else. It connects to
+ * core's Harness API listener (`NYLORUN_HARNESS_URL`, `NYLORUN_HARNESS_TOKEN`), calls models and
+ * remote MCP servers through the gates service (`NYLORUN_GATES_URL`, with run tokens only), and
+ * keeps its workspaces under `NYLORUN_HARNESS_ROOT`. It refuses to start with a database, the
+ * gates' or keys' credential, or Restate settings. A process running core starts the Harness API
+ * listener when `NYLORUN_HARNESS=remote` (`NYLORUN_HARNESS_LISTEN_*`, `NYLORUN_HARNESS_TOKEN`).
+ *
  * Two listen modes:
  * - **local** (no `NYLORUN_LISTEN_*` / `NYLORUN_ALLOWED_HOSTS`): the Host binds
  *   what `host.json` names, loopback only unless `allowNonLoopback`.
@@ -31,23 +38,32 @@
 import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
 
 /** A Runtime service this release has. */
-export type RuntimeService = "core" | "loop" | "gates" | "keys";
+export type RuntimeService = "core" | "loop" | "gates" | "keys" | "harness";
 
 export type RuntimeServices = ReadonlySet<RuntimeService>;
 
-export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys"];
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys", "harness"];
 
 /**
  * Services that may share a process (D12): they hold the same secrets and parse the same
- * trust class of input. keys joins gates (F4.2); egress joins them in a later release.
+ * trust class of input. keys joins gates (F4.2); egress joins them in a later release. The
+ * harness (F6.2) runs agent code's neighbours and holds only its own credential: it shares
+ * with nothing.
  */
 const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
   ["core", "loop"],
   ["gates", "keys"],
+  ["harness"],
 ];
 
 /** Where the gates service listens by default. */
 export const DEFAULT_GATES_LISTEN_PORT = 4100;
+
+/** Where core's Harness API listener listens by default. */
+export const DEFAULT_HARNESS_LISTEN_PORT = 4200;
+
+/** Where a harness process answers `/health` (loopback only). */
+export const DEFAULT_HARNESS_HEALTH_PORT = 4300;
 
 /** What a process runs without `--service`: core and loop, as `--role all` did. */
 export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
@@ -58,7 +74,6 @@ export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
 /** Services of the blueprint this release doesn't have yet. */
 const LATER_SERVICES: readonly string[] = [
   "egress",
-  "harness",
   "sandboxd",
 ];
 
@@ -125,11 +140,44 @@ export interface ModelGateEndpoint {
   token: string;
 }
 
+/**
+ * Core's Harness API listener (`NYLORUN_HARNESS=remote`): where harnesses connect, and the
+ * credential they present (`NYLORUN_HARNESS_TOKEN`), which nothing else accepts.
+ */
+export interface HarnessListenConfig {
+  listen: ContainerListen;
+  token: string;
+}
+
+/** A harness process (`--service harness`). */
+export interface HarnessServiceConfig {
+  /** `NYLORUN_HARNESS_URL`: core's Harness API, e.g. `ws://runtime:4200/nylorun/harness/v1`. */
+  url: string;
+  /** `NYLORUN_HARNESS_TOKEN`. */
+  token: string;
+  /** `NYLORUN_GATES_URL`: the gates service its model and MCP calls cross, with run tokens. */
+  gatesUrl: string;
+  /** `NYLORUN_HARNESS_ROOT`: its sandboxes, plugin data, home and tmp. Default `/harness`. */
+  root: string;
+  /** `/health` on `127.0.0.1:<NYLORUN_HARNESS_HEALTH_PORT>` (default 4300). */
+  healthPort: number;
+}
+
 export interface StackConfig {
   /** The Runtime services this process runs. */
   services: RuntimeServices;
   /** Present when the process runs gates. */
   gates?: GatesConfig;
+  /** Present when the process runs the harness service (`--service harness`). */
+  harness?: HarnessServiceConfig;
+  /**
+   * `NYLORUN_HARNESS` (`in-process` or `remote`; absent means `in-process`), for a process running
+   * core or loop: whether the Tenant runs its own harness, or harnesses connect to
+   * `harnessListener`.
+   */
+  harnessMode?: "in-process" | "remote";
+  /** Present when `harnessMode` is `remote`: core's Harness API listener. */
+  harnessListener?: HarnessListenConfig;
   /**
    * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
    * remote MCP calls and Action deliveries cross the gates service. Required for loop in
@@ -165,11 +213,6 @@ export interface StackConfig {
    * routes. Absent means the Host's default (on in container mode).
    */
   browserAccess?: boolean;
-  /**
-   * `NYLORUN_HARNESS_API` (`1` or `0`): whether segments run through the Harness API (F6.1).
-   * Absent means on; `0` runs the engine in the advance, as before, until F6.2.
-   */
-  harnessApi?: boolean;
   /**
    * The operator listener in container mode (`NYLORUN_ADMIN_LISTEN_PORT`, `…_HOST`,
    * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
@@ -241,7 +284,7 @@ function read(env: EnvSnapshot, name: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-const USAGE = "Usage: main.js [--service core,loop|gates]";
+const USAGE = "Usage: main.js [--service core,loop|gates|harness]";
 
 /** Parses `--service a,b` (or the deprecated `--role`); throws `StackConfigError`. */
 export function parseServices(argv: readonly string[]): ServiceSelection {
@@ -455,6 +498,7 @@ export function parseStackConfig(
   argv: readonly string[],
 ): StackConfig {
   const { services, deprecatedRole } = parseServices(argv);
+  if (services.has("harness")) return { services, harness: parseHarnessService(env), endpoints: {} };
   // The image sets NYLORUN_LISTEN_*: only the API's processes read them.
   const servesApi = services.has("core") || services.has("loop");
   const listen = servesApi ? parseListen(env) : undefined;
@@ -507,9 +551,15 @@ export function parseStackConfig(
     throw new StackConfigError(
       `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
     );
-  const rawHarnessApi = read(env, "NYLORUN_HARNESS_API");
-  if (rawHarnessApi !== undefined && rawHarnessApi !== "0" && rawHarnessApi !== "1")
-    throw new StackConfigError(`NYLORUN_HARNESS_API must be 0 or 1, not ${rawHarnessApi}`);
+  const harnessMode = servesApi ? parseHarnessMode(env) : undefined;
+  const harnessListener = harnessMode === "remote" ? parseHarnessListener(env) : undefined;
+  if (
+    harnessListener &&
+    [listen?.port, operator?.port].includes(harnessListener.listen.port)
+  )
+    throw new StackConfigError(
+      "NYLORUN_HARNESS_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT and NYLORUN_ADMIN_LISTEN_PORT",
+    );
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const objectStore = parseObjectStore(env);
@@ -524,7 +574,8 @@ export function parseStackConfig(
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
     ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
-    ...(rawHarnessApi === undefined ? {} : { harnessApi: rawHarnessApi === "1" }),
+    ...(harnessMode ? { harnessMode } : {}),
+    ...(harnessListener ? { harnessListener } : {}),
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
@@ -583,6 +634,94 @@ function parseTenant(env: EnvSnapshot): TenantSettings {
 }
 
 const GATES_TOKEN = /^[0-9a-f]{64,}$/i;
+
+/** `NYLORUN_HARNESS`: `in-process` (the default when unset) or `remote`. */
+function parseHarnessMode(env: EnvSnapshot): "in-process" | "remote" | undefined {
+  const raw = read(env, "NYLORUN_HARNESS");
+  if (raw === undefined) return undefined;
+  if (raw !== "in-process" && raw !== "remote")
+    throw new StackConfigError(`NYLORUN_HARNESS must be in-process or remote, not ${raw}`);
+  return raw;
+}
+
+function parseHarnessToken(env: EnvSnapshot, why: string): string {
+  const token = read(env, "NYLORUN_HARNESS_TOKEN");
+  if (token === undefined)
+    throw new StackConfigError(`NYLORUN_HARNESS_TOKEN is required ${why} (\`nylorun start\` sets it)`);
+  if (!GATES_TOKEN.test(token))
+    throw new StackConfigError("NYLORUN_HARNESS_TOKEN must be at least 32 bytes as hex");
+  return token;
+}
+
+/** `StackConfig.harnessListener` from `NYLORUN_HARNESS_LISTEN_*` and `NYLORUN_HARNESS_TOKEN`. */
+function parseHarnessListener(env: EnvSnapshot): HarnessListenConfig {
+  const host = read(env, "NYLORUN_HARNESS_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
+  if (/\s|\//.test(host))
+    throw new StackConfigError(`NYLORUN_HARNESS_LISTEN_HOST is not an address: ${host}`);
+  const rawPort = read(env, "NYLORUN_HARNESS_LISTEN_PORT");
+  const port =
+    rawPort === undefined
+      ? DEFAULT_HARNESS_LISTEN_PORT
+      : parsePort("NYLORUN_HARNESS_LISTEN_PORT", rawPort);
+  const rawAllowed = read(env, "NYLORUN_HARNESS_ALLOWED_HOSTS");
+  const explicit =
+    rawAllowed === undefined
+      ? []
+      : rawAllowed
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter((entry) => entry !== "")
+          .map((entry) => normalizeAllowedHost("NYLORUN_HARNESS_ALLOWED_HOSTS", entry));
+  if (explicit.length === 0 && !isLoopbackAddress(host))
+    throw new StackConfigError(
+      `NYLORUN_HARNESS_ALLOWED_HOSTS is required when NYLORUN_HARNESS_LISTEN_HOST is ${host}: list the Host headers harnesses send, e.g. runtime:${port}`,
+    );
+  return {
+    listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
+    token: parseHarnessToken(env, "with NYLORUN_HARNESS=remote: the credential harnesses present"),
+  };
+}
+
+/** What a harness process must not hold: it runs next to agent code. */
+const HARNESS_REFUSED = ["NYLORUN_DATABASE_URL", "NYLORUN_GATES_TOKEN", "NYLORUN_KEYS_URL"];
+
+/** `StackConfig.harness` from `NYLORUN_HARNESS_*` and `NYLORUN_GATES_URL`. */
+function parseHarnessService(env: EnvSnapshot): HarnessServiceConfig {
+  const held = [
+    ...HARNESS_REFUSED.filter((name) => read(env, name) !== undefined),
+    ...Object.keys(env)
+      .filter((name) => name.startsWith("NYLORUN_RESTATE_") && read(env, name) !== undefined)
+      .sort(),
+  ];
+  if (held.length > 0)
+    throw new StackConfigError(
+      `--service harness refuses to start with ${held.join(", ")} set: a harness reaches no database, no gate or keys credential and no Restate`,
+    );
+  const url = parseUrl(env, "NYLORUN_HARNESS_URL", ["ws:", "wss:"]);
+  if (url === undefined)
+    throw new StackConfigError(
+      "NYLORUN_HARNESS_URL is required for --service harness: core's Harness API, e.g. ws://runtime:4200/nylorun/harness/v1",
+    );
+  const gatesUrl = parseUrl(env, "NYLORUN_GATES_URL", ["http:", "https:"]);
+  if (gatesUrl === undefined)
+    throw new StackConfigError(
+      "NYLORUN_GATES_URL is required for --service harness: its model and MCP calls go through the gates service, e.g. http://gateway:4100",
+    );
+  const root = read(env, "NYLORUN_HARNESS_ROOT") ?? "/harness";
+  if (!root.startsWith("/"))
+    throw new StackConfigError(`NYLORUN_HARNESS_ROOT must be an absolute path, not ${root}`);
+  const rawHealth = read(env, "NYLORUN_HARNESS_HEALTH_PORT");
+  return {
+    url,
+    token: parseHarnessToken(env, "for --service harness: the credential core's Harness API accepts"),
+    gatesUrl: gatesUrl.replace(/\/+$/, ""),
+    root,
+    healthPort:
+      rawHealth === undefined
+        ? DEFAULT_HARNESS_HEALTH_PORT
+        : parsePort("NYLORUN_HARNESS_HEALTH_PORT", rawHealth),
+  };
+}
 
 /** `StackConfig.gates` from `NYLORUN_GATES_*`. */
 function parseGates(env: EnvSnapshot): GatesConfig {

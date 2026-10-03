@@ -409,6 +409,9 @@ export async function recordActionOutcome(
     dedupeKey: `action_result:${action.turnId}:${action.actionId}:${action.generation}`,
   };
   t.afterCommit(() => ctx.wake(s.id, resultWake));
+  // A run held while the Action was pending goes on with it in the same lease (F6.2); the wake
+  // finds the session settled, or resumes it by replay when the run had already ended.
+  t.afterCommit(() => ctx.harness.resolved(s.id, action.actionId, outcome));
   const event = await t.event(s.id, s.activeTurnId, "action.completed", {
     actionId: action.actionId,
     ...actionTarget(action),

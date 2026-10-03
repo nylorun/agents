@@ -30,6 +30,7 @@ import { SigningKeys } from "./signing-keys.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
+import { storeSandboxRecords } from "../sandbox/records.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import { MemoryExecution } from "../execution/memory.js";
 import { openError } from "./cause.js";
@@ -82,7 +83,13 @@ import {
   type HarnessApiServer,
   type HarnessPeer,
 } from "../harness-api/server.js";
-import { startInProcessHarness, type InProcessHarness } from "../harness-api/in-process.js";
+import { harnessStatusOf } from "./status.js";
+import {
+  startInProcessHarness,
+  startLoopbackHarness,
+  type InProcessHarness,
+} from "../harness-api/in-process.js";
+import { localWorkspace, remoteWorkspace, type WorkspacePort } from "../harness-api/workspace.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -137,11 +144,15 @@ export type TenantOpenHooks = {
    */
   blobs?: BlobStore;
   /**
-   * The Tenant's harness (F6.1): `memory` (default) runs one in this process over a memory
-   * channel, `json` the same through JSON with every frame validated (tests), `remote` none:
-   * harnesses attach with `TenantHandle.attachHarness`.
+   * The Tenant's harness (F6.1, F6.2): `memory` (default) runs one in this process over a memory
+   * channel, with the Tenant's MCP pool and SandboxManager; `json` the same through JSON with
+   * every frame validated (tests). `remote` runs none: harnesses attach with
+   * `TenantHandle.attachHarness` (the Harness API listener, `NYLORUN_HARNESS=remote`), and the
+   * one that declares `workspace` holds the workspaces; this process has no MCP pool and no
+   * SandboxManager. `ws` is `remote` with a harness service in this process over a loopback
+   * WebSocket (tests).
    */
-  harness?: "memory" | "json" | "remote";
+  harness?: "memory" | "json" | "ws" | "remote";
   /** Sees each frame of the in-process harness's channel (tests and benchmarks). */
   harnessTap?: MemoryPortsOptions["tap"];
 } & OpenedTenant;
@@ -247,30 +258,50 @@ export class TenantRuntime implements TenantHandle {
       const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });
       const keys =
         hooks.keys ?? inProcessKeys({ store: opened, vault, signingKeys, kek: ensureKek });
-      const mcp = new McpPool({
-        pluginData: paths.pluginData,
-        childEnv: config.childEnv,
-        authorize: (sessionId, request) => authorize(ctx, sessionId, request),
-        ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),
-      });
+      const harnessMode = hooks.harness ?? "memory";
+      const inProcess = harnessMode === "memory" || harnessMode === "json";
+      const preference = seededBackend ?? config.sandbox.backend;
+      // With a harness in this process, the Tenant's MCP pool and SandboxManager are its
+      // executors; otherwise the harness holds both (F6.2).
+      const mcp = inProcess
+        ? new McpPool({
+            pluginData: paths.pluginData,
+            childEnv: config.childEnv,
+            authorize: (sessionId, request) => authorize(ctx, sessionId, request),
+            ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),
+          })
+        : undefined;
       const ephemeral = config.mode === "ephemeral";
-      const sandbox = new SandboxManager({
-        scope: config.tenantId,
-        store: opened,
-        backends:
-          config.sandbox.backends ??
-          defaultSandboxBackends({ root: paths.sandboxes }),
-        preference: seededBackend ?? config.sandbox.backend,
-        ephemeral,
-        emit: async (sessionId, turnId, type, payload) => {
-          if (ctx.closed) return;
-          try {
-            await opened.tx((t) => t.event(sessionId, turnId, type, payload));
-          } catch {
-            /* the session is gone (reset) or the store closed */
-          }
-        },
-      });
+      const manager = inProcess
+        ? new SandboxManager({
+            scope: config.tenantId,
+            records: storeSandboxRecords(opened),
+            backends:
+              config.sandbox.backends ??
+              defaultSandboxBackends({ root: paths.sandboxes }),
+            preference,
+            ephemeral,
+            emit: async (sessionId, turnId, type, payload) => {
+              if (ctx.closed) return;
+              try {
+                await opened.tx((t) => t.event(sessionId, turnId, type, payload));
+              } catch {
+                /* the session is gone (reset) or the store closed */
+              }
+            },
+          })
+        : undefined;
+      let harnessServer!: HarnessApiServer;
+      const sandbox: WorkspacePort = manager
+        ? localWorkspace(manager)
+        : remoteWorkspace({
+            get server() {
+              return harnessServer;
+            },
+            store: opened,
+            logger: config.logger,
+            preference,
+          });
 
       const useVaultModel = config.model.kind === "vault";
       let modelProvider: ModelProvider;
@@ -308,13 +339,12 @@ export class TenantRuntime implements TenantHandle {
         workers: new TenantWorkers(),
       };
       const sweepHooks = new Set<() => Promise<void>>();
-      let harnessServer!: HarnessApiServer;
       ctx = {
         config,
         envelope,
         store: opened,
         vault,
-        mcp,
+        ...(mcp ? { mcp } : {}),
         sandbox,
         flowLimits,
         modelProvider,
@@ -355,16 +385,20 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
-      harnessServer = createHarnessApiServer(ctx);
-      // Without the Harness API there is nothing to run one for.
-      const mode = config.harnessApi === false ? "remote" : hooks.harness ?? "memory";
-      harness =
-        mode === "remote"
-          ? undefined
-          : await startInProcessHarness(ctx, {
-              json: mode === "json",
-              ...(hooks.harnessTap ? { tap: hooks.harnessTap } : {}),
-            });
+      harnessServer = createHarnessApiServer(ctx, { sandboxPreference: preference });
+      if (mcp && manager)
+        harness = await startInProcessHarness(
+          ctx,
+          { mcp, sandbox: manager },
+          {
+            json: harnessMode === "json",
+            ...(hooks.harnessTap ? { tap: hooks.harnessTap } : {}),
+          }
+        );
+      else if (harnessMode === "ws")
+        harness = await startLoopbackHarness(ctx, {
+          ...(config.sandbox.backends ? { sandboxBackends: config.sandbox.backends } : {}),
+        });
       wired = await wireStreams(ctx, {
         store: opened,
         streams: hooks.streams ?? new MemoryStreams(),
@@ -422,6 +456,7 @@ export class TenantRuntime implements TenantHandle {
       ),
       pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
+      harness: harnessStatusOf(this.ctx),
     };
   }
 
@@ -454,6 +489,8 @@ export class TenantRuntime implements TenantHandle {
     return this.ctx.harness.attach(channel, peer);
   }
 
+
+
   async close(): Promise<void> {
     const ctx = this.ctx;
     ctx.closing = true;
@@ -464,7 +501,7 @@ export class TenantRuntime implements TenantHandle {
     // error is rethrown at the end.
     const steps: [name: string, run: () => unknown][] = [
       ["detach", () => this.detach()],
-      ["mcp", () => ctx.mcp.close()],
+      ["mcp", () => ctx.mcp?.close()],
       ["session streams", () => endAllStreams(ctx.sessionStreams)],
       // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
       ["idle", () => waitForIdle(ctx, Math.max(0, idleBy - Date.now()))],
