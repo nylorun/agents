@@ -1,5 +1,5 @@
 import { doctorStack } from "../../src/doctor.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,7 +26,10 @@ const TENANT_ID = "tn_01TESTSTACK000000000000001";
 
 /** `/v1/admin/status` of a Runtime whose Tenant is open. */
 const openTenant = (name = "home-root") =>
-  json({ tenant: { id: TENANT_ID, name, state: "open", envelope: null } });
+  json({
+    tenant: { id: TENANT_ID, name, state: "open", envelope: null },
+    aggregate: { harness: { mode: "remote", connected: 1, workspace: true } },
+  });
 
 /** A fetch that answers like a healthy Tenant on the persisted ports. */
 async function healthyFetch(home: string, loginBody: unknown = { token: "tok en" }) {
@@ -82,12 +85,55 @@ describe("start", () => {
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     expect(await runStackCommand("start", [], deps)).toBe(0);
     expect(docker.streamed).toEqual([
-      [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime"],
+      [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "--remove-orphans", "postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "harness"],
       [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "120", "studio"],
     ]);
     expect(deps.lines).toEqual(startLines(home));
     expect(existsSync(stackPaths(home).compose)).toBe(true);
     expect(JSON.parse(readFileSync(join(home, "tenant.json"), "utf8"))).toEqual({ format: 1, name: "home-root" });
+  });
+
+  it("--restate-ui publishes Restate's UI for that start; the next start closes it", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, { docker: fakeDocker(), fetch: await healthyFetch(home) });
+    expect(await runStackCommand("start", ["--restate-ui", "--no-studio"], deps)).toBe(0);
+    expect(deps.lines).toContain("Restate   http://localhost:9070  (UI and admin, unauthenticated; for debugging)");
+    const published = readFileSync(stackPaths(home).compose, "utf8");
+    expect(published).toContain('"127.0.0.1:${NYLORUN_RESTATE_PORT:?run nylorun start}:9070"');
+    expect(readFileSync(stackPaths(home).env, "utf8")).toMatch(/^NYLORUN_RESTATE_UI=1$/m);
+    deps.lines.length = 0;
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    expect(deps.lines.join("\n")).not.toContain("Restate");
+    expect(readFileSync(stackPaths(home).compose, "utf8")).not.toContain("NYLORUN_RESTATE_PORT");
+    expect(readFileSync(stackPaths(home).env, "utf8")).toMatch(/^NYLORUN_RESTATE_UI=0$/m);
+    // NYLORUN_RESTATE_UI=1 in the environment of start does what the flag does.
+    const env = testDeps(home, {
+      docker: fakeDocker(),
+      fetch: await healthyFetch(home),
+      env: { ...deps.env, NYLORUN_RESTATE_UI: "1" },
+    });
+    expect(await runStackCommand("start", ["--no-studio"], env)).toBe(0);
+    expect(readFileSync(stackPaths(home).compose, "utf8")).toContain("NYLORUN_RESTATE_PORT");
+  });
+
+  it("NYLORUN_HARNESS=in-process in .env rolls back: no harness service, kept across starts", async () => {
+    const home = await temporaryHome();
+    const docker = fakeDocker();
+    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    const env = readFileSync(stackPaths(home).env, "utf8");
+    expect(env).toMatch(/^NYLORUN_HARNESS=remote$/m);
+    const token = /^NYLORUN_HARNESS_TOKEN=([0-9a-f]{64})$/m.exec(env)?.[1];
+    expect(token).toBeDefined();
+    writeFileSync(stackPaths(home).env, env.replace(/^NYLORUN_HARNESS=remote$/m, "NYLORUN_HARNESS=in-process"));
+    docker.streamed.length = 0;
+    expect(await runStackCommand("start", ["--no-studio"], deps)).toBe(0);
+    expect(docker.streamed[0]).not.toContain("harness");
+    expect(docker.streamed[0]).toContain("--remove-orphans");
+    expect(readFileSync(stackPaths(home).compose, "utf8")).not.toContain("container_name: nylorun-home-root-harness");
+    const kept = readFileSync(stackPaths(home).env, "utf8");
+    expect(kept).toMatch(/^NYLORUN_HARNESS=in-process$/m);
+    expect(kept).toContain(`NYLORUN_HARNESS_TOKEN=${token}`);
   });
 
   it("outside a terminal, mints no login and says how to sign in", async () => {
@@ -467,6 +513,7 @@ describe("stop, logs, status", () => {
                 { Service: "postgres", State: "running", Health: "healthy" },
                 { Service: "gateway", State: "running", Health: "healthy" },
                 { Service: "runtime", State: "running", Health: "healthy" },
+                { Service: "harness", State: "running", Health: "healthy" },
                 { Service: "studio", State: "running", Health: "healthy" },
               ]
                 .map((row) => JSON.stringify(row))
@@ -524,8 +571,11 @@ describe("stop, logs, status", () => {
       runtime: { url: "http://localhost:8787", healthy: true, version: "0.10.0-beta" },
       tenant: { id: TENANT_ID, name: "home-root", state: "open" },
       studio: { url: "http://localhost:4161", state: "running, healthy" },
-      restate: { url: "http://localhost:9070" },
+      // Restate's UI is published only with --restate-ui.
+      restate: { published: false },
+      harness: { mode: "remote", state: "running, healthy", healthy: true, connected: 1 },
     });
+    expect(status.restate).not.toHaveProperty("url");
     const admin = (deps.fetch as ReturnType<typeof fakeFetch>).requests.find((r) =>
       r.url.endsWith("/v1/admin/status"),
     );
@@ -544,6 +594,15 @@ describe("stop, logs, status", () => {
     const down = testDeps(deps.env.NYLORUN_HOME!, { docker: fakeDocker() });
     expect(await runStackCommand("status", [], down)).toBe(3);
     expect(down.lines[0]).toBe("Tenant      home-root  stopped (Compose project nylorun-home-root)");
+  });
+
+  it("status names the harness and says Restate's UI is closed", async () => {
+    const { deps } = await started();
+    await runStackCommand("status", [], deps);
+    expect(deps.lines).toContain(
+      'Harness     running, healthy, remote, 1 connected (agent turns, MCP servers and workspaces; "nylorun logs harness")',
+    );
+    expect(deps.lines).toContain("Restate UI  not published (nylorun start --restate-ui)");
   });
 
   it("status of an absent Tenant exits 3 without touching Docker", async () => {
@@ -601,6 +660,7 @@ describe("studio", () => {
       stdout: JSON.stringify([
         { Service: "gateway", State: "running", Health: "healthy" },
         { Service: "runtime", State: "running", Health: "healthy" },
+        { Service: "harness", State: "running", Health: "healthy" },
         { Service: "studio", State: "running", Health: "healthy" },
       ]),
       stderr: "",
@@ -621,7 +681,7 @@ describe("studio", () => {
     const docker = fakeDocker();
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     expect(await runStackCommand("studio", ["--no-open"], deps)).toBe(0);
-    expect(docker.streamed.map((args) => args.at(-1))).toEqual(["runtime", "studio"]);
+    expect(docker.streamed.map((args) => args.at(-1))).toEqual(["harness", "studio"]);
     expect(deps.lines).toEqual([
       "Runtime   http://localhost:8787",
       `Studio    http://localhost:4161/login?token=tok+en&${NEXT}`,
@@ -666,6 +726,7 @@ describe("ensureStack", () => {
       stdout: JSON.stringify([
         { Service: "gateway", State: "running", Health: "healthy" },
         { Service: "runtime", State: "running", Health: "healthy" },
+        { Service: "harness", State: "running", Health: "healthy" },
         { Service: "studio", State: "running", Health: "healthy" },
       ]),
       stderr: "",
@@ -696,7 +757,7 @@ describe("ensureStack", () => {
     const docker = fakeDocker();
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     const stack = await ensureStack(deps, { studio: false });
-    expect(docker.streamed.map((args) => args.at(-1))).toEqual(["runtime"]);
+    expect(docker.streamed.map((args) => args.at(-1))).toEqual(["harness"]);
     expect(deps.lines).toEqual([]);
     expect(stack).toMatchObject({ started: true, studioUp: false, runtimeUrl: "http://localhost:8787" });
   });
@@ -737,6 +798,7 @@ describe("doctor with a running Tenant", () => {
               stdout: JSON.stringify([
                 { Service: "gateway", State: "running", Health: health },
                 { Service: "runtime", State: "running", Health: "healthy" },
+                { Service: "harness", State: "running", Health: "healthy" },
                 { Service: "studio", State: "running", Health: "healthy" },
               ]),
               stderr: "",

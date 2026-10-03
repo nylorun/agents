@@ -50,6 +50,18 @@ them. A local Tenant packs `core,loop` into the `runtime` container and
 api|worker|all` is the deprecated name of `--service core`, `loop` and
 `core,loop`.
 
+`harness` runs alone: agent turns, stdio MCP servers and workspaces, apart from
+core. With `NYLORUN_HARNESS=remote`, core runs no turn itself and opens the
+Harness API listener (`NYLORUN_HARNESS_LISTEN_HOST`, `NYLORUN_HARNESS_LISTEN_PORT`,
+default 4200, `NYLORUN_HARNESS_ALLOWED_HOSTS`), which accepts only
+`NYLORUN_HARNESS_TOKEN`; `in-process` (the default outside Compose) runs turns in
+core's process. A `harness` process needs `NYLORUN_HARNESS_URL`,
+`NYLORUN_HARNESS_TOKEN`, `NYLORUN_GATES_URL` and `NYLORUN_HARNESS_ROOT` (default
+`/harness`), answers `/health` on `127.0.0.1:4300`, and refuses to start with a
+database, Restate, keys or gates credential in its environment. A local Tenant
+runs it in the `harness` container, on a network with only the runtime and the
+gateway ([DEPLOYMENT.md](../DEPLOYMENT.md#the-harness-agent-turns-mcp-servers-and-workspaces)).
+
 The container is configured by its environment, which a local Tenant's Compose file
 sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_RESTATE_ADMIN_URL`, `NYLORUN_WORKER_URL` and
