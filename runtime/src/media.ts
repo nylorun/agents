@@ -1,22 +1,14 @@
+/**
+ * Image checks for code that handles image bytes itself (an image tool in an Action endpoint):
+ * the supported types, the size cap and a signature check. Storing images is the job of file
+ * artifacts (`artifacts/`, protocol 6), which replaced `MediaStore`.
+ */
 export const IMAGE_MEDIA_TYPES = Object.freeze([
   "image/jpeg",
   "image/png",
   "image/webp",
 ]);
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-
-export interface MediaAsset {
-  readonly id: string;
-  readonly mediaType: string;
-  readonly bytes: number;
-  readonly kind: "input" | "generated";
-}
-
-/** Opaque reference retained by Harness and resolved by the configured media adapter. */
-export interface MediaReference {
-  readonly agentId: string;
-  readonly assetId: string;
-}
 
 export function decodeImageBase64(
   mediaType: string,
@@ -70,32 +62,4 @@ export function validateImageBytes(mediaType: string, bytes: Uint8Array): void {
           bytes[10] === 0x42 &&
           bytes[11] === 0x50;
   if (!signature) throw new Error(`Image bytes do not match ${mediaType}.`);
-}
-
-export interface RuntimeMedia {
-  saveInput(
-    agentId: string,
-    sessionId: string,
-    mediaType: string,
-    base64: string,
-  ): Promise<MediaAsset>;
-  saveGenerated(
-    agentId: string,
-    sessionId: string,
-    mediaType: string,
-    bytes: Uint8Array,
-  ): Promise<MediaAsset>;
-  dataUrl(
-    reference: MediaReference,
-    sessionId: string,
-  ): Promise<{ readonly asset: MediaAsset; readonly url: string } | undefined>;
-  latestInput(
-    agentId: string,
-    sessionId: string,
-  ): Promise<MediaAsset | undefined>;
-  read(
-    agentId: string,
-    sessionId: string,
-    assetId: string,
-  ): Promise<{ asset: MediaAsset; bytes: Uint8Array } | undefined>;
 }

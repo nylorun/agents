@@ -27,12 +27,14 @@ import {
   type CredentialInfo,
   type CredentialSelection,
   type LiveEvent,
+  type MessagePart,
   type SandboxRequest,
   type SessionCommand,
   type VaultInfo,
 } from "@nylorun/core/contracts";
 import { AccessClient, TokensClient } from "./access.js";
 import { SandboxesClient } from "./sandboxes.js";
+import { ArtifactsClient } from "./artifacts.js";
 import { Transport, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
 
@@ -191,6 +193,10 @@ export class AgentsClient {
    */
   get sandboxes(): SandboxesClient {
     return new SandboxesClient(this.transport, (options) => this.createSession(options));
+  }
+  /** File artifacts: upload, list, download with Range, capability links (protocol 6). */
+  get artifacts(): ArtifactsClient {
+    return new ArtifactsClient(this.transport);
   }
   /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
@@ -447,6 +453,22 @@ export class SessionClient {
       typeof value === "string"
         ? { ...base, content: value }
         : { ...base, data: value },
+      options.signal
+    );
+  }
+  /**
+   * Start a turn with text and file parts (protocol 6): a file part names an artifact (upload
+   * it with `client.artifacts.upload`), at a version or its latest, and the model reads it, an
+   * image as an image and a text file as text.
+   */
+  inputParts(parts: readonly MessagePart[], options: CommandOptions) {
+    return this.command(
+      {
+        type: "message",
+        requestId: options.requestId ?? id(),
+        idempotencyKey: options.idempotencyKey,
+        parts: [...parts],
+      },
       options.signal
     );
   }

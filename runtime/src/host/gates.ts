@@ -23,6 +23,7 @@ import type { OutboundPolicy } from "../tenant/outbound.js";
 import { existsSync } from "node:fs";
 import { tenantPaths } from "../tenant/paths.js";
 import { staleRun, verifyRunToken, type RunTokenKeyCache } from "../tenant/run-token.js";
+import { createFsBlobStore, type BlobStore } from "../blob/index.js";
 import type { ModelCallSettings } from "../gates/model-gate.js";
 import { createTenantVaults, type TenantVaults } from "../gates/tenant-vaults.js";
 import { probeDatabase } from "../infra/database.js";
@@ -62,6 +63,11 @@ export interface StartGatesOptions {
    * with the Tenant's vault key. The gateway is then not ready until the key file is there.
    */
   readonly keys?: boolean;
+  /**
+   * The Object store model-gate reads the files a prompt names from (protocol 6): the stack's
+   * `s3` store. Without one, the Tenant's `fs` store under the Host root, when there is one.
+   */
+  readonly blobs?: BlobStore;
 }
 
 export interface GatesServer {
@@ -79,6 +85,11 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       throw new Error("startGates needs the Postgres pool and the Host root");
     vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
   }
+  const blobs =
+    options.blobs ??
+    (options.hostRoot !== undefined
+      ? createFsBlobStore({ root: tenantPaths(options.hostRoot).blobs })
+      : undefined);
   const inflight = createInflightCalls(options.inflight);
   const mcpIdleMs = options.mcpIdleMs ?? GATE_MCP_IDLE_MS;
   const mcp = createMcpHandler({
@@ -114,6 +125,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       vaults,
       logger,
       ...(options.settings ? { settings: options.settings } : {}),
+      ...(blobs ? { blobs } : {}),
     }),
     ready: async () => {
       // The keys service needs the vault key, which `nylorun start` writes; it never creates one.

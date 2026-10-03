@@ -81,6 +81,48 @@
     "status": 204,
     "allowOrigin": "https://app.example.com"
   },
+  "POST /v1/artifacts?name=&sessionId=s1": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "POST /v1/artifacts/af_00000000000000000000000000/versions": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts?sessionId=s1": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/content": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "POST /v1/artifacts/af_00000000000000000000000000/links": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "DELETE /v1/artifacts/af_00000000000000000000000000": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifact-links/not-a-token": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/tenant/artifacts": {
+    "status": 403
+  },
+  "PUT /v1/tenant/artifacts": {
+    "status": 403
+  },
   "GET /v1/tenant": {
     "status": 403
   },

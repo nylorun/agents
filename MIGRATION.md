@@ -1,3 +1,27 @@
+# File artifacts and message parts (protocol 6); `MediaStore` removed
+
+Files that users upload or agents make are **file artifacts**: an id, a name and numbered
+versions, metadata in the Tenant's database and bytes in the Object store (RustFS in a local
+Tenant). Clients use `client.artifacts` (`@nylorun/agents`): `upload` streams a file in one
+request, `list`, `get`, `download` (with Range), `link` (a short-lived capability URL that needs
+no credential) and `delete`. A user message can name files: `session.inputParts([{ type:
+"text", text }, { type: "file", artifactId }])`, and the model reads an image as an image and a
+text file as text. A session with a sandbox has `save_artifact`, so the agent can hand the user
+a file it made. A Tenant's limits are `PUT /v1/tenant/artifacts` (default 100 MiB per file, 10
+GiB in all).
+
+The protocol is now 6. A Runtime of this release still serves protocol 4 and 5 clients; a
+protocol 6 client (this release's `@nylorun/agents`, `@nylorun/admin`, `@nylorun/cli` and
+`nylorun`) needs this release's Runtime, so upgrade them together (`nylorun start` pins the
+matching image).
+
+**`MediaStore` and `localMedia` are removed from `@nylorun/runtime/node`**, and `piModel` no
+longer takes `media`. Store images as file artifacts and name them in message parts; an
+embedder that calls `piModel` itself passes `files`, a resolver from an artifact reference
+(`{ artifactId, version }`) to `{ name, mediaType, bytes }`. `decodeImageBase64`,
+`validateImageBytes`, `IMAGE_MEDIA_TYPES` and `MAX_IMAGE_BYTES` stay in `@nylorun/runtime` for
+code that checks image bytes itself.
+
 # Local Tenants: Studio at `http://localhost:<port>` again
 
 The Studio proxy of nylorun 0.6 is gone. Each Tenant's Studio is at

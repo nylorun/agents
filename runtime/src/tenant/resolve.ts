@@ -14,9 +14,11 @@ import {
   callSandboxTool,
   invokeModel,
   isRemoteMcpCall,
+  isSaveArtifactCall,
   type ToolRouting,
 } from "../harness/calls.js";
-import { mcpToolOf } from "../mcp/snapshot.js";
+import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
+import { callSaveArtifact } from "./artifact-tool.js";
 import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { isOwnershipLost } from "../store/ownership.js";
 import { sandboxLookup, sessionOf, type Lease, type TenantContext } from "./context.js";
@@ -57,7 +59,9 @@ export async function resolveEffect(
           request,
           abortOn(signal, remote && recoversMcpCalls(ctx) ? ["cancel", "shutdown"] : ["cancel"])
         );
-      } else value = await callSandboxTool(ctx.sandbox, routing, request, signal);
+      } else if (isSaveArtifactCall(manifestFor(routing.rootManifest, request.agent), request))
+        value = await callSaveArtifact(ctx, request, signal);
+      else value = await callSandboxTool(ctx.sandbox, routing, request, signal);
     }
     return await recordOutcome(scope, request.effectId, { value });
   } catch (error) {

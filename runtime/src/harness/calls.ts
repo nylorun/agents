@@ -4,7 +4,7 @@
  * routing comes with the run (`TurnStart.routing`), or from the session row on the
  * `NYLORUN_HARNESS_API=0` path.
  */
-import type { AgentManifest } from "@nylorun/core/define";
+import { ARTIFACTS_CAPABILITY_ID, SAVE_ARTIFACT_TOOL, type AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { runAbortKind } from "@nylorun/harness/api";
 import type { AbortReason } from "@nylorun/core/harness-api";
@@ -94,6 +94,16 @@ export function abortOn(signal: AbortSignal, kinds: readonly AbortReason[]): Abo
   if (signal.aborted) follow();
   else signal.addEventListener("abort", follow, { once: true });
   return controller.signal;
+}
+
+/** True when `request` calls `save_artifact` of the `nylorun.artifacts` capability `manifest` has. */
+export function isSaveArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
+  return (
+    request.kind === "tool" &&
+    request.capabilityId === ARTIFACTS_CAPABILITY_ID &&
+    request.toolName === SAVE_ARTIFACT_TOOL &&
+    manifest?.capabilities.some((capability) => capability.id === ARTIFACTS_CAPABILITY_ID) === true
+  );
 }
 
 /** True when `request` calls a tool of a remote (`streamable-http` or `sse`) MCP server. */

@@ -7,7 +7,8 @@
  */
 import { classifyThrown } from "../model/classify.js";
 import type { Logger } from "../tenant/types.js";
-import { inProcessModelGate } from "./in-process.js";
+import type { BlobStore } from "../blob/index.js";
+import { callFiles, inProcessModelGate } from "./in-process.js";
 import { createMeter } from "./meter.js";
 import type { ModelCallSettings, ModelGate, ModelGateRequest } from "./model-gate.js";
 import { GateRefusal, type TenantVaults } from "./tenant-vaults.js";
@@ -17,6 +18,8 @@ export interface ModelCallHandlerOptions {
   readonly logger: Logger;
   /** Retries and timeouts; `piModel`'s defaults when absent. */
   readonly settings?: ModelCallSettings;
+  /** The Object store, for the files a prompt names (protocol 6). */
+  readonly blobs?: BlobStore;
 }
 
 /**
@@ -31,7 +34,7 @@ export interface ModelCallHandler {
 }
 
 export function createModelCallHandler(options: ModelCallHandlerOptions): ModelCallHandler {
-  const { vaults, logger, settings } = options;
+  const { vaults, logger, settings, blobs } = options;
   const meter = createMeter({ logger });
   return {
     async call(named, signal) {
@@ -47,6 +50,7 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
           readHostModel: () => vault.readHostModel(),
           writeHostCredential: (credential) => vault.writeHostCredential(credential),
           ...(settings ? { settings } : {}),
+          ...(blobs ? { files: callFiles(vault.store, blobs) } : {}),
         });
         outcome = await meter.call(vault.store, call, () => gate.call(call, signal));
       } catch (error) {

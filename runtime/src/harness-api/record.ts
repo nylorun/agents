@@ -20,6 +20,7 @@ import type { Action, EventPayload } from "@nylorun/core/contracts";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isFlowEffect, isFlowToolEffect } from "../core/flow-host.js";
 import { sandboxCapabilityOf } from "../sandbox/capability.js";
+import { isSaveArtifactCall } from "../harness/calls.js";
 import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
 import { ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import { actionTarget, pinnedTool } from "../tenant/session.js";
@@ -144,7 +145,9 @@ export async function recordIntent(
       request.kind === "model" ||
       (request.kind === "tool" &&
         (mcpToolOf(s.mcpSnapshot, request) !== undefined ||
-          sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined));
+          sandboxCapabilityOf(agentManifest, request.capabilityId, request.toolName) !== undefined ||
+          // `save_artifact` (F8.1) runs beside the sandbox tools.
+          isSaveArtifactCall(agentManifest, request)));
     await t.put("effects", request.effectId, {
       request: storedRequest(request),
       requestHash,

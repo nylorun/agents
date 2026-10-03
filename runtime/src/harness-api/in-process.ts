@@ -9,6 +9,7 @@ import { createHarness } from "@nylorun/harness/api";
 import type { ModelRoute } from "../harness/calls.js";
 import { inProcessExecutors } from "../harness/executors.js";
 import type { TenantContext } from "../tenant/context.js";
+import { callSaveArtifact } from "../tenant/artifact-tool.js";
 
 /** Where the Tenant's model calls go. */
 export function modelRouteOf(ctx: TenantContext): ModelRoute {
@@ -38,6 +39,7 @@ export async function startInProcessHarness(
       toolGate: ctx.toolGate,
       mcp: ctx.mcp,
       sandbox: ctx.sandbox,
+      saveArtifact: (effect, signal) => callSaveArtifact(ctx, effect, signal),
     }),
     logger: ctx.config.logger,
     name: "in-process",

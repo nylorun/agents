@@ -7,7 +7,8 @@ import type { HarnessExecutors, HarnessRun } from "@nylorun/harness/api";
 import { toolFixtureModel } from "../core/provider.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import type { McpPool } from "../mcp/pool.js";
-import { mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
+import { manifestFor, mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
+import type { HostEffect } from "@nylorun/harness/run";
 import type { SandboxManager } from "../sandbox/manager.js";
 import {
   abortOn,
@@ -15,6 +16,7 @@ import {
   callSandboxTool,
   invokeModel,
   isRemoteMcpCall,
+  isSaveArtifactCall,
   type ModelRoute,
   type ToolRouting,
 } from "./calls.js";
@@ -23,6 +25,8 @@ export interface InProcessExecutorsOptions extends ModelRoute {
   readonly toolGate: ToolGate;
   readonly mcp: McpPool;
   readonly sandbox: SandboxManager;
+  /** Runs `save_artifact` (F8.1): it reads the sandbox and writes the Tenant's artifacts. */
+  readonly saveArtifact: (effect: HostEffect, signal: AbortSignal) => Promise<unknown>;
 }
 
 /** The Tenant's model of the fixture-model setting. Stateless. */
@@ -38,7 +42,9 @@ export function inProcessExecutors(options: InProcessExecutorsOptions): HarnessE
     tool(effect, signal, run) {
       const routing = routingOf(run);
       if (!mcpToolOf(routing.mcpSnapshot, effect))
-        return callSandboxTool(options.sandbox, routing, effect, signal);
+        return isSaveArtifactCall(manifestFor(routing.rootManifest, effect.agent), effect)
+          ? options.saveArtifact(effect, signal)
+          : callSandboxTool(options.sandbox, routing, effect, signal);
       // A call at the Tool Gate outlives a shutdown there; a local one finishes and is recorded.
       const kinds = remote(effect, run) ? (["cancel", "shutdown"] as const) : (["cancel"] as const);
       return callMcpTool(options.mcp, routing, effect, abortOn(signal, kinds));

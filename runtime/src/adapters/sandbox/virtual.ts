@@ -14,6 +14,7 @@ import type {
   SandboxProbe,
   SandboxSpec,
 } from "../../sandbox/types.js";
+import { SandboxFileTooLargeError } from "../../sandbox/types.js";
 
 const ENV = Object.freeze({
   PATH: "/usr/local/bin:/usr/bin:/bin",
@@ -111,6 +112,12 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
         async readFile(path) {
           if (!(await fs.exists(path))) return undefined;
           return fs.readFile(path, "utf8");
+        },
+        async readBytes(path, maxBytes) {
+          if (!(await fs.exists(path))) return undefined;
+          const stat = await fs.stat(path);
+          if (stat.size > maxBytes) throw new SandboxFileTooLargeError(path, stat.size, maxBytes);
+          return fs.readFileBuffer(path);
         },
         async writeFile(path, content) {
           await fs.writeFile(path, content, "utf8");

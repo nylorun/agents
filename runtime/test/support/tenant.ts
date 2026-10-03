@@ -33,6 +33,7 @@ import { SigningKeys } from "../../src/tenant/signing-keys.js";
 import { createRunGrants, type RunGrants } from "../../src/tenant/run-grants.js";
 import type { Session } from "../../src/tenant/context.js";
 import { startGates, type GatesServer } from "../../src/host/gates.js";
+import { createFsBlobStore, type BlobStore } from "../../src/blob/index.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
@@ -275,6 +276,8 @@ export async function startTestTenant(
       logger,
       ...(options.modelCall ? { settings: options.modelCall } : {}),
       ...(options.delivery ? { delivery: options.delivery } : {}),
+      // The gateway reads the Tenant's blobs as core writes them (the `fs` store here).
+      blobs: createFsBlobStore({ root: paths.blobs }),
     });
   }
   if (options.modelGate) hooks.modelGate = options.modelGate;
@@ -407,6 +410,8 @@ export async function startTestGate(options: {
   logger: TenantConfig["logger"];
   settings?: TenantConfig["modelCall"];
   delivery?: TenantConfig["delivery"];
+  /** The Tenant's Object store, for the files a prompt names. */
+  blobs?: BlobStore;
 }): Promise<TestGate> {
   const token = randomBytes(32).toString("hex");
   const runGrants = createRunGrants();
@@ -443,6 +448,7 @@ export async function startTestGate(options: {
     },
     ...(options.settings ? { settings: options.settings } : {}),
     ...(options.delivery ? { delivery: options.delivery } : {}),
+    ...(options.blobs ? { blobs: options.blobs } : {}),
     keys: true,
     drainMs: 0,
   });

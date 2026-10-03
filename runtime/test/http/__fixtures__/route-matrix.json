@@ -413,13 +413,13 @@
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
     },
     "subject": {
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
     },
     "subject-read": {
       "status": 403,
@@ -436,7 +436,7 @@
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+      "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
     },
     "publishable": {
       "status": 403,
@@ -1245,6 +1245,595 @@
       "details": {
         "scopes": [
           "sandboxes:write"
+        ]
+      }
+    }
+  },
+  "POST /v1/artifacts?name=&sessionId=s1": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "An artifact name is 1 to 255 characters, without '/', '\\' or control characters"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "An artifact name is 1 to 255 characters, without '/', '\\' or control characters"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "An artifact name is 1 to 255 characters, without '/', '\\' or control characters"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "POST /v1/artifacts/af_00000000000000000000000000/versions": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "GET /v1/artifacts": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "GET /v1/artifacts?sessionId=s1": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/content": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "POST /v1/artifacts/af_00000000000000000000000000/links": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "DELETE /v1/artifacts/af_00000000000000000000000000": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Artifact not found"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    }
+  },
+  "GET /v1/artifact-links/not-a-token": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "publishable": {
+      "status": 404,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "not_found",
+      "message": "Not found"
+    }
+  },
+  "GET /v1/tenant/artifacts": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    }
+  },
+  "PUT /v1/tenant/artifacts": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
+        ]
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "Scope tenant:settings required",
+      "details": {
+        "scopes": [
+          "tenant:settings"
         ]
       }
     }
