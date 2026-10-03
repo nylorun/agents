@@ -88,6 +88,8 @@ export interface HarnessApiServer {
    * (`effect.resolved`). Call it after the outcome's commit.
    */
   resolved(sessionId: string, effectId: string, outcome: ActionOutcome): void;
+  /** A harness holds a run of `sessionId` here. */
+  holds(sessionId: string): boolean;
   /**
    * Sends a `workspace.*` request to a harness that serves workspaces. Throws
    * `NoWorkspaceHarness` when none is attached.
@@ -347,6 +349,11 @@ export function createHarnessApiServer(
         connected: connections.size,
         workspace: [...connections].some((connection) => connection.workspace && !connection.channel.closed),
       };
+    },
+    holds(sessionId) {
+      for (const run of runs.values())
+        if (run.grant.sessionId === sessionId && !run.ended && run.connection) return true;
+      return false;
     },
     resolved(sessionId, effectId, outcome) {
       for (const run of runs.values())

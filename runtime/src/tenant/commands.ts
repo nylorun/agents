@@ -59,7 +59,7 @@ import {
   turnManifestOf,
   variantStore,
 } from "./session.js";
-import { signalSessionCancel } from "./streams.js";
+import { signalActionOutcome, signalSessionCancel } from "./streams.js";
 import { toolIds } from "./transcript.js";
 import { slimModelEffects } from "./slim.js";
 
@@ -409,9 +409,13 @@ export async function recordActionOutcome(
     dedupeKey: `action_result:${action.turnId}:${action.actionId}:${action.generation}`,
   };
   t.afterCommit(() => ctx.wake(s.id, resultWake));
-  // A run held while the Action was pending goes on with it in the same lease (F6.2); the wake
-  // finds the session settled, or resumes it by replay when the run had already ended.
-  t.afterCommit(() => ctx.harness.resolved(s.id, action.actionId, outcome));
+  // A run held while the Action was pending goes on with it in the same lease (F6.2): here, or
+  // on the process whose harness holds it. The wake finds the session settled, or resumes it
+  // by replay when the run had already ended.
+  t.afterCommit(() => {
+    if (ctx.harness.holds(s.id)) ctx.harness.resolved(s.id, action.actionId, outcome);
+    else signalActionOutcome(ctx, s.id, action.actionId);
+  });
   const event = await t.event(s.id, s.activeTurnId, "action.completed", {
     actionId: action.actionId,
     ...actionTarget(action),
