@@ -9,6 +9,12 @@
  *   diagnostic and `resolveEffect` marks a call `uncertain`, as before.
  * - A delivery never throws. A hop that failed before the request was sent is `not_sent`
  *   (the deliverer sends it again, even a tool); one that failed after is `lost`.
+ *
+ * Credentials (F5): a session's MCP requests and keyed cancels carry its run token, read per
+ * request from the advance's grant, and leave the session out of the body: the gate takes it
+ * from the token. Deliveries, pings, and MCP requests made outside a run (closing a pooled
+ * connection after the advance ended) carry core's credential, `NYLORUN_GATES_TOKEN`, and name
+ * the session in the body.
  */
 import { randomUUID } from "node:crypto";
 import { request as httpRequest, type IncomingMessage } from "node:http";
@@ -30,6 +36,7 @@ import {
   type ToolCallBody,
 } from "./tool-contract.js";
 import type { DeliveryRequest, ToolGate } from "./tool-gate.js";
+import type { RunTokens } from "../tenant/run-grants.js";
 
 /** How long a close or a cancel may take; neither changes an outcome. */
 const SHORT_TIMEOUT_MS = 2_000;
@@ -40,12 +47,20 @@ const DELIVERY_SLACK_MS = 30_000;
 export interface HttpToolGateOptions {
   /** The gates service, e.g. `http://gateway:4100` (`NYLORUN_GATES_URL`). */
   readonly url: string;
-  /** `NYLORUN_GATES_TOKEN`. */
+  /** `NYLORUN_GATES_TOKEN`: core's credential, for deliveries and MCP requests outside a run. */
   readonly token: string;
+  /** The run token of each session an advance of this process owns. Without it, core's only. */
+  readonly runTokens?: RunTokens;
   /** Sent as `Nylorun-Tenant`; the gate checks it against its database's Tenant. */
   readonly tenantId?: string;
   /** How long an MCP request may stay silent. Default `GATE_CLIENT_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
+}
+
+/** A request body and, for a session's run, its run token in place of core's credential. */
+interface Scoped<B> {
+  readonly body: B;
+  readonly bearer?: string;
 }
 
 /** What one request to the gate came to. */
@@ -64,7 +79,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
   function exchange(
     path: string,
     body: unknown,
-    request: { signal?: AbortSignal; idempotencyKey?: string; timeoutMs: number },
+    request: { signal?: AbortSignal; idempotencyKey?: string; timeoutMs: number; bearer?: string },
   ): Promise<Exchange> {
     const url = new URL(path, options.url);
     const send = url.protocol === "https:" ? httpsRequest : httpRequest;
@@ -102,7 +117,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
         {
           method: "POST",
           headers: {
-            authorization: `Bearer ${options.token}`,
+            authorization: `Bearer ${request.bearer ?? options.token}`,
             "content-type": "application/json",
             "content-length": payload.byteLength,
             ...(options.tenantId ? { [TENANT_HEADER]: options.tenantId } : {}),
@@ -137,13 +152,28 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
     });
   }
 
+  /**
+   * The body and credential of a request for `server`'s session: its run token and no session
+   * in the body while an advance holds a grant, core's credential and the session otherwise.
+   */
+  function scoped<B>(server: McpServerRef, body: (server: McpServerRef) => B): Scoped<B> {
+    const token = options.runTokens?.token(server.sessionId);
+    if (!token) return { body: body({ ...server }) };
+    const { sessionId: _, ...unnamed } = server;
+    return { body: body(unnamed as McpServerRef), bearer: token };
+  }
+
   /** The result of an MCP request, or a throw the pool and `resolveEffect` read as before. */
   async function mcp<T>(
     path: string,
-    body: unknown,
+    scope: Scoped<unknown>,
     request: { signal?: AbortSignal; idempotencyKey?: string },
   ): Promise<T> {
-    const result = await exchange(path, body, { ...request, timeoutMs });
+    const result = await exchange(path, scope.body, {
+      ...request,
+      timeoutMs,
+      ...(scope.bearer ? { bearer: scope.bearer } : {}),
+    });
     if (result.kind === "aborted") throw result.reason ?? new Error("aborted");
     if (result.kind !== "answer") throw new Error(result.message);
     const parsed = parse(result.text) as McpAnswer<T> | { error?: { message?: string } } | undefined;
@@ -153,40 +183,59 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
     throw mcpError(parsed.error);
   }
 
-  async function fireAndForget(path: string, body: unknown): Promise<void> {
-    await exchange(path, body, { timeoutMs: SHORT_TIMEOUT_MS });
+  async function fireAndForget(path: string, scope: Scoped<unknown>): Promise<void> {
+    await exchange(path, scope.body, {
+      timeoutMs: SHORT_TIMEOUT_MS,
+      ...(scope.bearer ? { bearer: scope.bearer } : {}),
+    });
   }
 
   return {
     recovers: true,
 
     async openMcp(server: McpServerRef): Promise<LiveConnection> {
-      await mcp<null>(MCP_CONNECT_PATH, { server }, {});
+      // The credential is read per request: the connection outlives the advance that opened it.
+      await mcp<null>(MCP_CONNECT_PATH, scoped(server, (named) => ({ server: named })), {});
       const client: McpClient = {
         listTools: (params, request) =>
           mcp<McpToolPage>(
             MCP_LIST_PATH,
-            { server, ...(params?.cursor ? { cursor: params.cursor } : {}) },
+            scoped(server, (named) => ({
+              server: named,
+              ...(params?.cursor ? { cursor: params.cursor } : {}),
+            })),
             request?.signal ? { signal: request.signal } : {},
           ),
-        callTool: (params, request) => {
-          const body: ToolCallBody = {
-            server: { ...server },
-            effectId: request?.key ?? randomUUID(),
-            name: params.name,
-            arguments: params.arguments,
-          };
-          return mcp<Record<string, unknown>>(TOOL_CALLS_PATH, body, {
-            ...(request?.signal ? { signal: request.signal } : {}),
-            ...(request?.key ? { idempotencyKey: request.key } : {}),
-          });
-        },
+        callTool: (params, request) =>
+          mcp<Record<string, unknown>>(
+            TOOL_CALLS_PATH,
+            scoped(
+              server,
+              (named): ToolCallBody => ({
+                server: named,
+                effectId: request?.key ?? randomUUID(),
+                name: params.name,
+                arguments: params.arguments,
+              }),
+            ),
+            {
+              ...(request?.signal ? { signal: request.signal } : {}),
+              ...(request?.key ? { idempotencyKey: request.key } : {}),
+            },
+          ),
       };
-      return { client, close: () => fireAndForget(MCP_CLOSE_PATH, { server }) };
+      return {
+        client,
+        close: () => fireAndForget(MCP_CLOSE_PATH, scoped(server, (named) => ({ server: named }))),
+      };
     },
 
     async cancel(request) {
-      await fireAndForget(`${TOOL_CALLS_PATH}/${encodeURIComponent(request.effectId)}/cancel`, undefined);
+      const token = options.runTokens?.token(request.sessionId);
+      await fireAndForget(`${TOOL_CALLS_PATH}/${encodeURIComponent(request.effectId)}/cancel`, {
+        body: undefined,
+        ...(token ? { bearer: token } : {}),
+      });
     },
 
     async post(delivery: DeliveryRequest, signal: AbortSignal): Promise<OutboundResult> {
@@ -238,7 +287,7 @@ function mcpError(error: McpGateError): Error {
 function gateRefusal(status: number, parsed: unknown): string {
   const message = (parsed as { error?: { message?: unknown } } | undefined)?.error?.message;
   if (status === 401)
-    return "The tool gate refused this Runtime's token: the runtime and gateway containers must share NYLORUN_GATES_TOKEN";
+    return `The tool gate refused the credential${typeof message === "string" ? `: ${message}` : ""}`;
   return `Tool gate answered ${status}${typeof message === "string" ? `: ${message}` : ""}`;
 }
 

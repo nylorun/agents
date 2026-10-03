@@ -120,7 +120,11 @@ export async function invokeModel(
       // A call that outlives this process stops only when told to: on a user cancel. After a
       // shutdown or a lost lease the next owner re-sends it and picks up its outcome (P1.2).
       if (!model && ctx.useVaultModel && abortKind(signal) === "cancel" && ctx.modelGate.cancel)
-        await ctx.modelGate.cancel({ tenantId: ctx.config.tenantId, effectId: request.effectId });
+        await ctx.modelGate.cancel({
+          tenantId: ctx.config.tenantId,
+          sessionId: request.sessionId,
+          effectId: request.effectId,
+        });
       throw error;
     }
     return classifyThrown(error);
@@ -451,7 +455,11 @@ export async function resolveEffect(
     if (invoke === "mcp" && journaled.remote && recoversMcpCalls(ctx)) {
       if (abortKind(signal) === "shutdown") throw error;
       if (abortKind(signal) === "cancel" && ctx.toolGate.cancel)
-        await ctx.toolGate.cancel({ tenantId: ctx.config.tenantId, effectId: request.effectId });
+        await ctx.toolGate.cancel({
+          tenantId: ctx.config.tenantId,
+          sessionId: request.sessionId,
+          effectId: request.effectId,
+        });
     }
     await store.tx(async (t) => {
       const s =

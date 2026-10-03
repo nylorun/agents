@@ -57,6 +57,7 @@ import { httpKeys } from "../keys/client.js";
 import { httpModelGate } from "../gates/http-client.js";
 import type { ObjectStoreConfig, StackConfig } from "./stack-config.js";
 import { createS3BlobStore, type S3BlobStore } from "../blob/index.js";
+import { createRunGrants } from "../tenant/run-grants.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -280,12 +281,17 @@ export async function main(): Promise<void> {
   };
   // With the gates service the Tenant's vault-backed model calls, remote MCP calls and Action
   // deliveries cross it, and this process never reads a model or MCP credential.
-  const modelGate = stack.modelGate
-    ? httpModelGate({ url: stack.modelGate.url, token: stack.modelGate.token })
-    : undefined;
-  const toolGate = stack.modelGate
-    ? httpToolGate({ url: stack.modelGate.url, token: stack.modelGate.token })
-    : undefined;
+  // Their credentials (F5): each advance's run token for its session's model and MCP calls,
+  // core's credential (NYLORUN_GATES_TOKEN) for deliveries and MCP requests outside a run.
+  const runGrants = stack.modelGate ? createRunGrants() : undefined;
+  const modelGate =
+    stack.modelGate && runGrants
+      ? httpModelGate({ url: stack.modelGate.url, runTokens: runGrants })
+      : undefined;
+  const toolGate =
+    stack.modelGate && runGrants
+      ? httpToolGate({ url: stack.modelGate.url, token: stack.modelGate.token, runTokens: runGrants })
+      : undefined;
   // With the keys service, vault writes and token signing cross it, and this process never
   // reads the vault key (F4.2).
   const keys = stack.keys ? httpKeys({ url: stack.keys.url, token: stack.keys.token }) : undefined;
@@ -315,6 +321,7 @@ export async function main(): Promise<void> {
           execution: hostExecution.tenantExecution,
           ...(modelGate ? { modelGate } : {}),
           ...(toolGate ? { toolGate } : {}),
+          ...(runGrants ? { runGrants } : {}),
           ...(keys ? { keys } : {}),
           ...(streams ? { streams, hostRelay: true } : {}),
           ...(blobs ? { blobs } : {}),

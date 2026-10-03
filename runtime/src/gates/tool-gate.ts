@@ -38,7 +38,7 @@ export interface ToolGate {
    */
   readonly recovers?: boolean;
   /** Stops a keyed MCP call that outlives its caller (a user cancel). Never rejects. */
-  cancel?(request: { tenantId: string; effectId: string }): Promise<void>;
+  cancel?(request: { tenantId: string; sessionId: string; effectId: string }): Promise<void>;
 }
 
 /** The Tool Gate in the caller's process: remote MCP through the pool, deliveries by `post`. */
