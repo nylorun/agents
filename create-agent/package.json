@@ -44,7 +44,7 @@
     "@types/node": "^26.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^5.0.1",
+    "vitest": "^5.0.2",
     "zod": "^4.6.5",
     "@nylorun/core": "file:../core",
     "@nylorun/agents": "file:../agents"
