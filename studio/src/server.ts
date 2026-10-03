@@ -81,6 +81,13 @@ export type StudioServerOptions = Readonly<{
    * validated with `parseFrameAncestors`). Default: none.
    */
   frameAncestors?: readonly string[];
+  /**
+   * The Google Analytics measurement id the dashboard reports page views to
+   * (`NYLORUN_STUDIO_ANALYTICS_ID`, validated with `parseAnalyticsId`). `nylorun start`
+   * sets it unless the developer opted out. Default: none, and the dashboard
+   * loads no analytics.
+   */
+  analyticsId?: string;
   /** Where Studio logs state changes made by an embedded session. Default: stdout. */
   log?: (entry: Readonly<Record<string, unknown>>) => void;
   /** Clock for login-token and session expiry (tests). */
@@ -115,6 +122,17 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 const MAX_JSON_BODY = 4096;
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TENANT_RUNTIME = /^\/_studio\/tenants\/([^/]+)\/runtime(\/.*)$/;
+
+const ANALYTICS_ID = /^G-[A-Z0-9]{4,20}$/;
+
+/** Validates `NYLORUN_STUDIO_ANALYTICS_ID`: empty (none) or a Google Analytics 4 measurement id. */
+export function parseAnalyticsId(value: string): string | undefined {
+  const id = value.trim();
+  if (id === "") return undefined;
+  if (!ANALYTICS_ID.test(id))
+    throw new Error(`${id} is not a Google Analytics measurement id (G-XXXXXXXXXX).`);
+  return id;
+}
 
 /** Validates `NYLORUN_RUNTIME_URL`: absolute http(s), no credentials, query or fragment. */
 export function parseRuntimeUrl(value: string): string {
@@ -376,9 +394,18 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
-/** Adds the frame allowlist to `index.html`, so the embed bridge knows its parents (§8.8). */
-function injectFrameAncestors(html: string, origins: readonly string[]): string {
-  const meta = `<meta name="nylorun-frame-ancestors" content="${escapeHtml(origins.join(" "))}">`;
+/**
+ * Adds the frame allowlist to `index.html`, so the embed bridge knows its
+ * parents (§8.8), and the analytics measurement id when there is one.
+ */
+function injectIndexMeta(
+  html: string,
+  origins: readonly string[],
+  analyticsId: string | undefined,
+): string {
+  let meta = `<meta name="nylorun-frame-ancestors" content="${escapeHtml(origins.join(" "))}">`;
+  if (analyticsId !== undefined)
+    meta += `<meta name="nylorun-analytics" content="${escapeHtml(analyticsId)}">`;
   return html.includes("</head>")
     ? html.replace("</head>", `${meta}</head>`)
     : `${meta}${html}`;
@@ -397,9 +424,10 @@ export async function startStudioServer(
   const now = options.now ?? Date.now;
   const admin = createAdmin({ url: runtimeUrl, key: adminKey });
   const frameAncestors = [...(options.frameAncestors ?? [])];
+  const analyticsId = parseAnalyticsId(options.analyticsId ?? "");
   const dashboard = {
     frameAncestors: frameAncestorSources(frameAncestors),
-    transformIndex: (html: string) => injectFrameAncestors(html, frameAncestors),
+    transformIndex: (html: string) => injectIndexMeta(html, frameAncestors, analyticsId),
   };
   const log =
     options.log ??

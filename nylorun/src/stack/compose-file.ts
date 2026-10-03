@@ -193,6 +193,8 @@ services:
       NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
       # Exact origins that may frame Studio (Babai Desktop); kept in .env.
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
+      # Studio's anonymous usage analytics; empty when telemetry is off.
+      NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
     ports:

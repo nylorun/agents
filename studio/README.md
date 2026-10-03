@@ -79,6 +79,8 @@ The container entry is `dist/server-main.js`:
 | `NYLORUN_ADMIN_KEY_FILE` | `host-credentials.json`, mounted read-only (required) |
 | `PORT` | Listen port inside the container (default `3000`) |
 | `NYLORUN_STUDIO_PUBLIC_PORT` | The published loopback port the browser uses |
+| `NYLORUN_STUDIO_FRAME_ANCESTORS` | Exact origins that may frame the dashboard (default none) |
+| `NYLORUN_STUDIO_ANALYTICS_ID` | Google Analytics measurement id for anonymous page views (default none: no analytics). `nylorun start` sets it unless telemetry is off; see [Telemetry](../nylorun/README.md#telemetry) |
 
 `npm run build` type-checks and builds the server (`dist/*.js`) and the
 dashboard (`dist/web`). `startStudioServer()` is exported for tests.

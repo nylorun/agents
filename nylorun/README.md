@@ -45,6 +45,7 @@ nylorun ls [--json]                # the stacks on this machine
 nylorun delete <stack> --yes       # remove a stack: containers, volumes, Host root and vault key
 nylorun legacy stop|delete [--yes] # the single stack of older releases
 nylorun doctor [--json]            # prerequisites and stack health
+nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 ```
 
 `up` and `down` are the Docker Compose spellings of `start` and `stop`: `down`
@@ -150,6 +151,23 @@ The app's backend mints a single-use login token for the stack's Tenant with
 `mintStudioLoginToken` from `@nylorun/admin` (it needs the admin key), and its
 page passes the token to Studio by `postMessage`. The message contract is
 `@nylorun/agents/studio-embed`.
+
+### Telemetry
+
+Studio reports anonymous page views to Google Analytics, so we can see which
+parts of it are used. A page view carries the route's shape only: every Tenant,
+agent and session id becomes `:id` (`/tenants/:id/agents/:id/sessions/:id`)
+and the query is dropped. Nothing you send to agents, no names, keys or
+responses, and no Google signals or ad personalization are collected. Studio
+loads no analytics inside an embedding app, or when the browser sends Do Not
+Track or Global Privacy Control.
+
+It is on by default, and `nylorun start` says so the first time. Turn it off on
+this machine with `nylorun telemetry disable` (kept in
+`~/.nylorun/telemetry.json`), or for one start with `NYLORUN_TELEMETRY_DISABLED=1`
+or `DO_NOT_TRACK=1`. It is always off when `CI` is set. `nylorun start` decides
+on every start and writes the result to `NYLORUN_STUDIO_ANALYTICS_ID` in
+`docker/.env` (empty when off); `nylorun telemetry` reports the current choice.
 
 ## Sandboxes
 

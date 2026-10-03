@@ -34,6 +34,10 @@ NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
 # starts; change with nylorun start --studio-embed-origin <origin>.
 NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'
 
+# Studio's anonymous usage analytics; empty when off. Set on every start: turn
+# it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.
+NYLORUN_STUDIO_ANALYTICS_ID=G-K6RPDFH6Q6
+
 # The stack's name, which its Runtime gives the Tenant it creates on the first
 # start, and the derived principals it registers on that Tenant (keys derived
 # from the admin key; \`project\` is the Project link's).
@@ -200,6 +204,8 @@ services:
       NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
       # Exact origins that may frame Studio (Babai Desktop); kept in .env.
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
+      # Studio's anonymous usage analytics; empty when telemetry is off.
+      NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
     ports:

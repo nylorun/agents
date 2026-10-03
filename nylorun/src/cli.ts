@@ -9,11 +9,13 @@ import {
   studioCommand,
 } from "./stack/index.js";
 
-const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|legacy|doctor>
+const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|legacy|doctor|telemetry>
 
 Local stacks (Docker Compose), one per project:
 ${stackUsage}
   doctor [--json]                     check Node, Docker and Compose v2, and the stack's health
+  telemetry [status|enable|disable]   Studio's anonymous usage analytics (on unless disabled,
+                                      NYLORUN_TELEMETRY_DISABLED=1, DO_NOT_TRACK=1 or CI)
 
 A command acts on the stack --name or NYLORUN_STACK names, else the linked project's;
 NYLORUN_HOME sets its Host root (default ~/.nylorun/stacks/<name>).
@@ -67,6 +69,17 @@ async function main() {
     const [name, ...rest] = args;
     if (!isStackCommand(name)) throw usageError(usage);
     process.exitCode = await stackCommand(name!, rest, baselineEnv());
+    return;
+  }
+
+  if (command === "telemetry") {
+    const { telemetryCommand } = await import("./telemetry.js");
+    const { defaultNylorunRoot } = await import("./stack/stacks.js");
+    process.exitCode = await telemetryCommand(args, {
+      nylorunRoot: defaultNylorunRoot(),
+      env: baselineEnv(),
+      out: (line) => console.log(line),
+    });
     return;
   }
 

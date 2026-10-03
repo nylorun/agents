@@ -28,7 +28,11 @@ function browserCommand(env: Readonly<Record<string, string | undefined>>): stri
  * Variables `docker/.env` sets for Compose: `nylorun start` writes them there, so the
  * environment must not override them when Compose interpolates the file.
  */
-const STACK_ENV_OWNED = ["NYLORUN_STACK_NAME", "NYLORUN_DERIVED_PRINCIPALS"];
+const STACK_ENV_OWNED = [
+  "NYLORUN_STACK_NAME",
+  "NYLORUN_DERIVED_PRINCIPALS",
+  "NYLORUN_STUDIO_ANALYTICS_ID",
+];
 
 /** Real dependencies: docker on PATH, global fetch, the terminal. */
 export function defaultStackDeps(
