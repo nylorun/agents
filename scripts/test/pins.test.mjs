@@ -159,6 +159,27 @@ test("imageRelease requires the image of a version the release keeps", () =>
     );
   }));
 
+test("imageRelease versions the sandboxes image with the Runtime", () =>
+  withRepo({ pins }, async (root) => {
+    assert.deepEqual(
+      await imageRelease(root, plan({ runtime: "0.9.0-beta" }), "sandboxes", async () => false),
+      {
+        image: "ghcr.io/nylorun/sandboxes",
+        version: "0.9.0-beta",
+        tag: "ghcr.io/nylorun/sandboxes:0.9.0-beta",
+        candidate: true,
+        push: true,
+      },
+    );
+    // A release that keeps the Runtime keeps its sandboxes image, which must exist.
+    const keeps = plan({ studio: "0.4.0-beta" });
+    assert.equal((await imageRelease(root, keeps, "sandboxes", async () => true)).push, false);
+    await assert.rejects(
+      () => imageRelease(root, keeps, "sandboxes", async () => false),
+      /ghcr\.io\/nylorun\/sandboxes:0\.9\.0-beta does not exist, and this release keeps sandboxes/,
+    );
+  }));
+
 test("imageRelease refuses pins that disagree with the plan", () =>
   withRepo({ pins: { runtime: "0.8.0-beta", studio: "0.4.0-beta" } }, (root) =>
     assert.rejects(

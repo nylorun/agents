@@ -19,6 +19,11 @@ A release publishes two kinds of artifact:
   `ghcr.io/nylorun/studio:<studio version>`, for `linux/amd64` and
   `linux/arm64`. `nylorun up` runs the images nylorun pins in
   `nylorun/package.json`: `nylorun.runtime` and `nylorun.studio`.
+- **The sandboxes image** `ghcr.io/nylorun/sandboxes:<runtime version>`: the Go
+  service in `sandboxes/` that `nylorun sandbox enable` adds to a Tenant. It has
+  no package or pin of its own: it takes the Runtime's version and is built when
+  a release ships a new Runtime. So a change under `sandboxes/` needs a
+  `@nylorun/runtime` changeset, or the release does not build it.
 
 ## Administrator setup
 
@@ -145,10 +150,11 @@ The jobs run in this order:
 
 1. **validate** verifies that the selected commit belongs to `main` and passed
    `ci`, runs `release:check` on the checkout, and saves the verified tarballs.
-2. **images** builds `runtime/Dockerfile` and `studio/Dockerfile` for
-   `linux/amd64` and `linux/arm64` (QEMU and buildx, with a GitHub Actions
-   layer cache) and pushes `ghcr.io/nylorun/runtime:<version>` and
-   `ghcr.io/nylorun/studio:<version>`, labeled with the source repository,
+2. **images** builds `runtime/Dockerfile`, `studio/Dockerfile` and
+   `sandboxes/Dockerfile` for `linux/amd64` and `linux/arm64` (QEMU and
+   buildx, with a GitHub Actions layer cache) and pushes
+   `ghcr.io/nylorun/runtime:<version>`, `ghcr.io/nylorun/studio:<version>` and
+   `ghcr.io/nylorun/sandboxes:<runtime version>`, labeled with the source repository,
    version and commit. `scripts/release/images.mjs` decides each push: an
    existing tag is never replaced, so that image is skipped; a version the
    release keeps rather than publishes must already have its image.
@@ -239,11 +245,13 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --file runtime/Dockerfile --output type=cacheonly .
 docker buildx build --platform linux/amd64,linux/arm64 \
   --file studio/Dockerfile --output type=cacheonly .
+docker buildx build --platform linux/amd64,linux/arm64 \
+  --file sandboxes/Dockerfile --output type=cacheonly .
 ```
 
 To run a local build under `nylorun up`, tag it with `docker build` and set
-`NYLORUN_RUNTIME_IMAGE` or `NYLORUN_STUDIO_IMAGE` to that tag, as the CI
-`stack` job does.
+`NYLORUN_RUNTIME_IMAGE`, `NYLORUN_STUDIO_IMAGE` or `NYLORUN_SANDBOXES_IMAGE` to
+that tag, as the CI `stack` and `sandboxes` jobs do.
 
 ## Retire Hosted Studio (manual, once)
 

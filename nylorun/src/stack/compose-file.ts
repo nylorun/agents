@@ -43,8 +43,18 @@ import { PINNED_IMAGES } from "./images.js";
  * the secret key NYLORUN_OBJECT_STORE_SECRET_KEY from `.env`, and only the runtime and the
  * gateway receive it (NYLORUN_OBJECT_STORE_*). The runtime creates the bucket at boot and
  * reaches the store through its `s3` BlobStore.
+ *
+ * With `sandboxes` (after `nylorun sandbox enable`, F7.2) the `sandboxes` service runs the
+ * agent-sandbox driver: the only container holding the cluster credentials
+ * (`<Host root>/sandboxes`, read-only), not published, reached by the runtime alone with
+ * NYLORUN_SANDBOXES_TOKEN. The runtime gets an empty read-only mount over that directory.
  */
-export function renderComposeFile(project: string, name: string): string {
+export function renderComposeFile(
+  project: string,
+  name: string,
+  options: { sandboxes?: true } = {},
+): string {
+  const sandboxes = options.sandboxes === true;
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
 name: ${project}
 
@@ -204,7 +214,7 @@ services:
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
-      NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
@@ -218,7 +228,7 @@ services:
       - type: tmpfs
         target: /nylorun/docker
         read_only: true
-        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user${sandboxes ? SANDBOXES_RUNTIME_MOUNT : ""}
       - workspaces:/workspaces
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Tenant API, SSE, browsers
@@ -260,7 +270,7 @@ services:
       timeout: 5s
       retries: 30
     restart: unless-stopped
-
+${sandboxes ? sandboxesService(project) : ""}
 networks:
   default:
     name: ${project}
@@ -272,5 +282,48 @@ volumes:
   s2-lite: { name: ${project}-s2-lite, labels: *tenant }
   rustfs: { name: ${project}-rustfs, labels: *tenant }
   workspaces: { name: ${project}-workspaces, labels: *tenant }
+`;
+}
+
+/** The runtime reaches the sandboxes service on the Compose network with its token. */
+const SANDBOXES_RUNTIME_ENV = `
+      # The sandboxes service (nylorun sandbox enable): pods on the Tenant's cluster.
+      NYLORUN_SANDBOXES_URL: http://sandboxes:4300
+      NYLORUN_SANDBOXES_TOKEN: \${NYLORUN_SANDBOXES_TOKEN:?run nylorun sandbox enable}`;
+
+/** Empty and read-only over the cluster credentials: only the sandboxes service reads them. */
+const SANDBOXES_RUNTIME_MOUNT = `
+      - type: tmpfs
+        target: /nylorun/sandboxes
+        read_only: true
+        tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user`;
+
+/**
+ * The sandboxes service. The pod-facing ports (NYLORUN_SANDBOX_*_PORT in .env) are recorded
+ * by `nylorun sandbox enable` but not published yet: the Harness API listener and
+ * egress-gate pods use do not exist in this release.
+ */
+function sandboxesService(project: string): string {
+  return `
+  sandboxes: # agent-sandbox driver; the only holder of the cluster credentials; not published
+    image: \${NYLORUN_SANDBOXES_IMAGE:?run nylorun sandbox enable}
+    container_name: ${project}-sandboxes
+    labels: *tenant
+    user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}" # reads the 0600 token
+    environment:
+      NYLORUN_SANDBOXES_TOKEN: \${NYLORUN_SANDBOXES_TOKEN:?run nylorun sandbox enable}
+      NYLORUN_SANDBOXES_DIR: /run/nylorun/sandboxes
+      NYLORUN_SANDBOXES_LISTEN: ":4300"
+    extra_hosts:
+      host.docker.internal: host-gateway # the API server when the kubeconfig names this machine's loopback
+    volumes:
+      # cluster.json (API server, CA, namespace) and the ServiceAccount token, read-only.
+      - \${NYLORUN_HOST_ROOT:?run nylorun start}/sandboxes:/run/nylorun/sandboxes:ro
+    healthcheck: # /ready: informers synced and the API server answers
+      test: ["CMD", "/sandboxes", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    restart: unless-stopped
 `;
 }

@@ -1,0 +1,222 @@
+{
+  "apiVersion": "agents.x-k8s.io/v1beta1",
+  "kind": "Sandbox",
+  "metadata": {
+    "annotations": {
+      "nylorun.dev/op": "op-1"
+    },
+    "labels": {
+      "app.kubernetes.io/managed-by": "nylorun-sandboxes",
+      "nylorun.dev/sandbox": "sbx-ub6g5m7mvjlct6r7-g0"
+    },
+    "name": "sbx-ub6g5m7mvjlct6r7-g0",
+    "namespace": "nylorun-sbx-shop"
+  },
+  "spec": {
+    "operatingMode": "Running",
+    "podTemplate": {
+      "metadata": {
+        "labels": {
+          "nylorun.dev/role": "sandbox",
+          "nylorun.dev/sandbox": "sbx-ub6g5m7mvjlct6r7-g0"
+        }
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "containers": [
+          {
+            "command": [
+              "/nylo/tini-static",
+              "-g",
+              "--",
+              "/nylo/node",
+              "/nylo/app/runtime/dist/host/main.js",
+              "--service",
+              "harness"
+            ],
+            "env": [
+              {
+                "name": "HOME",
+                "value": "/harness/home"
+              },
+              {
+                "name": "NYLORUN_POD_UID",
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "metadata.uid"
+                  }
+                }
+              },
+              {
+                "name": "NYLORUN_SANDBOX_KIND",
+                "value": "pod"
+              },
+              {
+                "name": "NYLORUN_SANDBOX_JOIN_FILE",
+                "value": "/run/nylorun/join/token"
+              },
+              {
+                "name": "NYLORUN_HARNESS_URL",
+                "value": "http://192.168.65.254:41001"
+              },
+              {
+                "name": "NYLORUN_GATES_URL",
+                "value": "http://192.168.65.254:41002"
+              },
+              {
+                "name": "NYLORUN_EGRESS_PROXY",
+                "value": "http://192.168.65.254:41003"
+              },
+              {
+                "name": "A_VAR",
+                "value": "1"
+              },
+              {
+                "name": "B_VAR",
+                "value": "2"
+              }
+            ],
+            "image": "python:3.13-slim",
+            "name": "workload",
+            "resources": {
+              "limits": {
+                "cpu": "2000m",
+                "memory": "2048Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "memory": "128Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true
+            },
+            "volumeMounts": [
+              {
+                "mountPath": "/workspace",
+                "name": "data",
+                "subPath": "workspace"
+              },
+              {
+                "mountPath": "/harness",
+                "name": "data",
+                "subPath": "harness"
+              },
+              {
+                "mountPath": "/tmp",
+                "name": "tmp"
+              },
+              {
+                "mountPath": "/run/nylorun/join",
+                "name": "join",
+                "readOnly": true
+              },
+              {
+                "mountPath": "/nylo",
+                "name": "nylo",
+                "readOnly": true
+              }
+            ],
+            "workingDir": "/workspace"
+          }
+        ],
+        "enableServiceLinks": false,
+        "initContainers": [
+          {
+            "command": [
+              "cp",
+              "-a",
+              "/usr/bin/tini-static",
+              "/usr/local/bin/node",
+              "/app",
+              "/nylo/"
+            ],
+            "image": "ghcr.io/nylorun/runtime:0.16.0",
+            "name": "nylo-copy",
+            "resources": {
+              "limits": {
+                "cpu": "1",
+                "memory": "256Mi"
+              },
+              "requests": {
+                "cpu": "50m",
+                "memory": "64Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true
+            },
+            "volumeMounts": [
+              {
+                "mountPath": "/nylo",
+                "name": "nylo"
+              }
+            ]
+          }
+        ],
+        "securityContext": {
+          "fsGroup": 1000,
+          "runAsGroup": 1000,
+          "runAsNonRoot": true,
+          "runAsUser": 1000,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "terminationGracePeriodSeconds": 10,
+        "volumes": [
+          {
+            "emptyDir": {},
+            "name": "tmp"
+          },
+          {
+            "name": "join",
+            "secret": {
+              "defaultMode": 288,
+              "optional": true,
+              "secretName": "sbx-ub6g5m7mvjlct6r7-g0-join"
+            }
+          },
+          {
+            "emptyDir": {},
+            "name": "nylo"
+          }
+        ]
+      }
+    },
+    "shutdownPolicy": "Retain",
+    "shutdownTime": "2026-10-04T10:00:00Z",
+    "volumeClaimTemplates": [
+      {
+        "metadata": {
+          "labels": {
+            "nylorun.dev/sandbox": "sbx-ub6g5m7mvjlct6r7-g0"
+          },
+          "name": "data"
+        },
+        "spec": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "resources": {
+            "requests": {
+              "storage": "10Gi"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

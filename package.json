@@ -38,6 +38,7 @@
     "test:remote": "node scripts/acceptance/remote.mjs",
     "test:stack": "node scripts/smoke-stack.mjs",
     "test:failure": "node scripts/smoke-failure.mjs",
+    "test:sandboxes:service": "node scripts/sandbox/service-suite.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
     "changeset": "changeset",

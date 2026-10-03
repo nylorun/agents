@@ -33,6 +33,7 @@ import {
   type ComposeService,
   type DockerRunner,
 } from "./docker.js";
+import type { SandboxStackEnv } from "./env-file.js";
 import { readAdminKey, readHostConfig, STACK_CLIENT_HOST } from "./host-files.js";
 import { runtimeImageOverridden, stackImages } from "./images.js";
 import { stackPaths, type StackPaths } from "./paths.js";
@@ -531,6 +532,8 @@ async function bringUp(
     studio: boolean;
     allowDowngrade?: boolean;
     studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
+    /** `nylorun sandbox enable|disable`: set or remove the sandboxes settings. */
+    sandboxes?: SandboxStackEnv | null;
   },
 ): Promise<Started> {
   const { deps } = ctx;
@@ -565,6 +568,7 @@ async function bringUp(
       : {}),
     ...(options.studioEmbedOrigins ? { studioEmbedOrigins: options.studioEmbedOrigins } : {}),
     ...(analytics ? { studioAnalyticsId: STUDIO_ANALYTICS_ID } : {}),
+    ...(options.sandboxes !== undefined ? { sandboxes: options.sandboxes } : {}),
   });
   if (analytics && options.studio && telemetry.noticeShown === undefined) {
     deps.err(TELEMETRY_NOTICE);
@@ -593,6 +597,12 @@ async function bringUp(
     );
   }
   await waitForHealth(ctx, runtimeUrl, prepared.host.hostId);
+  // Without --wait: a cluster that is down must not fail the start; sessions refuse pods.
+  if (prepared.env.sandboxes) {
+    const sandboxes = await deps.docker.stream(composeArgs(ctx, "up", "--detach", "sandboxes"));
+    if (sandboxes !== 0)
+      deps.err(`Warning: the sandboxes service did not start. See "nylorun logs sandboxes".`);
+  }
 
   let studioStarted = false;
   if (options.studio) {
@@ -962,6 +972,11 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
       `Gateway     ${result.gateway.state} (the Model Gate; model calls fail while it is down)`,
     );
     if (result.restate.url) out(`Restate UI  ${result.restate.url}`);
+    const sandboxes = result.services.find((s) => s.service === "sandboxes");
+    if (sandboxes)
+      out(
+        `Sandboxes   ${[sandboxes.state, sandboxes.health].filter(Boolean).join(", ")} (see "nylorun sandbox status")`,
+      );
     out(
       `Services    ${
         STACK_SERVICES.map((name) => {
@@ -986,7 +1001,7 @@ async function logs(deps: StackDeps, args: readonly string[]): Promise<number> {
   );
   if (flags.rest.length > 1) throw usageError(`Usage: ${usage}`);
   const service = flags.rest[0];
-  if (service !== undefined && !(STACK_SERVICES as readonly string[]).includes(service))
+  if (service !== undefined && ![...STACK_SERVICES, "sandboxes"].includes(service))
     throw usageError(`Unknown service ${service}. Usage: ${usage}`);
   const tail = flags.values.get("--tail");
   if (tail !== undefined && !/^\d+$/.test(tail)) throw usageError(`Invalid --tail: ${tail}`);
@@ -1283,6 +1298,56 @@ export async function ensureStack(
     await selectStack(deps, options.name === undefined ? {} : { name: options.name }),
     options,
   );
+}
+
+/** A started Tenant as `nylorun sandbox` sees it. */
+export interface SelectedTenant {
+  name: string;
+  paths: StackPaths;
+  project: string;
+  /** `docker compose` arguments for this Tenant's project and files. */
+  compose(...args: string[]): string[];
+}
+
+/** The Tenant `nylorun sandbox` acts on; it must have been started once. */
+export async function selectTenant(
+  deps: StackDeps,
+  options: { name?: string } = {},
+): Promise<SelectedTenant> {
+  await tidyMachine(deps);
+  const ctx = await selectStack(deps, options);
+  requireStackFiles(ctx);
+  return {
+    name: ctx.name,
+    paths: ctx.paths,
+    project: ctx.project,
+    compose: (...args) => composeArgs(ctx, ...args),
+  };
+}
+
+/**
+ * Rewrite the Tenant's Compose files with `sandboxes` set (an object) or removed (null),
+ * and bring it up again: Compose recreates the containers whose settings changed.
+ */
+export async function restartTenant(
+  deps: StackDeps,
+  options: { name?: string; sandboxes: SandboxStackEnv | null },
+): Promise<void> {
+  const ctx = await selectStack(deps, options.name === undefined ? {} : { name: options.name });
+  await dockerPreflight(deps.docker);
+  await bringUp(ctx, { studio: false, sandboxes: options.sandboxes });
+}
+
+/** Ports every Tenant on this machine keeps for sandboxes, but the one under `except`. */
+export async function reservedSandboxPorts(deps: StackDeps, except: string): Promise<Set<number>> {
+  const reserved = await tenantPorts(nylorunRoot(deps), except);
+  for (const tenant of await listTenants(nylorunRoot(deps))) {
+    if (resolve(tenant.root) === except) continue;
+    const sandboxes = (await readStackEnv(stackPaths(tenant.root)))?.sandboxes;
+    for (const port of [sandboxes?.harnessPort, sandboxes?.gatesPort, sandboxes?.egressPort])
+      if (port !== undefined) reserved.add(port);
+  }
+  return reserved;
 }
 
 /** Add Studio's `next` path (e.g. `/tenants/<id>`) to a login URL. */

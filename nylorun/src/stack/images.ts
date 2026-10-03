@@ -3,7 +3,9 @@ import { pinnedVersion } from "./versions.js";
 /**
  * Images a local Tenant runs. The Runtime and Studio tags are pinned by this
  * CLI release; `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them
- * (local builds, CI images). Postgres, Restate, s2-lite and RustFS are the
+ * (local builds, CI images). The sandboxes service (`nylorun sandbox enable`) is
+ * versioned with the Runtime: `ghcr.io/nylorun/sandboxes:<runtime pin>`, or
+ * `NYLORUN_SANDBOXES_IMAGE`. Postgres, Restate, s2-lite and RustFS are the
  * official images, pinned here; RustFS (the Object store, D35) by digest as well, so
  * it is upgraded only on purpose.
  */
@@ -18,6 +20,7 @@ export const PINNED_IMAGES = {
 export interface StackImages {
   runtime: string;
   studio: string;
+  sandboxes: string;
   postgres: string;
   restate: string;
   s2: string;
@@ -26,7 +29,7 @@ export interface StackImages {
 
 function override(
   env: Readonly<Record<string, string | undefined>>,
-  name: "NYLORUN_RUNTIME_IMAGE" | "NYLORUN_STUDIO_IMAGE",
+  name: "NYLORUN_RUNTIME_IMAGE" | "NYLORUN_STUDIO_IMAGE" | "NYLORUN_SANDBOXES_IMAGE",
 ): string | undefined {
   const value = env[name]?.trim();
   return value ? value : undefined;
@@ -53,6 +56,9 @@ export function stackImages(
     studio:
       override(env, "NYLORUN_STUDIO_IMAGE") ??
       `ghcr.io/nylorun/studio:${versions.studio}`,
+    sandboxes:
+      override(env, "NYLORUN_SANDBOXES_IMAGE") ??
+      `ghcr.io/nylorun/sandboxes:${versions.runtime}`,
     ...PINNED_IMAGES,
   };
 }

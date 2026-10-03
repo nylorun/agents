@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 env:
   RELEASE_SHA: ${{ inputs.commit || github.sha }}
-# Order: validate → images (ghcr.io/nylorun/runtime and studio) → publish
+# Order: validate → images (ghcr.io/nylorun/runtime, studio and sandboxes) → publish
 # (npm, beta only). No step waits for approval: moving `latest` is a separate
 # workflow, Promote to latest (promote.yml). nylorun names its image pins
 # (nylorun/package.json nylorun.runtime and nylorun.studio), so both images
@@ -118,6 +118,10 @@ jobs:
           - package: studio
             title: Nylorun Studio
             description: The Nylorun Studio dashboard and trusted proxy
+          # Versioned with the Runtime (scripts/release/pins.mjs VERSIONED_WITH).
+          - package: sandboxes
+            title: Nylorun Sandboxes
+            description: The Nylorun sandboxes service (agent-sandbox pods for a Tenant)
     env:
       PACKAGE: ${{ matrix.package }}
     steps:
