@@ -146,8 +146,10 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
       /** Whether the probe pod opens a TCP connection to `target:port`. */
       const reaches = async (target, port) => (await sh(`nc -w 2 ${target} ${port} </dev/null`)) !== undefined;
       /** Sends raw `request` bytes from the probe pod; the answer's status line. */
+      // busybox nc hangs up once its input ends: keep the input open for an answer that takes a
+      // moment (a join asks the sandboxes service; a CONNECT resolves and dials first).
       const raw = async (target, port, request) =>
-        ((await sh(`echo ${Buffer.from(request).toString("base64")} | base64 -d | nc -w 5 ${target} ${port} | head -n 1`)) ?? "").trim();
+        ((await sh(`{ echo ${Buffer.from(request).toString("base64")} | base64 -d; sleep 4; } | nc -w 5 ${target} ${port} | head -n 1`)) ?? "").trim();
       const status = (line) => Number(/^HTTP\/1\.[01] (\d{3})/.exec(line)?.[1] ?? 0);
       /** An HTTP request from the probe pod; its status (0: no answer). */
       const http = async (target, port, method, path, { headers = {}, body } = {}) => {
