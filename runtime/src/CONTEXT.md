@@ -237,8 +237,8 @@ _Avoid_: "executor key" (removed in protocol 3).
 Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 
 **File artifact**: A file a client uploaded or our engine saved (`artifacts/`, protocol 6): an
-`af_` id, a name, a kind (`file`) and numbered immutable versions, each with its size, SHA-256,
-media type and source (`upload` or `engine`). Rows in `artifacts` and `artifact_versions`; bytes
+`af_` id, a name, a kind (`file`, or `folder`) and numbered immutable versions, each with its
+size, SHA-256, media type and source (`upload`, `engine`, or `export` for a folder). Rows in `artifacts` and `artifact_versions`; bytes
 in the Object store at a random key per version, counted once the version's row commits. It
 belongs to a session (and goes with it on a sessions reset) or, made by an application, to the
 Tenant. An upload is one streamed request (`POST /v1/artifacts`, `POST
@@ -249,11 +249,36 @@ history as `artifact.created`, `artifact.version.created` and `artifact.deleted`
 reaches only the artifacts of their own sessions (`artifacts/service.ts`).
 _Avoid_: "media", "asset" or "attachment" for it; `MediaStore` (removed).
 
+**Folder artifact**: An artifact of kind `folder` (F8.2, `artifacts/folders.ts`): each version is
+a **manifest**, JSON `{ format: "nylorun.folder.v1", entries: [{ path, size, sha256, contentType }] }`
+sorted by path, stored at the version's `blobKey`; each file's bytes are stored once,
+content-addressed, at `blobs/sha256/<hex>` (a `head` that finds them skips the `put`). The
+`artifact_content` table indexes which hashes each version names, so the Tenant total counts each
+file once and deleting a folder removes only the files nothing else names. Content is deleted only
+under the quota lock, and each such delete moves the **content epoch** (`artifacts.content_epoch`)
+that a writer re-checks at commit. Read as a tree, one file by path with Range, a diff between
+versions, or a streamed zip (`artifacts/zip.ts`); a version's `/content` is a `400`. Folders
+come only from the turn-end export today; a client cannot upload one.
+
+**Turn-end export**: When an agent's turn completes, the advance calls `exportOutputs`
+(`artifacts/export.ts`) after `settle` commits, outside its transaction and still holding the
+lease: core lists and reads `/workspace/outputs` of the session's sandbox through the
+**`WorkspaceReader`** seam (`artifacts/workspace.ts`: `list(session, dir)` and
+`readBytes(session, path)`, over the in-process `SandboxManager` today, over the Harness API's
+`workspace.read` from F6.2, and for F7.2's pods) and writes a version of the session's folder
+`outputs` (source `export`, `claimed: true` on its event: the listing and bytes are the
+harness's claim). A turn whose outputs did not change adds no version; no sandbox, a sandbox never
+created or no outputs export nothing. Bounded by 10,000 files and 1 GiB per export, the per-file
+limit and the Tenant total; past one it records `artifact.export.skipped` with the reason, and a
+failure records `artifact.export.failed`. Neither fails the turn.
+_Avoid_: "reader pod" (dropped; D37).
+
 **Capability link**: A short-lived URL that downloads one artifact version with no credential
 and no `Nylorun-Protocol` (`GET /v1/artifact-links/<token>`, minted by `POST
 /v1/artifacts/{id}/links`): an ES256 JWT (`typ: nylorun-artifact+jwt`, `aud: nylorun-artifact`,
 `sub` the artifact, `ver` the version) signed by the keys service with the Tenant's signing key,
-at most 15 minutes, opening nothing once the artifact is deleted (`artifacts/links.ts`). The
+at most 15 minutes, opening nothing once the artifact is deleted (`artifacts/links.ts`). A
+folder's link opens its zip, or with a `path` claim (`file` when minted) one of its files. The
 Host's request log shows its path as `/v1/artifact-links/:token`.
 _Avoid_: "presigned URL" (the Object store's own URLs never leave the Runtime).
 

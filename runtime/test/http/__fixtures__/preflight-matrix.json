@@ -105,6 +105,22 @@
     "status": 204,
     "allowOrigin": "https://app.example.com"
   },
+  "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/tree": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000/versions/1/files/app%2Findex.html": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000/versions/2/diff?from=1": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/zip": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
   "POST /v1/artifacts/af_00000000000000000000000000/links": {
     "status": 204,
     "allowOrigin": "https://app.example.com"

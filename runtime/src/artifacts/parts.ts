@@ -51,6 +51,8 @@ export async function resolveMessageParts(
     const artifact = await readableArtifact(t, part.artifactId, access);
     if (artifact.sessionId !== null && artifact.sessionId !== sessionId)
       fail(400, `Artifact ${artifact.id} belongs to another session`);
+    if (artifact.kind !== "file")
+      fail(400, `Artifact ${artifact.id} is a folder; a file part names a file artifact`);
     const version = await versionOf(t, artifact, part.version);
     engine.push({
       type: "media",

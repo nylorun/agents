@@ -454,16 +454,16 @@ export const sandboxResources = nylorun.table("sandbox_resources", {
 });
 
 /**
- * File artifacts (blueprint D35, F8.1): an id, a name and numbered versions. The bytes are in
- * the Object store under each version's `blobKey`; a blob counts only once its version row
- * commits. `sessionId` is the session the artifact belongs to, or null for a Tenant-wide one an
- * application made. `latestVersion` is the newest version's number.
+ * Artifacts (blueprint D35, F8.1 and F8.2): an id, a name and numbered versions. The bytes are in
+ * the Object store under each version's `blobKey` (a folder's: its manifest); a blob counts only
+ * once its version row commits. `sessionId` is the session the artifact belongs to, or null for
+ * a Tenant-wide one an application made. `latestVersion` is the newest version's number.
  */
 export const artifacts = nylorun.table(
   "artifacts",
   {
     id: textC().primaryKey(),
-    kind: text({ enum: ["file"] }).notNull(),
+    kind: text({ enum: ["file", "folder"] }).notNull(),
     name: text().notNull(),
     contentType: text().notNull(),
     sessionId: textC(),
@@ -475,11 +475,11 @@ export const artifacts = nylorun.table(
   },
   (t) => [
     index("artifacts_session").on(t.sessionId, t.createdAt, t.id),
-    check("artifacts_kind_check", sql`kind = 'file'`),
+    check("artifacts_kind_check", sql`kind IN ('file', 'folder')`),
   ],
 );
 
-/** The versions of a file artifact, immutable once written. */
+/** The versions of an artifact, immutable once written. */
 export const artifactVersions = nylorun.table(
   "artifact_versions",
   {
@@ -490,7 +490,7 @@ export const artifactVersions = nylorun.table(
     size: bigint({ mode: "number" }).notNull(),
     sha256: text().notNull(),
     contentType: text().notNull(),
-    source: text({ enum: ["upload", "engine"] }).notNull(),
+    source: text({ enum: ["upload", "engine", "export"] }).notNull(),
     createdAt: textC().notNull(),
   },
   (t) => [
@@ -500,6 +500,31 @@ export const artifactVersions = nylorun.table(
       columns: [t.artifactId],
       foreignColumns: [artifacts.id],
     }).onDelete("cascade"),
+  ],
+);
+
+/**
+ * The content-addressed files each folder version references (F8.2), one row per distinct
+ * SHA-256: the index that says which `blobs/sha256/<hex>` objects are still in use, so deleting
+ * a folder removes only the files no other version names, and the Tenant total counts each file
+ * once. The manifest itself stays the source of truth for paths.
+ */
+export const artifactContent = nylorun.table(
+  "artifact_content",
+  {
+    artifactId: textC().notNull(),
+    version: integer().notNull(),
+    sha256: textC().notNull(),
+    size: bigint({ mode: "number" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ name: "artifact_content_pkey", columns: [t.artifactId, t.version, t.sha256] }),
+    foreignKey({
+      name: "artifact_content_version_fkey",
+      columns: [t.artifactId, t.version],
+      foreignColumns: [artifactVersions.artifactId, artifactVersions.version],
+    }).onDelete("cascade"),
+    index("artifact_content_sha256").on(t.sha256),
   ],
 );
 

@@ -134,6 +134,7 @@ import {
   actions,
   artifacts,
   artifactVersions,
+  artifactContent,
   commands,
   definitions,
   effects,
@@ -176,6 +177,8 @@ export function createPostgresSessionStore(
 }
 
 const OPEN_SESSION = ["running", "runnable"];
+/** Rows per statement when a folder version names many files. */
+const CONTENT_BATCH = 1000;
 
 /** Every document table has `id` and `body`; `sessions` has more. */
 type DocumentTable = typeof definitions;
@@ -1501,12 +1504,69 @@ class PostgresTx implements Tx {
 
   async artifactBytes(): Promise<number> {
     this.check();
-    const [row] = await this.db
+    const [files] = await this.db
       .select({
         bytes: sql<number>`coalesce(sum(${artifactVersions.size}), 0)::bigint`.mapWith(Number),
       })
-      .from(artifactVersions);
-    return row!.bytes;
+      .from(artifactVersions)
+      .innerJoin(artifacts, eq(artifacts.id, artifactVersions.artifactId))
+      .where(eq(artifacts.kind, "file"));
+    // A folder's files are stored once per distinct hash, however many versions name them.
+    const distinct = this.db
+      .select({ size: sql<number>`max(${artifactContent.size})`.as("size") })
+      .from(artifactContent)
+      .groupBy(artifactContent.sha256)
+      .as("distinct_content");
+    const [content] = await this.db
+      .select({ bytes: sql<number>`coalesce(sum(${distinct.size}), 0)::bigint`.mapWith(Number) })
+      .from(distinct);
+    return files!.bytes + content!.bytes;
+  }
+
+  async insertArtifactContent(
+    artifactId: string,
+    version: number,
+    files: readonly { sha256: string; size: number }[],
+  ): Promise<void> {
+    this.check();
+    for (let at = 0; at < files.length; at += CONTENT_BATCH)
+      await this.db
+        .insert(artifactContent)
+        .values(
+          files
+            .slice(at, at + CONTENT_BATCH)
+            .map((file) => ({ artifactId, version, sha256: file.sha256, size: file.size })),
+        )
+        .onConflictDoNothing();
+  }
+
+  async referencedArtifactContent(shas: readonly string[]): Promise<Set<string>> {
+    this.check();
+    const found = new Set<string>();
+    for (let at = 0; at < shas.length; at += CONTENT_BATCH) {
+      const rows = await this.db
+        .selectDistinct({ sha256: artifactContent.sha256 })
+        .from(artifactContent)
+        .where(inArray(artifactContent.sha256, shas.slice(at, at + CONTENT_BATCH)));
+      for (const row of rows) found.add(row.sha256);
+    }
+    return found;
+  }
+
+  async artifactContentShas(scope: "sessions" | "all" | { artifactId: string }): Promise<string[]> {
+    this.check();
+    const rows = await this.db
+      .selectDistinct({ sha256: artifactContent.sha256 })
+      .from(artifactContent)
+      .innerJoin(artifacts, eq(artifacts.id, artifactContent.artifactId))
+      .where(
+        scope === "all"
+          ? undefined
+          : scope === "sessions"
+            ? isNotNull(artifacts.sessionId)
+            : eq(artifacts.id, scope.artifactId),
+      );
+    return rows.map((row) => row.sha256);
   }
 
   async artifactBlobKeys(scope: "sessions" | "all"): Promise<string[]> {

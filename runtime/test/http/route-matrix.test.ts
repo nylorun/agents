@@ -185,6 +185,11 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/artifacts?sessionId=s1" },
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}` },
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/latest/content` },
+    // Folder artifacts (F8.2).
+    { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/latest/tree` },
+    { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/1/files/app%2Findex.html` },
+    { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/2/diff?from=1` },
+    { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/latest/zip` },
     { method: "POST", path: `/v1/artifacts/${MISSING_ARTIFACT}/links`, body: INVALID },
     { method: "DELETE", path: `/v1/artifacts/${MISSING_ARTIFACT}` },
     { method: "GET", path: "/v1/artifact-links/not-a-token" },

@@ -89,6 +89,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
    */
   harness?: TenantOpenHooks["harness"];
   harnessTap?: TenantOpenHooks["harnessTap"];
+  /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
+  wrapBlobs?: (blobs: BlobStore) => BlobStore;
 };
 
 /**
@@ -236,6 +238,9 @@ export async function startTestTenant(
     ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
     harness: options.harness ?? (testHarnessMode() === "json" ? "json" : "memory"),
     ...(options.harnessTap ? { harnessTap: options.harnessTap } : {}),
+    ...(options.wrapBlobs
+      ? { blobs: options.wrapBlobs(createFsBlobStore({ root: paths.blobs })) }
+      : {}),
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {

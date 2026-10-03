@@ -78,6 +78,7 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
+import { exportOutputs } from "../artifacts/export.js";
 import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
 import { toolFixtureModel } from "../core/provider.js";
 import { startHeartbeat } from "../harness-api/renew.js";
@@ -355,12 +356,13 @@ async function runRemoteSegment(
     else {
       const recorded =
         result.status === "yielded" || result.status === "completed" || result.status === "paused";
-      cursor = await settle(
+      cursor = await settleTurn(
         ctx,
         lease,
         started,
         result,
         recorded ? output.transcript ?? [] : [],
+        signal,
         segment.cursor
       );
     }
@@ -479,7 +481,7 @@ async function runSegment(
           ? (result.result as { state?: unknown } | undefined)?.state
           : undefined;
       const updates = state ? transcriptUpdates(startTranscript, transcriptOf(state)) : [];
-      await settle(ctx, lease, started, result, updates);
+      await settleTurn(ctx, lease, started, result, updates, signal);
     }
   } catch (error) {
     if (isOwnershipLost(error) || error instanceof SegmentStopped) throw error;
@@ -528,6 +530,26 @@ async function wakeWorkflowOf(
       error: "Agent turn was cancelled",
       schedule: ctx.wake,
     });
+}
+
+/**
+ * `settle`, then, for a completed turn, the turn-end export of its sandbox outputs (F8.2): after
+ * the turn has committed and while the advance still holds the lease. Both segment paths settle
+ * through here. The export never throws.
+ */
+async function settleTurn(
+  ctx: TenantContext,
+  lease: Lease,
+  s: Session,
+  result: SegmentResult,
+  updates: readonly TranscriptUpdate[],
+  signal: AbortSignal,
+  cursor?: number
+): Promise<number | undefined> {
+  const kept = await settle(ctx, lease, s, result, updates, cursor);
+  if (result.status === "completed")
+    await exportOutputs(ctx, lease.sessionId, s.activeTurnId, signal);
+  return kept;
 }
 
 /**

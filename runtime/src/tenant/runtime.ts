@@ -83,6 +83,7 @@ import {
   type HarnessPeer,
 } from "../harness-api/server.js";
 import { startInProcessHarness, type InProcessHarness } from "../harness-api/in-process.js";
+import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -333,6 +334,7 @@ export class TenantRuntime implements TenantHandle {
         signingKeys,
         keys,
         blobs,
+        workspaces: sandboxWorkspaceReader(sandbox),
         ...(hooks.runGrants ? { runGrants: hooks.runGrants } : {}),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
