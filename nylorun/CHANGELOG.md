@@ -1,5 +1,22 @@
 # nylorun
 
+## 0.6.0-beta
+
+### Minor Changes
+
+- 0cbd5c9: **Breaking (`nylorun`): readable Docker names, several Tenants on one machine, and Studio at `http://<name>.localhost:4160`.** See MIGRATION.md.
+
+  - **Breaking (`nylorun`): names.** Every container, the network and every volume carries the Tenant's Compose project: containers `nylorun-<name>-postgres`, `-restate`, `-s2-lite`, `-gateway`, `-runtime`, `-studio` (were `…-1`), network `nylorun-<name>` (was `nylorun-<name>_default`), volumes `nylorun-<name>-postgres`, `-restate`, `-s2-lite`, `-workspaces` (were `nylorun-<name>_postgres`, …), each labelled `dev.nylorun.tenant: <name>`. The Compose service `s2` is now `s2-lite` (`nylorun logs s2-lite`).
+  - **Breaking (`nylorun`): Tenants created by 0.5 start fresh.** `start` on a Tenant whose data is in the old volumes exits 3 without starting it and names them; `nylorun reset --tenant <name>` starts it anew. `reset` and `delete` also remove the old volumes and the old network.
+  - **Studio proxy.** One Caddy container per machine (`nylorun-proxy`, files in `~/.nylorun/proxy/`) gives each Tenant's Studio the address `http://<name>.localhost:<port>` (`NYLORUN_PROXY_PORT`, 4160 or a free port chosen once), on `127.0.0.1` and `[::1]` (IPv4 only, saying so, when Docker refuses `::1`). It holds no Tenant data and routes browsers only. `start` brings it up when Studio starts, prints Studio's proxy URL and signs in there (on Studio's own port when the proxy does not answer); a proxy failure never fails `start`. `status` shows both URLs, `ls` and `nylorun studio` the proxy's. `NYLORUN_PROXY_DISABLED=1` turns it off; a Tenant under `NYLORUN_HOME` or `NYLORUN_COMPOSE_PROJECT` does not use it. `doctor` has a `proxy` row.
+  - **Several Tenants.** Restate's RocksDB memory is capped at 256 MiB, so a Tenant uses about 600–700 MB (was about 1.3 GB). `nylorun ls` has a `MEMORY` column (`memoryBytes` in `--json`). `start` names the other running Tenants and their memory. `nylorun stop --all` stops every running Tenant and the proxy, keeping their volumes.
+  - **`@nylorun/studio`.** `NYLORUN_STUDIO_PUBLIC_ORIGINS` lists exact `http:` origins Studio also serves (Host and `Origin` checks); a login token's URL is on the origin it was minted on; `NYLORUN_STUDIO_SESSION_COOKIE` names the session cookie (default `nylorun_studio_session`; `nylorun` sets `nylorun_studio_<name>`, so Studios on one host keep their own sessions); the `421` answer lists the served origins.
+
+### Patch Changes
+
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+
 ## 0.5.0-beta
 
 ### Minor Changes

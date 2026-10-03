@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.2-beta
+
+### Patch Changes
+
+- 0cbd5c9: The stream relay's lag is never negative: an idle relay confirms one byte past `pg_current_wal_lsn()`, which reported a lag of -1 and failed `/v1/admin/status` validation (400), so Studio showed an idle, healthy Tenant as unavailable.
+
 ## 0.15.1-beta
 
 ### Patch Changes
