@@ -41,15 +41,31 @@ it("seals signing keys and quarantines the Tenant without its KEK", async () => 
       expect(Buffer.from(row.ciphertext).includes(Buffer.from("PRIVATE KEY"))).toBe(false);
       expect(row.kekId).toMatch(/^[0-9a-f]{64}$/);
     }
-    await expect(
+    const keyless = () =>
       startTestTenant({
         applicationKey: APP,
         vaultKek: null,
         hostRoot: root,
         tenantId,
         retainRoot: true,
-      })
-    ).rejects.toThrow(/key-encryption key|kek-missing/i);
+      });
+    if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
+      // The runtime never reads the vault key (F4.2), so it opens without one; the gateway,
+      // which alone holds the key, refuses to sign or rotate with the sealed keys.
+      const runtime = await keyless();
+      try {
+        const rotate = await fetch(`${runtime.url}/v1/access/signing-keys/rotate`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
+          body: JSON.stringify({ requestId: "rotate", force: true }),
+        });
+        expect(rotate.status).toBe(500);
+      } finally {
+        await runtime.close();
+      }
+    } else {
+      await expect(keyless()).rejects.toThrow(/key-encryption key|kek-missing/i);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

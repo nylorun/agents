@@ -168,7 +168,8 @@ jobs:
   # Restate, s2-lite, RustFS) in runtime/test/stack/compose.yaml, with test
   # Tenants in Postgres. They include the architecture §17 failure suite
   # (runtime/test/failure/README.md), which recreates the stack's Restate, and
-  # the BlobStore conformance suite against the stack's RustFS.
+  # the BlobStore conformance suite against the stack's RustFS. Then the runtime unit suite
+  # with the gates over HTTP (NYLORUN_TEST_MODEL_GATE=http).
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -192,6 +193,13 @@ jobs:
           NYLORUN_TEST_STACK: "1"
           NYLORUN_TEST_S3_ENDPOINT: http://127.0.0.1:59000
         run: npm run test:integration --workspace @nylorun/runtime
+      # `check` runs the unit suite with the gates in process; this runs it again with model
+      # calls, remote MCP, deliveries and keys crossing a gates service on 127.0.0.1 with run
+      # tokens, as the local stack does (F5).
+      - name: Runtime unit tests, gates over HTTP
+        env:
+          NYLORUN_TEST_MODEL_GATE: http
+        run: npm test --workspace @nylorun/runtime
       - name: Test stack logs
         if: failure()
         run: docker compose -f runtime/test/stack/compose.yaml logs --no-color

@@ -46,7 +46,11 @@ async function boot(options: BootOpts = {}) {
     applicationKey: runtime.applicationKey,
     tenantId: runtime.tenantId,
     root: runtime.root,
-    authorize: handle.authorize.bind(handle),
+    // With `NYLORUN_TEST_MODEL_GATE=http` the gateway authorizes remote MCP servers (F4.1):
+    // the runtime never holds the vault key that unseals the credentials.
+    authorize: runtime.gate
+      ? runtime.gate.authorizeMcp
+      : handle.authorize.bind(handle),
   };
 }
 
@@ -143,6 +147,38 @@ it("stores bearer credentials without returning or persisting the plaintext", as
   }
 });
 
+/** Puts agent `bot` and Ada's session `s-ada`, with `vaultId` attached. */
+async function attach(runtime: { url: string }, vaultId: string) {
+  const agent = Agent({ id: "bot", name: "Bot" }).build();
+  expect(
+    (
+      await fetch(`${runtime.url}/v1/agents/bot`, {
+        method: "PUT",
+        headers: server,
+        body: JSON.stringify({
+          requestId: "agent",
+          manifest: agent.manifest,
+          implementationVersion: "dev",
+        }),
+      })
+    ).ok,
+  ).toBe(true);
+  expect(
+    (
+      await fetch(`${runtime.url}/v1/sessions/s-ada`, {
+        method: "PUT",
+        headers: server,
+        body: JSON.stringify({
+          requestId: "session",
+          agentId: "bot",
+          ownerUserId: "ada",
+          vaultIds: [vaultId],
+        }),
+      })
+    ).ok,
+  ).toBe(true);
+}
+
 it("keeps ciphertext unreadable without the key-encryption key", async () => {
   const runtime = await boot({ retainRoot: true });
   const { root, tenantId } = runtime;
@@ -177,6 +213,7 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
         }),
       )).body as { id: string }
     ).id;
+    await attach(runtime, vaultId);
   } finally {
     await runtime.close();
   }
@@ -191,9 +228,22 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
         value instanceof Uint8Array ? value : String(value),
       ).includes(Buffer.from(ADA_TOKEN)),
     ).toBe(false);
-  await expect(
-    boot({ hostRoot: root, tenantId, vaultKek: null }),
-  ).rejects.toThrow(/key-encryption key|kek-missing/i);
+  if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
+    // The runtime never reads the vault key (F4.2), so it opens without one; the gateway,
+    // which alone holds the key, refuses to unseal the credential.
+    const keyless = await boot({ hostRoot: root, tenantId, vaultKek: null });
+    try {
+      await expect(keyless.authorize("s-ada", { url: URL })).rejects.toThrow(
+        /key-encryption key|kek-missing/i,
+      );
+    } finally {
+      await keyless.close();
+    }
+  } else {
+    await expect(
+      boot({ hostRoot: root, tenantId, vaultKek: null }),
+    ).rejects.toThrow(/key-encryption key|kek-missing/i);
+  }
   const db = await openTestSessionStore({ root, tenantId });
   await db.tx(async (t) => {
     const row = await t.getCredential(credentialId);
@@ -204,34 +254,6 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   await db.close();
   const again = await boot({ hostRoot: root, tenantId });
   try {
-const agent = Agent({ id: "bot", name: "Bot" }).build();
-    expect(
-      (
-        await fetch(`${again.url}/v1/agents/bot`, {
-          method: "PUT",
-          headers: server,
-          body: JSON.stringify({
-            requestId: "agent",
-            manifest: agent.manifest,
-            implementationVersion: "dev",
-          }),
-        })
-      ).ok,
-    ).toBe(true);
-    expect(
-      (
-        await fetch(`${again.url}/v1/sessions/s-ada`, {
-          method: "PUT",
-          headers: server,
-          body: JSON.stringify({
-            requestId: "session",
-            agentId: "bot",
-            ownerUserId: "ada",
-            vaultIds: [vaultId],
-          }),
-        })
-      ).ok,
-    ).toBe(true);
     const refused = await again.authorize("s-ada", {
       url: "https://mcp.example.com/other",
     });

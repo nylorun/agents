@@ -121,26 +121,28 @@ describe("minting and verifying", () => {
 
   it("answers 401 token_expired for an expired token and a revoked key", async () => {
     const { ctx } = await tenant();
-    const kek = ctx.signingKeys.kek();
-    const row = await ctx.store.tx((t) => ctx.signingKeys.ensure(t, kek));
-    const signer = await ctx.signingKeys.privateKey(row, kek);
+    // Signed and rotated through the keys seam: in process, or the gateway's keys service,
+    // which alone holds the vault key with `NYLORUN_TEST_MODEL_GATE=http`.
     const now = Math.floor(Date.now() / 1000);
-    const stale = await new SignJWT({ agt: "support", gen: 1, bdy: "x" })
-      .setProtectedHeader({ alg: "ES256", typ: DELIVERY_TOKEN_TYPE, kid: signer.id })
-      .setIssuer(subjectTokenIssuer(ctx.config.tenantId))
-      .setAudience("x")
-      .setSubject("a1")
-      .setIssuedAt(now - 600)
-      .setExpirationTime(now - 120)
-      .setJti("j")
-      .sign(signer.key);
+    const { token: stale } = await ctx.keys.sign({
+      typ: DELIVERY_TOKEN_TYPE,
+      claims: {
+        iss: subjectTokenIssuer(ctx.config.tenantId),
+        aud: "x",
+        sub: "a1",
+        agt: "support",
+        gen: 1,
+        bdy: "x",
+        iat: now - 600,
+        exp: now - 120,
+        jti: "j",
+      },
+    });
     expect(await refusal(verifyDeliveryToken(ctx, stale))).toEqual({ status: 401, code: "token_expired" });
 
     const live = await mint(ctx);
-    await ctx.store.tx(async (t) => {
-      await ctx.signingKeys.rotate(t, kek, 60, true);
-      await ctx.signingKeys.revoke(t, live.keyId);
-    });
+    await ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
+    await ctx.store.tx((t) => ctx.signingKeys.revoke(t, live.keyId));
     expect(await refusal(verifyDeliveryToken(ctx, live.token))).toEqual({ status: 401, code: "token_expired" });
   });
 });
@@ -200,12 +202,11 @@ describe("as a bearer", () => {
 describe("signing key rotation", () => {
   it("waits for the longest delivery token even when subject tokens live less", async () => {
     const { ctx } = await tenant();
-    const kek = ctx.signingKeys.kek();
-    await ctx.store.tx((t) => ctx.signingKeys.rotate(t, kek, 60, true));
-    const refused = await refusal(ctx.store.tx((t) => ctx.signingKeys.rotate(t, kek, 60, false)));
+    await ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
+    const refused = await refusal(ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: false }));
     expect(refused.status).toBe(409);
-    const details = await ctx.store
-      .tx((t) => ctx.signingKeys.rotate(t, kek, 60, false))
+    const details = await ctx.keys
+      .rotateSigningKeys({ maxTtlSeconds: 60, force: false })
       .catch((error: HttpError) => error.rejection.details as { retryAfterSeconds: number });
     expect(details.retryAfterSeconds).toBeGreaterThan(DELIVERY_TOKEN_MAX_TTL_SECONDS);
   });
