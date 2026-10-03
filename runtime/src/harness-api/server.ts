@@ -16,6 +16,14 @@
  * only for a run it holds (its session, or the session owning the run's sandbox) or a session a
  * workspace request it is serving acts for; a `sandbox.state` claim's record becomes the
  * workspace's row in the `sandboxes` table.
+ *
+ * F7.2: a pod sandbox's engine connects as that sandbox's *host* (`HarnessPeer.host`, from its
+ * host token): it leases only runs whose session is attached to its sandbox (`RunOffer.pod`),
+ * serves only that sandbox's workspace (`workspace(..., { pod })`), and claims events only for
+ * those. Every other connection (the harness container, the in-process harness) never leases a
+ * pod sandbox's run and never serves its workspace. A connection whose host epoch is older than
+ * the sandbox's (`revokeHost`: a new join, a stop, a loss) is closed; its runs end as
+ * `connection.lost`.
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -39,15 +47,18 @@ import type { ActionOutcome } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
 import { sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
-import { workspacePrefix } from "../sandbox/records.js";
+import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
 import { recordIntent, recordOutcome } from "./record.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
 
-/** Who is on the other end of a connection, for logs. */
+/** Who is on the other end of a connection. */
 export interface HarnessPeer {
+  /** For logs. */
   readonly name: string;
+  /** A pod sandbox's engine (F7.2): the sandbox it hosts, at the host epoch of its token. */
+  readonly host?: { readonly sandboxId: string; readonly epoch: number };
 }
 
 /** A segment an advance offers to a harness. */
@@ -62,6 +73,13 @@ export interface RunOffer {
   readonly run: RunOf;
   /** Called when a harness takes the run. */
   readonly onTaken?: () => void;
+  /**
+   * The pod sandbox whose engine runs it (F7.2): only that sandbox's host takes it. Absent,
+   * only a harness that hosts no sandbox does.
+   */
+  readonly pod?: string;
+  /** How long to wait for a harness to take it. Default the server's `offerWaitMs`. */
+  readonly waitMs?: number;
 }
 
 /** How a run ended. An output waits for `reply` (or `refuse`) before the harness hears back. */
@@ -91,10 +109,23 @@ export interface HarnessApiServer {
   /** A harness holds a run of `sessionId` here. */
   holds(sessionId: string): boolean;
   /**
-   * Sends a `workspace.*` request to a harness that serves workspaces. Throws
-   * `NoWorkspaceHarness` when none is attached.
+   * Sends a `workspace.*` request to a harness that serves workspaces: with `pod`, the host of
+   * that pod sandbox; otherwise one that hosts no sandbox. Throws `NoWorkspaceHarness` when
+   * none is attached.
    */
-  workspace<M extends CoreMethod>(method: M, params: ParamsOf<M>, signal?: AbortSignal): Promise<ResultOf<M>>;
+  workspace<M extends CoreMethod>(
+    method: M,
+    params: ParamsOf<M>,
+    signal?: AbortSignal,
+    target?: { readonly pod?: string }
+  ): Promise<ResultOf<M>>;
+  /**
+   * Pod sandbox `sandboxId`'s host epoch moved to `epoch` (F7.2): connections hosting it at an
+   * older epoch are closed.
+   */
+  revokeHost(sandboxId: string, epoch: number): void;
+  /** Whether a host of pod sandbox `sandboxId` is connected. */
+  hosting(sandboxId: string): boolean;
   /** Harnesses attached now, and whether one serves workspaces. */
   status(): HarnessStatus;
   /** Harnesses attached now. */
@@ -108,17 +139,23 @@ export interface HarnessStatus {
   readonly workspace: boolean;
 }
 
-/** No attached harness serves workspaces. */
+/** No attached harness serves workspaces (or, with `pod`, that pod sandbox's). */
 export class NoWorkspaceHarness extends Error {
   override readonly name = "NoWorkspaceHarness";
-  constructor() {
-    super("No harness serving workspaces is connected");
+  constructor(readonly pod?: string) {
+    super(
+      pod === undefined
+        ? "No harness serving workspaces is connected"
+        : `Sandbox ${pod} has no pod connected: it is stopped or starting`
+    );
   }
 }
 
 interface Connection {
   readonly channel: HarnessChannel;
   readonly peer: HarnessPeer;
+  /** The pod sandbox it hosts, if any. */
+  readonly host?: { readonly sandboxId: string; readonly epoch: number };
   /** Declared `workspace` in its `hello`. */
   workspace: boolean;
   /** Sessions its workspace requests in flight act for, with how many each. */
@@ -167,11 +204,20 @@ export function createHarnessApiServer(
   const runs = new Map<string, Run>();
   let closed = false;
 
-  /** Hands queued runs to waiting harnesses, in order. */
+  /** A harness may take a run: a pod sandbox's host its sandbox's runs, any other the rest. */
+  const takes = (connection: Connection, run: Run) => connection.host?.sandboxId === run.offer.pod;
+
+  /** Hands queued runs to waiting harnesses that may take them, in order. */
   const match = () => {
-    while (queued.length > 0 && waiting.length > 0) {
-      const run = queued.shift()!;
-      const lease = waiting.shift()!;
+    for (let i = 0; i < queued.length; ) {
+      const run = queued[i]!;
+      const at = waiting.findIndex((entry) => takes(entry.connection, run));
+      if (at < 0) {
+        i += 1;
+        continue;
+      }
+      queued.splice(i, 1);
+      const lease = waiting.splice(at, 1)[0]!;
       run.connection = lease.connection;
       // The run token the advance holds now (F5): the gate calls of this run present it.
       run.grant = { ...run.grant, ...tokenOf(ctx, run.offer.lease) };
@@ -203,7 +249,8 @@ export function createHarnessApiServer(
         return {
           api: HARNESS_API_VERSION,
           tenantId: ctx.config.tenantId,
-          sandbox: { backend: options.sandboxPreference ?? null },
+          // A pod's engine runs its sandbox's backend, whatever the Tenant's preference.
+          sandbox: { backend: connection.host ? null : (options.sandboxPreference ?? null) },
           renewEveryMs: renewEveryMs(ctx),
         };
       }
@@ -271,7 +318,9 @@ export function createHarnessApiServer(
       record &&
       (event.type !== "sandbox.state" ||
         record.sessionId !== event.sessionId ||
-        !record.key.startsWith(workspacePrefix(ctx.config.tenantId)))
+        !record.key.startsWith(workspacePrefix(ctx.config.tenantId)) ||
+        (connection.host !== undefined &&
+          record.key !== sandboxWorkspaceKey(ctx.config.tenantId, connection.host.sandboxId)))
     )
       throw new HarnessApiError("invalid", "The workspace record is not this session's");
     try {
@@ -347,8 +396,20 @@ export function createHarnessApiServer(
     status() {
       return {
         connected: connections.size,
-        workspace: [...connections].some((connection) => connection.workspace && !connection.channel.closed),
+        workspace: [...connections].some(
+          (connection) => connection.workspace && !connection.host && !connection.channel.closed
+        ),
       };
+    },
+    hosting(sandboxId) {
+      return [...connections].some(
+        (connection) => connection.host?.sandboxId === sandboxId && !connection.channel.closed
+      );
+    },
+    revokeHost(sandboxId, epoch) {
+      for (const connection of [...connections])
+        if (connection.host?.sandboxId === sandboxId && connection.host.epoch < epoch)
+          connection.channel.close("the sandbox's host epoch moved");
     },
     holds(sessionId) {
       for (const run of runs.values())
@@ -360,9 +421,12 @@ export function createHarnessApiServer(
         if (run.grant.sessionId === sessionId && !run.ended && run.connection)
           run.connection.channel.notify("effect.resolved", { runId: run.grant.runId, effectId, outcome });
     },
-    async workspace(method, params, signal) {
-      const connection = [...connections].find((item) => item.workspace && !item.channel.closed);
-      if (!connection) throw new NoWorkspaceHarness();
+    async workspace(method, params, signal, target) {
+      const pod = target?.pod;
+      const connection = [...connections].find(
+        (item) => item.workspace && !item.channel.closed && item.host?.sandboxId === pod
+      );
+      if (!connection) throw new NoWorkspaceHarness(pod);
       const session = (params as { session?: { ownerId?: string } }).session?.ownerId;
       if (session) connection.claims.set(session, (connection.claims.get(session) ?? 0) + 1);
       else connection.sweeping += 1;
@@ -377,7 +441,14 @@ export function createHarnessApiServer(
       }
     },
     attach(channel, peer) {
-      const connection: Connection = { channel, peer, workspace: false, claims: new Map(), sweeping: 0 };
+      const connection: Connection = {
+        channel,
+        peer,
+        ...(peer.host ? { host: { sandboxId: peer.host.sandboxId, epoch: peer.host.epoch } } : {}),
+        workspace: false,
+        claims: new Map(),
+        sweeping: 0,
+      };
       connections.add(connection);
       const handler = serve(connection);
       channel.handle(async (method, params, signal) => {
@@ -456,7 +527,7 @@ export function createHarnessApiServer(
           if (index < 0) return;
           queued.splice(index, 1);
           run.end({ kind: "unavailable" });
-        }, offerWaitMs);
+        }, offer.waitMs ?? offerWaitMs);
         timer.unref();
         match();
       });

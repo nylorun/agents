@@ -357,6 +357,42 @@ export function executionContract(
       expect(fired[0]!.at).toBeGreaterThanOrEqual(at - 20);
     });
 
+    it("reconciles a pod sandbox one run at a time, retries and fires its timers (F7.2)", async () => {
+      const runs: { trigger: string; at: number }[] = [];
+      let running = 0;
+      let overlapped = false;
+      const execution = await started({
+        sandbox: async (_tenantId, _sandboxId, trigger) => {
+          running += 1;
+          if (running > 1) overlapped = true;
+          runs.push({ trigger, at: Date.now() });
+          await sleep(30);
+          running -= 1;
+          // The first reconcile asks for one retry and arms the TTL timer.
+          if (runs.filter((run) => run.trigger === "reconcile").length === 1 && trigger === "reconcile")
+            return { retryAfterMs: 50, arm: [{ timer: "ttl", at: Date.now() + 300 }] };
+          return {};
+        },
+      });
+      expect(execution.sandbox).toBeDefined();
+      const tenantId = newTenantId();
+      const sandboxId = `team/sbx-${randomUUID()}`;
+      await execution.sandbox!(tenantId, sandboxId, { kind: "reconcile" });
+      await execution.sandbox!(tenantId, sandboxId, { kind: "reconcile" });
+      // An idle timer set twice fires once, at the later time.
+      const later = Date.now() + 600;
+      await execution.sandbox!(tenantId, sandboxId, { kind: "arm", timer: "idle", at: Date.now() + 200 });
+      await execution.sandbox!(tenantId, sandboxId, { kind: "arm", timer: "idle", at: later });
+      await eventually(() => {
+        expect(runs.filter((run) => run.trigger === "ttl")).toHaveLength(1);
+        expect(runs.filter((run) => run.trigger === "idle")).toHaveLength(1);
+      });
+      await settled(() => runs.length);
+      expect(runs.filter((run) => run.trigger === "reconcile").length).toBeGreaterThanOrEqual(3);
+      expect(runs.find((run) => run.trigger === "idle")!.at).toBeGreaterThanOrEqual(later - 50);
+      expect(overlapped).toBe(false);
+    });
+
     it("arms a self-re-arming sweep once per Tenant, and disarms it", async () => {
       const sweeps: string[] = [];
       let active = 0;

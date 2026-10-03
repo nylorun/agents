@@ -61,6 +61,7 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
+import { rearmPodTimers } from "../../../tenant/sandboxes.js";
 
 const settings = (scopes: readonly SubjectScope[] | "never"): RouteAccess => ({
   credentials: scopes === "never" ? ["application"] : ["application", "subject"],
@@ -97,7 +98,35 @@ const budgetView = (row: ModelBudgetRow): ModelBudget => ({
 /** `GET /v1/tenant/sandbox`: the backend report and the configuration with defaults applied. */
 async function sandboxView(ctx: TenantContext): Promise<unknown> {
   const config = await ctx.store.tx((t) => readSandboxConfig(t));
-  return { ...(await ctx.sandbox.report()), config: effectiveSandboxConfig(config) };
+  return {
+    ...(await ctx.sandbox.report()),
+    config: effectiveSandboxConfig(config),
+    cluster: await clusterOf(ctx),
+  };
+}
+
+/** The Tenant's cluster for pod sandboxes (F7.2), from the sandboxes service; null without one. */
+async function clusterOf(ctx: TenantContext) {
+  if (!ctx.pods) return null;
+  try {
+    const [info, ready] = await Promise.all([ctx.pods.client.info(), ctx.pods.client.ready()]);
+    return {
+      namespace: info.namespace,
+      context: info.context,
+      ready,
+      ...(info.controllerVersion ? { controllerVersion: info.controllerVersion } : {}),
+      ...(info.networkPolicy
+        ? {
+            networkPolicy: {
+              enforced: info.networkPolicy.enforced === true,
+              ...(info.networkPolicy.probedAt ? { probedAt: info.networkPolicy.probedAt } : {}),
+            },
+          }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
@@ -243,6 +272,8 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const errors = sandboxConfigErrors(effectiveSandboxConfig(config));
       if (errors.length > 0) fail(400, errors.join(" "));
       await ctx.store.tx((t) => writeSandboxConfig(t, config));
+      // Pods' idle timers follow the new limits.idle (D36).
+      await rearmPodTimers(ctx);
       return jsonResponse(200, await sandboxView(ctx));
     },
   );

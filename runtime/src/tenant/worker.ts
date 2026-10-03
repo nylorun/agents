@@ -56,6 +56,8 @@ import { RunAbort } from "@nylorun/harness/api";
 import type {
   AdvanceResult,
   DeliverResult,
+  SandboxResult,
+  SandboxTrigger,
   DurableExecution,
   StuckInvocation,
   WorkerHandlers,
@@ -124,6 +126,8 @@ export interface TenantWorker {
   sweep(): Promise<void>;
   /** Delivers one Action to its endpoint. Only infrastructure errors throw. */
   deliver?(actionId: string, signal: AbortSignal): Promise<DeliverResult>;
+  /** Reconciles one pod sandbox (F7.2). Only infrastructure errors throw. */
+  sandbox?(sandboxId: string, trigger: SandboxTrigger, signal: AbortSignal): Promise<SandboxResult>;
 }
 
 export interface TenantWorkersOptions {
@@ -191,6 +195,10 @@ export class TenantWorkers {
     deliver: async (tenantId, actionId, signal) => {
       const worker = await this.find(tenantId);
       return worker?.deliver ? worker.deliver(actionId, signal) : DONE;
+    },
+    sandbox: async (tenantId, sandboxId, trigger, signal) => {
+      const worker = await this.find(tenantId);
+      return worker?.sandbox ? worker.sandbox(sandboxId, trigger, signal) : {};
     },
   };
 

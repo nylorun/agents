@@ -8,7 +8,8 @@
  * Every CONNECT, in order:
  * 1. the egress token from `Proxy-Authorization` (Basic with the token as password, as tools send
  *    proxy userinfo, or Bearer) verifies (`verifyEgressToken`), else 407;
- * 2. its sandbox is live and its host epoch is the token's (`EgressSandboxes.live`), else 407;
+ * 2. its sandbox is live and its host epoch and pod are the token's (`EgressSandboxes.live`),
+ *    else 407;
  * 3. the port is 443 or 80, the target is a host name and no IP literal, and it matches the spec's
  *    `network.allow` exactly or by `*.suffix`, else 403;
  * 4. the sandbox has fewer than `maxPerSandbox` tunnels open, else 429;
@@ -32,11 +33,14 @@ import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
 
 /**
- * What egress-gate reads of a sandbox: its current host epoch and its spec's `network.allow`, or
- * `undefined` when it is gone, lost or not a pod. Pods record their host epoch at join.
+ * What egress-gate reads of a sandbox: its current host epoch, the pod that joined at it, and
+ * its spec's `network.allow`; `undefined` when it is gone, deleted, lost, expired or not a pod.
  */
 export interface EgressSandboxes {
-  live(sandboxId: string): Promise<{ readonly epoch: number; readonly allow: readonly string[] } | undefined>;
+  live(sandboxId: string): Promise<
+    | { readonly epoch: number; readonly podUid?: string; readonly allow: readonly string[] }
+    | undefined
+  >;
 }
 
 /** Ports a tunnel may open. */
@@ -208,6 +212,8 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     if (!sandbox) return refuse(407, "sandbox_gone", { sandboxId }, "the egress token was refused");
     if (sandbox.epoch !== epoch)
       return refuse(407, "epoch_stale", { sandboxId, epoch, current: sandbox.epoch }, "the egress token was refused");
+    if (sandbox.podUid !== undefined && sandbox.podUid !== verdict.claims.podUid)
+      return refuse(407, "pod_stale", { sandboxId }, "the egress token was refused");
     if (!target) return refuse(403, "target_invalid", { sandboxId }, "CONNECT needs host:port");
     const { host, port } = target;
     if (!EGRESS_PORTS.includes(port))
@@ -326,16 +332,22 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
 }
 
 /**
- * `EgressSandboxes` over the Tenant's `sandbox_resources`: a pod sandbox's spec allowlist and its
- * host epoch. The host epoch and the lost state are recorded when pods join (F7.2 pods); a row
- * without them reads as epoch 0, which no egress token carries, so its tokens are refused.
+ * `EgressSandboxes` over the Tenant's `sandbox_resources` (one indexed read): a pod sandbox's
+ * host epoch, the pod that joined at it and its spec's allowlist; nothing for a virtual
+ * sandbox, or one deleted, lost or expired, as `staleHost` judges a host token.
  */
 export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
   return {
     async live(sandboxId) {
       const sandbox = await store.tx((t) => t.sandboxResource(sandboxId));
-      if (!sandbox || sandbox.kind !== "pod") return undefined;
-      return { epoch: 0, allow: sandbox.spec.network?.allow ?? [] };
+      const pod = sandbox?.pod;
+      if (!sandbox || sandbox.kind !== "pod" || !pod) return undefined;
+      if (pod.desired === "deleted" || pod.observed === "lost" || pod.observed === "expired") return undefined;
+      return {
+        epoch: pod.hostEpoch,
+        ...(pod.podUid ? { podUid: pod.podUid } : {}),
+        allow: sandbox.spec.network?.allow ?? [],
+      };
     },
   };
 }

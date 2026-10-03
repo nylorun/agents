@@ -40,6 +40,10 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * resource (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, kind `virtual`), a session attaches to one
  * with `sandbox: { id }`, subject tokens carry `sbx` grants checked at every turn start, and
  * `sandboxes:write` lets a subject create and delete the sandboxes it is granted.
+ * `sandbox-pods`: kind `pod` runs as an agent-sandbox pod on the Tenant's cluster (`nylorun
+ * sandbox enable`), with `POST /v1/sandboxes/{id}/stop` and `/reset`, a TTL
+ * (`lifecycle.ttl`), lifecycle events (`sandbox.running`, `.suspended`, `.expired`,
+ * `.relaunched`, `.lost`, `.reset`, `.failed`) and the Tenant's `placement`.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -52,6 +56,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "a2a-endpoint",
   "action-endpoints",
   "sandboxes",
+  "sandbox-pods",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -112,6 +117,12 @@ export const ERROR_CODES = [
   "sandbox_busy",
   /** The sandbox is gone, or its kind cannot run on this Runtime. */
   "sandbox_unavailable",
+  /** The Tenant's placement keeps this session's harness off the host its sandbox needs. */
+  "placement_refused",
+  /** A pod sandbox's volume or node is gone: only `POST /v1/sandboxes/{id}/reset` brings it back. */
+  "sandbox_lost",
+  /** A pod sandbox passed its TTL: a `PUT` with a longer `lifecycle.ttl` revives it. */
+  "sandbox_expired",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

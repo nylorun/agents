@@ -21,6 +21,7 @@ import { subjectTokenIssuer } from "@nylorun/core/contracts";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
 import { startEgress } from "../../src/host/gates.js";
 import type { TenantVault, TenantVaults } from "../../src/gates/tenant-vaults.js";
+import type { SandboxPodState } from "../../src/store/types.js";
 
 let runs: RunFixture;
 let echo: TcpServer;
@@ -356,26 +357,48 @@ describe("egress-gate", () => {
 });
 
 describe("egress-gate helpers", () => {
-  it("reads a pod sandbox's allowlist from sandbox_resources, and nothing for a virtual or unknown one", async () => {
+  it("reads a pod sandbox's host epoch, pod and allowlist; nothing once deleted, lost or expired", async () => {
     const now = new Date().toISOString();
-    const row = (id: string, kind: "virtual" | "pod", allow?: string[]) => ({
+    const pod = (patch: Partial<SandboxPodState> = {}): SandboxPodState => ({
+      k8sName: "sbx-x-g0",
+      volumeGen: 0,
+      desired: "running",
+      observed: "running",
+      podUid: "pod-7",
+      hostEpoch: 4,
+      rev: 1,
+      ...patch,
+    });
+    const row = (id: string, kind: "virtual" | "pod", allow?: string[], state?: SandboxPodState) => ({
       id,
       kind,
       spec: { network: { preset: "none" as const, ...(allow ? { allow } : {}) } },
       labels: {},
       createdAt: now,
       updatedAt: now,
+      ...(state ? { pod: state } : {}),
     });
     await runs.store.tx(async (t) => {
-      await t.createSandboxResource(row("egress-pod", "pod", ["*.example.com"]), 100);
-      await t.createSandboxResource(row("egress-pod-none", "pod"), 100);
+      await t.createSandboxResource(row("egress-pod", "pod", ["*.example.com"], pod()), 100);
+      await t.createSandboxResource(row("egress-pod-none", "pod", undefined, pod({ podUid: undefined, hostEpoch: 0 })), 100);
+      await t.createSandboxResource(row("egress-pod-deleted", "pod", ["a.example.com"], pod({ desired: "deleted" })), 100);
+      await t.createSandboxResource(row("egress-pod-lost", "pod", ["a.example.com"], pod({ observed: "lost" })), 100);
+      await t.createSandboxResource(row("egress-pod-expired", "pod", ["a.example.com"], pod({ observed: "expired" })), 100);
       await t.createSandboxResource(row("egress-virtual", "virtual", ["example.com"]), 100);
     });
     const store = storeEgressSandboxes(runs.store);
-    expect(await store.live("egress-pod")).toEqual({ epoch: 0, allow: ["*.example.com"] });
+    expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["*.example.com"] });
     expect(await store.live("egress-pod-none")).toEqual({ epoch: 0, allow: [] });
-    expect(await store.live("egress-virtual")).toBeUndefined();
-    expect(await store.live("egress-unknown")).toBeUndefined();
+    for (const id of ["egress-pod-deleted", "egress-pod-lost", "egress-pod-expired", "egress-virtual", "egress-unknown"])
+      expect(await store.live(id), id).toBeUndefined();
+  });
+
+  it("refuses a token of another pod at the sandbox's epoch", async () => {
+    const proxy = await gate({
+      sandboxes: { live: async () => ({ epoch: 1, podUid: "pod-other", allow: ["allowed.test"] }) },
+    });
+    expect((await tunnel(proxy, "allowed.test:443", basic(await token()))).status).toBe(407);
+    expect(logs.some((entry) => entry.fields?.reason === "pod_stale")).toBe(true);
   });
 
   it("blocks private, loopback, link-local, metadata, reserved and IPv4-embedding addresses", () => {

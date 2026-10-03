@@ -13,14 +13,18 @@
 //   (before and after the current one), another Tenant's, an expired one → 407;
 // - the gates: the keys service and deliveries with a run, host or egress token, model calls with
 //   a host or egress token → 401;
-// - the Harness API listener: the Tenant and Admin APIs' routes with a host or run token → never
-//   answered.
+// - the Harness API listener: the pod's join token replayed from another pod (the probe's UID),
+//   a wrong join token, renewal with an egress, run or stale-epoch host token → 401; the Tenant
+//   and Admin APIs' routes with a host or run token → never answered.
 import assert from "node:assert/strict";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { subjectTokenIssuer } from "@nylorun/core/contracts";
 import {
   ALLOWED_HOST,
+  HOST_JOIN_PATH,
+  HOST_TOKEN_AUD,
   HOST_TOKEN_TYP,
+  JOIN_TOKEN_FILE,
   RUN_TOKEN_AUD,
   RUN_TOKEN_TYP,
   podOptions,
@@ -32,16 +36,18 @@ const step = (message) => console.log(`\n[redteam] ${message}`);
 
 try {
   await withPodSandbox({ name: "nylorun-sbx-redteam", context, hostAddress, step }, async (pod) => {
-    const { host, ports, connect, http, sign, issuer, egressToken, epoch, sandboxId, podUid } = pod;
+    const { host, ports, connect, http, sign, issuer, egressToken, epoch, sandboxId, podUid, probeUid } = pod;
     const now = () => Math.floor(Date.now() / 1000);
     const runToken = await sign(RUN_TOKEN_TYP, {
       iss: issuer, aud: RUN_TOKEN_AUD, sub: "redteam-session", trn: "turn-1", agt: "bot", epc: 1,
       iat: now(), exp: now() + 600, jti: crypto.randomUUID(),
     });
-    const hostToken = await sign(HOST_TOKEN_TYP, {
-      iss: issuer, aud: "nylorun-harness", sbx: sandboxId, epc: epoch, pod: podUid,
-      iat: now(), exp: now() + 600, jti: crypto.randomUUID(),
+    const hostClaims = (overrides = {}) => ({
+      iss: issuer, aud: HOST_TOKEN_AUD, sub: sandboxId, sbx: sandboxId, epc: epoch, pod: podUid,
+      iat: now(), exp: now() + 600, jti: crypto.randomUUID(), ...overrides,
     });
+    const hostToken = await sign(HOST_TOKEN_TYP, hostClaims());
+    const bearer = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
     const egress = await egressToken();
     assert.equal(await connect(`${ALLOWED_HOST}:443`, egress), 200, "the pod's own egress token is admitted");
 
@@ -59,7 +65,6 @@ try {
       assert.equal(await connect(`${ALLOWED_HOST}:443`, token), 407, `egress-gate refuses ${label}`);
 
     step("the gates refuse a pod's tokens on core's routes, and host and egress tokens on model calls");
-    const bearer = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
     for (const [label, token] of [["run", runToken], ["host", hostToken], ["egress", egress]]) {
       const keys = await http(host, ports.gates, "POST", "/nylorun/v1/keys/sign", {
         ...bearer(token),
@@ -75,6 +80,24 @@ try {
         401,
         `model calls refuse a ${label} token`,
       );
+
+    step("the Harness API listener: join-token replay from another pod, renewal with the wrong token");
+    const joinToken = (await pod.inSandbox(`cat ${JOIN_TOKEN_FILE}`)).trim();
+    assert.ok(joinToken, "the pod's join token is readable in the pod (D42: a bearer the workload can read)");
+    const join = (body) => http(host, ports.harness, "POST", HOST_JOIN_PATH, { body: JSON.stringify(body) });
+    assert.equal(await join({ sandboxId, podUid: probeUid, joinToken }), 401, "a join token replayed from another pod is refused");
+    assert.equal(await join({ sandboxId, podUid, joinToken: "x".repeat(43) }), 401, "a wrong join token is refused");
+    assert.equal(await join({ sandboxId: "net/other", podUid: probeUid, joinToken }), 401, "a join token names its own sandbox only");
+    const renew = (token) => http(host, ports.harness, "POST", "/nylorun/harness/v1/host/renew", bearer(token));
+    for (const [label, token] of [
+      ["an egress token", egress],
+      ["a run token", runToken],
+      ["a host token of a later epoch", await sign(HOST_TOKEN_TYP, hostClaims({ epc: epoch + 1 }))],
+      ["a host token of another pod", await sign(HOST_TOKEN_TYP, hostClaims({ pod: probeUid }))],
+    ])
+      assert.equal(await renew(token), 401, `renewal refuses ${label}`);
+    // The replays moved nothing: the pod's egress token still works at its epoch.
+    assert.equal(await connect(`${ALLOWED_HOST}:443`, egress), 200, "the refused joins left the host epoch alone");
 
     step("the Harness API listener serves neither the Tenant API nor the Admin API");
     for (const [label, token] of [["host", hostToken], ["run", runToken]])

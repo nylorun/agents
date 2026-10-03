@@ -63,6 +63,7 @@ import { createS3BlobStore, type S3BlobStore } from "../blob/index.js";
 import { createRunGrants } from "../tenant/run-grants.js";
 import { runHarness } from "../harness/main.js";
 import { startHarnessListener, type HarnessListener } from "../harness-api/ws-server.js";
+import { httpSandboxesClient } from "../sandbox/pods/client.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -319,6 +320,13 @@ export async function main(): Promise<void> {
   const blobs = stack.objectStore ? objectStore(stack.objectStore) : undefined;
   if (blobs && stack.services.has("core"))
     void ensureBucket(blobs, stack.objectStore!.bucket, logger);
+  // Sandbox pods (F7.2): the sandboxes service, which alone holds the cluster's credentials.
+  const pods = stack.sandboxes
+    ? {
+        client: httpSandboxesClient({ url: stack.sandboxes.url, token: stack.sandboxes.token }),
+        harnessImage: stack.sandboxes.harnessImage,
+      }
+    : undefined;
   const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
   const module = createTenantModule({
     open: createPostgresTenantOpener({
@@ -344,6 +352,7 @@ export async function main(): Promise<void> {
           ...(streams ? { streams, hostRelay: true } : {}),
           ...(blobs ? { blobs } : {}),
           ...(stack.harnessMode === "remote" ? { harness: "remote" as const } : {}),
+          ...(pods ? { pods } : {}),
           ...opened,
         }),
     }),
@@ -411,7 +420,16 @@ export async function main(): Promise<void> {
     if (stack.harnessListener)
       harnessListener = await startHarnessListener({
         ...stack.harnessListener.listen,
-        token: stack.harnessListener.token,
+        ...(stack.harnessListener.token ? { token: stack.harnessListener.token } : {}),
+        // Sandbox pods join here and connect with host tokens (F7.2).
+        ...(pods
+          ? {
+              hosts: async () => {
+                const resolved = await module.resolve();
+                return resolved.kind === "open" ? resolved.handle.hostAuthority?.() : undefined;
+              },
+            }
+          : {}),
         attach: async () => {
           const resolved = await module.resolve();
           const handle = resolved.kind === "open" ? resolved.handle : undefined;

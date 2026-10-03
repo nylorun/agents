@@ -22,7 +22,8 @@
         "ag-ui-endpoint",
         "a2a-endpoint",
         "action-endpoints",
-        "sandboxes"
+        "sandboxes",
+        "sandbox-pods"
       ]
     }
   },
@@ -6283,6 +6284,9 @@
               "sandbox_not_granted",
               "sandbox_busy",
               "sandbox_unavailable",
+              "placement_refused",
+              "sandbox_lost",
+              "sandbox_expired",
               "internal_error"
             ]
           },
@@ -17246,6 +17250,52 @@
                     "stopped"
                   ]
                 },
+                "pod": {
+                  "type": "object",
+                  "properties": {
+                    "desired": {
+                      "type": "string",
+                      "enum": [
+                        "running",
+                        "suspended",
+                        "deleted"
+                      ]
+                    },
+                    "observed": {
+                      "type": "string",
+                      "enum": [
+                        "creating",
+                        "running",
+                        "suspended",
+                        "expired",
+                        "lost",
+                        "failed",
+                        "deleting"
+                      ]
+                    },
+                    "volumeGeneration": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "hostEpoch": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "desired",
+                    "observed",
+                    "volumeGeneration",
+                    "hostEpoch"
+                  ],
+                  "additionalProperties": false
+                },
                 "sessions": {
                   "type": "array",
                   "items": {
@@ -17325,6 +17375,52 @@
               "running",
               "stopped"
             ]
+          },
+          "pod": {
+            "type": "object",
+            "properties": {
+              "desired": {
+                "type": "string",
+                "enum": [
+                  "running",
+                  "suspended",
+                  "deleted"
+                ]
+              },
+              "observed": {
+                "type": "string",
+                "enum": [
+                  "creating",
+                  "running",
+                  "suspended",
+                  "expired",
+                  "lost",
+                  "failed",
+                  "deleting"
+                ]
+              },
+              "volumeGeneration": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hostEpoch": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiresAt": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "desired",
+              "observed",
+              "volumeGeneration",
+              "hostEpoch"
+            ],
+            "additionalProperties": false
           },
           "sessions": {
             "type": "array",
@@ -17417,6 +17513,18 @@
               }
             },
             "additionalProperties": false
+          },
+          "storage": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "ttl": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -17457,7 +17565,14 @@
                     "sandbox.created",
                     "sandbox.attached",
                     "sandbox.detached",
-                    "sandbox.deleted"
+                    "sandbox.deleted",
+                    "sandbox.running",
+                    "sandbox.suspended",
+                    "sandbox.expired",
+                    "sandbox.relaunched",
+                    "sandbox.lost",
+                    "sandbox.reset",
+                    "sandbox.failed"
                   ]
                 },
                 "payload": {
@@ -18751,9 +18866,51 @@
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 100000
+                      },
+                      "ttl": {
+                        "type": "string"
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "lifecycle": {
+                    "type": "object",
+                    "properties": {
+                      "onExpiry": {
+                        "type": "string",
+                        "enum": [
+                          "retain",
+                          "delete"
+                        ]
+                      },
+                      "stopGrace": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "placement": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "hosts": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "harness-container",
+                              "sandbox"
+                            ]
+                          },
+                          "minItems": 1
+                        }
+                      },
+                      "required": [
+                        "hosts"
+                      ],
+                      "additionalProperties": false
+                    }
                   }
                 },
                 "additionalProperties": false
@@ -18938,7 +19095,8 @@
               {
                 "type": "string",
                 "enum": [
-                  "virtual"
+                  "virtual",
+                  "local"
                 ]
               }
             ]
@@ -18950,6 +19108,7 @@
             ],
             "enum": [
               "virtual",
+              "local",
               null
             ]
           },
@@ -18975,7 +19134,8 @@
                 "name": {
                   "type": "string",
                   "enum": [
-                    "virtual"
+                    "virtual",
+                    "local"
                   ]
                 },
                 "available": {
@@ -19108,6 +19268,9 @@
                   "sandboxes": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "ttl": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -19117,6 +19280,48 @@
                   "idle"
                 ],
                 "additionalProperties": false
+              },
+              "lifecycle": {
+                "type": "object",
+                "properties": {
+                  "onExpiry": {
+                    "type": "string",
+                    "enum": [
+                      "retain",
+                      "delete"
+                    ]
+                  },
+                  "stopGrace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "onExpiry",
+                  "stopGrace"
+                ],
+                "additionalProperties": false
+              },
+              "placement": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "harness-container",
+                          "sandbox"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "hosts"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -19124,6 +19329,45 @@
               "limits"
             ],
             "additionalProperties": false
+          },
+          "cluster": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "namespace": {
+                "type": "string"
+              },
+              "context": {
+                "type": "string"
+              },
+              "ready": {
+                "type": "boolean"
+              },
+              "controllerVersion": {
+                "type": "string"
+              },
+              "networkPolicy": {
+                "type": "object",
+                "properties": {
+                  "enforced": {
+                    "type": "boolean"
+                  },
+                  "probedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enforced"
+                ]
+              }
+            },
+            "required": [
+              "namespace",
+              "context",
+              "ready"
+            ]
           }
         },
         "required": [
@@ -19236,9 +19480,51 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 100000
+              },
+              "ttl": {
+                "type": "string"
               }
             },
             "additionalProperties": false
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "onExpiry": {
+                "type": "string",
+                "enum": [
+                  "retain",
+                  "delete"
+                ]
+              },
+              "stopGrace": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "placement": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "hosts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "harness-container",
+                      "sandbox"
+                    ]
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "hosts"
+              ],
+              "additionalProperties": false
+            }
           },
           "requestId": {
             "type": "string",
@@ -23572,7 +23858,7 @@
           "Sandboxes"
         ],
         "summary": "Create or find a sandbox",
-        "description": "Creates the sandbox within the Tenant's limits, or answers the one with this id, so get-or-create is one call. Its spec is fixed once it exists; labels, when sent, replace its labels. Only kind `virtual` runs on this Runtime.",
+        "description": "Creates the sandbox within the Tenant's limits, or answers the one with this id, so get-or-create is one call. Its spec is fixed once it exists; labels, when sent, replace its labels. Kind `pod` needs sandbox pods (`nylorun sandbox enable`): it is created at once, and a PUT on an existing pod sandbox starts it again when it was stopped, or revives it with a longer `lifecycle.ttl`.",
         "security": [
           {
             "applicationKey": []
@@ -23694,7 +23980,7 @@
             }
           },
           "409": {
-            "description": "A sandbox with this id has another spec, or the Tenant holds as many sandboxes as it allows (`limit_exceeded`)"
+            "description": "A sandbox with this id has another spec, the Tenant holds as many sandboxes as it allows (`limit_exceeded`), kind pod without sandbox pods (`sandbox_unavailable`), or a lost pod sandbox (`sandbox_lost`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -24156,6 +24442,298 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sandboxes/{sandboxId}/stop": {
+      "post": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Stop a pod sandbox",
+        "description": "Suspends the pod: its volume is kept, and the next turn of a session attached to it (or a PUT) starts it again. Refused during a turn (`sandbox_busy`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+            },
+            "required": true,
+            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
+            "name": "sandboxId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sandbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The sandbox is virtual"
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn holds it (`sandbox_busy`), or no sandbox pods (`sandbox_unavailable`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sandboxes/{sandboxId}/reset": {
+      "post": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Reset a pod sandbox",
+        "description": "A new pod on a new, empty volume; the old pod and volume are deleted. The way out of `sandbox_lost`. Refused during a turn (`sandbox_busy`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+            },
+            "required": true,
+            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
+            "name": "sandboxId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sandbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The sandbox is virtual"
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn holds it (`sandbox_busy`), or no sandbox pods (`sandbox_unavailable`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",

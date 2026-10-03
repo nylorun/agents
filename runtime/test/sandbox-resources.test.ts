@@ -173,9 +173,10 @@ describe("the resource", { timeout: 60_000 }, () => {
     expect((await call("PUT", path("bad id!"), {})).status).toBe(400);
   });
 
-  it("refuses kind pod: this Runtime runs virtual sandboxes only", async () => {
+  it("refuses kind pod without sandbox pods (no cluster)", async () => {
     const refused = await call("PUT", path("pods/one"), { kind: "pod" });
-    expect(refused.status).toBe(400);
+    expect(refused.status).toBe(409);
+    expect(refused.body.message).toContain("nylorun sandbox enable --context");
     expect(refused.body.code).toBe("sandbox_unavailable");
     expect((await call("GET", path("pods/one"))).status).toBe(404);
   });

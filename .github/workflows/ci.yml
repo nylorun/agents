@@ -283,7 +283,7 @@ jobs:
   # service restarted mid-operation, delete, and no docker.sock anywhere.
   sandboxes:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 100
     env:
       NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
       NYLORUN_SANDBOXES_IMAGE: nylorun-sandboxes:ci
@@ -341,15 +341,22 @@ jobs:
       - name: Sandboxes service suite
         timeout-minutes: 25
         run: npm run test:sandboxes:service -- --context kind-nylorun --host-address 172.17.0.1
-      # F7.2 8c: the network invariant and the red-team from inside the namespace (pod-stack.mjs).
-      # Both need a joined pod sandbox, so they run once the pods path (F7.2 8b,
-      # runtime/src/sandbox/pods/) is in the tree, after its suite has loaded the pod images.
+      # F7.2 8b: pod sandboxes end to end (scripts/sandbox/suite.mjs): the engine copied from the
+      # runtime image into a python:3.13-slim pod joins the Harness API; turns, stop, idle, TTL,
+      # reset, kill -9 runtime and force-deleted pod mid-turn, PVC loss, no cluster.
+      - name: Load the pod images into kind
+        run: |
+          docker pull python:3.13-slim
+          kind load docker-image --name nylorun "$NYLORUN_RUNTIME_IMAGE" python:3.13-slim
+      - name: Pod sandboxes suite
+        timeout-minutes: 35
+        run: npm run test:sandboxes -- --context kind-nylorun --host-address 172.17.0.1
+      # F7.2 8c: the network invariant and the red-team from inside the sandbox namespace
+      # (scripts/sandbox/pod-stack.mjs), each on a Tenant of its own with a joined pod sandbox.
       - name: Sandbox network invariant
-        if: hashFiles('runtime/src/sandbox/pods/**') != ''
         timeout-minutes: 15
         run: npm run test:sandboxes:network -- --context kind-nylorun --host-address 172.17.0.1
       - name: Sandbox red-team
-        if: hashFiles('runtime/src/sandbox/pods/**') != ''
         timeout-minutes: 15
         run: npm run test:sandboxes:redteam -- --context kind-nylorun --host-address 172.17.0.1
       - name: Cluster diagnostics

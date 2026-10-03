@@ -64,6 +64,8 @@ import type {
   SandboxEventPayload,
   SandboxEventType,
   SandboxKind,
+  SandboxPodDesired,
+  SandboxPodObserved,
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { SandboxManifest } from "@nylorun/core/define";
@@ -200,7 +202,45 @@ export interface SandboxResource {
   labels: Record<string, string>;
   createdAt: string;
   updatedAt: string;
+  /** Kind `pod`: the pod's lifecycle (F7.2). Absent for a virtual sandbox. */
+  pod?: SandboxPodState;
 }
+
+/**
+ * A pod sandbox's lifecycle columns (`sandbox_resources`, F7.2, D34): what the Runtime wants
+ * (`desired`), what it last saw (`observed`), and the fences of its incarnations.
+ */
+export interface SandboxPodState {
+  /** The agent-sandbox Sandbox's name (`podName`), of generation `volumeGen`. */
+  k8sName: string;
+  volumeGen: number;
+  desired: SandboxPodDesired;
+  observed: SandboxPodObserved;
+  /** The UID of the pod that last joined. */
+  podUid?: string;
+  /** Bumped by every join, relaunch, loss and reset; host and egress tokens carry it. */
+  hostEpoch: number;
+  /** sha256 hex of the incarnation's join token. */
+  joinTokenHash?: string;
+  /** Bumped by every change asked of the pod (the sandboxes service's `opId`). */
+  rev: number;
+  /** ISO times. */
+  lastActiveAt?: string;
+  expiresAt?: string;
+  startedAt?: string;
+  reason?: string;
+  /** An earlier incarnation's Sandbox still to delete (after a reset or a loss). */
+  retiring?: string;
+  /** The id the engine keeps on the volume, from the first join. */
+  volumeId?: string;
+}
+
+/** A change to a pod's columns: `null` clears an optional one. */
+export type SandboxPodPatch = {
+  [K in keyof SandboxPodState]?: undefined extends SandboxPodState[K]
+    ? SandboxPodState[K] | null
+    : SandboxPodState[K];
+};
 
 /** A session as read from the store: its document plus the store-managed ownership fields. */
 export type StoredSession<T extends SessionDoc = SessionDoc> = T &
@@ -543,6 +583,10 @@ export interface Tx {
     limit: number,
   ): Promise<"created" | "exists" | "limit">;
   updateSandboxLabels(id: string, labels: Record<string, string>, updatedAt: string): Promise<void>;
+  /** Replaces a sandbox's spec (a pod's new `lifecycle.ttl`; the caller holds the row's lock). */
+  updateSandboxSpec(id: string, spec: SandboxManifest, updatedAt: string): Promise<void>;
+  /** Changes a pod sandbox's lifecycle columns (the caller holds the row's lock). */
+  updateSandboxPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void>;
   deleteSandboxResource(id: string): Promise<void>;
   /** Sandbox resources by id, those with every label in `labels` when it is given. */
   listSandboxResources(filter?: { labels?: Record<string, string> }): Promise<SandboxResource[]>;

@@ -37,6 +37,7 @@
  * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
  */
 import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
+import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 
 /** A Runtime service this release has. */
 export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress" | "harness";
@@ -148,20 +149,54 @@ export interface ModelGateEndpoint {
 }
 
 /**
- * Core's Harness API listener (`NYLORUN_HARNESS=remote`): where harnesses connect, and the
- * credential they present (`NYLORUN_HARNESS_TOKEN`), which nothing else accepts.
+ * Core's Harness API listener (`NYLORUN_HARNESS=remote`, or sandbox pods): where harnesses
+ * connect, and the credential they present (`NYLORUN_HARNESS_TOKEN`), which nothing else
+ * accepts. With sandbox pods and no harness container there is no token: only pods' host tokens
+ * are accepted (F7.2).
  */
 export interface HarnessListenConfig {
   listen: ContainerListen;
+  token?: string;
+}
+
+/**
+ * Sandbox pods (`NYLORUN_SANDBOXES_URL`, F7.2): the sandboxes service core drives them with, its
+ * token, and the Runtime image pods copy the engine from.
+ */
+export interface SandboxesConfig {
+  url: string;
   token: string;
+  /** `NYLORUN_SANDBOX_HARNESS_IMAGE` (the stack sets it to the Runtime image). */
+  harnessImage: string;
+}
+
+/**
+ * The engine in a pod sandbox (`--service harness` with `NYLORUN_SANDBOX_KIND=pod`, F7.2): no
+ * harness token; it joins with the join token mounted in the pod.
+ */
+export interface PodHostConfig {
+  /** `NYLORUN_SANDBOX_ID`. */
+  sandboxId: string;
+  /** `NYLORUN_POD_UID` (the downward API's `metadata.uid`). */
+  podUid: string;
+  /** `NYLORUN_SANDBOX_JOIN_FILE`. */
+  joinFile: string;
+  /** The Harness API listener's HTTP base, for `host/join` and `host/renew`. */
+  httpUrl: string;
+  /** `NYLORUN_EGRESS_PROXY`: egress-gate's address, or undefined while it is not published. */
+  egressProxy?: string;
+  /** Addresses the pod's NetworkPolicy must block, probed before the engine starts. */
+  blocked: BlockedAddress[];
 }
 
 /** A harness process (`--service harness`). */
 export interface HarnessServiceConfig {
   /** `NYLORUN_HARNESS_URL`: core's Harness API, e.g. `ws://runtime:4200/nylorun/harness/v1`. */
   url: string;
-  /** `NYLORUN_HARNESS_TOKEN`. */
-  token: string;
+  /** `NYLORUN_HARNESS_TOKEN`; absent for a pod's engine, which joins (`pod`). */
+  token?: string;
+  /** Present for the engine in a pod sandbox. */
+  pod?: PodHostConfig;
   /** `NYLORUN_GATES_URL`: the gates service its model and MCP calls cross, with run tokens. */
   gatesUrl: string;
   /** `NYLORUN_HARNESS_ROOT`: its sandboxes, plugin data, home and tmp. Default `/harness`. */
@@ -185,8 +220,10 @@ export interface StackConfig {
    * `harnessListener`.
    */
   harnessMode?: "in-process" | "remote";
-  /** Present when `harnessMode` is `remote`: core's Harness API listener. */
+  /** Present when `harnessMode` is `remote`, or with `sandboxes`: core's Harness API listener. */
   harnessListener?: HarnessListenConfig;
+  /** Present when the process runs core or loop and `NYLORUN_SANDBOXES_URL` is set (F7.2). */
+  sandboxes?: SandboxesConfig;
   /**
    * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
    * remote MCP calls and Action deliveries cross the gates service. Required for loop in
@@ -562,7 +599,12 @@ export function parseStackConfig(
       `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
     );
   const harnessMode = servesApi ? parseHarnessMode(env) : undefined;
-  const harnessListener = harnessMode === "remote" ? parseHarnessListener(env) : undefined;
+  const sandboxes = servesApi ? parseSandboxes(env) : undefined;
+  // Pods connect to the Harness API listener even when the Tenant runs its own harness.
+  const harnessListener =
+    harnessMode === "remote" || sandboxes
+      ? parseHarnessListener(env, harnessMode === "remote")
+      : undefined;
   if (
     harnessListener &&
     [listen?.port, operator?.port].includes(harnessListener.listen.port)
@@ -587,6 +629,7 @@ export function parseStackConfig(
     ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
     ...(harnessMode ? { harnessMode } : {}),
     ...(harnessListener ? { harnessListener } : {}),
+    ...(sandboxes ? { sandboxes } : {}),
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
@@ -664,8 +707,28 @@ function parseHarnessToken(env: EnvSnapshot, why: string): string {
   return token;
 }
 
-/** `StackConfig.harnessListener` from `NYLORUN_HARNESS_LISTEN_*` and `NYLORUN_HARNESS_TOKEN`. */
-function parseHarnessListener(env: EnvSnapshot): HarnessListenConfig {
+/** `StackConfig.sandboxes` from `NYLORUN_SANDBOXES_*`, or undefined without a URL. */
+function parseSandboxes(env: EnvSnapshot): SandboxesConfig | undefined {
+  const url = parseUrl(env, "NYLORUN_SANDBOXES_URL", ["http:", "https:"]);
+  if (url === undefined) return undefined;
+  const token = read(env, "NYLORUN_SANDBOXES_TOKEN");
+  if (token === undefined || token.length < 32)
+    throw new StackConfigError(
+      "NYLORUN_SANDBOXES_TOKEN (at least 32 characters) is required with NYLORUN_SANDBOXES_URL (`nylorun sandbox enable` sets both)",
+    );
+  const harnessImage = read(env, "NYLORUN_SANDBOX_HARNESS_IMAGE");
+  if (harnessImage === undefined || /\s/.test(harnessImage))
+    throw new StackConfigError(
+      "NYLORUN_SANDBOX_HARNESS_IMAGE is required with NYLORUN_SANDBOXES_URL: the Runtime image sandbox pods copy the engine from (`nylorun start` sets it)",
+    );
+  return { url: url.replace(/\/+$/, ""), token, harnessImage };
+}
+
+/**
+ * `StackConfig.harnessListener` from `NYLORUN_HARNESS_LISTEN_*` and `NYLORUN_HARNESS_TOKEN`
+ * (required with `NYLORUN_HARNESS=remote`; optional when only sandbox pods connect).
+ */
+function parseHarnessListener(env: EnvSnapshot, tokenRequired = true): HarnessListenConfig {
   const host = read(env, "NYLORUN_HARNESS_LISTEN_HOST") ?? DEFAULT_CONTAINER_LISTEN_HOST;
   if (/\s|\//.test(host))
     throw new StackConfigError(`NYLORUN_HARNESS_LISTEN_HOST is not an address: ${host}`);
@@ -687,9 +750,13 @@ function parseHarnessListener(env: EnvSnapshot): HarnessListenConfig {
     throw new StackConfigError(
       `NYLORUN_HARNESS_ALLOWED_HOSTS is required when NYLORUN_HARNESS_LISTEN_HOST is ${host}: list the Host headers harnesses send, e.g. runtime:${port}`,
     );
+  const token =
+    tokenRequired || read(env, "NYLORUN_HARNESS_TOKEN") !== undefined
+      ? parseHarnessToken(env, "with NYLORUN_HARNESS=remote: the credential harnesses present")
+      : undefined;
   return {
     listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
-    token: parseHarnessToken(env, "with NYLORUN_HARNESS=remote: the credential harnesses present"),
+    ...(token ? { token } : {}),
   };
 }
 
@@ -708,7 +775,8 @@ function parseHarnessService(env: EnvSnapshot): HarnessServiceConfig {
     throw new StackConfigError(
       `--service harness refuses to start with ${held.join(", ")} set: a harness reaches no database, no gate or keys credential and no Restate`,
     );
-  const url = parseUrl(env, "NYLORUN_HARNESS_URL", ["ws:", "wss:"]);
+  const pod = read(env, "NYLORUN_SANDBOX_KIND") === "pod";
+  const url = parseUrl(env, "NYLORUN_HARNESS_URL", pod ? ["http:", "https:", "ws:", "wss:"] : ["ws:", "wss:"]);
   if (url === undefined)
     throw new StackConfigError(
       "NYLORUN_HARNESS_URL is required for --service harness: core's Harness API, e.g. ws://runtime:4200/nylorun/harness/v1",
@@ -722,15 +790,49 @@ function parseHarnessService(env: EnvSnapshot): HarnessServiceConfig {
   if (!root.startsWith("/"))
     throw new StackConfigError(`NYLORUN_HARNESS_ROOT must be an absolute path, not ${root}`);
   const rawHealth = read(env, "NYLORUN_HARNESS_HEALTH_PORT");
+  const podHost = pod ? parsePodHost(env, url) : undefined;
   return {
-    url,
-    token: parseHarnessToken(env, "for --service harness: the credential core's Harness API accepts"),
+    url: podHost ? podHost.wsUrl : url,
+    ...(podHost
+      ? { pod: podHost.config }
+      : { token: parseHarnessToken(env, "for --service harness: the credential core's Harness API accepts") }),
     gatesUrl: gatesUrl.replace(/\/+$/, ""),
     root,
     healthPort:
       rawHealth === undefined
         ? DEFAULT_HARNESS_HEALTH_PORT
         : parsePort("NYLORUN_HARNESS_HEALTH_PORT", rawHealth),
+  };
+}
+
+/**
+ * The engine in a pod sandbox: the pod's identity and its join file, from the variables the
+ * sandboxes service renders into the pod. `NYLORUN_HARNESS_URL` is the listener's address on the
+ * Docker host (`http://<host>:<port>`); the WebSocket URL adds the Harness API path.
+ */
+function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; wsUrl: string } {
+  const need = (name: string) => {
+    const value = read(env, name);
+    if (value === undefined)
+      throw new StackConfigError(`${name} is required for the engine in a sandbox pod (NYLORUN_SANDBOX_KIND=pod)`);
+    return value;
+  };
+  if (read(env, "NYLORUN_HARNESS_TOKEN") !== undefined)
+    throw new StackConfigError("A sandbox pod's engine holds no NYLORUN_HARNESS_TOKEN: it joins with its join token");
+  const base = new URL(url);
+  const secure = base.protocol === "https:" || base.protocol === "wss:";
+  const origin = `${secure ? "https" : "http"}://${base.host}`;
+  const egress = read(env, "NYLORUN_EGRESS_PROXY");
+  return {
+    wsUrl: `${secure ? "wss" : "ws"}://${base.host}/nylorun/harness/v1`,
+    config: {
+      sandboxId: need("NYLORUN_SANDBOX_ID"),
+      podUid: need("NYLORUN_POD_UID"),
+      joinFile: need("NYLORUN_SANDBOX_JOIN_FILE"),
+      httpUrl: origin,
+      ...(egress ? { egressProxy: egress.replace(/\/+$/, "") } : {}),
+      blocked: blockedAddresses(env),
+    },
   };
 }
 

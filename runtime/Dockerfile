@@ -12,6 +12,10 @@
 # `user: "${NYLORUN_UID}:${NYLORUN_GID}"` so files the Runtime writes into the
 # bind-mounted Host root belong to the developer. Node and npx stay in the
 # image for stdio MCP servers.
+#
+# tini is installed for sandbox pods (F7.2): they copy /usr/bin/tini-static, node
+# and /app from this image into the pod and run the engine under it as PID 1
+# (`tini -g -- node ... --service harness`), so any glibc workload image can host it.
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 
@@ -61,6 +65,10 @@ ENV NODE_ENV=production \
     NYLORUN_HOME=/nylorun \
     NYLORUN_LISTEN_HOST=0.0.0.0 \
     NYLORUN_LISTEN_PORT=4000
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tini \
+ && rm -rf /var/lib/apt/lists/* \
+ && test -x /usr/bin/tini-static
 WORKDIR /app
 COPY --from=deps /app/package.json ./
 COPY --from=deps /app/node_modules node_modules

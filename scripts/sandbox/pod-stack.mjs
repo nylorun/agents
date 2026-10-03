@@ -20,8 +20,13 @@ export const EGRESS_TOKEN_AUD = "nylorun-egress";
 /** `runtime/src/tenant/run-token.ts`. */
 export const RUN_TOKEN_TYP = "nylorun-run+jwt";
 export const RUN_TOKEN_AUD = "nylorun-gates";
-/** The host token core mints at join (D42, S7). */
+/** `runtime/src/tenant/host-token.ts`: the host token core mints at join (D42). */
 export const HOST_TOKEN_TYP = "nylorun-host+jwt";
+export const HOST_TOKEN_AUD = "nylorun-harness-api";
+/** `runtime/src/harness-api/ws-server.ts`: where a pod's engine exchanges its join token. */
+export const HOST_JOIN_PATH = "/nylorun/harness/v1/host/join";
+/** Where the join Secret is mounted in a sandbox pod (`sandboxes/internal/driver`). */
+export const JOIN_TOKEN_FILE = "/run/nylorun/join/token";
 
 export const PROBE_IMAGE = "busybox:1.37.0";
 /** In the Tenant's default network ceiling, so a pod spec may allow it. */
@@ -93,31 +98,36 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
       assert.ok(host && ports.harness && ports.gates && ports.egress, "enable records the host address and pod-facing ports");
       const tenant = await stack.tenant();
 
-      step(`create pod sandbox sbx_net (network.allow ${ALLOWED_HOST})`);
-      const sandboxId = "sbx_net";
-      const put = await fetch(`${stack.runtimeUrl}/v1/sandboxes/${sandboxId}`, {
+      step(`create pod sandbox net/one (network.allow ${ALLOWED_HOST})`);
+      const sandboxId = "net/one";
+      const sandboxPath = `/v1/sandboxes/${encodeURIComponent(sandboxId)}`;
+      const put = await fetch(`${stack.runtimeUrl}${sandboxPath}`, {
         method: "PUT",
-        headers: { ...runtimeHeaders(tenant.key), "content-type": "application/json" },
+        headers: runtimeHeaders(tenant.key, { "content-type": "application/json" }),
         body: JSON.stringify({ kind: "pod", network: { allow: [ALLOWED_HOST] } }),
       });
-      assert.ok(put.ok, `PUT /v1/sandboxes/${sandboxId}: ${put.status} ${await put.text()}`);
+      assert.ok(put.ok, `PUT ${sandboxPath}: ${put.status} ${await put.text()}`);
 
-      step("wait for the sandbox pod to run and join");
-      let sandboxPod;
-      let epoch = 0;
-      for (let attempt = 0; attempt < 180 && !(sandboxPod && epoch > 0); attempt += 1) {
-        const pods = JSON.parse(await kubectl(["get", "pods", "-n", namespace, "-l", "nylorun.dev/role=sandbox", "-o", "json"]));
-        sandboxPod = pods.items.find((pod) =>
-          pod.status?.conditions?.some((condition) => condition.type === "Ready" && condition.status === "True"),
-        );
-        if (sandboxPod)
-          epoch = Number(
-            await stack.psql(`SELECT host_epoch FROM nylorun.sandbox_resources WHERE id = '${sandboxId}'`),
-          );
-        if (!(sandboxPod && epoch > 0)) await sleep(2000);
+      step("wait for the sandbox pod to run and its engine to join");
+      // The row the join wrote: the pod that joined and the host epoch its tokens carry.
+      const joinedRow = async () => {
+        const [k8sName = "", podUid = "", hostEpoch = "0", observed = ""] = (
+          await stack.psql(
+            `SELECT k8s_name, coalesce(pod_uid, ''), host_epoch, observed FROM nylorun.sandbox_resources WHERE id = '${sandboxId}'`,
+          )
+        ).split("|");
+        return { k8sName, podUid, epoch: Number(hostEpoch), observed };
+      };
+      let row = await joinedRow();
+      for (let attempt = 0; attempt < 210 && !(row.epoch > 0 && row.podUid && row.observed === "running"); attempt += 1) {
+        await sleep(2000);
+        row = await joinedRow();
       }
-      assert.ok(sandboxPod, "the sandbox pod becomes Ready");
-      assert.ok(epoch > 0, "the pod's harness joined (host epoch above 0)");
+      assert.ok(row.epoch > 0 && row.podUid, `the pod's engine joins (${JSON.stringify(row)})`);
+      const { epoch, podUid } = row;
+      const pods = JSON.parse(await kubectl(["get", "pods", "-n", namespace, "-l", `nylorun.dev/sandbox=${row.k8sName}`, "-o", "json"]));
+      const sandboxPod = pods.items.find((pod) => pod.metadata.uid === podUid && !pod.metadata.deletionTimestamp);
+      assert.ok(sandboxPod, "the pod that joined is the Sandbox's pod");
 
       step(`probe pods in ${namespace}`);
       const idle = ["sh", "-c", "trap 'exit 0' TERM; while :; do sleep 1; done"];
@@ -125,6 +135,10 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
       await kubectl(["run", "nylorun-peer", "-n", namespace, "--image", PROBE_IMAGE, "--restart=Never", "--labels", "nylorun.dev/role=probe", "--command", "--", "httpd", "-f", "-p", "8080"]);
       await kubectl(["wait", "-n", namespace, "--for=condition=Ready", "pod/nylorun-probe", "pod/nylorun-peer", "--timeout=120s"], { timeout: 150_000 });
       const peerIp = (await kubectl(["get", "pod", "nylorun-peer", "-n", namespace, "-o", "jsonpath={.status.podIP}"])).trim();
+      const probeUid = (await kubectl(["get", "pod", "nylorun-probe", "-n", namespace, "-o", "jsonpath={.metadata.uid}"])).trim();
+      /** A shell command in the sandbox pod's workload container. */
+      const inSandbox = (command) =>
+        kubectl(["exec", "-n", namespace, sandboxPod.metadata.name, "-c", "workload", "--", "sh", "-c", command], { timeout: 60_000 });
 
       /** A shell command in the probe pod; `undefined` when it exits non-zero. */
       const sh = (command) =>
@@ -167,7 +181,6 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
       };
       const iat = () => Math.floor(Date.now() / 1000);
       const issuer = subjectTokenIssuer(tenant.id);
-      const podUid = sandboxPod.metadata.uid;
       /** An egress token as core mints it at join (`mintEgressToken`), with `overrides`. */
       const egressToken = (overrides = {}) =>
         sign(EGRESS_TOKEN_TYP, {
@@ -190,6 +203,8 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
         sandboxId,
         sandboxPod,
         podUid,
+        probeUid,
+        inSandbox,
         epoch,
         host,
         ports,

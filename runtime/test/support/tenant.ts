@@ -89,6 +89,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
    */
   harness?: TenantOpenHooks["harness"];
   harnessTap?: TenantOpenHooks["harnessTap"];
+  /** Sandbox pods (F7.2): the sandboxes service, e.g. `test/support/fake-sandboxes.ts`. */
+  pods?: TenantOpenHooks["pods"];
   /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
   wrapBlobs?: (blobs: BlobStore) => BlobStore;
 };
@@ -238,6 +240,7 @@ export async function startTestTenant(
     ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
     harness: options.harness ?? testHarnessMode(),
     ...(options.harnessTap ? { harnessTap: options.harnessTap } : {}),
+    ...(options.pods ? { pods: options.pods } : {}),
     ...(options.wrapBlobs
       ? { blobs: options.wrapBlobs(createFsBlobStore({ root: paths.blobs })) }
       : {}),

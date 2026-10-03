@@ -526,6 +526,65 @@ describe("--service harness", () => {
   });
 });
 
+describe("sandbox pods (F7.2)", () => {
+  const pod = {
+    NYLORUN_SANDBOX_KIND: "pod",
+    NYLORUN_HARNESS_URL: "http://192.168.65.254:47321",
+    NYLORUN_GATES_URL: "http://192.168.65.254:47322",
+    NYLORUN_EGRESS_PROXY: "http://192.168.65.254:47323",
+    NYLORUN_SANDBOX_ID: "team/a",
+    NYLORUN_POD_UID: "9b2f6c1e-0000-4000-8000-000000000001",
+    NYLORUN_SANDBOX_JOIN_FILE: "/run/nylorun/join/token",
+  };
+
+  it("runs a pod's engine without a harness token: it joins with its join file", () => {
+    expect(parseStackConfig(pod, ["--service", "harness"]).harness).toEqual({
+      url: "ws://192.168.65.254:47321/nylorun/harness/v1",
+      pod: {
+        sandboxId: "team/a",
+        podUid: pod.NYLORUN_POD_UID,
+        joinFile: "/run/nylorun/join/token",
+        httpUrl: "http://192.168.65.254:47321",
+        egressProxy: "http://192.168.65.254:47323",
+        blocked: [{ host: "10.96.0.1", port: 443 }],
+      },
+      gatesUrl: "http://192.168.65.254:47322",
+      root: "/harness",
+      healthPort: 4300,
+    });
+    expect(() =>
+      parseStackConfig({ ...pod, NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN }, ["--service", "harness"]),
+    ).toThrow(/holds no NYLORUN_HARNESS_TOKEN/);
+    const { NYLORUN_POD_UID: _uid, ...missing } = pod;
+    expect(() => parseStackConfig(missing, ["--service", "harness"])).toThrow(/NYLORUN_POD_UID is required/);
+  });
+
+  it("starts the Harness API listener for pods, with or without a harness token", () => {
+    const stack = parseStackConfig(
+      {
+        NYLORUN_SANDBOXES_URL: "http://sandboxes:4300",
+        NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32),
+        NYLORUN_SANDBOX_HARNESS_IMAGE: "ghcr.io/nylorun/runtime:0.15.2",
+        NYLORUN_HARNESS_LISTEN_HOST: "0.0.0.0",
+        NYLORUN_HARNESS_LISTEN_PORT: "4200",
+        NYLORUN_HARNESS_ALLOWED_HOSTS: "192.168.65.254:47321",
+      },
+      [],
+    );
+    expect(stack.sandboxes).toEqual({
+      url: "http://sandboxes:4300",
+      token: "ef".repeat(32),
+      harnessImage: "ghcr.io/nylorun/runtime:0.15.2",
+    });
+    expect(stack.harnessMode).toBeUndefined();
+    expect(stack.harnessListener?.token).toBeUndefined();
+    expect(stack.harnessListener?.listen.allowedHosts).toContain("192.168.65.254:47321");
+    expect(() =>
+      parseStackConfig({ NYLORUN_SANDBOXES_URL: "http://sandboxes:4300", NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32) }, []),
+    ).toThrow(/NYLORUN_SANDBOX_HARNESS_IMAGE is required/);
+  });
+});
+
 describe("NYLORUN_ADMIN_LISTEN_*", () => {
   const base = {
     NYLORUN_LISTEN_HOST: "0.0.0.0",
