@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import { CliError } from "../errors.js";
+import type { DockerRunner } from "./docker.js";
 
 /**
  * The machine's local Tenants (tenancy.md §6): one installation per Tenant, each with its own
@@ -176,4 +177,25 @@ export async function moveStackRoots(base: string, err: (line: string) => void):
       path.startsWith(homedir() + sep) ? `~${path.slice(homedir().length)}` : path;
     err(`Moved Tenants ${moved.join(", ")} from ${tilde(stacks)} to ${tilde(tenantsDir(base))}.`);
   }
+}
+
+/**
+ * Remove the Studio proxy of nylorun 0.6 (a Caddy container `nylorun-proxy` on its own network,
+ * files in `~/.nylorun/proxy/`). Removing the container also detaches it from the Tenants'
+ * networks, so their `docker compose down` works again. The directory goes last, once Docker
+ * removed both (or never had them), so a Docker that does not answer is retried next time.
+ */
+export async function removeOldProxy(
+  docker: DockerRunner,
+  base: string,
+  err: (line: string) => void,
+): Promise<void> {
+  const dir = join(base, "proxy");
+  if (!existsSync(dir)) return;
+  const container = await docker.run(["rm", "--force", "nylorun-proxy"]);
+  if (container.code !== 0 && !/no such container/i.test(container.stderr)) return;
+  const network = await docker.run(["network", "rm", "nylorun-proxy"]);
+  if (network.code !== 0 && !/not found|no such network/i.test(network.stderr)) return;
+  await rm(dir, { recursive: true, force: true });
+  err("Removed the Studio proxy of nylorun 0.6 (nylorun-proxy); each Studio is on its own localhost port again (\"nylorun studio\" opens it).");
 }

@@ -38,10 +38,6 @@ NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'
 # it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.
 NYLORUN_STUDIO_ANALYTICS_ID=G-K6RPDFH6Q6
 
-# Studio's address through the proxy (http://<name>.localhost:<port>); empty
-# without the proxy. Set on every start.
-NYLORUN_STUDIO_PUBLIC_ORIGINS=http://shop.localhost:4160
-
 # The Tenant's name, which the Runtime gives the Tenant it creates on the first
 # start, and the derived principals it registers on that Tenant (keys derived
 # from the admin key; \`project\` is the Project link's).
@@ -85,9 +81,6 @@ services:
     command: ["--node-name=restate-1"] # stable name, so data is found on restart
     environment:
       RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
-      # RocksDB's memory (block cache and memtables) defaults to 2 GiB; a local Tenant needs a
-      # fraction of it, and several Tenants share a laptop.
-      RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE: 256MiB
     volumes:
       - restate:/restate-data
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
@@ -222,10 +215,8 @@ services:
       NYLORUN_RUNTIME_URL: http://runtime:4001 # the operator listener: Admin and Tenant API
       NYLORUN_ADMIN_KEY_FILE: /run/nylorun/host-credentials.json
       PORT: "3000"
-      # Studio's Host check accepts localhost/127.0.0.1 on the published port, and the
-      # proxy's origin (http://<name>.localhost:<port>), kept in .env.
+      # Studio's Host check accepts localhost/127.0.0.1 on the published port.
       NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
-      NYLORUN_STUDIO_PUBLIC_ORIGINS: \${NYLORUN_STUDIO_PUBLIC_ORIGINS:-}
       # Browsers share cookies across ports of one host: a cookie per Tenant keeps the
       # sessions of two Studios on localhost apart.
       NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_shop

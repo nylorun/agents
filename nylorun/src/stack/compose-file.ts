@@ -8,7 +8,7 @@ import { PINNED_IMAGES } from "./images.js";
  * every one is `<project>-<role>` (`nylorun-shop-studio`, network `nylorun-shop`, volume
  * `nylorun-shop-postgres`), labelled `dev.nylorun.tenant: <name>`; they are written here, from
  * the project and the Tenant's name. Everything else that varies (ports, the Postgres password,
- * UID/GID, the Host root, the images, Studio's public origins) comes from `docker/.env`.
+ * UID/GID, the Host root, the images) comes from `docker/.env`.
  *
  * The Tenant's state is its Postgres database, executed through Restate, with its
  * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
@@ -73,9 +73,6 @@ services:
     command: ["--node-name=restate-1"] # stable name, so data is found on restart
     environment:
       RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
-      # RocksDB's memory (block cache and memtables) defaults to 2 GiB; a local Tenant needs a
-      # fraction of it, and several Tenants share a laptop.
-      RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE: 256MiB
     volumes:
       - restate:/restate-data
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
@@ -210,10 +207,8 @@ services:
       NYLORUN_RUNTIME_URL: http://runtime:4001 # the operator listener: Admin and Tenant API
       NYLORUN_ADMIN_KEY_FILE: /run/nylorun/host-credentials.json
       PORT: "3000"
-      # Studio's Host check accepts localhost/127.0.0.1 on the published port, and the
-      # proxy's origin (http://<name>.localhost:<port>), kept in .env.
+      # Studio's Host check accepts localhost/127.0.0.1 on the published port.
       NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
-      NYLORUN_STUDIO_PUBLIC_ORIGINS: \${NYLORUN_STUDIO_PUBLIC_ORIGINS:-}
       # Browsers share cookies across ports of one host: a cookie per Tenant keeps the
       # sessions of two Studios on localhost apart.
       NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_${name}

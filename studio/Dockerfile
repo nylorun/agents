@@ -8,7 +8,6 @@
 #   NYLORUN_ADMIN_KEY_FILE         host-credentials.json, mounted read-only (required)
 #   PORT                           listen port, default 3000
 #   NYLORUN_STUDIO_PUBLIC_PORT     published loopback port the browser uses
-#   NYLORUN_STUDIO_PUBLIC_ORIGINS  more exact http origins Studio serves
 #   NYLORUN_STUDIO_SESSION_COOKIE  session cookie name, default nylorun_studio_session
 #
 # No HEALTHCHECK: Compose orders services with depends_on. GET /healthz answers

@@ -5,7 +5,6 @@
 export {
   DEFAULT_SESSION_COOKIE,
   parseAnalyticsId,
-  parsePublicOrigins,
   parseRuntimeUrl,
   parseSessionCookieName,
   readAdminKeyFile,

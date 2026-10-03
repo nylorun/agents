@@ -14,9 +14,9 @@
  * - Every `/_studio/*` request needs a session, cookie or bearer, except the
  *   two that create one. The dashboard's static files carry no data and are
  *   served without one; only `frameAncestors` may frame them.
- * - `Host` must be a served origin's: the published loopback address, or one
- *   of `publicOrigins` (DNS rebinding); requests that change state must carry
- *   the request's own `Origin`; no CORS headers.
+ * - `Host` must be the published loopback address, `localhost` or
+ *   `127.0.0.1` (DNS rebinding); requests that change state must carry the
+ *   request's own `Origin`; no CORS headers.
  * - Studio serves its installation's one Tenant, which it learns from the
  *   Admin API (`admin.status().tenant`): `/` redirects to `/tenants/<id>`, and
  *   a route or login token naming another Tenant is refused. Tenant API calls
@@ -80,13 +80,6 @@ export type StudioServerOptions = Readonly<{
   host?: string;
   /** Port the browser uses (Docker's published port). Default: the bound port. */
   publicPort?: number;
-  /**
-   * Exact `http:` origins Studio also serves, beside `localhost` and
-   * `127.0.0.1` on `publicPort` (`NYLORUN_STUDIO_PUBLIC_ORIGINS`, validated
-   * with `parsePublicOrigins`), e.g. `nylorun`'s proxy
-   * `http://shop.localhost:4160`. Default: none.
-   */
-  publicOrigins?: readonly string[];
   /**
    * The session cookie's name (`NYLORUN_STUDIO_SESSION_COOKIE`, validated with
    * `parseSessionCookieName`). Default `DEFAULT_SESSION_COOKIE`.
@@ -161,32 +154,6 @@ export function parseSessionCookieName(value: string): string {
   if (!COOKIE_NAME.test(name))
     throw new Error(`${name} is not a cookie name: use letters, digits, _ and -.`);
   return name;
-}
-
-/**
- * Validates `NYLORUN_STUDIO_PUBLIC_ORIGINS`: exact `http:` origins separated by
- * spaces, such as `http://shop.localhost:4160`; no wildcards or paths.
- */
-export function parsePublicOrigins(value: string): string[] {
-  const entries = value.split(/\s+/u).filter((entry) => entry !== "");
-  for (const entry of entries) {
-    let url: URL | undefined;
-    try {
-      url = new URL(entry);
-    } catch {
-      url = undefined;
-    }
-    if (
-      url === undefined ||
-      url.protocol !== "http:" ||
-      entry.includes("*") ||
-      url.origin !== entry
-    )
-      throw new Error(
-        `${entry} is not an exact http origin. Use origins such as http://shop.localhost:4160, with no wildcards or paths.`,
-      );
-  }
-  return [...new Set(entries)];
 }
 
 /** Validates `NYLORUN_RUNTIME_URL`: absolute http(s), no credentials, query or fragment. */
@@ -481,7 +448,6 @@ export async function startStudioServer(
   const frameAncestors = [...(options.frameAncestors ?? [])];
   const analyticsId = parseAnalyticsId(options.analyticsId ?? "");
   const sessionCookie = parseSessionCookieName(options.sessionCookie ?? "");
-  const publicOrigins = parsePublicOrigins((options.publicOrigins ?? []).join(" "));
   const dashboard = {
     frameAncestors: frameAncestorSources(frameAncestors),
     transformIndex: (html: string) => injectIndexMeta(html, frameAncestors, analyticsId),
@@ -508,8 +474,6 @@ export async function startStudioServer(
   let boundPort = 0;
   let publicPort = 0;
   let publicHosts: ReadonlySet<string> = new Set();
-  /** The origins `publicHosts` stands for, for the 421 answer. */
-  let servedOrigins = "";
 
   const studioKey = (tenantId: string): string => {
     if (studioKeyMemo?.tenantId !== tenantId)
@@ -760,10 +724,10 @@ export async function startStudioServer(
       return fail(
         response,
         421,
-        `Studio only serves ${servedOrigins}.`,
+        `Studio only serves http://localhost:${publicPort} and http://127.0.0.1:${publicPort}.`,
       );
     }
-    // A served origin: `host` passed the check above.
+    // `localhost` or `127.0.0.1`, as the request named it: the login URL opens there.
     const origin = `http://${host}`;
 
     if (!SAFE_METHODS.has(method)) {
@@ -925,15 +889,7 @@ export async function startStudioServer(
   }
   boundPort = address.port;
   publicPort = options.publicPort ?? boundPort;
-  const served = [
-    ...new Set([
-      `http://localhost:${publicPort}`,
-      `http://127.0.0.1:${publicPort}`,
-      ...publicOrigins,
-    ]),
-  ];
-  publicHosts = new Set(served.map((origin) => new URL(origin).host));
-  servedOrigins = `${served.slice(0, -1).join(", ")} and ${served.at(-1)!}`;
+  publicHosts = new Set([`localhost:${publicPort}`, `127.0.0.1:${publicPort}`]);
 
   return Object.freeze({
     port: boundPort,

@@ -30,7 +30,6 @@ const env: StackEnv = {
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
   studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
   studioAnalyticsId: "G-K6RPDFH6Q6",
-  studioPublicOrigins: "http://shop.localhost:4160",
   tenantName: "shop",
   derivedPrincipals: "project,babai",
 };
@@ -161,14 +160,13 @@ describe("compose.yaml", () => {
       expect(compose).toContain(`  ${volume}: { name: nylorun-shop-${volume}, labels: *tenant }\n`);
   });
 
-  it("caps Restate's RocksDB memory", () => {
-    expect(compose).toContain("RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE: 256MiB\n");
+  it("leaves Restate's memory settings at Restate's defaults", () => {
+    expect(compose).not.toContain("RESTATE_ROCKSDB");
   });
 
-  it("gives Studio a session cookie of its own and the proxy's origin from .env", () => {
+  it("gives Studio a session cookie of its own", () => {
     const studio = compose.slice(compose.indexOf("  studio:"));
     expect(studio).toContain("NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_shop\n");
-    expect(studio).toContain("NYLORUN_STUDIO_PUBLIC_ORIGINS: ${NYLORUN_STUDIO_PUBLIC_ORIGINS:-}\n");
   });
 
   it("mounts the Restate identity key read-only into Restate and gives the Runtime its public key", () => {

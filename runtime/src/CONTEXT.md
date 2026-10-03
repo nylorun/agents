@@ -46,10 +46,8 @@ Compose project `nylorun-<name>`, its Host root `~/.nylorun/tenants/<name>/` (wi
 containers, network and volumes are named `nylorun-<name>-<role>` (`nylorun-shop-studio`,
 volume `nylorun-shop-postgres`, network `nylorun-shop`) and labelled
 `dev.nylorun.tenant: <name>`. Its Runtime creates the Tenant and its id on first
-start. Local Tenants start and stop only when the developer says so. One piece is shared
-by the machine's local Tenants: the Studio proxy (`nylorun-proxy`), which gives each
-Tenant's Studio the browser address `http://<name>.localhost:<port>` and holds no Tenant
-data.
+start. Local Tenants start and stop only when the developer says so. Each Tenant's Studio
+is on its own port, `http://localhost:<port>`, with its own session cookie.
 `@nylorun/runtime` is a library with no bin; the Runtime runs as the
 `ghcr.io/nylorun/runtime` image.
 _Avoid_: stack; "native Host", or installing `@nylorun/runtime` globally.

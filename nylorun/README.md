@@ -36,7 +36,7 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the Tenan
 ```sh
 nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
                                    # create (first run) and start the Tenant; link the project; print the URLs; open Studio signed in
-nylorun down|stop [--tenant <name> | --all]   # stop the containers (--all: every Tenant's, and the Studio proxy); keep volumes
+nylorun down|stop [--tenant <name> | --all]   # stop the containers (--all: every Tenant's); keep volumes
 nylorun status [--tenant <name>] [--json]   # the Tenant, its Host root and id, services, endpoints, Runtime health
 nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, gateway, runtime, studio
 nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on the Tenant; starts it if needed
@@ -82,29 +82,29 @@ projects and volumes.
 
 Tenants run side by side, each on its own ports, containers, network and
 volumes ([The containers](#the-containers)); a running Tenant uses about
-600–700 MB. Each Studio has its own address through the
-[Studio proxy](#the-studio-proxy), `http://<name>.localhost:4160`. `nylorun ls`
+1.2 GB. Each Studio is on its own port, `http://localhost:<port>`, with its own
+session cookie, so two Studios in one browser stay signed in;
+`nylorun studio --tenant <name>` opens any Tenant's Studio signed in. `nylorun ls`
 lists them with their state, the memory their containers use (`MEMORY`: the sum
 of `docker stats` over the containers labelled `dev.nylorun.tenant=<name>`, `-`
 when stopped; `memoryBytes` in `--json`, `null` when stopped or unknown), the
 Runtime's URL and Studio's:
 
 ```text
-TENANT   STATE    MEMORY  RUNTIME                STUDIO                         PROJECT
-api      running  652 MB  http://localhost:8790  http://api.localhost:4160      /Users/me/api
-default  stopped  -       http://localhost:8787  http://default.localhost:4160  -
+TENANT   STATE    MEMORY  RUNTIME                STUDIO                 PROJECT
+api      running  1.2 GB  http://localhost:8790  http://localhost:4162  /Users/me/api
+default  stopped  -       http://localhost:8787  http://localhost:4161  -
 ```
 
 When other Tenants are running, `start` says so after its summary, on stderr
 (without the size when Docker does not report it):
 
 ```text
-Also running: default, api (about 1.3 GB). "nylorun stop --all" stops them all.
+Also running: default, api (about 2.4 GB). "nylorun stop --all" stops them all.
 ```
 
-`nylorun stop --all` stops every running Tenant on this machine and the Studio
-proxy, keeping their volumes; it cannot be combined with `--tenant` (exit 2).
-`stop` of one Tenant leaves the proxy running.
+`nylorun stop --all` stops every running Tenant on this machine, keeping their
+volumes; it cannot be combined with `--tenant` (exit 2).
 
 A Tenant created by nylorun 0.5 keeps its data in volumes Compose named
 `<project>_postgres`, `<project>_restate`, `<project>_s2` and
@@ -167,67 +167,31 @@ project, and each has the label `dev.nylorun.tenant: <name>`. For Tenant `shop`:
 | Network | `nylorun-shop` |
 | Volumes | `nylorun-shop-postgres`, `nylorun-shop-restate`, `nylorun-shop-s2-lite`, `nylorun-shop-workspaces` |
 
-Postgres initialises the Tenant's database with C collation. Restate's RocksDB
-memory is capped at 256 MiB (`RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE`; Restate's
-default is 2 GiB), so several Tenants fit on a laptop: a Tenant uses about
-600–700 MB, down from about 1.3 GB. The Runtime and Studio images are pinned by
+Postgres initialises the Tenant's database with C collation. Restate runs with
+its own defaults. A running Tenant uses about 1.2 GB, most of it Restate; stop
+the Tenants you are not using (`nylorun stop`, or `nylorun stop --all`). The Runtime and Studio images are pinned by
 this release (`package.json` `nylorun.runtime` and `nylorun.studio`);
 `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them (local builds,
 CI). Ports publish on loopback only: the Runtime on `8787`, its operator
 listener (Admin API) on `8788`, Studio on `4161` and the Restate UI on `9070`,
 or free ports chosen on the Tenant's first start, avoiding the ports other
-Tenants and the Studio proxy keep, and kept in its `.env`.
+Tenants keep, and kept in its `.env`.
 
-`start`, `ls` and `nylorun studio` give Studio as `http://<name>.localhost:4160`,
-its address through the Studio proxy (below); `status` adds Studio's own
-`http://localhost:<port>` (`--json` has both: `studio.url` is Studio's own port,
-which an embedding app frames, and `studio.proxyUrl` the proxy's). Studio has no
+`start`, `status`, `ls` and `nylorun studio` give Studio as
+`http://localhost:<port>` (`studio.url` in `status --json`). Studio has no
 password: in a terminal (not in CI, and not with `--no-open`), `start` asks the
 Studio container for a single-use login token with the admin key (`POST
-/_studio/login-tokens`, through the proxy; on Studio's own port, saying so,
-when the proxy does not answer) and opens `…/login?token=…` on the Tenant's
-page in the browser. That sets a session cookie for 30 days, which survives
-Studio restarts, so the printed URL keeps working in that browser. The token
-itself is never printed unless no browser starts. Otherwise `start` says to run
-`nylorun studio`, which signs a browser in the same way; `nylorun studio
+/_studio/login-tokens`) and opens `http://localhost:<port>/login?token=…` on the
+Tenant's page in the browser. That sets a session cookie for 30 days, which
+survives Studio restarts, so the printed URL keeps working in that browser. The
+token itself is never printed unless no browser starts. Otherwise `start` says
+to run `nylorun studio`, which signs a browser in the same way; `nylorun studio
 --no-open` prints the login URL (it works once, for two minutes) instead.
 
-Each Tenant's Studio sets its own session cookie, `nylorun_studio_<name>`
-(`NYLORUN_STUDIO_SESSION_COOKIE`).
-
-### The Studio proxy
-
-One small Caddy container per machine (`nylorun-proxy`, Compose project
-`nylorun-proxy`, label `dev.nylorun.proxy: "true"`) gives every Tenant's Studio
-the address `http://<name>.localhost:<port>`. Browsers keep cookies per host,
-not per port, so separate hosts keep the Studios' sessions apart. The proxy is
-for browsers only: programs keep using the Runtime's `http://localhost:<port>`.
-It holds no Tenant data; its files are in `~/.nylorun/proxy/` (`compose.yaml`,
-`Caddyfile`, and `.env` with `NYLORUN_PROXY_PORT`, 4160 or a free port chosen
-on its first start and kept; Caddy's own state is tmpfs). Its image is pinned
-by this release (`caddy:2.11.6`).
-
-- Caddy listens on port 80 in the container, published at `NYLORUN_PROXY_PORT`
-  on `127.0.0.1` and `[::1]` (macOS resolves `*.localhost` to `::1` only); when
-  Docker refuses `::1` (IPv6 off), it publishes on `127.0.0.1` alone and says
-  so once.
-- It routes every Tenant under `~/.nylorun/tenants/`: it joins each Tenant's
-  network and reaches `<project>-studio:3000`, passing the browser's `Host`
-  through, which Studio checks. A stopped Tenant answers 502 naming
-  `nylorun start --tenant <name>`; an unknown host 404 naming `nylorun ls`.
-- `start` rewrites its files, brings it up (only when Studio starts: not with
-  `--no-studio`), joins every Tenant's network and reloads Caddy; Studio learns
-  its proxy origin from `NYLORUN_STUDIO_PUBLIC_ORIGINS`, written to the
-  Tenant's `.env` on every start. A proxy that does not come up never fails
-  `start`: it warns once and prints Studio's own URL.
-- `reset` and `delete` detach it from the Tenant's network first; `delete`
-  removes the Tenant's route. `stop --all` stops it.
-- `NYLORUN_PROXY_DISABLED=1` turns it off: Studio is `http://localhost:<port>`.
-  A Tenant under `NYLORUN_HOME` or `NYLORUN_COMPOSE_PROJECT` (the repository's
-  smokes) does not use it either.
-
-`nylorun doctor` reports it on a `proxy` row: running (on which loopbacks and
-port), stopped, not created yet, or disabled.
+Browsers share cookies across the ports of one host, so each Tenant's Studio
+sets its own session cookie, `nylorun_studio_<name>`
+(`NYLORUN_STUDIO_SESSION_COOKIE`): signing in to one Studio does not sign you
+out of another.
 
 ### Embedding Studio in a desktop app
 
@@ -308,7 +272,7 @@ containers, volumes and Host root: the vault key (KEK) and all its data go with 
 | Port conflict | Change `NYLORUN_PORT` / `NYLORUN_STUDIO_PORT` in `~/.nylorun/tenants/<name>/docker/.env` |
 | Logs | `nylorun logs runtime -f` |
 | Studio login expired | `nylorun studio` |
-| `http://<name>.localhost:<port>` does not answer | `nylorun doctor` (the `proxy` row); `nylorun start` brings the proxy up; Studio's own port is in `nylorun status` |
+| Which Studio is which | `nylorun ls` lists each Tenant's Studio URL; `nylorun studio --tenant <name>` opens one signed in |
 | `Tenant … was created by nylorun 0.5` (exit 3) | `nylorun reset --tenant <name>` (its data starts fresh) |
 
 See [MIGRATION.md](../MIGRATION.md).

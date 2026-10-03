@@ -2,10 +2,8 @@ import { CliError } from "./errors.js";
 import {
   checkDocker,
   defaultStackDeps,
-  readProxyReport,
   readStackStatus,
   type Check,
-  type ProxyStatus,
   type StackDeps,
   type StackStatus,
 } from "./stack/index.js";
@@ -23,8 +21,6 @@ export interface StackDoctorReport {
   >;
   /** Why no Tenant was checked: none is selected here (a project without a link). */
   noTenant?: string;
-  /** The machine's Studio proxy (`http://<tenant>.localhost:<port>`); never a failure. */
-  proxy?: ProxyStatus;
 }
 
 /**
@@ -65,7 +61,6 @@ export async function doctorStack(options: {
       if (!(error instanceof CliError) || error.exitCode !== 2) throw error;
       report.noTenant = error.message;
     }
-    report.proxy = await readProxyReport(deps);
   }
   const broken =
     report.tenant?.state === "running" &&
@@ -127,24 +122,8 @@ export async function doctorStack(options: {
             ? `✓ ${local.tenant.id ?? "?"} open`
             : `✗ ${local.tenant.id ?? "?"} unavailable${local.tenant.cause ? `: ${local.tenant.cause.code}: ${local.tenant.cause.repair}` : " (opening)"}`,
         ]);
-      rows.push(["studio", `${local.studio.proxyUrl ?? local.studio.url ?? "?"} · ${local.studio.state}`]);
+      rows.push(["studio", `${local.studio.url ?? "?"} · ${local.studio.state}`]);
     }
-  }
-  const proxy = report.proxy;
-  if (proxy) {
-    const on = proxy.port
-      ? `127.0.0.1:${proxy.port}${proxy.ipv6 ? ` and [::1]:${proxy.port}` : ""}`
-      : "";
-    rows.push([
-      "proxy",
-      proxy.state === "running"
-        ? `✓ running on ${on} (http://<tenant>.localhost:${proxy.port ?? "?"})`
-        : proxy.state === "disabled"
-          ? "- disabled (NYLORUN_PROXY_DISABLED): Studio is on each Tenant's own port"
-          : proxy.state === "stopped"
-            ? `- stopped${on ? ` (${on})` : ""}: nylorun start starts it`
-            : "- not created yet: nylorun start creates it",
-    ]);
   }
   const width = Math.max(...rows.map(([key]) => key.length)) + 2;
   for (const [key, value] of rows) log(`  ${key.padEnd(width)}${value}`);

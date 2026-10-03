@@ -22,7 +22,6 @@ import {
   DEFAULT_SESSION_COOKIE as SESSION_COOKIE,
   SESSION_TTL_MS,
   parseAnalyticsId,
-  parsePublicOrigins,
   parseRuntimeUrl,
   parseSessionCookieName,
   readAdminKeyFile,
@@ -150,7 +149,6 @@ async function withStudio(
   }) => Promise<void>,
   extra: {
     publicPort?: number;
-    publicOrigins?: readonly string[];
     sessionCookie?: string;
     adminKey?: string;
     clock?: { now: number };
@@ -439,15 +437,9 @@ test("the session cookie has the configured name, and only that name is read", a
   }
 });
 
-test("public origins join the Host and Origin checks; the login URL is the request's origin", async () => {
-  const proxy = "http://shop.localhost:4160";
-  const proxyHost = "shop.localhost:4160";
+test("the login URL is on the request's own origin", async () => {
   await withStudio(async ({ port }) => {
-    for (const [host, origin] of [
-      [proxyHost, proxy],
-      [`localhost:${port}`, `http://localhost:${port}`],
-      [`127.0.0.1:${port}`, `http://127.0.0.1:${port}`],
-    ] as const) {
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`]) {
       const minted = await send(port, {
         method: "POST",
         path: "/_studio/login-tokens",
@@ -456,59 +448,10 @@ test("public origins join the Host and Origin checks; the login URL is the reque
       });
       assert.equal(minted.status, 201, host);
       const { url, token } = JSON.parse(minted.body) as { url: string; token: string };
-      assert.equal(url, `${origin}/login?token=${token}`);
+      assert.equal(url, `http://${host}/login?token=${token}`);
       assert.equal((await send(port, { path: `/login?token=${token}`, host })).status, 303, host);
     }
-
-    const cookie = await session(port);
-    assert.equal((await send(port, { path: "/", host: proxyHost })).status, 302);
-    assert.equal((await send(port, { path: "/_studio/hello", host: proxyHost, headers: { cookie } })).status, 200);
-    const path = `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1/commands`;
-    const command = (host: string, origin: string) =>
-      send(port, {
-        method: "POST",
-        path,
-        host,
-        body: JSON.stringify({ type: "message", content: "hi" }),
-        headers: { cookie, origin, "content-type": "application/json" },
-      });
-    assert.equal((await command(proxyHost, proxy)).status, 200);
-    // Only the request's own origin, even when the other one is served too.
-    assert.equal((await command(proxyHost, `http://localhost:${port}`)).status, 403);
-    assert.equal((await command(`localhost:${port}`, proxy)).status, 403);
-
-    for (const host of ["api.localhost:4160", "shop.localhost:4161", "shop.localhost", `shop.localhost:${port}`]) {
-      const refused = await send(port, { path: "/", host });
-      assert.equal(refused.status, 421, host);
-      assert.equal(
-        JSON.parse(refused.body).message,
-        `Studio only serves http://localhost:${port}, http://127.0.0.1:${port} and ${proxy}.`,
-      );
-    }
-  }, { publicOrigins: [proxy] });
-
-  // Without it, the proxy's Host is refused.
-  await withStudio(async ({ port }) => {
-    assert.equal((await send(port, { path: "/", host: proxyHost })).status, 421);
   });
-
-  assert.deepEqual(parsePublicOrigins(""), []);
-  assert.deepEqual(
-    parsePublicOrigins(` ${proxy}  http://127.0.0.1:4160 ${proxy} `),
-    [proxy, "http://127.0.0.1:4160"],
-  );
-  for (const bad of [
-    "https://shop.localhost:4160",
-    "http://shop.localhost:4160/",
-    "http://shop.localhost:4160/x",
-    "http://shop.localhost:4160?x=1",
-    "http://*.localhost:4160",
-    "http://u:p@shop.localhost:4160",
-    "http://Shop.localhost:4160",
-    "shop.localhost:4160",
-    "nylorun://localhost",
-  ])
-    assert.throws(() => parsePublicOrigins(bad), /not an exact http origin/, bad);
 });
 
 test("state changes need this origin's Origin header", async () => {
@@ -1042,8 +985,6 @@ test("the container entry refuses invalid configuration, naming the variable", a
       ["NYLORUN_STUDIO_FRAME_ANCESTORS", "*"],
       ["NYLORUN_STUDIO_FRAME_ANCESTORS", "https://*.example.com"],
       ["NYLORUN_STUDIO_FRAME_ANCESTORS", "nylorun:"],
-      ["NYLORUN_STUDIO_PUBLIC_ORIGINS", "http://*.localhost:4160"],
-      ["NYLORUN_STUDIO_PUBLIC_ORIGINS", "http://shop.localhost:4160/x"],
       ["NYLORUN_STUDIO_SESSION_COOKIE", "a;b"],
     ] as const) {
       const child = spawn(process.execPath, [new URL("../dist/server-main.js", import.meta.url).pathname], {
