@@ -52,6 +52,7 @@ import {
 import { fail } from "./http.js";
 import { accessOf } from "./auth.js";
 import { chargeTurn } from "./subject-limits.js";
+import { checkSandboxTurn } from "./sandboxes.js";
 import {
   actionTarget,
   rebaseSessionState,
@@ -227,6 +228,9 @@ export async function command(
       if (command.type === "message") {
         if (!["idle", "completed", "failed", "cancelled"].includes(s.status))
           fail(409, "Session has active or unresolved work");
+        // Every turn start on a sandbox: it exists, the token's `sbx` reaches it, and no other
+        // session's turn holds it. Before the charge, so a refused turn costs nothing.
+        await checkSandboxTurn(t, s, scope);
         // After the replay check above, so a retried message is never charged twice.
         if (scope.kind === "token" && scope.limits)
           await chargeTurn(t, scope.subject, scope.limits);

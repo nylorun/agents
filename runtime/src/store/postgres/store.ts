@@ -32,6 +32,9 @@
  *    head).
  * 2. A transaction that touches several sessions locks them in ascending id
  *    order, with `lockSessions` (`./locking.ts`), before writing any of them.
+ * 3. A sandbox resource's row (`sandboxResource(id, { lock: true })`, which orders its
+ *    lifecycle stream) is locked after every session row the transaction locks, never
+ *    before one.
  *
  * Serialization failures and deadlocks are not retried here: with the order
  * above, READ COMMITTED transactions do not raise them. A `40P01` means a
@@ -68,10 +71,13 @@ import type {
   EventPayload,
   EventType,
   LiveEvent,
+  SandboxEvent,
+  SandboxEventPayload,
+  SandboxEventType,
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
-import { appendEvent } from "../../record/index.js";
+import { appendEvent, appendSandboxEvent } from "../../record/index.js";
 import { OwnershipLostError } from "../ownership.js";
 import type {
   ActionDoc,
@@ -91,6 +97,7 @@ import type {
   PrincipalRow,
   ResetScope,
   SandboxDoc,
+  SandboxResource,
   SessionActionFilter,
   SessionDoc,
   SessionEffectFilter,
@@ -119,7 +126,7 @@ import type {
 import { database, driverError, type Database, type Transaction } from "./db.js";
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { createPostgresRecordReader } from "./record.js";
-import { postgresRecordWriter } from "./record-writer.js";
+import { postgresRecordWriter, postgresSandboxRecordWriter } from "./record-writer.js";
 import {
   actions,
   commands,
@@ -132,9 +139,12 @@ import {
   principals,
   publishableKeys,
   sandboxes,
+  sandboxEvents,
+  sandboxResources,
   sessionEvents,
   sessionLogHeads,
   sessions,
+  toJson,
   toolCrossings,
   signingKeys,
   subjectEpochs,
@@ -308,6 +318,17 @@ function ownership(row: SessionOwnershipRow): SessionOwnership {
     owner: row.owner,
     epoch: row.epoch,
     ownerExpiresAt: row.ownerExpiresAt?.toISOString() ?? null,
+  };
+}
+
+function sandboxResourceOf(row: typeof sandboxResources.$inferSelect): SandboxResource {
+  return {
+    id: row.id,
+    kind: row.kind,
+    spec: row.spec as SandboxResource["spec"],
+    labels: row.labels as Record<string, string>,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -582,6 +603,114 @@ class PostgresTx implements Tx {
   async listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]> {
     this.check();
     return this.bodies<T>(sandboxes);
+  }
+
+  // --- sandbox resources ---------------------------------------------------
+
+  async sandboxResource(
+    id: string,
+    options: { lock?: boolean } = {},
+  ): Promise<SandboxResource | undefined> {
+    this.check();
+    const query = this.db.select().from(sandboxResources).where(eq(sandboxResources.id, id));
+    const [row] = options.lock ? await query.for("update") : await query;
+    return row && sandboxResourceOf(row);
+  }
+
+  async createSandboxResource(
+    row: SandboxResource,
+    limit: number,
+  ): Promise<"created" | "exists" | "limit"> {
+    this.check();
+    // Every create takes this lock, so two never both see room for one more.
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.sandbox_resources'))`);
+    const [found] = await this.db
+      .select({ id: sandboxResources.id })
+      .from(sandboxResources)
+      .where(eq(sandboxResources.id, row.id));
+    if (found) return "exists";
+    const [counted] = await this.db.select({ n: count() }).from(sandboxResources);
+    if ((counted?.n ?? 0) >= limit) return "limit";
+    await this.db.insert(sandboxResources).values(row);
+    return "created";
+  }
+
+  async updateSandboxLabels(
+    id: string,
+    labels: Record<string, string>,
+    updatedAt: string,
+  ): Promise<void> {
+    this.check();
+    await this.db
+      .update(sandboxResources)
+      .set({ labels, updatedAt })
+      .where(eq(sandboxResources.id, id));
+  }
+
+  async deleteSandboxResource(id: string): Promise<void> {
+    this.check();
+    await this.db.delete(sandboxResources).where(eq(sandboxResources.id, id));
+  }
+
+  async listSandboxResources(
+    filter: { labels?: Record<string, string> } = {},
+  ): Promise<SandboxResource[]> {
+    this.check();
+    const labels = filter.labels;
+    const rows = await this.db
+      .select()
+      .from(sandboxResources)
+      .where(
+        labels === undefined || Object.keys(labels).length === 0
+          ? undefined
+          : sql`nylorun.doc(${sandboxResources.labels}) @> ${toJson(labels)}::jsonb`,
+      )
+      .orderBy(sandboxResources.id);
+    return rows.map(sandboxResourceOf);
+  }
+
+  async sessionsOnSandbox<T extends SessionDoc = SessionDoc>(
+    sandboxId: string,
+  ): Promise<StoredSession<T>[]> {
+    this.check();
+    const rows = await this.sessions()
+      .where(eq(sessions.sandboxId, sandboxId))
+      .orderBy(sessions.id);
+    return rows.map((row) => storedSession<T>(row));
+  }
+
+  async sandboxEvent<T extends SandboxEventType>(
+    sandboxId: string,
+    type: T,
+    payload: SandboxEventPayload<T>,
+  ): Promise<SandboxEvent> {
+    this.check();
+    return appendSandboxEvent(postgresSandboxRecordWriter(this.db), {
+      tenantId: this.tenantId,
+      sandboxId,
+      time: this.now(),
+      type,
+      payload,
+    });
+  }
+
+  async sandboxEvents(
+    sandboxId: string,
+    options: { fromSeq?: number; limit?: number } = {},
+  ): Promise<SandboxEvent[]> {
+    this.check();
+    const rows = await this.db
+      .select({ body: sandboxEvents.body })
+      .from(sandboxEvents)
+      .where(
+        and(
+          eq(sandboxEvents.sandboxId, sandboxId),
+          options.fromSeq === undefined ? undefined : gte(sandboxEvents.seq, options.fromSeq),
+        ),
+      )
+      .orderBy(sandboxEvents.seq)
+      .limit(options.limit ?? 1000);
+    return rows.map((row) => row.body as SandboxEvent);
   }
 
   private async actionBodies(where: SQL | undefined): Promise<ActionDoc[]> {
@@ -1316,7 +1445,11 @@ class PostgresTx implements Tx {
         basinGeneration: sql`${tenant.basinGeneration} + 1`,
       });
     }
-    if (scope === "sandboxes" || scope === "all") await db.delete(sandboxes);
+    if (scope === "sandboxes" || scope === "all") {
+      await db.delete(sandboxes);
+      await db.delete(sandboxResources);
+      await db.delete(sandboxEvents);
+    }
     if (scope === "all") {
       await db.delete(definitions);
       await db.delete(endpoints);

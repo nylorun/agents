@@ -202,6 +202,8 @@ export class BrowserClient {
     agentId: string;
     vaultIds?: readonly string[];
     credentialSelections?: readonly CredentialSelection[];
+    /** A sandbox the token's `sandboxes` grants reach (Host feature `sandboxes`). */
+    sandbox?: { id: string };
   }): Promise<SessionClient> {
     return this.client.createSession({
       ...options,

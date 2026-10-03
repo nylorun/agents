@@ -22,6 +22,7 @@ import {
   sessionSandboxSpec,
 } from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
+import { attachSandbox, recordAttachment } from "./sandboxes.js";
 import {
   sandboxLookup,
   type Session,
@@ -161,6 +162,11 @@ export async function putSession(
      * session): an existing one must have the same owner and agent, or it is a 404.
      */
     createOnly?: boolean;
+    /**
+     * The sandboxes the caller reaches (a subject token's `sbx`, `sandboxGrantsOf`); undefined
+     * reaches every one. `sandbox: { id }` must name one of them.
+     */
+    sandboxGrants?: readonly string[];
   } = {}
 ): Promise<Session> {
   const vaultIds = body.vaultIds ?? [];
@@ -208,7 +214,10 @@ export async function putSession(
     const definition =
       (await t.get<Definition>("definitions", body.agentId)) ??
       fail(404, "Definition not found");
-    const sandbox = await sessionSandbox(t, body, definition, { opaque });
+    const sandbox = await sessionSandbox(t, body, definition, {
+      opaque,
+      ...(options.sandboxGrants === undefined ? {} : { grants: options.sandboxGrants }),
+    });
     const created: Session = {
       id,
       agentId: body.agentId,
@@ -226,12 +235,14 @@ export async function putSession(
       ...(sandbox.sandboxOwnerId !== undefined
         ? { sandboxOwnerId: sandbox.sandboxOwnerId }
         : {}),
+      ...(sandbox.sandboxId !== undefined ? { sandboxId: sandbox.sandboxId } : {}),
       ...(sandbox.spec !== undefined
         ? { sandbox: sandbox.spec, sandboxSource: sandbox.source }
         : {}),
     };
     await t.put("sessions", id, created);
     await ctx.vault.recordAttachment(t, id, vaultIds);
+    if (sandbox.sandboxId !== undefined) await recordAttachment(t, id, sandbox.sandboxId);
     return created;
   });
 }
@@ -240,10 +251,16 @@ function isShare(value: unknown): value is { session: string } {
   return typeof value === "object" && value !== null && "session" in value;
 }
 
+function isAttach(value: unknown): value is { id: string } {
+  return typeof value === "object" && value !== null && "id" in value;
+}
+
 interface SessionSandbox {
   readonly spec?: SandboxManifest;
   readonly source?: Session["sandboxSource"];
   readonly sandboxOwnerId?: string;
+  /** The sandbox resource the session attaches to. */
+  readonly sandboxId?: string;
   /** Set when the pinned manifest differs from the definition's. */
   readonly manifest?: AgentManifest;
   readonly manifestHash?: string;
@@ -254,11 +271,26 @@ async function sessionSandbox(
   t: Tx,
   body: PutSessionRequest,
   definition: Definition,
-  options: { opaque: boolean }
+  options: { opaque: boolean; grants?: readonly string[] }
 ): Promise<SessionSandbox> {
   const request = body.sandbox;
   const declared = sandboxSpecOf(definition.manifest) !== undefined;
+  if (isAttach(request)) {
+    if (declared)
+      fail(
+        400,
+        `'${body.agentId}' declares its own sandbox with .sandbox(). Remove it from the agent to attach a sandbox.`
+      );
+    const sandbox = await attachSandbox(t, request.id, options.grants);
+    return { ...(await pin(definition, sandbox.spec, "sandbox")), sandboxId: sandbox.id };
+  }
   if (isShare(request)) {
+    const owner = await t.get<Session>("sessions", request.session);
+    if (owner?.sandboxId !== undefined && (!options.opaque || owner.ownerUserId === body.ownerUserId))
+      fail(
+        400,
+        `Session ${request.session} is attached to sandbox ${owner.sandboxId}: open this session with sandbox: { id: "${owner.sandboxId}" }.`
+      );
     const lookup = await sandboxLookup(t, request.session);
     const sandboxOwnerId = validateSandboxAttach(body, definition.manifest, lookup, {
       opaque: options.opaque,
@@ -334,6 +366,7 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     vaultIds: s.vaultIds ?? [],
     credentialSelections: s.credentialSelections ?? [],
     sandboxOwnerId: s.sandboxOwnerId ?? null,
+    ...(s.sandboxId === undefined ? {} : { sandboxId: s.sandboxId }),
     sandbox: s.sandbox ?? null,
     ...(s.sandboxSource ? { sandboxSource: s.sandboxSource } : {}),
     mcpSnapshot: s.mcpSnapshot ?? null,

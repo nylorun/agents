@@ -32,6 +32,7 @@ import {
   type VaultInfo,
 } from "@nylorun/core/contracts";
 import { AccessClient, TokensClient } from "./access.js";
+import { SandboxesClient } from "./sandboxes.js";
 import { Transport, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
 
@@ -121,6 +122,24 @@ export interface SessionView {
   waits?: unknown;
   [key: string]: unknown;
 }
+/** `AgentsClient.createSession`'s options. */
+export interface CreateSessionOptions {
+  id?: string;
+  agentId: string;
+  ownerUserId: string;
+  info?: Record<string, unknown>;
+  requestId?: string;
+  vaultIds?: readonly string[];
+  credentialSelections?: readonly CredentialSelection[];
+  /**
+   * The session's sandbox: omit for the Tenant default, `false` for none, `{ id }` to attach a
+   * sandbox resource (`client.sandboxes`, Host feature `sandboxes`), or an inline sandbox
+   * (`image`, `network.allow`, `resources`) checked against the Tenant's limits. `{ session }`
+   * shares another session's and is deprecated: use `client.sandboxes.forSession()` or
+   * `ensure()` and `{ id }`. Fixed once the session exists.
+   */
+  sandbox?: SandboxRequest;
+}
 export interface ActAsOptions {
   /** What the subject may do; the Runtime grants nothing else. Default `["sessions:own"]`. */
   scopes?: readonly SubjectScope[];
@@ -165,6 +184,13 @@ export class AgentsClient {
   /** The access policy, signing keys and revocations (Host feature `subject-tokens`). */
   get access(): AccessClient {
     return new AccessClient(this.transport);
+  }
+  /**
+   * Sandboxes as a resource (Host feature `sandboxes`): `ensure` one by id, `list` them by
+   * label, `delete` one, or give a session its own with `forSession`.
+   */
+  get sandboxes(): SandboxesClient {
+    return new SandboxesClient(this.transport, (options) => this.createSession(options));
   }
   /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
@@ -234,21 +260,7 @@ export class AgentsClient {
       ...(pluginRoots === undefined ? {} : { pluginRoots }),
     });
   }
-  async createSession(options: {
-    id?: string;
-    agentId: string;
-    ownerUserId: string;
-    info?: Record<string, unknown>;
-    requestId?: string;
-    vaultIds?: readonly string[];
-    credentialSelections?: readonly CredentialSelection[];
-    /**
-     * The session's sandbox: omit for the Tenant default, `false` for none, `{ session }` to share
-     * another session's, or an inline sandbox (`image`, `network.allow`, `resources`) checked
-     * against the Tenant's limits. Fixed once the session exists.
-     */
-    sandbox?: SandboxRequest;
-  }): Promise<SessionClient> {
+  async createSession(options: CreateSessionOptions): Promise<SessionClient> {
     const sessionId = options.id ?? id();
     await this.transport.json(`/v1/sessions/${segment(sessionId)}`, "PUT", {
       requestId: options.requestId ?? id(),
@@ -595,3 +607,5 @@ export {
   SigningKeysClient,
   TokensClient,
 } from "./access.js";
+export { SandboxesClient } from "./sandboxes.js";
+export type { ForSessionOptions, SandboxSpec, SessionSandboxHandle } from "./sandboxes.js";

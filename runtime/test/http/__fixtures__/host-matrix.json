@@ -660,7 +660,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -716,7 +717,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -772,7 +774,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -828,7 +831,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -884,7 +888,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -940,7 +945,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -996,7 +1002,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -1052,7 +1059,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -1106,7 +1114,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -1160,7 +1169,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -1216,7 +1226,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -1272,7 +1283,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },
@@ -1354,7 +1366,8 @@
           "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
-          "action-endpoints"
+          "action-endpoints",
+          "sandboxes"
         ]
       }
     },

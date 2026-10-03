@@ -14,6 +14,7 @@ import {
   capabilityForSandbox,
   owningSandboxSessionId,
   sandboxSpecOf,
+  sandboxWorkspaceOf,
   sandboxSpecsEqual,
   sessionSandboxSpec,
   type SessionSandboxRef,
@@ -79,11 +80,12 @@ async function runTool(
   signal: AbortSignal
 ): Promise<SandboxToolOutcome> {
   const spec = resolveSpec(session, lookup);
-  const ownerId = owningSandboxSessionId(session, lookup);
+  const workspace = sandboxWorkspaceOf(session, lookup);
   const ref: SandboxSessionRef = {
-    id: ownerId,
+    id: workspace.ownerId,
     activeTurnId: session.activeTurnId,
     manifest: session.manifest as SandboxSessionRef["manifest"],
+    ...(workspace.sandboxId === undefined ? {} : { sandboxId: workspace.sandboxId }),
   };
   return deps.sandbox.run(ref, capabilityForSandbox(spec), tool, input, signal);
 }

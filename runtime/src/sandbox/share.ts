@@ -18,6 +18,8 @@ export type SessionSandboxRef = {
   readonly manifest: AgentManifest | WorkflowManifest | Record<string, unknown>;
   /** Session whose id keys the sandbox. Absent means this session owns its own. */
   readonly sandboxOwnerId?: string | null;
+  /** The sandbox resource the session is attached to; its id keys the workspace. */
+  readonly sandboxId?: string;
   /** The sandbox chosen when the session was opened (or inherited from its owner), resolved. */
   readonly sandbox?: SandboxManifest;
 };
@@ -105,6 +107,20 @@ export function owningSandboxSessionId(
     current = lookup(ownerId);
   }
   return session.id;
+}
+
+/**
+ * The workspace a session's sandbox tools run in: the owning session (one hop through
+ * `sandboxOwnerId`, whose log records the workspace's events) and, when that session is
+ * attached to a sandbox resource, the resource's id, which keys the workspace.
+ */
+export function sandboxWorkspaceOf(
+  session: SessionSandboxRef,
+  lookup: (id: string) => SessionSandboxRef | undefined
+): { readonly ownerId: string; readonly sandboxId?: string } {
+  const ownerId = owningSandboxSessionId(session, lookup);
+  const owner = ownerId === session.id ? session : lookup(ownerId) ?? session;
+  return owner.sandboxId === undefined ? { ownerId } : { ownerId, sandboxId: owner.sandboxId };
 }
 
 export function sessionHasSandbox(

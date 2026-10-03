@@ -43,6 +43,8 @@ nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on 
 nylorun reset [--tenant <name>] [--yes]        # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
 nylorun ls [--json]                # the Tenants on this machine, with their state, memory and URLs
 nylorun delete <tenant> --yes      # remove a Tenant: containers, volumes, Host root and vault key
+nylorun sandbox ls [--tenant <name>] [--label <key=value>]... [--json]   # the running Tenant's sandboxes
+nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 ```
@@ -233,6 +235,13 @@ default names one (`PUT /v1/tenant/sandbox`). A local Tenant runs them on the
 Runtime's **virtual** backend: an emulated shell in the Runtime process, with no
 extra containers. It is not a VM or container boundary.
 
+A sandbox can also be a resource with its own id (`PUT /v1/sandboxes/{id}`,
+`client.sandboxes` in `@nylorun/agents`) that sessions attach to and that
+outlives them. `nylorun sandbox ls` lists the running Tenant's sandboxes with
+their state, attached sessions and labels; `nylorun sandbox rm <id>` deletes one
+and its files (refused while a turn runs in it). Neither starts a stopped Tenant
+(exit 3).
+
 ## Host root
 
 The **Host root** is `~/.nylorun/tenants/<name>/`, or `NYLORUN_HOME`. It is
@@ -255,7 +264,7 @@ containers, volumes and Host root: the vault key (KEK) and all its data go with 
 | 0 | Success |
 | 1 | Generic failure, including a missing Docker or Compose v2 |
 | 2 | Usage error (including no Tenant selected, or `delete` without `--yes`), or a removed or moved command |
-| 3 | `status`: the Runtime is not answering; `stop`/`logs`: no Tenant yet; `delete`: no such Tenant; `start`: a Tenant created by nylorun 0.5 (reset it) |
+| 3 | `status`: the Runtime is not answering; `sandbox`: the Tenant is not running; `stop`/`logs`: no Tenant yet; `delete`: no such Tenant; `start`: a Tenant created by nylorun 0.5 (reset it) |
 | 4 | The Runtime port is held by another Host |
 | 5 | `up`/`start`/`studio`: this nylorun pins a Runtime older than the one that last ran the Tenant; update nylorun, or `start --allow-downgrade` |
 | 7 | The containers, the Tenant or Studio did not become ready (an unavailable Tenant's cause is printed) |

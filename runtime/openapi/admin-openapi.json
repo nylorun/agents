@@ -20,7 +20,8 @@
         "browser-access",
         "ag-ui-endpoint",
         "a2a-endpoint",
-        "action-endpoints"
+        "action-endpoints",
+        "sandboxes"
       ]
     }
   },
@@ -306,6 +307,9 @@
               "request_rejected",
               "invalid_request",
               "subject_required",
+              "sandbox_not_granted",
+              "sandbox_busy",
+              "sandbox_unavailable",
               "internal_error"
             ]
           },

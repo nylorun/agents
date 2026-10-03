@@ -1,7 +1,9 @@
 /**
- * Sandbox Manager: owns sandbox lifecycle for the Runtime. One sandbox per session, created on
- * the first sandbox tool call, stopped after its idle timeout, reattached on the next call.
- * Commands against one sandbox run one at a time.
+ * Sandbox Manager: owns sandbox lifecycle for the Runtime. One workspace per sandbox resource
+ * (`sandbox: { id }`, keyed by the sandbox id), or per owning session for a sandbox chosen
+ * inline or by the Tenant default (keyed by the session id); created on the first sandbox tool
+ * call, stopped after its idle timeout, reattached on the next call. Commands against one
+ * workspace run one at a time, whichever session sends them.
  *
  * The manager keeps no timers. The Tenant sweep calls `sweep`, which stops sandboxes idle
  * past their timeout, marks records of compute this process no longer holds as stopped
@@ -35,9 +37,15 @@ import { runSandboxTool, type SandboxToolOutcome, type SandboxToolReport } from 
 import type { SandboxBackend, SandboxHandle, SandboxSpec } from "./types.js";
 
 export interface SandboxSessionRef {
+  /** The session whose log records the workspace's events: the owning session. */
   readonly id: string;
   readonly activeTurnId: string | null;
   readonly manifest: AgentManifest;
+  /**
+   * The sandbox resource the owning session is attached to. Its workspace is keyed by this id,
+   * so every session attached to it shares the files; absent, the workspace is the session's.
+   */
+  readonly sandboxId?: string;
 }
 
 export type SandboxState = "creating" | "running" | "stopped";
@@ -45,6 +53,8 @@ export type SandboxState = "creating" | "running" | "stopped";
 interface SandboxRecord {
   key: string;
   sessionId: string;
+  /** The sandbox resource whose workspace this is; absent for a session's own workspace. */
+  sandboxId?: string;
   backend: string;
   image: string;
   state: SandboxState;
@@ -54,6 +64,7 @@ interface SandboxRecord {
 
 interface Live {
   readonly sessionId: string;
+  readonly sandboxId?: string;
   readonly backend: SandboxBackend;
   handle?: SandboxHandle;
   idleMs: number;
@@ -184,6 +195,21 @@ export class SandboxManager {
     return this.prefix + createHash("sha256").update(sessionId).digest("hex").slice(0, 16);
   }
 
+  /**
+   * The workspace key of sandbox resource `sandboxId`: `<prefix>sbx-<hash>`, apart from every
+   * session key (16 hex characters after the prefix). The virtual backend keeps the workspace
+   * in `<sandboxes>/<key>/workspace`.
+   */
+  sandboxKeyOf(sandboxId: string): string {
+    return `${this.prefix}sbx-${createHash("sha256").update(sandboxId).digest("hex").slice(0, 16)}`;
+  }
+
+  private keyFor(session: SandboxSessionRef): string {
+    return session.sandboxId === undefined
+      ? this.keyOf(session.id)
+      : this.sandboxKeyOf(session.sandboxId);
+  }
+
   async report(): Promise<SandboxSelectionReport & { readonly defaultImage: string }> {
     return { ...reportSelection(await this.ready), defaultImage: DEFAULT_SANDBOX_IMAGE };
   }
@@ -203,7 +229,7 @@ export class SandboxManager {
         code: "sandbox.unavailable",
         message: `No sandbox is available: ${selection.reason}. Run \`npx nylorun doctor sandbox\` for options.`,
       };
-    const key = this.keyOf(session.id);
+    const key = this.keyFor(session);
     const spec: SandboxSpec = {
       key,
       image: capability.sandbox?.image ?? DEFAULT_SANDBOX_IMAGE,
@@ -222,6 +248,7 @@ export class SandboxManager {
     if (!live) {
       live = {
         sessionId: session.id,
+        ...(session.sandboxId === undefined ? {} : { sandboxId: session.sandboxId }),
         backend,
         idleMs: idleMsOf(capability.sandbox),
         active: 0,
@@ -268,7 +295,7 @@ export class SandboxManager {
         live.handle = await this.open(live, session, spec);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await this.record(spec.key, session.id, live.backend.name, spec.image, "stopped");
+        await this.record(spec.key, live, session.id, spec.image, "stopped");
         await this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
           state: "stopped",
           backend: live.backend.name,
@@ -325,14 +352,14 @@ export class SandboxManager {
       image: spec.image,
       network: describeNetwork(spec.network),
     };
-    await this.record(spec.key, session.id, live.backend.name, spec.image, "creating", existing);
+    await this.record(spec.key, live, session.id, spec.image, "creating", existing);
     await this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
       state: "creating",
       ...payload,
       ...(existing ? { reattach: true } : {}),
     });
     const handle = await live.backend.open(spec);
-    await this.record(spec.key, session.id, live.backend.name, spec.image, "running", existing);
+    await this.record(spec.key, live, session.id, spec.image, "running", existing);
     await this.options.emit(session.id, session.activeTurnId, "sandbox.state", {
       state: "running",
       ...payload,
@@ -350,15 +377,15 @@ export class SandboxManager {
     try {
       await handle.stop();
     } finally {
-      await this.record(key, live.sessionId, live.backend.name, undefined, "stopped");
+      await this.record(key, live, live.sessionId, undefined, "stopped");
       await this.options.emit(live.sessionId, null, "sandbox.state", { state: "stopped", backend: live.backend.name });
     }
   }
 
   private async record(
     key: string,
+    live: Live,
     sessionId: string,
-    backend: string,
     image: string | undefined,
     state: SandboxState,
     known?: SandboxRecord
@@ -369,7 +396,8 @@ export class SandboxManager {
       await t.put("sandboxes", key, {
         key,
         sessionId,
-        backend,
+        ...(live.sandboxId === undefined ? {} : { sandboxId: live.sandboxId }),
+        backend: live.backend.name,
         image: image ?? existing?.image ?? "",
         state,
         createdAt: existing?.createdAt ?? now,
@@ -385,9 +413,31 @@ export class SandboxManager {
     );
   }
 
-  /** Delete sandboxes this Runtime owns whose session no longer exists. */
+  /**
+   * Deletes sandbox resource `sandboxId`'s workspace, its files and its compute record, after
+   * any command queued on it. Called once the resource is deleted.
+   */
+  async removeSandbox(sandboxId: string): Promise<void> {
+    const key = this.sandboxKeyOf(sandboxId);
+    const live = this.live.get(key);
+    if (live) {
+      await live.tail.catch(() => undefined);
+      live.handle = undefined;
+      this.live.delete(key);
+    }
+    const { backend } = await this.ready;
+    if (backend) await backend.remove(key);
+    await this.options.store.tx((t) => t.delete("sandboxes", key));
+  }
+
+  /**
+   * Delete workspaces this Runtime owns whose owner is gone: a session's when `sessionExists`
+   * says the session is gone, a sandbox resource's when the resource is.
+   */
   async reconcile(
-    sessionExists: (sessionId: string) => boolean | Promise<boolean>
+    sessionExists: (sessionId: string) => boolean | Promise<boolean>,
+    sandboxExists: (sandboxId: string) => boolean | Promise<boolean> = (sandboxId) =>
+      this.options.store.tx(async (t) => (await t.sandboxResource(sandboxId)) !== undefined)
   ): Promise<void> {
     const { backend } = await this.ready;
     if (!backend) return;
@@ -395,7 +445,13 @@ export class SandboxManager {
       const record = await this.options.store.tx((t) =>
         t.get<SandboxRecord>("sandboxes", key)
       );
-      if (record && (await sessionExists(record.sessionId))) continue;
+      if (record) {
+        const kept =
+          record.sandboxId === undefined
+            ? await sessionExists(record.sessionId)
+            : await sandboxExists(record.sandboxId);
+        if (kept) continue;
+      }
       await backend.remove(key);
       await this.options.store.tx((t) => t.delete("sandboxes", key));
     }

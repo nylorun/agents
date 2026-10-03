@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js";
 import { spawnDocker } from "./docker.js";
+import { sandboxCommand as runSandboxCommand } from "./sandbox.js";
 import { pinnedVersion } from "./versions.js";
 import { loopbackPorts } from "./ports.js";
 
@@ -98,6 +99,15 @@ export async function stackCommand(
 ): Promise<number> {
   return await runStackCommand(name, args, defaultStackDeps(env));
 }
+
+/** Entry for `nylorun sandbox ls|rm`. */
+export async function sandboxCommand(
+  args: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<number> {
+  return await runSandboxCommand(defaultStackDeps(env), args);
+}
+export { sandboxUsage } from "./sandbox.js";
 
 /** `nylorun studio`, landing on `next` when given, else on the Tenant's page. */
 export async function studioCommand(

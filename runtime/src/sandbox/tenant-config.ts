@@ -21,6 +21,8 @@ export const SANDBOX_CONFIG_SETTING = "sandbox.config";
 export const DEFAULT_MAX_CPUS = 4;
 export const DEFAULT_MAX_MEMORY_MIB = 8192;
 export const DEFAULT_SANDBOX_IDLE = "15m";
+/** The most sandbox resources a Tenant holds when it sets no limit. */
+export const DEFAULT_MAX_SANDBOXES = 100;
 
 export interface SandboxResourcesLimit {
   readonly cpus: number;
@@ -35,6 +37,8 @@ export interface EffectiveSandboxConfig {
     readonly resources: SandboxResourcesLimit;
     readonly defaultResources: SandboxResourcesLimit;
     readonly idle: string;
+    /** The most sandbox resources (`PUT /v1/sandboxes/{id}`) the Tenant may hold. */
+    readonly sandboxes: number;
   };
 }
 
@@ -75,6 +79,7 @@ export function effectiveSandboxConfig(config: TenantSandboxConfig): EffectiveSa
         memoryMiB: DEFAULT_SANDBOX_MEMORY_MIB,
       }),
       idle: limits.idle ?? DEFAULT_SANDBOX_IDLE,
+      sandboxes: limits.sandboxes ?? DEFAULT_MAX_SANDBOXES,
     },
   };
 }

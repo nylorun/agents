@@ -26,6 +26,7 @@ import { accessOf, requireApplication } from "../../../tenant/auth.js";
 import { loadSession, sessionOf, type TenantContext } from "../../../tenant/context.js";
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
+import { sandboxGrantsOf } from "../../../tenant/sandboxes.js";
 import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
@@ -184,7 +185,14 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       // Agent code may trust `info`: only an app server sets it.
       if (scope.kind === "token" && request.info !== undefined)
         fail(403, "A subject token cannot set session info", { code: "scope_required" });
-      const session = await putSession(ctx, c.req.param("sessionId")!, request, accessOf(scope));
+      const grants = sandboxGrantsOf(scope);
+      const session = await putSession(
+        ctx,
+        c.req.param("sessionId")!,
+        request,
+        accessOf(scope),
+        grants === undefined ? {} : { sandboxGrants: grants },
+      );
       return jsonResponse(200, await ctx.store.tx((t) => sessionView(t, session)));
     },
   );

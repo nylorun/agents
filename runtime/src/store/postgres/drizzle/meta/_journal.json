@@ -29,6 +29,13 @@
       "when": 1790956444115,
       "tag": "0003_tool_crossings",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791033032750,
+      "tag": "0004_sandbox_resources",
+      "breakpoints": true
     }
   ]
 }

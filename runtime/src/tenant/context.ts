@@ -81,13 +81,18 @@ export interface Session {
   /** Session id that keys the shared sandbox; absent means this session owns it. */
   sandboxOwnerId?: string;
   /**
+   * The sandbox resource the session is attached to (`sandbox: { id }`): its workspace is the
+   * sandbox's, shared with every session attached to it, and it outlives the session.
+   */
+  sandboxId?: string;
+  /**
    * The sandbox chosen when the session was opened, resolved against the Tenant's limits, or
    * inherited from the session it shares with. Absent when the session has no sandbox or its
    * definition declares one (`.sandbox()`).
    */
   sandbox?: SandboxManifest;
-  /** Where `sandbox` came from. */
-  sandboxSource?: "default" | "inline" | "shared";
+  /** Where `sandbox` came from: `sandbox` is a sandbox resource's spec. */
+  sandboxSource?: "default" | "inline" | "shared" | "sandbox";
 }
 
 export type AuthScope =
@@ -103,6 +108,8 @@ export type AuthScope =
       agents: ReadonlySet<string> | "*";
       role: string;
       limits?: RoleLimits;
+      /** The token's `sbx` grants: the sandboxes it reaches. Absent reaches none. */
+      sandboxes?: readonly string[];
       epoch: number;
       expiresAt: number;
       tokenId: string;

@@ -156,7 +156,22 @@ const session = await client.createSession({
 
 The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no Action endpoint. The Runtime decides where the sandbox runs: today an emulated shell in the Runtime process, which is not a VM boundary and takes no `image`.
 
-`sandbox` takes `false` for none, `{ session }` to share another session's sandbox, or an inline sandbox as above; omit it for the Tenant's default. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
+`sandbox` takes `false` for none, `{ id }` to attach a sandbox resource (below), or an inline sandbox as above; omit it for the Tenant's default. `{ session }`, sharing another session's sandbox, still works and is deprecated. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
+
+A sandbox can also be a resource with its own id, which outlives the sessions attached to it (Host feature `sandboxes`). Whether it serves one session, one person or a project is your choice:
+
+```ts
+// One per session: created with the session, deleted by release().
+const { session, release } = await client.sandboxes.forSession({
+  session: { agentId: "analyst", ownerUserId },
+  spec: { network: { allow: ["pypi.org"] } },
+});
+// One per person or project: get-or-create by id, then attach sessions to it.
+await client.sandboxes.ensure("team-a/proj-42", { labels: { project: "acme" } });
+await client.createSession({ agentId: "analyst", ownerUserId, sandbox: { id: "team-a/proj-42" } });
+```
+
+Sessions attached to one sandbox share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 sandbox_busy` until the first ends. Deleting a session only detaches it. A spec is fixed once the sandbox exists; `labels` can change. `client.sandboxes.list({ labels })`, `get(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. A subject token reaches only the sandboxes it is minted for, checked at every turn start: `client.tokens.create({ subject, role, sandboxes: ["team-a/*", "user-42"] })` takes exact ids or prefixes ending in `/*`. Creating and deleting through a subject token needs a role with `sandboxes:write`. The Tenant holds at most `limits.sandboxes` of them (`PUT /v1/tenant/sandbox`, default 100).
 
 Add an agent with `.subagents()` to let the model delegate to it:
 
@@ -263,7 +278,8 @@ directly and run as before; a flow agent can't be a child of them.
 
 The agents in a flow share one sandbox: open the flow's session with it,
 `createSession({ …, sandbox: { … } })`, and every agent, tool step and `verify` in the
-flow uses it. Share it with another session with `sandbox: { session }`, and call
+flow uses it. Share it with other sessions by opening them all on one sandbox resource
+(`sandbox: { id }`, see `client.sandboxes`), and call
 built-ins via `session.sandbox` (application) or `ctx.sandbox` (a tool).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and
