@@ -10,10 +10,12 @@
 import { randomUUID } from "node:crypto";
 import { errors, jwtVerify } from "jose";
 import {
+  isSandboxGrant,
   isSubject,
   SUBJECT_TOKEN_AUDIENCE,
   SUBJECT_TOKEN_TYPE,
   subjectTokenIssuer,
+  TOKEN_SANDBOX_GRANTS_MAX,
   TOKEN_SCOPES,
   TOKEN_TTL_MIN_SECONDS,
   type CreateTokenRequest,
@@ -96,6 +98,7 @@ export async function mintToken(
     role: body.role,
     scp: scopes.join(" "),
     ...(body.agents ? { agt: [...body.agents] } : {}),
+    ...(body.sandboxes?.length ? { sbx: [...new Set(body.sandboxes)] } : {}),
     epc: epoch,
   };
   // Signed by the keys service (F4.2): this process never holds the private key.
@@ -124,6 +127,7 @@ export async function mintToken(
     role: body.role,
     scopes,
     agents: access.agents === "*" ? "*" : [...access.agents],
+    ...(claims.sbx ? { sandboxes: [...claims.sbx] } : {}),
     keyId: signer.id,
   };
 }
@@ -181,7 +185,11 @@ export async function verifySubjectToken(
     scopeNames.some((name) => !(TOKEN_SCOPES as readonly string[]).includes(name)) ||
     (claims.agt !== undefined &&
       (!Array.isArray(claims.agt) ||
-        claims.agt.some((agent) => typeof agent !== "string")))
+        claims.agt.some((agent) => typeof agent !== "string"))) ||
+    (claims.sbx !== undefined &&
+      (!Array.isArray(claims.sbx) ||
+        claims.sbx.length > TOKEN_SANDBOX_GRANTS_MAX ||
+        claims.sbx.some((grant) => !isSandboxGrant(grant))))
   )
     return rejected(ctx, "token_claims");
   const epoch = await ctx.store.tx((t) => t.subjectEpoch(claims.sub));
@@ -201,6 +209,7 @@ export async function verifySubjectToken(
     agents: access.agents,
     role: access.role,
     ...(access.limits ? { limits: access.limits } : {}),
+    ...(claims.sbx ? { sandboxes: claims.sbx } : {}),
     epoch,
     expiresAt: claims.exp * 1000,
     tokenId: claims.jti,

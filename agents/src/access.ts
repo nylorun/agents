@@ -25,6 +25,11 @@ export interface CreateTokenOptions {
   scopes?: readonly TokenScope[];
   /** Narrow the role's agents. Default: all of the role's agents. */
   agents?: readonly string[];
+  /**
+   * The sandboxes the token reaches (its `sbx` claim): exact ids, or prefixes ending in `/*`
+   * (`team-a/*`). Default: none (Host feature `sandboxes`).
+   */
+  sandboxes?: readonly string[];
   /** 60 to 900 seconds, at most the policy's `maxTtlSeconds`. Default: that maximum. */
   ttlSeconds?: number;
   signal?: AbortSignal;
@@ -45,6 +50,7 @@ export class TokensClient {
         role: options.role,
         ...(options.scopes ? { scopes: [...options.scopes] } : {}),
         ...(options.agents ? { agents: [...options.agents] } : {}),
+        ...(options.sandboxes ? { sandboxes: [...options.sandboxes] } : {}),
         ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
       },
       options.signal

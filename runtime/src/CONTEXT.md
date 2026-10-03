@@ -134,12 +134,12 @@ _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
-`vaults:own`, `tenant:settings` (`SUBJECT_SCOPES`). Each route declares
+`vaults:own`, `tenant:settings`, `sandboxes:write` (`SUBJECT_SCOPES`). Each route declares
 the scopes that allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
 lookup (`403 scope_required`); reset, config seed, endpoints, actions, the
 sandbox tool routes, `/v1/tokens` and `/v1/access/**` are open to no subject.
 A subject token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
-`vaults:own`).
+`vaults:own`, `sandboxes:write`).
 
 **Subject token**: ES256 JWT (`typ: nylorun-subject+jwt`) for one subject and one
 **role**, minted by `POST /v1/tokens` with an application key and sent as the
@@ -325,7 +325,10 @@ One line each; the module named is where the term lives in code.
 - **Transcript fold**: The own loop's model-facing transcript, rebuilt from the session's `transcript.updated` events (internal, never served) at each segment start; `turn.cancelled` and `turn.failed` undo their turn's edits. The session row stores the engine state without it, folding from `Session.history.from` (`tenant/history.ts`, blueprint P0.3). Tests run in shadow mode (`test/setup/transcript-shadow.ts`), which also keeps the transcript on the row and checks the fold against it.
 - **Stream relay**: Feeds Durable Streams from the record, exactly once and in order per session (`matchSeq`), acknowledging the replication slot only after S2 has the events; reconciles the record with S2 after a new or lost slot. On a Host with S2 one process-wide relay reads logical replication once the Tenant is open, filling in its id (`streams/relay/`, `adapters/replication/pgoutput.ts`); otherwise the Tenant relays its own commits (`tenant/streams.ts`). The only writer of session streams.
 - **Basin generation**: The Tenant's current S2 basin, from 0; a sessions reset moves to the next, so ids it frees start in an empty basin, and the old basin is deleted after a grace period (`streams/basin.ts`, `tenant/streams.ts`).
-- **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`).
+- **Sandbox resource**: A sandbox with its own id, kind (`virtual` only; `pod` is refused with `sandbox_unavailable`), spec and labels (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, `GET /v1/sandboxes?label=k=v`, the `sandbox_resources` table, `tenant/sandboxes.ts`; Host feature `sandboxes`, blueprint D39). Ids are `/`-separated segments, sent percent-encoded as one path segment. A session attaches with `PutSessionRequest.sandbox = { id }` (`Session.sandboxId`) and pins the sandbox's spec; its workspace is keyed by the sandbox id (`SandboxManager.sandboxKeyOf`), so attached sessions share files, and deleting a session (a sessions reset) only detaches it. Turns are serial per sandbox (`409 sandbox_busy`), checked with the subject token's `sbx` grants at every turn start (`checkSandboxTurn`). The Tenant holds at most `limits.sandboxes` (default 100). Lifecycle events (`sandbox.created`, `.attached`, `.detached`, `.deleted`) go to the sandbox's own stream in the record (`nylorun_streams.sandbox_events`, `record/sandbox.ts`), not relayed to S2; the session's log records `sandbox.attached`.
+_Avoid_: "scope" for who shares a sandbox; the Runtime has none.
+- **sbx grant**: An entry of a subject token's `sbx` claim (`POST /v1/tokens` `sandboxes`): an exact sandbox id, or a prefix ending in `/*` (`team-a/*` reaches `team-a/proj-42`, not `team-a`). A token without one reaches no sandbox; any other id is the 404 of a missing one. Application keys, with or without subject headers, reach every sandbox; changing one through a subject needs `sandboxes:write`.
+- **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`). Sharing through `{ session }` is deprecated for clients: they share a sandbox resource; linked sessions of a flow still inherit through `sandboxOwnerId`, and a tree whose owner is attached to a sandbox resource works in that sandbox.
 - **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions and stops idle sandboxes (`tenant/sweep.ts`).
 
 ## Terms to avoid (appear nowhere in new copy)

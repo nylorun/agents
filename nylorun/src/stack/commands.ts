@@ -1237,6 +1237,39 @@ async function ensureSelected(ctx: Context, options: { studio: boolean }): Promi
   };
 }
 
+/** The running Tenant's API, reached as the Project's derived principal (`nylorun sandbox`). */
+export interface TenantApi {
+  /** The Tenant's name. */
+  name: string;
+  runtimeUrl: string;
+  /** The `project` derived principal's key, derived from the admin key; never stored. */
+  applicationKey: string;
+}
+
+/**
+ * The selected Tenant's API while it runs: commands that read or change the Tenant's data never
+ * start it. Exit 3 when it is not running, 7 when it is not open.
+ */
+export async function runningTenantApi(
+  deps: StackDeps,
+  options: { name?: string } = {},
+): Promise<TenantApi> {
+  const ctx = await selectStack(deps, options);
+  requireStackFiles(ctx);
+  await dockerPreflight(deps.docker);
+  const running = await runningStack(ctx, { studio: false });
+  if (!running)
+    throw new CliError(`Tenant ${ctx.name} is not running. Run "nylorun start" first.`, 3);
+  const tenant = await fetchTenant(deps, running.adminUrl, running.adminKey);
+  if (!tenant?.id || tenant.state !== "open")
+    throw new CliError(`Tenant ${ctx.name} is not open. See "nylorun status".`, 7);
+  return {
+    name: ctx.name,
+    runtimeUrl: running.runtimeUrl,
+    applicationKey: deriveTenantKey(running.adminKey, tenant.id, PROJECT_PRINCIPAL_ID),
+  };
+}
+
 /**
  * Start the selected Tenant unless it is already running (`nylorun studio`): the
  * `start` code path without its output, its Tenant wait or the Project link. Compose

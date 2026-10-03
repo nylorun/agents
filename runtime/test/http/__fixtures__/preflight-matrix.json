@@ -57,6 +57,30 @@
   "POST /v1/sessions/s1/sandbox/bash": {
     "status": 403
   },
+  "GET /v1/sandboxes": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/sandboxes?label=project=acme": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "PUT /v1/sandboxes/team%2Fsbx-missing": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/sandboxes/team%2Fsbx-missing": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "GET /v1/sandboxes/team%2Fsbx-missing/events": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
+  "DELETE /v1/sandboxes/team%2Fsbx-missing": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
   "GET /v1/tenant": {
     "status": 403
   },

@@ -47,6 +47,7 @@ import { findServer, serversOf } from "../mcp/pool.js";
 import { sandboxCapabilityOf } from "../sandbox/manager.js";
 import {
   owningSandboxSessionId,
+  sandboxWorkspaceOf,
   sandboxSpecOf,
   sessionSandboxSpec,
 } from "../sandbox/share.js";
@@ -850,11 +851,11 @@ async function callSandboxTool(
   request: HostEffect,
   signal: AbortSignal
 ): Promise<unknown> {
-  const { s, ownerId } = await ctx.store.tx(async (t) => {
+  const { s, workspace } = await ctx.store.tx(async (t) => {
     const s = await sessionOf(t, request.sessionId);
     // Agents used as tools share the session's sandbox; the tree declares one sandbox spec.
     const lookup = await sandboxLookup(t, s.id);
-    return { s, ownerId: owningSandboxSessionId(s, lookup) };
+    return { s, workspace: sandboxWorkspaceOf(s, lookup) };
   });
   const capability = sandboxCapabilityOf(
     manifestFor(s.manifest, request.agent),
@@ -864,7 +865,12 @@ async function callSandboxTool(
   if (!capability)
     throw new Error(`'${request.toolName ?? ""}' is not a sandbox tool`);
   return ctx.sandbox.run(
-    { id: ownerId, activeTurnId: s.activeTurnId, manifest: s.manifest },
+    {
+      id: workspace.ownerId,
+      activeTurnId: s.activeTurnId,
+      manifest: s.manifest,
+      ...(workspace.sandboxId === undefined ? {} : { sandboxId: workspace.sandboxId }),
+    },
     capability,
     request.toolName as never,
     request.input,

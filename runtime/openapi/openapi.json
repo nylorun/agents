@@ -20,7 +20,8 @@
         "browser-access",
         "ag-ui-endpoint",
         "a2a-endpoint",
-        "action-endpoints"
+        "action-endpoints",
+        "sandboxes"
       ]
     }
   },
@@ -6278,6 +6279,9 @@
               "request_rejected",
               "invalid_request",
               "subject_required",
+              "sandbox_not_granted",
+              "sandbox_busy",
+              "sandbox_unavailable",
               "internal_error"
             ]
           },
@@ -9566,6 +9570,9 @@
               "null"
             ]
           },
+          "sandboxId": {
+            "type": "string"
+          },
           "sandbox": {
             "type": [
               "object",
@@ -9578,7 +9585,8 @@
             "enum": [
               "default",
               "inline",
-              "shared"
+              "shared",
+              "sandbox"
             ]
           },
           "mcpSnapshot": {
@@ -10241,6 +10249,19 @@
               {
                 "type": "object",
                 "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "A sandbox id, such as `user-42` or `team-a/proj-42`"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
                   "session": {
                     "type": "string",
                     "minLength": 1
@@ -10384,6 +10405,9 @@
             "$ref": "#/components/schemas/SandboxExecEvent"
           },
           {
+            "$ref": "#/components/schemas/SandboxAttachedEvent"
+          },
+          {
             "$ref": "#/components/schemas/NodeStartedEvent"
           },
           {
@@ -10426,6 +10450,7 @@
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
             "sandbox.state": "#/components/schemas/SandboxStateEvent",
             "sandbox.exec": "#/components/schemas/SandboxExecEvent",
+            "sandbox.attached": "#/components/schemas/SandboxAttachedEvent",
             "node.started": "#/components/schemas/NodeStartedEvent",
             "node.agent": "#/components/schemas/NodeAgentEvent",
             "loop.iteration": "#/components/schemas/LoopIterationEvent",
@@ -14492,6 +14517,173 @@
           "payload"
         ]
       },
+      "SandboxAttachedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sandbox.attached"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "sandboxId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sandboxId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
       "NodeStartedEvent": {
         "type": "object",
         "properties": {
@@ -15586,6 +15778,297 @@
         ],
         "additionalProperties": false
       },
+      "ListSandboxesResponse": {
+        "type": "object",
+        "properties": {
+          "sandboxes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "virtual",
+                    "pod"
+                  ]
+                },
+                "labels": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "spec": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "creating",
+                    "running",
+                    "stopped"
+                  ]
+                },
+                "sessions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "activeTurnId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "activeTurnId"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "labels",
+                "spec",
+                "state",
+                "sessions",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "sandboxes"
+        ],
+        "additionalProperties": false
+      },
+      "SandboxView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "virtual",
+              "pod"
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "spec": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "creating",
+              "running",
+              "stopped"
+            ]
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "activeTurnId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "activeTurnId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "labels",
+          "spec",
+          "state",
+          "sessions",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "PutSandboxRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "virtual",
+              "pod"
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[\\x20-\\x7e]{0,256}$"
+            }
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "allow": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "resources": {
+            "type": "object",
+            "properties": {
+              "cpus": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ListSandboxEventsResponse": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "nylorun.sandbox-event/1"
+                  ]
+                },
+                "eventId": {
+                  "type": "string"
+                },
+                "tenantId": {
+                  "type": "string"
+                },
+                "sandboxId": {
+                  "type": "string"
+                },
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "time": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "sandbox.created",
+                    "sandbox.attached",
+                    "sandbox.detached",
+                    "sandbox.deleted"
+                  ]
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "schema",
+                "eventId",
+                "tenantId",
+                "sandboxId",
+                "seq",
+                "time",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteSandboxResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
       "TenantStatus": {
         "type": "object",
         "properties": {
@@ -16133,6 +16616,11 @@
                       },
                       "idle": {
                         "type": "string"
+                      },
+                      "sandboxes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100000
                       }
                     },
                     "additionalProperties": false
@@ -16486,6 +16974,10 @@
                   },
                   "idle": {
                     "type": "string"
+                  },
+                  "sandboxes": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "required": [
@@ -16609,6 +17101,11 @@
               },
               "idle": {
                 "type": "string"
+              },
+              "sandboxes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
               }
             },
             "additionalProperties": false
@@ -17618,7 +18115,8 @@
               "enum": [
                 "agents:read",
                 "sessions:own",
-                "vaults:own"
+                "vaults:own",
+                "sandboxes:write"
               ]
             }
           },
@@ -17638,6 +18136,12 @@
                 }
               }
             ]
+          },
+          "sandboxes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "keyId": {
             "type": "string"
@@ -17675,7 +18179,8 @@
               "enum": [
                 "agents:read",
                 "sessions:own",
-                "vaults:own"
+                "vaults:own",
+                "sandboxes:write"
               ]
             },
             "minItems": 1
@@ -17686,6 +18191,13 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "sandboxes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16
           },
           "ttlSeconds": {
             "type": "integer",
@@ -17724,7 +18236,8 @@
                         "enum": [
                           "agents:read",
                           "sessions:own",
-                          "vaults:own"
+                          "vaults:own",
+                          "sandboxes:write"
                         ]
                       },
                       "minItems": 1
@@ -17863,7 +18376,8 @@
                         "enum": [
                           "agents:read",
                           "sessions:own",
-                          "vaults:own"
+                          "vaults:own",
+                          "sandboxes:write"
                         ]
                       },
                       "minItems": 1
@@ -20512,6 +21026,9 @@
                       "$ref": "#/components/schemas/SandboxExecEvent"
                     },
                     {
+                      "$ref": "#/components/schemas/SandboxAttachedEvent"
+                    },
+                    {
                       "$ref": "#/components/schemas/NodeStartedEvent"
                     },
                     {
@@ -20726,6 +21243,791 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sandboxes": {
+      "get": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "List sandboxes",
+        "description": "Every sandbox with all the labels asked for. A subject token sees only the sandboxes its grants reach.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "`key=value`; repeat it to require several labels"
+            },
+            "required": false,
+            "description": "`key=value`; repeat it to require several labels",
+            "name": "label",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `5`"
+            },
+            "required": true,
+            "description": "The protocol version, `5`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sandboxes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSandboxesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sandboxes/{sandboxId}": {
+      "put": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Create or find a sandbox",
+        "description": "Creates the sandbox within the Tenant's limits, or answers the one with this id, so get-or-create is one call. Its spec is fixed once it exists; labels, when sent, replace its labels. Only kind `virtual` runs on this Runtime.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+            },
+            "required": true,
+            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
+            "name": "sandboxId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `5`"
+            },
+            "required": true,
+            "description": "The protocol version, `5`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSandboxRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The sandbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A sandbox with this id has another spec, or the Tenant holds as many sandboxes as it allows (`limit_exceeded`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Get a sandbox",
+        "description": "Its spec, labels, state and the sessions attached to it (acting for a person, only theirs).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+            },
+            "required": true,
+            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
+            "name": "sandboxId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `5`"
+            },
+            "required": true,
+            "description": "The protocol version, `5`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sandbox",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Delete a sandbox",
+        "description": "Deletes the sandbox and its files. Sessions attached to it stay attached by id; their next turn is refused until a sandbox with this id exists again.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+            },
+            "required": true,
+            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
+            "name": "sandboxId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `5`"
+            },
+            "required": true,
+            "description": "The protocol version, `5`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted, or there was none",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteSandboxResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A session attached to it has a turn running (`sandbox_busy`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sandboxes/{sandboxId}/events": {
+      "get": {
+        "tags": [
+          "Sandboxes"
+        ],
+        "summary": "Read a sandbox's lifecycle events",
+        "description": "`sandbox.created`, `sandbox.attached`, `sandbox.detached` and `sandbox.deleted`, in order, numbered from 0.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "sandboxes:write"
+        ],
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`"
+            },
+            "required": true,
+            "description": "The sandbox id, percent-encoded: `team-a%2Fproj-42` for `team-a/proj-42`",
+            "name": "sandboxId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The first `seq` to return"
+            },
+            "required": false,
+            "description": "The first `seq` to return",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `5`"
+            },
+            "required": true,
+            "description": "The protocol version, `5`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSandboxEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The subject token expired or was revoked (`token_expired`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }

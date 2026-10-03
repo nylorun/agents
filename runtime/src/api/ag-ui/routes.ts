@@ -53,6 +53,7 @@ import {
 } from "../../tenant/session-streams.js";
 import { putSession, sessionView } from "../../tenant/sessions.js";
 import { mayUseAgent } from "../../tenant/tokens.js";
+import { sandboxGrantsOf } from "../../tenant/sandboxes.js";
 
 const HEARTBEAT_MS = 15_000;
 const TERMINAL = new Set([
@@ -349,7 +350,10 @@ export async function startRun(
       ...sessionOptions(input, scope),
     } as never,
     caller.access,
-    { createOnly: true }
+    {
+      createOnly: true,
+      ...(sandboxGrantsOf(scope) === undefined ? {} : { sandboxGrants: sandboxGrantsOf(scope)! }),
+    }
   );
   const translator = new RunTranslator(input.threadId, input.runId);
   let cursor: string | null;

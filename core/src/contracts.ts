@@ -565,12 +565,180 @@ export const SandboxInlineRequestSchema = z
   })
   .strict();
 export type SandboxInlineRequest = z.infer<typeof SandboxInlineRequestSchema>;
+
+// --- sandboxes as a resource (Host feature `sandboxes`, blueprint D39) ----------------------
+
 /**
- * `PutSessionRequest.sandbox`: `false` for none, `{ session }` to share another session's
- * sandbox, or an inline sandbox. Omitted means the Tenant's default.
+ * A sandbox id: 1–200 characters, one or more `/`-separated segments of letters, digits, `.`,
+ * `_` and `-`, each starting with a letter or digit (`user-42`, `team-a/proj-42`). Ids are
+ * hierarchical so an `sbx` grant can name a family of them (`team-a/*`).
+ */
+const SANDBOX_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+export const SANDBOX_ID_MAX_LENGTH = 200;
+
+export function isSandboxId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= SANDBOX_ID_MAX_LENGTH &&
+    SANDBOX_ID_PATTERN.test(value)
+  );
+}
+
+/** An `sbx` entry: an exact sandbox id, or a prefix ending in `/*` (`team-a/*`). */
+export function isSandboxGrant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  return value.endsWith("/*") ? isSandboxId(value.slice(0, -2)) : isSandboxId(value);
+}
+
+/**
+ * Whether `grants` (a subject token's `sbx`) reach sandbox `id`: an exact entry, or a prefix
+ * entry `p/*` for any id below `p/`. No grants reach no sandbox.
+ */
+export function sandboxGranted(grants: readonly string[] | undefined, id: string): boolean {
+  for (const grant of grants ?? []) {
+    if (grant.endsWith("/*")) {
+      if (id.startsWith(grant.slice(0, -1))) return true;
+    } else if (grant === id) return true;
+  }
+  return false;
+}
+
+export const SandboxIdSchema = z
+  .string()
+  .refine(isSandboxId, {
+    message:
+      "A sandbox id is up to 200 characters: /-separated segments of letters, digits, '.', '_' and '-'",
+  })
+  .meta({ description: "A sandbox id, such as `user-42` or `team-a/proj-42`" });
+export const SandboxGrantSchema = z.string().refine(isSandboxGrant, {
+  message: "A sandbox grant is a sandbox id, or a prefix ending in /* such as team-a/*",
+});
+
+/** `virtual`: a just-bash workspace, no cluster (F7.1). `pod`: an agent-sandbox pod (F7.2). */
+export const SANDBOX_KINDS = ["virtual", "pod"] as const;
+export type SandboxKind = (typeof SANDBOX_KINDS)[number];
+
+const LABEL_KEY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,61}[A-Za-z0-9])?$/;
+const LABEL_VALUE_PATTERN = /^[\x20-\x7e]{0,256}$/;
+export const SANDBOX_LABELS_MAX = 32;
+/** The developer's own key-value pairs; the Runtime stores and filters them, never reads them. */
+export const SandboxLabelsSchema = z
+  .record(
+    z.string().regex(LABEL_KEY_PATTERN, {
+      message: "Label keys are 1-63 letters, digits, '.', '_', '/' and '-'",
+    }),
+    z.string().regex(LABEL_VALUE_PATTERN, {
+      message: "Label values are up to 256 printable ASCII characters",
+    }),
+  )
+  .refine((labels) => Object.keys(labels).length <= SANDBOX_LABELS_MAX, {
+    message: `At most ${SANDBOX_LABELS_MAX} labels`,
+  });
+export type SandboxLabels = z.infer<typeof SandboxLabelsSchema>;
+
+/**
+ * `PUT /v1/sandboxes/{sandboxId}`: creates the sandbox, or finds the one with this id. The spec
+ * (`kind`, `image`, `network`, `resources`) is checked against the Tenant's limits and fixed
+ * once the sandbox exists; `labels`, when sent, replace the sandbox's labels.
+ */
+export const PutSandboxRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    /** Default `virtual`. `pod` needs sandbox pods, which arrive in F7.2. */
+    kind: z.enum(SANDBOX_KINDS).optional(),
+    labels: SandboxLabelsSchema.optional(),
+    image: z.string().min(1).optional(),
+    network: z.object({ allow: z.array(sandboxHostSchema).optional() }).strict().optional(),
+    resources: sandboxResourcesSchema.optional(),
+  })
+  .strict();
+export type PutSandboxRequest = z.infer<typeof PutSandboxRequestSchema>;
+
+/** A session attached to a sandbox, as the sandbox's view lists it. */
+export const SandboxSessionSchema = z
+  .object({ id: z.string(), activeTurnId: z.string().nullable() })
+  .strict();
+
+/** `PUT` and `GET /v1/sandboxes/{sandboxId}`. */
+export const SandboxViewSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(SANDBOX_KINDS),
+    labels: z.record(z.string(), z.string()),
+    /** The spec, resolved against the Tenant's limits when the sandbox was created. */
+    spec: z.record(z.string(), z.unknown()),
+    /**
+     * `ready` until a tool first runs in it, then the workspace's compute state. A virtual
+     * sandbox has nothing to stop: `stopped` means only that its turn queue is idle.
+     */
+    state: z.enum(["ready", "creating", "running", "stopped"]),
+    /** Sessions attached to it (acting for a subject, only the subject's own). */
+    sessions: z.array(SandboxSessionSchema),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict();
+export type SandboxView = z.infer<typeof SandboxViewSchema>;
+
+export const ListSandboxesResponseSchema = z
+  .object({ sandboxes: z.array(SandboxViewSchema) })
+  .strict();
+export type ListSandboxesResponse = z.infer<typeof ListSandboxesResponseSchema>;
+
+export const DeleteSandboxResponseSchema = z
+  .object({ id: z.string(), deleted: z.boolean() })
+  .strict();
+export type DeleteSandboxResponse = z.infer<typeof DeleteSandboxResponseSchema>;
+
+/** The schema id of a sandbox's lifecycle events (its stream in the record). */
+export const SANDBOX_EVENT_SCHEMA = "nylorun.sandbox-event/1";
+export const SANDBOX_EVENT_TYPES = [
+  "sandbox.created",
+  "sandbox.attached",
+  "sandbox.detached",
+  "sandbox.deleted",
+] as const;
+export type SandboxEventType = (typeof SANDBOX_EVENT_TYPES)[number];
+/** The payload of each sandbox lifecycle event. */
+export const SANDBOX_EVENT_PAYLOADS = {
+  "sandbox.created": z
+    .object({ kind: z.enum(SANDBOX_KINDS), labels: z.record(z.string(), z.string()) })
+    .passthrough(),
+  "sandbox.attached": z.object({ sessionId: z.string() }).passthrough(),
+  "sandbox.detached": z
+    .object({ sessionId: z.string(), reason: z.enum(["reset"]) })
+    .passthrough(),
+  "sandbox.deleted": z.object({}).passthrough(),
+} as const satisfies Record<SandboxEventType, z.ZodType>;
+export type SandboxEventPayload<T extends SandboxEventType> = z.infer<
+  (typeof SANDBOX_EVENT_PAYLOADS)[T]
+>;
+/** One lifecycle event on a sandbox's stream, numbered from 0. */
+export const SandboxEventSchema = z
+  .object({
+    schema: z.literal(SANDBOX_EVENT_SCHEMA),
+    eventId: z.string(),
+    tenantId: z.string(),
+    sandboxId: z.string(),
+    seq: z.number().int().nonnegative(),
+    time: z.string(),
+    type: z.enum(SANDBOX_EVENT_TYPES),
+    payload: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+export type SandboxEvent = z.infer<typeof SandboxEventSchema>;
+export const ListSandboxEventsResponseSchema = z
+  .object({ events: z.array(SandboxEventSchema) })
+  .strict();
+
+/**
+ * `PutSessionRequest.sandbox`: `false` for none, `{ id }` to attach a sandbox resource (Host
+ * feature `sandboxes`), `{ session }` to share another session's sandbox, or an inline sandbox.
+ * Omitted means the Tenant's default.
  */
 export const SandboxRequestSchema = z.union([
   z.literal(false),
+  z.object({ id: SandboxIdSchema }).strict(),
   z.object({ session: z.string().min(1) }).strict(),
   SandboxInlineRequestSchema,
 ]);
@@ -612,6 +780,8 @@ export const TenantSandboxConfigSchema = z
             message: "idle must be a duration such as 30s, 15m or 1h",
           })
           .optional(),
+        /** The most sandbox resources (`PUT /v1/sandboxes/{id}`) the Tenant may hold. Default 100. */
+        sandboxes: z.number().int().min(0).max(100_000).optional(),
       })
       .strict()
       .optional(),
@@ -1257,6 +1427,13 @@ export const SandboxStatePayloadSchema = z
     error: z.string().optional(),
   })
   .passthrough();
+/**
+ * `sandbox.attached`: the session was opened on a sandbox resource (`sandbox: { id }`). The
+ * sandbox's own stream records the same attachment.
+ */
+export const SandboxAttachedPayloadSchema = z
+  .object({ sandboxId: z.string() })
+  .passthrough();
 /** `sandbox.exec`: one sandbox tool call finished. */
 export const SandboxExecPayloadSchema = z
   .object({
@@ -1366,6 +1543,7 @@ export const EVENT_CATALOG = {
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "sandbox.state": { payload: SandboxStatePayloadSchema, source: "loop", version: 1 },
   "sandbox.exec": { payload: SandboxExecPayloadSchema, source: "loop", version: 1 },
+  "sandbox.attached": { payload: SandboxAttachedPayloadSchema, source: "api", version: 1 },
   "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
@@ -1808,7 +1986,8 @@ export type ResetTenantRequest = z.infer<typeof ResetTenantRequestSchema>;
 /**
  * Acting for a subject (Host feature `subject-headers`): what an application principal may
  * narrow a request to. `sessions:own` and `vaults:own` reach only the subject's own sessions
- * and vaults; the others reach Tenant-wide resources.
+ * and vaults; the others reach Tenant-wide resources. `sandboxes:write` creates and deletes
+ * sandboxes (Host feature `sandboxes`); a subject token's reach only the ids its `sbx` grants.
  */
 export const SUBJECT_SCOPES = [
   "agents:read",
@@ -1816,6 +1995,7 @@ export const SUBJECT_SCOPES = [
   "sessions:own",
   "vaults:own",
   "tenant:settings",
+  "sandboxes:write",
 ] as const;
 export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
 
@@ -1871,7 +2051,14 @@ export function parseSubjectHeaders(
 // --- subject tokens and the access policy (Host feature `subject-tokens`) ------------------
 
 /** Scopes a subject token may carry: never `agents:write` or `tenant:settings`. */
-export const TOKEN_SCOPES = ["agents:read", "sessions:own", "vaults:own"] as const;
+export const TOKEN_SCOPES = [
+  "agents:read",
+  "sessions:own",
+  "vaults:own",
+  "sandboxes:write",
+] as const;
+/** The most `sandboxes` grants one subject token carries (it is capped at 4 KiB). */
+export const TOKEN_SANDBOX_GRANTS_MAX = 16;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 const TokenScopeSchema = z.enum(TOKEN_SCOPES);
 
@@ -1969,6 +2156,11 @@ export const CreateTokenRequestSchema = z
     role: z.string().regex(ROLE_NAME_PATTERN),
     scopes: z.array(TokenScopeSchema).min(1).optional(),
     agents: z.array(z.string().min(1)).optional(),
+    /**
+     * The sandboxes the token reaches (its `sbx` claim): exact ids, or prefixes ending in `/*`.
+     * Absent or empty: none (Host feature `sandboxes`).
+     */
+    sandboxes: z.array(SandboxGrantSchema).max(TOKEN_SANDBOX_GRANTS_MAX).optional(),
     ttlSeconds: z
       .number()
       .int()
@@ -1988,6 +2180,8 @@ export const CreateTokenResponseSchema = z
     role: z.string(),
     scopes: z.array(TokenScopeSchema),
     agents: AgentAllowlistSchema,
+    /** The token's `sbx` grants, when it has any. */
+    sandboxes: z.array(z.string()).optional(),
     keyId: z.string(),
   })
   .strict();
@@ -2060,6 +2254,8 @@ export interface SubjectTokenClaims {
   scp: string;
   /** The agents the mint narrowed the role to; absent when not narrowed. */
   agt?: string[];
+  /** The sandboxes the token reaches: exact ids, or prefixes ending in `/*`. */
+  sbx?: string[];
   /** The subject's revocation epoch when minted. */
   epc: number;
   iat: number;
@@ -2217,11 +2413,16 @@ export const SessionViewSchema = z
     activeTurnId: z.string().nullable(),
     vaultIds: z.array(z.string()),
     credentialSelections: z.array(CredentialSelectionSchema),
-    /** The session whose sandbox this one shares; `null` when it owns its own. */
+    /**
+     * The session whose sandbox this one shares; `null` when it owns its own. Deprecated: share
+     * a sandbox resource with `sandbox: { id }` (the client's `sandboxes.forSession()`).
+     */
     sandboxOwnerId: z.string().nullable(),
+    /** The sandbox resource the session is attached to (`sandbox: { id }`), if any. */
+    sandboxId: z.string().optional(),
     /** The sandbox pinned when the session was opened, or `null`. */
     sandbox: z.record(z.string(), z.unknown()).nullable(),
-    sandboxSource: z.enum(["default", "inline", "shared"]).optional(),
+    sandboxSource: z.enum(["default", "inline", "shared", "sandbox"]).optional(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
     mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
     /** What the session waits on: interactions, approvals, timers. */
@@ -2298,6 +2499,8 @@ export const EffectiveSandboxConfigSchema = z
         resources: SandboxResourcesLimitSchema,
         defaultResources: SandboxResourcesLimitSchema,
         idle: z.string(),
+        /** The most sandbox resources the Tenant may hold. */
+        sandboxes: z.number().int().nonnegative().optional(),
       })
       .strict(),
   })

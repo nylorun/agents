@@ -136,11 +136,14 @@ export const sessions = nylorun.table(
     ownerExpiresAt: timestamp({ withTimezone: true, mode: "date" }),
     /** The session owner (`ownerUserId`), not the lease column `owner`. */
     ownerUserId: field("->>'ownerUserId'"),
+    /** The sandbox resource the session is attached to (`sandbox: { id }`). */
+    sandboxId: field("->>'sandboxId'"),
   },
   (t) => [
     index("sessions_status").on(t.status, t.ownerExpiresAt),
     index("sessions_agent").on(t.agentId),
     index("sessions_owner_user").on(t.ownerUserId),
+    index("sessions_sandbox").on(t.sandboxId),
   ],
 );
 
@@ -433,8 +436,41 @@ export const toolCrossings = nylorun.table(
   (t) => [index("tool_crossings_settled").on(t.settledAt)],
 );
 
+/**
+ * A sandbox resource (blueprint D39, F7.1): its id, kind, the spec resolved against the
+ * Tenant's limits when it was created, and the developer's labels. Sessions attach to it by id
+ * (the session body's `sandboxId`). Not the `sandboxes` document table, which holds the virtual
+ * backend's compute records, keyed by workspace key.
+ */
+export const sandboxResources = nylorun.table("sandbox_resources", {
+  id: textC().primaryKey(),
+  kind: text({ enum: ["virtual", "pod"] }).notNull(),
+  /** The resolved `SandboxManifest`. */
+  spec: jsonText().notNull(),
+  /** `{ key: value }`, filtered through `nylorun.doc(labels)`. */
+  labels: jsonText().notNull(),
+  createdAt: textC().notNull(),
+  updatedAt: textC().notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // nylorun_streams: the record
+
+/**
+ * Each sandbox's lifecycle stream (`nylorun.sandbox-event/1`), numbered from 0 per sandbox id.
+ * Written only by the record module; not published to the stream relay.
+ */
+export const sandboxEvents = nylorunStreams.table(
+  "sandbox_events",
+  {
+    sandboxId: textC().notNull(),
+    seq: bigint({ mode: "number" }).notNull(),
+    type: text().notNull(),
+    body: jsonText().notNull(),
+    committedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "sandbox_events_pkey", columns: [t.sandboxId, t.seq] })],
+);
 
 /** Each session's log head: the next seq and the basin generation its events go to. */
 export const sessionLogHeads = nylorunStreams.table("session_log_heads", {
@@ -481,3 +517,4 @@ export type PublishableKeyRow = typeof publishableKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
+export type SandboxResourceRow = typeof sandboxResources.$inferSelect;

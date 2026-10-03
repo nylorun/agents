@@ -63,6 +63,11 @@ import {
   ListEndpointsResponseSchema,
   PutEndpointsRequestSchema,
   SandboxToolOutcomeSchema,
+  PutSandboxRequestSchema,
+  SandboxViewSchema,
+  ListSandboxesResponseSchema,
+  DeleteSandboxResponseSchema,
+  ListSandboxEventsResponseSchema,
   SessionCommandSchema,
   AdminStatusSchema,
   HostShutdownResponseSchema,
@@ -83,6 +88,14 @@ export const AdminStatus = named("AdminStatus", AdminStatusSchema);
 export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
 
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
+export const PutSandboxRequest = named("PutSandboxRequest", PutSandboxRequestSchema);
+export const SandboxView = named("SandboxView", SandboxViewSchema);
+export const ListSandboxesResponse = named("ListSandboxesResponse", ListSandboxesResponseSchema);
+export const DeleteSandboxResponse = named("DeleteSandboxResponse", DeleteSandboxResponseSchema);
+export const ListSandboxEventsResponse = named(
+  "ListSandboxEventsResponse",
+  ListSandboxEventsResponseSchema,
+);
 export const PutEndpointsRequest = named("PutEndpointsRequest", PutEndpointsRequestSchema);
 export const ListEndpointsResponse = named("ListEndpointsResponse", ListEndpointsResponseSchema);
 export const DeleteEndpointResponse = named("DeleteEndpointResponse", DeleteEndpointResponseSchema);

@@ -92,6 +92,9 @@ export type {
   CredentialSelection,
   VaultInfo,
   SubjectScope,
+  SandboxView,
+  SandboxEvent,
+  SandboxKind,
 } from "@nylorun/core/contracts";
 export { SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";
@@ -100,8 +103,13 @@ export type {
   AgentSource,
   SessionView,
   CommandOptions,
+  CreateSessionOptions,
   SessionSandbox,
+  ForSessionOptions,
+  SandboxSpec,
+  SessionSandboxHandle,
 } from "./client.js";
+export { SandboxesClient } from "./client.js";
 export {
   AccessClient,
   PublishableKeysClient,

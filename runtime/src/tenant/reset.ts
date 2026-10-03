@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { ResetScope, SessionStore } from "../store/types.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantPaths } from "./types.js";
+import { detachAllSessions } from "./sandboxes.js";
 
 export type { ResetScope } from "../store/types.js";
 
@@ -61,10 +62,14 @@ export async function resetTenant(
   const clearAll = scope === "all";
 
   if (clearSandboxes) {
-    await ctx.sandbox.reconcile(() => false);
+    await ctx.sandbox.reconcile(() => false, () => false);
   }
 
-  await ctx.store.tx((t) => t.reset(scope));
+  await ctx.store.tx(async (t) => {
+    // Sandbox resources outlive their sessions: a sessions reset only detaches them.
+    if (clearSessions && !clearSandboxes) await detachAllSessions(t);
+    await t.reset(scope);
+  });
 
   if (clearSessions) ctx.clearSessionState();
 

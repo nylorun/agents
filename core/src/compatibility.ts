@@ -33,7 +33,10 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
  * `action-endpoints`: `PUT`/`GET`/`DELETE /v1/endpoints` register the URL that runs each agent's
  * Actions, and the Runtime delivers them there, signed with a delivery token
- * (`Nylorun-Signature`), instead of offering them to executors.
+ * (`Nylorun-Signature`), instead of offering them to executors. `sandboxes`: sandboxes are a
+ * resource (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, kind `virtual`), a session attaches to one
+ * with `sandbox: { id }`, subject tokens carry `sbx` grants checked at every turn start, and
+ * `sandboxes:write` lets a subject create and delete the sandboxes it is granted.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -45,6 +48,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "ag-ui-endpoint",
   "a2a-endpoint",
   "action-endpoints",
+  "sandboxes",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -98,6 +102,12 @@ export const ERROR_CODES = [
   "invalid_request",
   /** A route that acts for a person was called without one (`Nylorun-Subject`). */
   "subject_required",
+  /** A subject token's `sbx` grants do not reach the sandbox (Host feature `sandboxes`). */
+  "sandbox_not_granted",
+  /** Another session's turn holds the sandbox: turns are serial per sandbox. */
+  "sandbox_busy",
+  /** The sandbox is gone, or its kind cannot run on this Runtime. */
+  "sandbox_unavailable",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

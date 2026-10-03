@@ -60,8 +60,13 @@ import type {
   EventPayload,
   EventType,
   LiveEvent,
+  SandboxEvent,
+  SandboxEventPayload,
+  SandboxEventType,
+  SandboxKind,
   SessionEventOf,
 } from "@nylorun/core/contracts";
+import type { SandboxManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type {
   ModelBudgetRow,
@@ -175,6 +180,17 @@ export interface DefinitionDoc {
 /** A sandbox record, keyed by sandbox key. */
 export interface SandboxDoc {
   key: string;
+}
+
+/** A sandbox resource (`sandbox_resources`): what `PUT /v1/sandboxes/{id}` created. */
+export interface SandboxResource {
+  id: string;
+  kind: SandboxKind;
+  /** The spec resolved against the Tenant's limits when the sandbox was created. */
+  spec: SandboxManifest;
+  labels: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** A session as read from the store: its document plus the store-managed ownership fields. */
@@ -497,6 +513,41 @@ export interface Tx {
   listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]>;
   listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]>;
 
+  // --- sandbox resources (blueprint D39, F7.1) -------------------------------
+
+  /** The sandbox resource `id`; with `lock`, its row is locked until the transaction ends. */
+  sandboxResource(id: string, options?: { lock?: boolean }): Promise<SandboxResource | undefined>;
+  /**
+   * Creates the sandbox resource unless one with its id exists, while the Tenant holds fewer
+   * than `limit`: `exists` and `limit` write nothing. Serialized with every other create.
+   */
+  createSandboxResource(
+    row: SandboxResource,
+    limit: number,
+  ): Promise<"created" | "exists" | "limit">;
+  updateSandboxLabels(id: string, labels: Record<string, string>, updatedAt: string): Promise<void>;
+  deleteSandboxResource(id: string): Promise<void>;
+  /** Sandbox resources by id, those with every label in `labels` when it is given. */
+  listSandboxResources(filter?: { labels?: Record<string, string> }): Promise<SandboxResource[]>;
+  /** Sessions attached to sandbox resource `sandboxId` (`Session.sandboxId`), by id. */
+  sessionsOnSandbox<T extends SessionDoc = SessionDoc>(
+    sandboxId: string,
+  ): Promise<StoredSession<T>[]>;
+  /**
+   * Appends an event to the sandbox's lifecycle stream through the record module. The caller
+   * holds the sandbox row's lock (or created the row in this transaction).
+   */
+  sandboxEvent<T extends SandboxEventType>(
+    sandboxId: string,
+    type: T,
+    payload: SandboxEventPayload<T>,
+  ): Promise<SandboxEvent>;
+  /** The sandbox's lifecycle stream, from `fromSeq` on, at most `limit` events. */
+  sandboxEvents(
+    sandboxId: string,
+    options?: { fromSeq?: number; limit?: number },
+  ): Promise<SandboxEvent[]>;
+
   /** One agent's `pending` actions, delivered when its endpoint is registered. */
   pendingActions(agentId: string): Promise<ActionDoc[]>;
   /** How many of one agent's actions are `delivering` (Action endpoints). */
@@ -698,7 +749,7 @@ export interface Tx {
    *   buckets and the Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
-   * - `sandboxes`: sandbox records;
+   * - `sandboxes`: sandbox records, sandbox resources and their lifecycle streams;
    * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials,
    *   the model usage ledger and the model budgets. The host vault, principals, signing keys, subject epochs,
    *   publishable keys, settings, audit and vault idempotency rows stay.
