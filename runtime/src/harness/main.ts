@@ -14,14 +14,20 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { httpModelGate } from "../gates/http-client.js";
 import { httpToolGate } from "../gates/tool-client.js";
-import { baselineEnvironment } from "../host/environment.js";
 import { createHostLogger } from "../host/logger.js";
 import type { StackConfig } from "../host/stack-config.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
 
-export async function runHarness(stack: StackConfig): Promise<void> {
+/**
+ * `baseline` is the allowlisted environment of MCP stdio servers (`baselineEnvironment`), read
+ * by `host/main.ts`: nothing here reads the process environment.
+ */
+export async function runHarness(
+  stack: StackConfig,
+  baseline: Readonly<Record<string, string>>
+): Promise<void> {
   const config = stack.harness!;
   const logger = createHostLogger();
   const paths = {
@@ -38,7 +44,7 @@ export async function runHarness(stack: StackConfig): Promise<void> {
     url: config.url,
     token: config.token,
     paths,
-    childEnv: { ...baselineEnvironment(process.env), HOME: paths.home, TMPDIR: paths.tmp },
+    childEnv: { ...baseline, HOME: paths.home, TMPDIR: paths.tmp },
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),
     useVaultModel: true,
     toolGate: httpToolGate({ url: config.gatesUrl, runTokens }),
