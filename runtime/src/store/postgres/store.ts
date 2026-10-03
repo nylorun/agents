@@ -102,6 +102,7 @@ import type {
   SessionDoc,
   SessionEffectFilter,
   SessionOwnership,
+  SessionRunState,
   SessionStore,
   SessionStoreOptions,
   StoreCounts,
@@ -534,6 +535,19 @@ class PostgresTx implements Tx {
     if (session.epoch !== epoch)
       throw new OwnershipLostError(sessionId, epoch, session.epoch);
     return session;
+  }
+
+  async runState(sessionId: string): Promise<SessionRunState | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select({
+        epoch: sessions.epoch,
+        status: sessions.status,
+        activeTurnId: sql<string | null>`nylorun.doc(${sessions.body})->>'activeTurnId'`,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    return row && { epoch: row.epoch, status: row.status ?? "", activeTurnId: row.activeTurnId ?? null };
   }
 
   // --- typed queries -------------------------------------------------------
