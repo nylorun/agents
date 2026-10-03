@@ -61,6 +61,7 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
+import { rearmPodTimers } from "../../../tenant/sandboxes.js";
 
 const settings = (scopes: readonly SubjectScope[] | "never"): RouteAccess => ({
   credentials: scopes === "never" ? ["application"] : ["application", "subject"],
@@ -271,6 +272,8 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const errors = sandboxConfigErrors(effectiveSandboxConfig(config));
       if (errors.length > 0) fail(400, errors.join(" "));
       await ctx.store.tx((t) => writeSandboxConfig(t, config));
+      // Pods' idle timers follow the new limits.idle (D36).
+      await rearmPodTimers(ctx);
       return jsonResponse(200, await sandboxView(ctx));
     },
   );

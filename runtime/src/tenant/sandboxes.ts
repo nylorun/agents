@@ -601,3 +601,29 @@ export async function touchPodSandbox(ctx: TenantContext, id: string): Promise<v
     });
   }
 }
+
+/**
+ * Re-arms the idle timer of every running pod sandbox after the Tenant's settings change, so a
+ * shorter `limits.idle` applies to pods already idle (D36: the settings are read whenever a
+ * timer is set). Best effort.
+ */
+export async function rearmPodTimers(ctx: TenantContext): Promise<void> {
+  if (!ctx.pods) return;
+  try {
+    const { rows, idleMs } = await ctx.store.tx(async (t) => ({
+      rows: await t.listSandboxResources(),
+      idleMs: podLifecycleConfig(await readSandboxConfig(t)).idleMs,
+    }));
+    for (const row of rows)
+      if (row.pod?.desired === "running")
+        await ctx.sandboxSignal(row.id, {
+          kind: "arm",
+          timer: "idle",
+          at: Date.parse(row.pod.lastActiveAt ?? row.createdAt) + idleMs,
+        });
+  } catch (error) {
+    ctx.config.logger.warn("sandbox idle timers not re-armed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}

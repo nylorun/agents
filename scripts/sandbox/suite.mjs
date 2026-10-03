@@ -311,6 +311,12 @@ try {
       step("idle (20 s) → suspended");
       await observed("pods/ttl", "suspended", 180_000);
       assert.ok((await events("pods/ttl")).includes("sandbox.suspended"));
+      // Idle long enough again for the steps below.
+      await api("PUT", "/v1/tenant/sandbox", {
+        requestId: randomUUID(),
+        limits: { idle: "10m", ttl: "2h" },
+        lifecycle: { onExpiry: "retain", stopGrace: "10s" },
+      });
 
       step("reset → a new, empty volume");
       await api("POST", "/v1/sandboxes/pods%2Fone/reset");
