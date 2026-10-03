@@ -68,10 +68,21 @@ function bearerMatches(header: string | undefined, token: string): boolean {
 }
 
 export async function startHarnessListener(options: HarnessListenerOptions): Promise<HarnessListener> {
-  const { logger } = options;
+  let closing = false;
+  // A log line must never throw out of a socket callback (a closed Tenant's log is gone).
+  const log =
+    (level: "info" | "warn") =>
+    (message: string, fields?: Record<string, unknown>) => {
+      if (closing) return;
+      try {
+        options.logger[level](message, fields);
+      } catch {
+        /* nowhere to log */
+      }
+    };
+  const logger = { info: log("info"), warn: log("warn") };
   const wss = new WebSocketServer({ noServer: true, maxPayload: HARNESS_MAX_PAYLOAD });
   let allowed = new Set(options.allowedHosts.map((host) => host.toLowerCase()));
-  let closing = false;
 
   // Plain requests get nothing: the listener speaks only the Harness API.
   const server = createServer((_request, response) => {

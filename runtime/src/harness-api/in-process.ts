@@ -96,7 +96,7 @@ export async function startLoopbackHarness(
       ? {}
       : { authorize: (sessionId: string, request: { url: string; serverName: string }) => authorize(ctx, sessionId, request) }),
     ...(options.sandboxBackends ? { sandboxBackends: options.sandboxBackends } : {}),
-    logger: ctx.config.logger,
+    logger: quietLogger(ctx),
     name: "loopback",
     ephemeral: ctx.config.mode === "ephemeral",
     backoff: { minMs: 50, maxMs: 500 },
@@ -122,4 +122,18 @@ export async function startLoopbackHarness(
       await listener.close();
     },
   };
+}
+
+/** The Tenant's logger, which never throws: a harness may log after the Tenant's log is gone. */
+function quietLogger(ctx: TenantContext) {
+  const quiet =
+    (level: "info" | "warn") =>
+    (message: string, fields?: Record<string, unknown>) => {
+      try {
+        ctx.config.logger[level](message, fields);
+      } catch {
+        /* nowhere to log */
+      }
+    };
+  return { info: quiet("info"), warn: quiet("warn") };
 }
