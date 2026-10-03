@@ -26,7 +26,7 @@ import { httpModelGate } from "../../src/gates/http-client.js";
 import { httpToolGate } from "../../src/gates/tool-client.js";
 import type { ToolGate } from "../../src/gates/tool-gate.js";
 import { authorizeSessionMcp } from "../../src/gates/tenant-vaults.js";
-import { VaultService } from "../../src/vault/service.js";
+import { VaultService, type AuthorizeResult } from "../../src/vault/service.js";
 import { httpKeys } from "../../src/keys/client.js";
 import { inProcessKeys, type Keys } from "../../src/keys/keys.js";
 import { SigningKeys } from "../../src/tenant/signing-keys.js";
@@ -241,10 +241,23 @@ export async function startTestTenant(
 
   let gate: TestGate | undefined;
   if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
+    // The gateway holds the vault key, with the same rules `TenantRuntime.open` applies in
+    // process (`createKekIfMissing`): a Tenant opened without one (`vaultKek: null`) gets a
+    // new key on first use, unless it already holds ciphertext, which stays sealed.
+    let key = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
+    const sealed = key
+      ? 0
+      : await opened.store.tx(
+          async (t) => (await t.countCredentials()) + (await t.countSigningKeys())
+        );
     const kek = () => {
-      const found = readVaultKek({ vaultKek: hooks.vaultKek, vaultKekPath: paths.kek });
-      if (!found) throw new Error("The test Tenant has no vault key");
-      return found;
+      if (key) return key;
+      if (sealed > 0)
+        throw new Error(
+          "Vault key-encryption key is missing for ciphertext (vault credentials or signing keys) in this Tenant"
+        );
+      key = createKekFile(paths.kek);
+      return key;
     };
     gate = await startTestGate({
       tenantId,
@@ -375,6 +388,11 @@ export type TestGate = GatesServer & {
   runGrants: RunGrants;
   /** Core's credential (`NYLORUN_GATES_TOKEN`). */
   token: string;
+  /**
+   * The gateway's vault authorization of a session's remote MCP server (F4.1): what
+   * `TenantHandle.authorize` does in process, with the vault key only the gateway holds.
+   */
+  authorizeMcp(sessionId: string, request: { url: string; serverName?: string }): Promise<AuthorizeResult>;
 };
 
 /**
@@ -401,6 +419,13 @@ export async function startTestGate(options: {
   const runGrants = createRunGrants();
   const session = (sessionId: string) =>
     options.store.tx((t) => t.get<Session>("sessions", sessionId));
+  const authorizeMcp = async (sessionId: string, request: { url: string; serverName?: string }) => {
+    if (!options.credentials) throw new Error("This test gate serves no MCP credentials");
+    return authorizeSessionMcp(options.credentials, session, sessionId, {
+      url: request.url,
+      serverName: request.serverName ?? "",
+    });
+  };
   const keys = options.credentials
     ? inProcessKeys({
         store: options.store,
@@ -420,10 +445,7 @@ export async function startTestGate(options: {
         readHostModel: () => options.vault.readHostModel(),
         writeHostCredential: (credential) => options.vault.updateHostCredential(credential),
         session,
-        authorizeMcp: async (sessionId, request) => {
-          if (!options.credentials) throw new Error("This test gate serves no MCP credentials");
-          return authorizeSessionMcp(options.credentials, session, sessionId, request);
-        },
+        authorizeMcp,
         keys: () => {
           if (!keys) throw new Error("This test gate serves no keys");
           return keys;
@@ -442,5 +464,6 @@ export async function startTestGate(options: {
     keys: httpKeys({ url: server.url, token }),
     runGrants,
     token,
+    authorizeMcp,
   });
 }
