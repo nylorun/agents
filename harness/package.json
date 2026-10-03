@@ -32,6 +32,10 @@
       "types": "./dist/run/index.d.ts",
       "import": "./dist/run/index.js"
     },
+    "./api": {
+      "types": "./dist/api/index.d.ts",
+      "import": "./dist/api/index.js"
+    },
     "./model/adapters": {
       "types": "./dist/loop/model/adapters.d.ts",
       "import": "./dist/loop/model/adapters.js"

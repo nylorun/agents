@@ -24,11 +24,25 @@ describe("public API", () => {
     expect(manifest.exports).toHaveProperty("./run");
     expect(Object.keys(manifest.exports).sort()).toEqual([
       ".",
+      "./api",
       "./compatibility",
       "./model/adapters",
       "./run",
     ]);
     expect(Object.keys(manifest.dependencies ?? {})).toEqual(["@nylorun/core"]);
     expect(manifest.dependencies?.["@nylorun/core"]).toMatch(/^\d+\.\d+\.\d+(?:-beta(?:\.\d+)?)?$/);
+  });
+
+  it("exports the Harness API client from ./api", async () => {
+    const harnessApi = await import("../src/api/index.js");
+    expect(Object.keys(harnessApi).sort()).toEqual([
+      "ABORT_MESSAGES",
+      "RunAbort",
+      "TranscriptCache",
+      "apiHost",
+      "createHarness",
+      "runAbortKind",
+      "runTurn",
+    ]);
   });
 });
