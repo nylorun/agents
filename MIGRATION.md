@@ -1,12 +1,25 @@
+# Local Tenants: Studio at `http://localhost:<port>` again
+
+The Studio proxy of nylorun 0.6 is gone. Each Tenant's Studio is at
+`http://localhost:<port>` again (`nylorun ls` lists them; `nylorun studio --tenant <name>`
+opens one signed in), and each keeps its own session cookie (`nylorun_studio_<name>`), so
+two Studios in one browser stay signed in. Restate runs with its own defaults: the 256 MiB
+RocksDB cap of 0.6 is removed, since it did not lower Restate's memory.
+
+Nothing to do: the first `nylorun` command of this release removes the proxy's container
+and network (`nylorun-proxy`) and `~/.nylorun/proxy/`, and says so once. Update bookmarks
+from `http://<name>.localhost:4160` to the Studio URL `nylorun ls` shows. `NYLORUN_PROXY_PORT`,
+`NYLORUN_PROXY_DISABLED` and Studio's `NYLORUN_STUDIO_PUBLIC_ORIGINS` are no longer read;
+`nylorun status --json` has no `studio.proxyUrl` (`studio.url` is unchanged).
+
 # Local Tenants: readable names, several Tenants, Studio at `<name>.localhost`
 
 Every container, network and volume of a local Tenant is now named after the Tenant and
 labelled `dev.nylorun.tenant: <name>`, so several Tenants run side by side and are easy to
 tell apart in Docker. The Compose service `s2` is now `s2-lite`. Each Studio has its own
 address, `http://<name>.localhost:4160`, through one small proxy container per machine
-(`nylorun-proxy`), and its own session cookie. Restate's memory is capped, so a Tenant uses
-about 600–700 MB (was about 1.3 GB). `nylorun ls` shows each Tenant's memory, and
-`nylorun stop --all` stops them all.
+(`nylorun-proxy`), and its own session cookie. `nylorun ls` shows each Tenant's memory
+(a Tenant uses about 1.2 GB, most of it Restate), and `nylorun stop --all` stops them all.
 
 **A Tenant created by nylorun 0.5 starts fresh.** Its data is in volumes with the old
 names; `nylorun start` refuses it (exit 3) and names them, so it never runs on new, empty
@@ -36,8 +49,8 @@ What to do, from nylorun 0.5:
 The proxy publishes on `127.0.0.1` and `[::1]` at port 4160 (or a free port chosen once,
 kept in `~/.nylorun/proxy/.env`) and holds no Tenant data. Set `NYLORUN_PROXY_DISABLED=1`
 to run without it; Studio is then `http://localhost:<port>` as before. A Tenant under
-`NYLORUN_HOME` or `NYLORUN_COMPOSE_PROJECT` never uses it. See
-[nylorun: The Studio proxy](./nylorun/README.md#the-studio-proxy).
+`NYLORUN_HOME` or `NYLORUN_COMPOSE_PROJECT` never uses it. (The next release removes the
+proxy; see above.)
 
 # Local Tenants: "Tenant" replaces "stack"
 

@@ -9,8 +9,8 @@ export function studioOrigin(port: number): string {
 
 /**
  * Ask the Studio container for a single-use login token with the admin key
- * (`POST /_studio/login-tokens`, Studio §6) on `origin` (its published port, or
- * the proxy's `http://<name>.localhost:<port>`) and return the URL to open there.
+ * (`POST /_studio/login-tokens`, Studio §6) on `origin` (its published port)
+ * and return the URL to open there.
  * Accepts `{ loginUrl }`, `{ url }` or `{ token }` in the response.
  */
 export async function mintStudioLogin(input: {

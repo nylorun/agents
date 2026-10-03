@@ -39,20 +39,6 @@ import { stackPaths, type StackPaths } from "./paths.js";
 import type { PortProbe } from "./ports.js";
 import { prepareStack, readStackEnv } from "./prepare.js";
 import {
-  disconnectProxy,
-  ensureProxySettings,
-  PROXY_PROJECT,
-  proxyDisabled,
-  proxyOrigin,
-  readProxySettings,
-  readProxyStatus,
-  refreshProxyRoutes,
-  startProxy,
-  stopProxy,
-  type ProxyRoute,
-  type ProxyStatus,
-} from "./proxy.js";
-import {
   assertTenantName,
   chooseTenantName,
   DEFAULT_TENANT,
@@ -60,6 +46,7 @@ import {
   listTenants,
   moveStackRoots,
   readTenantRecord,
+  removeOldProxy,
   sanitizeTenantName,
   tenantRoot,
   tenantsDir,
@@ -75,7 +62,7 @@ export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio
                                       credentials.json) on the first run; print the Runtime and Studio URLs and open Studio
                                       signed in (in a terminal). --tenant attaches to (or creates) a named Tenant; --no-link
                                       starts the default Tenant (or --tenant's) without linking the current directory
-  down|stop [--tenant <name> | --all] stop the Tenant's containers (--all: every Tenant's, and the Studio proxy); keep volumes
+  down|stop [--tenant <name> | --all] stop the Tenant's containers (--all: every Tenant's); keep volumes
   status [--tenant <name>] [--json]   the Tenant, its id, services, endpoints and Runtime health
   logs [service] [--tenant <name>] [-f] [--tail <n>]
                                       container logs (${STACK_SERVICES.join(", ")})
@@ -143,28 +130,11 @@ function nylorunRoot(deps: StackDeps): string {
   return deps.nylorunRoot ?? defaultNylorunRoot();
 }
 
-/**
- * The Studio proxy serves the machine's Tenants (`~/.nylorun/tenants`), unless
- * NYLORUN_PROXY_DISABLED=1; a Host root or Compose project of its own (NYLORUN_HOME,
- * NYLORUN_COMPOSE_PROJECT, as the repository's smokes use) is outside it.
- */
-function proxied(ctx: Pick<Context, "deps">): boolean {
-  const { env } = ctx.deps;
-  return !proxyDisabled(env) && !env.NYLORUN_HOME?.trim() && !env.NYLORUN_COMPOSE_PROJECT?.trim();
-}
-
-/** Studio's URL for browsers: through the proxy when it serves the Tenant, else its own port. */
-async function studioUrl(ctx: Pick<Context, "deps" | "name">, studioPort: number): Promise<string> {
-  const settings = proxied(ctx) ? await readProxySettings(nylorunRoot(ctx.deps)) : undefined;
-  return settings ? proxyOrigin(ctx.name, settings.port) : studioOrigin(studioPort);
-}
-
-/** The proxy's routes: every Tenant on this machine. */
-async function proxyRoutes(deps: StackDeps): Promise<ProxyRoute[]> {
-  return (await listTenants(nylorunRoot(deps))).map((tenant) => ({
-    name: tenant.name,
-    project: stackProject(deps.env, tenant.name),
-  }));
+/** Before every Tenant command: move 0.4's Host roots, remove 0.6's Studio proxy. */
+async function tidyMachine(deps: StackDeps): Promise<void> {
+  const base = nylorunRoot(deps);
+  await moveStackRoots(base, deps.err);
+  await removeOldProxy(deps.docker, base, deps.err);
 }
 
 /**
@@ -185,16 +155,12 @@ async function oldVolumes(
   };
 }
 
-/**
- * Before `docker compose down` (`reset`, `delete`): detach the proxy from the Tenant's network
- * so Compose can remove it. After it: drop a 0.5 Tenant's volumes and network.
- */
+/** `docker compose down` (`reset`, `delete`), then drop a 0.5 Tenant's volumes and network. */
 async function composeDown(
   ctx: Pick<Context, "deps" | "project">,
   args: string[],
 ): Promise<void> {
   const { docker } = ctx.deps;
-  await disconnectProxy(docker, ctx.project);
   const code = await docker.stream(args);
   if (code !== 0) throw new CliError(`docker compose down failed (exit ${code}).`, 1);
   const { old } = await oldVolumes(docker, ctx.project);
@@ -543,13 +509,9 @@ async function tenantPorts(base: string, except?: string): Promise<Set<number>> 
   return reserved;
 }
 
-/** Ports other Tenants and the proxy keep, so a new Tenant avoids them. */
+/** Ports other Tenants keep, so a new Tenant avoids them. */
 async function reservedPorts(ctx: Context): Promise<Set<number>> {
-  const base = nylorunRoot(ctx.deps);
-  const reserved = await tenantPorts(base, ctx.paths.root);
-  const proxy = await readProxySettings(base);
-  if (proxy) reserved.add(proxy.port);
-  return reserved;
+  return await tenantPorts(nylorunRoot(ctx.deps), ctx.paths.root);
 }
 
 interface Started {
@@ -557,7 +519,7 @@ interface Started {
   adminUrl: string;
   hostId: string;
   studioPort: number;
-  /** Through the proxy when it came up, else Studio's own port. */
+  /** `http://localhost:<studio port>` */
   studioUrl: string;
   studioStarted: boolean;
   adminKey: string;
@@ -584,10 +546,6 @@ async function bringUp(
   const base = nylorunRoot(deps);
   const telemetry = await readTelemetry(base);
   const analytics = telemetryDecision(deps.env, telemetry).enabled;
-  // The proxy's port avoids every Tenant's; a new Tenant's ports then avoid the proxy's.
-  const proxy = proxied(ctx)
-    ? await ensureProxySettings(base, deps.ports, await tenantPorts(base))
-    : undefined;
   const prepared = await prepareStack({
     paths: ctx.paths,
     name: ctx.name,
@@ -607,7 +565,6 @@ async function bringUp(
       : {}),
     ...(options.studioEmbedOrigins ? { studioEmbedOrigins: options.studioEmbedOrigins } : {}),
     ...(analytics ? { studioAnalyticsId: STUDIO_ANALYTICS_ID } : {}),
-    ...(proxy ? { studioPublicOrigin: proxyOrigin(ctx.name, proxy.port) } : {}),
   });
   if (analytics && options.studio && telemetry.noticeShown === undefined) {
     deps.err(TELEMETRY_NOTICE);
@@ -648,24 +605,12 @@ async function bringUp(
         `Warning: Studio did not start (image ${prepared.env.studioImage}). The Runtime is up; see "nylorun logs studio".`,
       );
   }
-  let studioUrl = studioOrigin(prepared.env.studioPort);
-  if (studioStarted && proxy) {
-    const up = await startProxy({
-      docker: deps.docker,
-      base,
-      settings: proxy,
-      routes: await proxyRoutes(deps),
-      err: deps.err,
-      ...(deps.pollMs !== undefined ? { pollMs: deps.pollMs } : {}),
-    });
-    if (up) studioUrl = proxyOrigin(ctx.name, proxy.port);
-  }
   return {
     runtimeUrl,
     adminUrl,
     hostId: prepared.host.hostId,
     studioPort: prepared.env.studioPort,
-    studioUrl,
+    studioUrl: studioOrigin(prepared.env.studioPort),
     studioStarted,
     adminKey: prepared.adminKey,
   };
@@ -673,26 +618,14 @@ async function bringUp(
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/**
- * A login URL on Studio's URL: through the proxy when it serves the Tenant (once; a proxy that
- * does not answer falls back, saying so), else on Studio's own port, retried while it starts.
- */
+/** A login URL on Studio's own port, retried while it starts. */
 async function tryStudioLogin(
   ctx: Pick<Context, "deps">,
-  studio: { port: number; url: string },
+  studioPort: number,
   adminKey: string,
 ): Promise<string | undefined> {
   const { deps } = ctx;
-  const origin = studioOrigin(studio.port);
-  if (studio.url !== origin) {
-    try {
-      return await mintStudioLogin({ fetch: deps.fetch, origin: studio.url, adminKey });
-    } catch (error) {
-      deps.err(
-        `Studio did not answer through the proxy at ${studio.url} (${errorText(error)}); signing in at ${origin} instead.`,
-      );
-    }
-  }
+  const origin = studioOrigin(studioPort);
   const deadline = Date.now() + (deps.loginTimeoutMs ?? 15_000);
   let lastError = "";
   for (;;) {
@@ -821,11 +754,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
   if (started.studioStarted) {
     deps.out(`Studio    ${started.studioUrl}`);
     if (opensBrowser(deps, flags)) {
-      const login = await tryStudioLogin(
-        ctx,
-        { port: started.studioPort, url: started.studioUrl },
-        started.adminKey,
-      );
+      const login = await tryStudioLogin(ctx, started.studioPort, started.adminKey);
       if (login) await openLogin(ctx, withNext(login, tenantStudioPath(tenant.id)));
     } else deps.err(STUDIO_SIGN_IN_HINT);
   }
@@ -870,7 +799,7 @@ async function stop(deps: StackDeps, args: readonly string[]): Promise<number> {
   return 0;
 }
 
-/** `stop --all`: every running Tenant on this machine, then the Studio proxy; volumes are kept. */
+/** `stop --all`: every running Tenant on this machine; volumes are kept. */
 async function stopAll(deps: StackDeps): Promise<number> {
   await dockerPreflight(deps.docker);
   const projects = (await composeProjects(deps.docker)) ?? new Map<string, string>();
@@ -888,11 +817,10 @@ async function stopAll(deps: StackDeps): Promise<number> {
       throw new CliError(`docker compose stop failed for Tenant ${tenant.name} (exit ${code}).`, 1);
     stopped.push(tenant.name);
   }
-  const proxy = projects.get(PROXY_PROJECT) === "running" && (await stopProxy(deps.docker));
   deps.out(
     stopped.length
-      ? `Stopped Tenants ${stopped.join(", ")}${proxy ? " and the Studio proxy" : ""}; their data is kept.`
-      : `No Tenant was running${proxy ? "; stopped the Studio proxy" : ""}.`,
+      ? `Stopped Tenants ${stopped.join(", ")}; their data is kept.`
+      : "No Tenant was running.",
   );
   return 0;
 }
@@ -916,10 +844,8 @@ export interface StackStatus {
   /** The Tenant as the Runtime reports it, while it answers. */
   tenant?: StackTenant;
   studio: {
-    /** Studio's own port: what an embedding app frames (same site as its own localhost). */
+    /** `http://localhost:<port>`: also what an embedding app frames (same site as its own localhost). */
     url?: string;
-    /** Through the Studio proxy, when it serves the Tenant. */
-    proxyUrl?: string;
     state: string;
     /** Exact origins that may show Studio in a frame (Studio §8.9). */
     embedOrigins?: string[];
@@ -928,15 +854,6 @@ export interface StackStatus {
   /** The gateway container (the Model Gate), in the combined packing. */
   gateway: { state: string; healthy: boolean };
   services: ComposeService[];
-}
-
-async function studioUrls(
-  ctx: Context,
-  port: number,
-): Promise<{ url: string; proxyUrl?: string }> {
-  const url = await studioUrl(ctx, port);
-  const direct = studioOrigin(port);
-  return url === direct ? { url } : { url: direct, proxyUrl: url };
 }
 
 async function stackStatus(ctx: Context): Promise<StackStatus> {
@@ -984,7 +901,7 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
     },
     ...(tenant ? { tenant } : {}),
     studio: {
-      ...(persisted.studioPort ? await studioUrls(ctx, persisted.studioPort) : {}),
+      ...(persisted.studioPort ? { url: studioOrigin(persisted.studioPort) } : {}),
       state: studio ? [studio.state, studio.health].filter(Boolean).join(", ") : "absent",
       ...(persisted.studioFrameAncestors
         ? { embedOrigins: persisted.studioFrameAncestors }
@@ -1001,17 +918,12 @@ async function stackStatus(ctx: Context): Promise<StackStatus> {
   };
 }
 
-/** The Studio proxy, as data (`nylorun doctor`). */
-export async function readProxyReport(deps: StackDeps): Promise<ProxyStatus> {
-  return await readProxyStatus(deps.docker, nylorunRoot(deps), deps.env);
-}
-
 /** What `nylorun status` reports, as data (`nylorun doctor`). */
 export async function readStackStatus(
   deps: StackDeps,
   options: { name?: string } = {},
 ): Promise<StackStatus> {
-  await moveStackRoots(nylorunRoot(deps), deps.err);
+  await tidyMachine(deps);
   return await stackStatus(await selectStack(deps, options));
 }
 
@@ -1043,8 +955,7 @@ async function status(deps: StackDeps, args: readonly string[]): Promise<number>
     out(`Runtime     ${result.runtime.url ?? "?"}  ${runtimeDetail}`);
     if (result.runtime.adminUrl)
       out(`Admin API   ${result.runtime.adminUrl}  (operators only, never proxied)`);
-    const also = result.studio.proxyUrl ? `also ${result.studio.url}; ` : "";
-    out(`Studio      ${result.studio.proxyUrl ?? result.studio.url ?? "?"}  ${result.studio.state} (${also}log in with "nylorun studio")`);
+    out(`Studio      ${result.studio.url ?? "?"}  ${result.studio.state} (log in with "nylorun studio")`);
     if (result.studio.embedOrigins?.length)
       out(`Embeds      ${result.studio.embedOrigins.join(" ")}  (may show Studio in a frame)`);
     out(
@@ -1138,7 +1049,6 @@ interface ListedTenant {
   /** Memory its running containers use (`docker stats`); null when stopped or unknown. */
   memoryBytes: number | null;
   runtimeUrl?: string;
-  /** Through the proxy, unless NYLORUN_PROXY_DISABLED=1 or it was never started. */
   studioUrl?: string;
   ports: { runtime?: number; admin?: number; studio?: number; restate?: number };
 }
@@ -1173,7 +1083,6 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
   const memory = [...(projects?.values() ?? [])].includes("running")
     ? await tenantMemory(deps.docker)
     : undefined;
-  const proxy = proxyDisabled(deps.env) ? undefined : await readProxySettings(base);
   const tenants: ListedTenant[] = [];
   for (const entry of await listTenants(base)) {
     const persisted = (await readStackEnv(stackPaths(entry.root))) ?? {};
@@ -1187,13 +1096,7 @@ async function ls(deps: StackDeps, args: readonly string[]): Promise<number> {
       ...(persisted.runtimePort
         ? { runtimeUrl: `http://${STACK_CLIENT_HOST}:${persisted.runtimePort}` }
         : {}),
-      ...(persisted.studioPort
-        ? {
-            studioUrl: proxy
-              ? proxyOrigin(entry.name, proxy.port)
-              : studioOrigin(persisted.studioPort),
-          }
-        : {}),
+      ...(persisted.studioPort ? { studioUrl: studioOrigin(persisted.studioPort) } : {}),
       ports: {
         ...(persisted.runtimePort ? { runtime: persisted.runtimePort } : {}),
         ...(persisted.adminPort ? { admin: persisted.adminPort } : {}),
@@ -1252,7 +1155,6 @@ async function deleteStack(deps: StackDeps, args: readonly string[]): Promise<nu
       : ["compose", "--project-name", ctx.project, "down", "--volumes", "--remove-orphans"],
   );
   await rm(ctx.paths.root, { recursive: true, force: true });
-  await refreshProxyRoutes(deps.docker, base, await proxyRoutes(deps));
   deps.out(`Deleted Tenant ${name}: its containers, volumes and Host root (vault key included).`);
   return 0;
 }
@@ -1270,7 +1172,7 @@ export interface StackEndpoints {
   hostId: string;
   adminKey: string;
   studioPort: number;
-  /** Through the proxy when it serves the Tenant, else Studio's own port. */
+  /** `http://localhost:<studio port>` */
   studioUrl: string;
   /** Studio is running and healthy. */
   studioUp: boolean;
@@ -1306,7 +1208,7 @@ async function runningStack(
     hostId: host.hostId,
     adminKey,
     studioPort: persisted.studioPort,
-    studioUrl: await studioUrl(ctx, persisted.studioPort),
+    studioUrl: studioOrigin(persisted.studioPort),
     studioUp,
     started: false,
   };
@@ -1369,14 +1271,10 @@ export function tenantStudioPath(tenantId: string): string {
  */
 export async function studioLoginUrl(
   deps: StackDeps,
-  running: Pick<StackEndpoints, "studioPort" | "studioUrl" | "adminKey">,
+  running: Pick<StackEndpoints, "studioPort" | "adminKey">,
   next?: string,
 ): Promise<string | undefined> {
-  const login = await tryStudioLogin(
-    { deps },
-    { port: running.studioPort, url: running.studioUrl },
-    running.adminKey,
-  );
+  const login = await tryStudioLogin({ deps }, running.studioPort, running.adminKey);
   return login === undefined ? undefined : withNext(login, next);
 }
 
@@ -1408,7 +1306,6 @@ async function studio(
     deps.out(`Studio    ${login}`);
     return 0;
   }
-  // The login's origin: the proxy's, or Studio's own port when the proxy did not answer.
   const origin = new URL(login).origin;
   deps.out(`Studio    ${next ? new URL(next, origin).toString() : origin}`);
   await openLogin({ deps }, login);
@@ -1421,7 +1318,7 @@ export async function runStudioCommand(
   deps: StackDeps,
   options: { next?: string } = {},
 ): Promise<number> {
-  await moveStackRoots(nylorunRoot(deps), deps.err);
+  await tidyMachine(deps);
   return await studio(deps, args, options);
 }
 
@@ -1451,6 +1348,6 @@ export async function runStackCommand(
 ): Promise<number> {
   const command = COMMANDS[name];
   if (!command) throw usageError(`Unknown command ${name}.\n${stackUsage}`);
-  await moveStackRoots(nylorunRoot(deps), deps.err);
+  await tidyMachine(deps);
   return await command(deps, args);
 }
