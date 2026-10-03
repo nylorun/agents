@@ -89,7 +89,15 @@ import {
   startLoopbackHarness,
   type InProcessHarness,
 } from "../harness-api/in-process.js";
-import { localWorkspace, remoteWorkspace, type WorkspacePort } from "../harness-api/workspace.js";
+import {
+  localWorkspace,
+  remoteWorkspace,
+  withPodWorkspaces,
+  type WorkspacePort,
+} from "../harness-api/workspace.js";
+import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
+import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
+import type { TenantPods } from "./context.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -156,6 +164,11 @@ export type TenantOpenHooks = {
   harness?: "memory" | "json" | "ws" | "remote";
   /** Sees each frame of the in-process harness's channel (tests and benchmarks). */
   harnessTap?: MemoryPortsOptions["tap"];
+  /**
+   * Sandbox pods (F7.2): the sandboxes service (`NYLORUN_SANDBOXES_URL`) and the Runtime image
+   * pods copy the engine from. Without it, kind `pod` is `sandbox_unavailable`.
+   */
+  pods?: TenantPods;
 } & OpenedTenant;
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -188,8 +201,14 @@ export class TenantRuntime implements TenantHandle {
     private readonly detach: () => Promise<void>,
     /** How long close waits for running advances: the execution's advance grace period. */
     private readonly closeGraceMs: number,
-    private readonly harness?: InProcessHarness
+    private readonly harness?: InProcessHarness,
+    private readonly hosts?: HostAuthority
   ) {}
+
+  /** The Tenant's side of a sandbox pod's join (F7.2). */
+  hostAuthority(): HostAuthority | undefined {
+    return this.ctx.closing || this.ctx.closed ? undefined : this.hosts;
+  }
 
   static async open(
     config: TenantConfig,
@@ -293,7 +312,7 @@ export class TenantRuntime implements TenantHandle {
           })
         : undefined;
       let harnessServer!: HarnessApiServer;
-      const sandbox: WorkspacePort = manager
+      const workspaces: WorkspacePort = manager
         ? localWorkspace(manager)
         : remoteWorkspace({
             get server() {
@@ -303,6 +322,19 @@ export class TenantRuntime implements TenantHandle {
             logger: config.logger,
             preference,
           });
+      // A pod sandbox's workspace is in its pod, served by its engine (F7.2).
+      const sandbox: WorkspacePort = hooks.pods
+        ? withPodWorkspaces(workspaces, {
+            get server() {
+              return harnessServer;
+            },
+            store: opened,
+            logger: config.logger,
+            preference,
+            isPod: async (sandboxId) =>
+              (await opened.tx((t) => t.sandboxResource(sandboxId)))?.kind === "pod",
+          })
+        : workspaces;
 
       const useVaultModel = config.model.kind === "vault";
       let modelProvider: ModelProvider;
@@ -377,6 +409,11 @@ export class TenantRuntime implements TenantHandle {
           if (ctx.closing || ctx.closed) return;
           await execution.deliver(config.tenantId, actionId);
         },
+        ...(hooks.pods ? { pods: hooks.pods } : {}),
+        sandboxSignal: async (sandboxId, signal) => {
+          if (ctx.closing || ctx.closed || !execution.sandbox) return;
+          await execution.sandbox(config.tenantId, sandboxId, signal);
+        },
         ...(hooks.execution?.stuckInvocations
           ? {
               stuckInvocations: () =>
@@ -418,6 +455,7 @@ export class TenantRuntime implements TenantHandle {
         advance: (sessionId, signal) => advance(ctx, sessionId, signal),
         deliver: (actionId, signal) => deliverAction(ctx, actionId, signal),
         sweep: () => sweep(ctx),
+        sandbox: (sandboxId, trigger) => reconcileSandbox(ctx, sandboxId, trigger),
       };
       const unregister = workers.register(config.tenantId, worker);
       detach = async () => {
@@ -426,7 +464,15 @@ export class TenantRuntime implements TenantHandle {
       };
       if (local) await local.start(workers.handlers);
       await execution.armSweep(config.tenantId);
-      return new TenantRuntime(ctx, envelope, worker, detach, workers.graceMs, harness);
+      return new TenantRuntime(
+        ctx,
+        envelope,
+        worker,
+        detach,
+        workers.graceMs,
+        harness,
+        hooks.pods ? hostAuthority(ctx) : undefined
+      );
     } catch (error) {
       await detach?.().catch(() => undefined);
       await harness?.stop().catch(() => undefined);

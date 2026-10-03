@@ -36,6 +36,8 @@ import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { HarnessApiServer } from "../harness-api/server.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
+import type { SandboxesClient } from "../sandbox/pods/client.js";
+import type { SandboxSignal } from "../execution/types.js";
 import type { TenantConfig } from "./types.js";
 import type { SessionStreams } from "./session-streams.js";
 import type { StuckInvocation, Wake } from "../execution/types.js";
@@ -235,6 +237,16 @@ export interface TenantContext {
    * from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends it.
    */
   deliver(actionId: string): Promise<void>;
+  /**
+   * Sandbox pods (F7.2): the sandboxes service and the Runtime image pods copy the engine from.
+   * Absent without a cluster (`nylorun sandbox enable`): kind `pod` is `sandbox_unavailable`.
+   */
+  readonly pods?: TenantPods;
+  /**
+   * Seam: reconcile a pod sandbox, or arm one of its timers (`DurableExecution.sandbox`). Call
+   * it from `t.afterCommit`. Dropped while the Tenant is closing; the sweep re-sends reconciles.
+   */
+  sandboxSignal(sandboxId: string, signal: SandboxSignal): Promise<void>;
   /** This Tenant's execution invocations that need an operator, for Tenant status. */
   readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */
@@ -337,4 +349,11 @@ export async function sandboxLookup(
     id = session.sandboxOwnerId;
   }
   return (sid) => found.get(sid);
+}
+
+/** The sandboxes service a Tenant drives its pod sandboxes with (`TenantContext.pods`). */
+export interface TenantPods {
+  readonly client: SandboxesClient;
+  /** The Runtime image the pods copy the engine from (`NYLORUN_SANDBOX_HARNESS_IMAGE`). */
+  readonly harnessImage: string;
 }

@@ -20,6 +20,11 @@ export interface ResolveSandboxInput {
   readonly config: EffectiveSandboxConfig;
   /** The request acts for a subject (`Nylorun-Subject`) rather than as the application. */
   readonly actingForSubject: boolean;
+  /**
+   * The sandbox's kind. Default `virtual`, which runs no images and allows exact host names
+   * only; a `pod` (F7.2) takes an image and `*.suffix` hosts.
+   */
+  readonly kind?: "virtual" | "pod";
 }
 
 export const SUBJECT_INLINE_MESSAGE =
@@ -45,13 +50,14 @@ function build(
 ): SandboxResolution {
   const { limits } = input.config;
   const errors: string[] = [];
-  if (request.image !== undefined)
+  const pod = input.kind === "pod";
+  if (request.image !== undefined && !pod)
     errors.push("sandbox.image is not supported: the virtual sandbox has no images.");
   const allow = (request.network?.allow ?? []).map((host) => host.toLowerCase());
   for (const host of allow) {
     if (!withinCeiling(host, limits.network))
       errors.push(`sandbox.network.allow includes ${host}, which this Tenant does not allow.`);
-    else if (host.startsWith("*."))
+    else if (host.startsWith("*.") && !pod)
       errors.push(
         `sandbox.network.allow includes ${host}; the virtual sandbox allows exact host names only, such as ${host.slice(2)}.`
       );

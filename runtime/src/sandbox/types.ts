@@ -4,7 +4,8 @@
  */
 import type { SandboxNetworkPreset } from "@nylorun/core/define";
 
-export type SandboxBackendName = "virtual";
+/** `virtual` (just-bash, in process); `local` (the pod sandbox the engine runs in, F7.2). */
+export type SandboxBackendName = "virtual" | "local";
 /** What separates a sandbox from its host: the Runtime process, or a container boundary. */
 export type SandboxIsolation = "process" | "container";
 

@@ -20,7 +20,9 @@ import {
   getSandbox,
   listSandboxes,
   putSandbox,
+  resetSandbox,
   sandboxEventsOf,
+  stopSandbox,
 } from "../../../tenant/sandboxes.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
@@ -108,7 +110,7 @@ export function sandboxRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sandboxes"],
       summary: "Create or find a sandbox",
       description:
-        "Creates the sandbox within the Tenant's limits, or answers the one with this id, so get-or-create is one call. Its spec is fixed once it exists; labels, when sent, replace its labels. Only kind `virtual` runs on this Runtime.",
+        "Creates the sandbox within the Tenant's limits, or answers the one with this id, so get-or-create is one call. Its spec is fixed once it exists; labels, when sent, replace its labels. Kind `pod` needs sandbox pods (`nylorun sandbox enable`): it is created at once, and a PUT on an existing pod sandbox starts it again when it was stopped, or revives it with a longer `lifecycle.ttl`.",
       request: {
         params: sandboxId,
         body: { required: true, content: { "application/json": { schema: PutSandboxRequest } } },
@@ -117,7 +119,7 @@ export function sandboxRoutes(api: OpenAPIHono<TenantEnv>): void {
         200: json(SandboxView, "The sandbox"),
         409: {
           description:
-            "A sandbox with this id has another spec, or the Tenant holds as many sandboxes as it allows (`limit_exceeded`)",
+            "A sandbox with this id has another spec, the Tenant holds as many sandboxes as it allows (`limit_exceeded`), kind pod without sandbox pods (`sandbox_unavailable`), or a lost pod sandbox (`sandbox_lost`)",
         },
       },
     },
@@ -202,4 +204,38 @@ export function sandboxRoutes(api: OpenAPIHono<TenantEnv>): void {
         await deleteSandbox(c.env.tenant, idOf(c.req.param("sandboxId")), c.get("scope")),
       ),
   );
+
+  for (const [action, summary, description, run] of [
+    [
+      "stop",
+      "Stop a pod sandbox",
+      "Suspends the pod: its volume is kept, and the next turn of a session attached to it (or a PUT) starts it again. Refused during a turn (`sandbox_busy`).",
+      stopSandbox,
+    ],
+    [
+      "reset",
+      "Reset a pod sandbox",
+      "A new pod on a new, empty volume; the old pod and volume are deleted. The way out of `sandbox_lost`. Refused during a turn (`sandbox_busy`).",
+      resetSandbox,
+    ],
+  ] as const)
+    tenantRoute(
+      api,
+      WRITE,
+      {
+        method: "post",
+        path: `/v1/sandboxes/{sandboxId}/${action}`,
+        tags: ["Sandboxes"],
+        summary,
+        description,
+        request: { params: sandboxId },
+        responses: {
+          200: json(SandboxView, "The sandbox"),
+          400: { description: "The sandbox is virtual" },
+          409: { description: "A turn holds it (`sandbox_busy`), or no sandbox pods (`sandbox_unavailable`)" },
+        },
+      },
+      async (c) =>
+        jsonResponse(200, await run(c.env.tenant, idOf(c.req.param("sandboxId")), c.get("scope"))),
+    );
 }

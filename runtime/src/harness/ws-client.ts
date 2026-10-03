@@ -15,8 +15,11 @@ export interface HarnessClientOptions
   extends Omit<HarnessOptions, "channel" | "logger"> {
   /** The Harness API, e.g. `ws://runtime:4200/nylorun/harness/v1` (`NYLORUN_HARNESS_URL`). */
   readonly url: string;
-  /** `NYLORUN_HARNESS_TOKEN`. */
-  readonly token: string;
+  /**
+   * `NYLORUN_HARNESS_TOKEN`, or, for a pod sandbox's engine (F7.2), a function that answers
+   * a current host token before each connection (it renews, or joins again).
+   */
+  readonly token: string | (() => Promise<string>);
   readonly logger: {
     info(message: string, fields?: Record<string, unknown>): void;
     warn(message: string, fields?: Record<string, unknown>): void;
@@ -49,10 +52,11 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
   let markReady!: () => void;
   const ready = new Promise<void>((resolve) => (markReady = resolve));
 
-  const open = () =>
-    new Promise<WebSocket>((resolve, reject) => {
+  const open = async () => {
+    const token = typeof options.token === "string" ? options.token : await options.token();
+    return new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(options.url, {
-        headers: { authorization: `Bearer ${options.token}`, [HARNESS_API_HEADER]: "1" },
+        headers: { authorization: `Bearer ${token}`, [HARNESS_API_HEADER]: "1" },
         maxPayload: HARNESS_MAX_PAYLOAD,
         handshakeTimeout: 10_000,
       });
@@ -69,6 +73,7 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
       });
       socket.once("error", reject);
     });
+  };
 
   const pause = (ms: number) =>
     new Promise<void>((resolve) => {

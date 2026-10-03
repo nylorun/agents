@@ -46,7 +46,7 @@ const MCP_SWEEP_MS = 60_000;
 
 export interface HarnessServiceOptions {
   readonly url: string;
-  readonly token: string;
+  readonly token: HarnessClientOptions["token"];
   /** Where workspaces (and their records) live, and the plugins' data. */
   readonly paths: { readonly sandboxes: string; readonly pluginData: string };
   /** The environment of MCP stdio servers: the allowlisted base, with HOME and TMPDIR. */

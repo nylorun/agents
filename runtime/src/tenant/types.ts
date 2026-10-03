@@ -8,6 +8,7 @@ import type {
 import type { HarnessChannel } from "@nylorun/core/harness-api";
 import type { FlowLimits } from "../core/limits.js";
 import type { HarnessPeer } from "../harness-api/server.js";
+import type { HostAuthority } from "../sandbox/join.js";
 import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantCause } from "./cause.js";
@@ -130,6 +131,8 @@ export interface TenantHandle {
   close(): Promise<void>; // ends every stream this Tenant holds
   /** Serves a harness's Harness API channel until it closes. Returns a function that detaches it. */
   attachHarness?(channel: HarnessChannel, peer: HarnessPeer): () => void;
+  /** The Tenant's side of a sandbox pod's join (F7.2); absent without sandbox pods. */
+  hostAuthority?(): HostAuthority | undefined;
 }
 
 /**

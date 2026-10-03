@@ -8,6 +8,12 @@
  * Its files live under `NYLORUN_HARNESS_ROOT` (`/harness`): `sandboxes/` (workspaces and their
  * records), `plugin-data/`, and `home/` and `tmp/` for MCP stdio servers. `/health` answers on
  * 127.0.0.1 only.
+ *
+ * In a pod sandbox (`NYLORUN_SANDBOX_KIND=pod`, F7.2) it is that sandbox's engine: it first waits
+ * until the pod's NetworkPolicy is in force (`awaitNetworkPolicy`), then joins with the
+ * pod's join token instead of a harness token (`pod.ts`), and runs its sandbox's tools in the
+ * pod itself (the `local` backend), with egress through egress-gate. SIGTERM (tini forwards
+ * it; the pod's grace is 10 s by default) gives its runs back and exits.
  */
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -17,6 +23,9 @@ import { httpToolGate } from "../gates/tool-client.js";
 import { createHostLogger } from "../host/logger.js";
 import type { StackConfig } from "../host/stack-config.js";
 import { RUNTIME_VERSION } from "../version.js";
+import { localBackend } from "../adapters/sandbox/local.js";
+import { awaitNetworkPolicy } from "../sandbox/pods/network-gate.js";
+import { podHost, type PodHost } from "./pod.js";
 import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
 
@@ -39,17 +48,31 @@ export async function runHarness(
   for (const dir of Object.values(paths)) mkdirSync(dir, { recursive: true });
   logger.info("host_stack_config", { services: [...stack.services], harness: config.url, gates: config.gatesUrl });
 
+  // A pod's engine trusts the network only once its NetworkPolicy blocks what it must.
+  let pod: PodHost | undefined;
+  if (config.pod) {
+    const { waitedMs } = await awaitNetworkPolicy({
+      addresses: config.pod.blocked,
+      log: (message, fields) => logger.info(message, fields),
+    });
+    logger.info("sandbox_network_policy_in_force", { sandboxId: config.pod.sandboxId, waitedMs });
+    pod = podHost(config.pod, logger, { volumeFile: join(config.root, "volume-id") });
+  }
+  const token = pod ? () => pod.token() : config.token;
+  if (token === undefined) throw new Error("--service harness needs NYLORUN_HARNESS_TOKEN");
+
   const runTokens = harnessRunTokens();
   const service = startHarnessService({
     url: config.url,
-    token: config.token,
+    token,
+    ...(pod ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv() })] } : {}),
     paths,
     childEnv: { ...baseline, HOME: paths.home, TMPDIR: paths.tmp },
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),
     useVaultModel: true,
     toolGate: httpToolGate({ url: config.gatesUrl, runTokens }),
     logger,
-    name: "harness",
+    name: pod ? `sandbox ${config.pod!.sandboxId}` : "harness",
     version: RUNTIME_VERSION,
     onGrant: (grant) => runTokens.grant(grant),
   });
@@ -74,8 +97,9 @@ export async function runHarness(
       if (stopping) return;
       stopping = true;
       // Runs are given back (core resumes them in its next advance), then MCP and sandboxes stop.
+      pod?.stop();
       void service
-        .stop(10_000)
+        .stop(pod ? 7_000 : 10_000)
         .catch((error: unknown) =>
           logger.warn("harness_stop_failed", { message: error instanceof Error ? error.message : String(error) })
         )

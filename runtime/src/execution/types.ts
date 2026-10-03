@@ -37,6 +37,13 @@
  * - **Retry after `retry`.** A delivery that returns `retry` is run again for
  *   the same key after `retryAfterMs`. This is how an Action endpoint that is
  *   down or busy is retried; the handler throws only on infrastructure errors.
+ * - **One reconcile per sandbox at a time** (F7.2). `sandbox` runs
+ *   `WorkerHandlers.sandbox` for the key `<tenantId>:<sandboxId>` at least once
+ *   after a `reconcile` resolves, never overlapping another run for the key. A
+ *   run that answers `retryAfterMs` runs again after it (one pending retry per
+ *   key: a later one replaces it), and each timer it answers is armed. `arm`
+ *   sets one of the sandbox's timers (`idle`, `ttl`): setting it again replaces
+ *   the earlier time, and the run it causes is told which timer fired.
  */
 
 /** Why a session is woken (§12.3, "Where wakes come from"). */
@@ -81,6 +88,25 @@ export type AdvanceResult =
   /** Another Worker holds a live lease; run again for this key after `retryAfterMs`. */
   | { status: "busy"; retryAfterMs: number };
 
+/** A pod sandbox's timers. */
+export type SandboxTimer = "idle" | "ttl";
+
+/** What `DurableExecution.sandbox` asks for: a reconcile, or a timer. */
+export type SandboxSignal =
+  | { kind: "reconcile" }
+  | { kind: "arm"; timer: SandboxTimer; at: number };
+
+/** Why `WorkerHandlers.sandbox` runs. */
+export type SandboxTrigger = "reconcile" | SandboxTimer;
+
+/** What a sandbox reconcile asks for next. */
+export interface SandboxResult {
+  /** Run again this soon. */
+  retryAfterMs?: number;
+  /** Timers to set, at ms since the epoch. */
+  arm?: readonly { timer: SandboxTimer; at: number }[];
+}
+
 export type DeliverResult =
   | { status: "done" }
   /** The Action is still to be delivered; run again for this key after `retryAfterMs`. */
@@ -111,6 +137,16 @@ export interface WorkerHandlers {
     actionId: string,
     signal: AbortSignal,
   ): Promise<DeliverResult>;
+  /**
+   * Reconciles one pod sandbox (F7.2), serialized per sandbox. Throw only on infrastructure
+   * errors. Required when `sandbox` is used.
+   */
+  sandbox?(
+    tenantId: string,
+    sandboxId: string,
+    trigger: SandboxTrigger,
+    signal: AbortSignal,
+  ): Promise<SandboxResult>;
 }
 
 export interface DurableExecution {
@@ -128,6 +164,11 @@ export interface DurableExecution {
    * after the transaction that made the Action pending commits.
    */
   deliver(tenantId: string, actionId: string): Promise<void>;
+  /**
+   * A pod sandbox's reconcile, or one of its timers (F7.2): see "One reconcile per sandbox
+   * at a time". Absent where pods are not supported.
+   */
+  sandbox?(tenantId: string, sandboxId: string, signal: SandboxSignal): Promise<void>;
   /** Arms the Tenant's self-re-arming sweep. Idempotent. */
   armSweep(tenantId: string): Promise<void>;
   /** Stops re-arming the Tenant's sweep (Tenant deleted). A pass already running finishes. */
