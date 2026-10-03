@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/runtime",
-  "version": "0.15.0-beta",
+  "version": "0.15.1-beta",
   "description": "Nylorun Runtime: the agent execution Host on Postgres, Restate and S2, and model providers.",
   "type": "module",
   "license": "Apache-2.0",
@@ -65,8 +65,8 @@
     "@hono/node-server": "^2.1.1",
     "@hono/zod-openapi": "^1.6.3",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@nylorun/core": "0.10.0-beta",
-    "@nylorun/harness": "0.21.1-beta",
+    "@nylorun/core": "0.11.0-beta",
+    "@nylorun/harness": "0.21.2-beta",
     "@restatedev/restate-sdk": "1.16.9",
     "@s2-dev/streamstore": "0.27.0",
     "drizzle-orm": "^0.45.3",
