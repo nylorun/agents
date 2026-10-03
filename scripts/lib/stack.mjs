@@ -26,10 +26,19 @@ import { root, run } from "./repo.mjs";
 export const LOCAL_IMAGES = Object.freeze({
   runtime: "nylorun-runtime:local",
   studio: "nylorun-studio:local",
+  sandboxes: "nylorun-sandboxes:local",
 });
 
-const IMAGE_ENV = { runtime: "NYLORUN_RUNTIME_IMAGE", studio: "NYLORUN_STUDIO_IMAGE" };
-const DOCKERFILES = { runtime: "runtime/Dockerfile", studio: "studio/Dockerfile" };
+const IMAGE_ENV = {
+  runtime: "NYLORUN_RUNTIME_IMAGE",
+  studio: "NYLORUN_STUDIO_IMAGE",
+  sandboxes: "NYLORUN_SANDBOXES_IMAGE",
+};
+const DOCKERFILES = {
+  runtime: "runtime/Dockerfile",
+  studio: "studio/Dockerfile",
+  sandboxes: "sandboxes/Dockerfile",
+};
 
 /** The workspace CLI (`npm run build` first). */
 /** The workspace `nylorun` (local Tenants); `@nylorun/cli` is the Runtime client, `nylo`. */
@@ -144,6 +153,7 @@ export async function createStack({
     NYLORUN_COMPOSE_PROJECT: project,
     ...(images?.runtime ? { NYLORUN_RUNTIME_IMAGE: images.runtime } : {}),
     ...(images?.studio ? { NYLORUN_STUDIO_IMAGE: images.studio } : {}),
+    ...(images?.sandboxes ? { NYLORUN_SANDBOXES_IMAGE: images.sandboxes } : {}),
   };
   const composeArgs = (...args) => [
     "compose",

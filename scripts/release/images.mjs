@@ -1,7 +1,7 @@
 /**
  * Decide whether the release workflow pushes one image:
  *
- *   node scripts/release/images.mjs runtime|studio
+ *   node scripts/release/images.mjs runtime|studio|sandboxes
  *
  * Writes `image`, `version`, `tag` and `push` to $GITHUB_OUTPUT. An image tag
  * is never replaced: when `ghcr.io/nylorun/<name>:<version>` exists, `push` is
@@ -15,7 +15,7 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readJson, root, run } from "../lib/repo.mjs";
-import { IMAGES, assertRuntimePins } from "./pins.mjs";
+import { IMAGES, VERSIONED_WITH, assertRuntimePins } from "./pins.mjs";
 
 /**
  * The image this release needs for package `name`, and whether to push it.
@@ -29,9 +29,11 @@ export async function imageRelease(repo, plan, name, exists) {
     );
   // Both pins name the versions this plan ships (as release:check verified).
   const pins = await assertRuntimePins(repo, plan);
-  const version = pins[name];
+  // sandboxes takes the Runtime's version, and is built when the Runtime is.
+  const source = VERSIONED_WITH[name] ?? name;
+  const version = pins[source];
   const tag = `${image}:${version}`;
-  const candidate = Boolean(plan.packages?.[name]);
+  const candidate = Boolean(plan.packages?.[source]);
   if (await exists(tag))
     return { image, version, tag, candidate, push: false };
   if (!candidate)
@@ -61,7 +63,7 @@ export async function registryHas(tag, runCommand = run) {
 async function main() {
   const [name, ...extra] = process.argv.slice(2);
   if (!name || extra.length)
-    throw new Error("Usage: node scripts/release/images.mjs runtime|studio");
+    throw new Error("Usage: node scripts/release/images.mjs runtime|studio|sandboxes");
   const plan = await readJson(join(root, ".release/plan.json"));
   const result = await imageRelease(root, plan, name, (tag) => registryHas(tag));
   const message = result.push

@@ -1,0 +1,15 @@
+# The kind cluster the CI `sandboxes` job runs pods on (F7.2, S0):
+#
+#   kind create cluster --name nylorun --config scripts/sandbox/kind.yaml
+#
+# The API server listens on docker0's gateway (172.17.0.1), which Compose containers reach
+# as host-gateway, so the sandboxes service dials the kubeconfig's own server and verifies
+# its certificate. Pods reach the Docker host at the same address
+# (nylorun sandbox enable --host-address 172.17.0.1). kindnet enforces NetworkPolicy; the
+# enable probe refuses the cluster if it does not.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "172.17.0.1"
+nodes:
+  - role: control-plane

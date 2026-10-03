@@ -38,7 +38,7 @@ nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allo
                                    # create (first run) and start the Tenant; link the project; print the URLs; open Studio signed in
 nylorun down|stop [--tenant <name> | --all]   # stop the containers (--all: every Tenant's); keep volumes
 nylorun status [--tenant <name>] [--json]   # the Tenant, its Host root and id, services, endpoints, Runtime health
-nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, studio
+nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, studio, sandboxes
 nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on the Tenant; starts it if needed
 nylorun reset [--tenant <name>] [--yes]        # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
 nylorun ls [--json]                # the Tenants on this machine, with their state, memory and URLs
@@ -47,6 +47,9 @@ nylorun sandbox ls [--tenant <name>] [--label <key=value>]... [--json]   # the r
 nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
+nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
+nylorun sandbox disable [--tenant <name>] [--delete-namespace]
+nylorun sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes context (see Sandboxes)
 ```
 
 `up` and `down` are the Docker Compose spellings of `start` and `stop`: `down`
@@ -241,6 +244,22 @@ outlives them. `nylorun sandbox ls` lists the running Tenant's sandboxes with
 their state, attached sessions and labels; `nylorun sandbox rm <id>` deletes one
 and its files (refused while a turn runs in it). Neither starts a stopped Tenant
 (exit 3).
+
+### Pods on a cluster (preview)
+
+`nylorun sandbox enable --context <name>` prepares a Kubernetes context for the
+Tenant's sandboxes as pods ([agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
+v1.0.5): Docker Desktop's cluster (`--context docker-desktop`) or kind. It only
+touches the context you name. It installs the pinned agent-sandbox controller
+when the cluster has none (and refuses another version), creates the namespace
+`nylorun-sbx-<tenant>` with a ServiceAccount limited to Sandbox lifecycle, proves
+with a probe that the cluster enforces NetworkPolicy (and refuses it otherwise),
+lets pods reach only three ports on the Docker host, and adds the `sandboxes`
+service to the Tenant: the one container holding the cluster credentials
+(`<Host root>/sandboxes/`). On kind under Linux, pass `--host-address 172.17.0.1`.
+`nylorun sandbox disable` removes the service (`--delete-namespace` also deletes
+the namespace and every sandbox in it). Sessions keep using the virtual backend
+in this release.
 
 ## Host root
 

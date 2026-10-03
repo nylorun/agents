@@ -264,9 +264,81 @@ jobs:
       - name: Stop the test stack
         if: always()
         run: npm run test:stack:down --workspace @nylorun/runtime
+  # F7.2 8a: the sandboxes service (sandboxes/, Go) and `nylorun sandbox enable` on kind.
+  # go vet and go test; then a kind cluster whose API server listens on docker0's gateway
+  # (scripts/sandbox/kind.yaml), checked from a Compose-style container (S0); then the
+  # service suite with busybox pods (scripts/sandbox/service-suite.mjs): enable installs
+  # agent-sandbox v1.0.5 and probes NetworkPolicy, then create, suspend and resume with the
+  # service restarted mid-operation, delete, and no docker.sock anywhere.
+  sandboxes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
+      NYLORUN_SANDBOXES_IMAGE: nylorun-sandboxes:ci
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: sandboxes/go.mod
+          cache-dependency-path: sandboxes/go.sum
+      - name: go vet and go test
+        working-directory: sandboxes
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test ./...
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      # Workspaces run in flag order: keep dependency order.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace nylorun --workspace @nylorun/cli
+      - uses: ./.github/actions/stack-images
+        with:
+          sandboxes: "true"
+      - name: kind cluster
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          version: v0.33.0
+          cluster_name: nylorun
+          config: scripts/sandbox/kind.yaml
+          node_image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+      # S0: a container on a Compose network verifies the API server's certificate at
+      # docker0's gateway, as the sandboxes service does. (The enable probe checks the
+      # pod → host route and kindnet's ipBlock /32 + port enforcement.)
+      - name: S0 API route from a Compose network
+        run: |
+          server=$(kubectl config view --minify --context kind-nylorun -o jsonpath='{.clusters[0].cluster.server}')
+          echo "API server: $server"
+          kubectl config view --minify --raw --context kind-nylorun \
+            -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "$RUNNER_TEMP/kind-ca.crt"
+          docker network create nylorun-s0
+          docker run --rm --network nylorun-s0 --add-host host.docker.internal:host-gateway \
+            -v "$RUNNER_TEMP/kind-ca.crt:/ca.crt:ro" curlimages/curl:8.16.0 \
+            -sS --max-time 10 --cacert /ca.crt "$server/version"
+          docker network rm nylorun-s0
+      - name: Load the probe image into kind
+        run: |
+          docker pull busybox:1.37.0
+          kind load docker-image --name nylorun busybox:1.37.0
+      - name: Sandboxes service suite
+        timeout-minutes: 25
+        run: npm run test:sandboxes:service -- --context kind-nylorun --host-address 172.17.0.1
+      - name: Cluster diagnostics
+        if: failure()
+        run: |
+          kubectl --context kind-nylorun get nodes,pods,sandboxes,pvc,networkpolicies -A -o wide || true
+          kubectl --context kind-nylorun -n agent-sandbox-system logs deployment/agent-sandbox-controller --tail=200 || true
+          docker ps -a
   ci:
     if: always()
-    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack]
+    needs: [check, smoke-starter, smoke-dev, acceptance, macos, consumers, integration, stack, sandboxes]
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI job to pass

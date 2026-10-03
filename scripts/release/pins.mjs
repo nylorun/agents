@@ -7,11 +7,22 @@
 import { join } from "node:path";
 import { readJson, root, writeJson } from "../lib/repo.mjs";
 
-/** Packages nylorun pins as images, and the image each one is built into. */
+/**
+ * Images the release publishes: one per package nylorun pins (runtime, studio), and
+ * images versioned with one of them (`VERSIONED_WITH`).
+ */
 export const IMAGES = {
   runtime: "ghcr.io/nylorun/runtime",
   studio: "ghcr.io/nylorun/studio",
+  sandboxes: "ghcr.io/nylorun/sandboxes",
 };
+
+/**
+ * The sandboxes service (`sandboxes/`, Go) has no package of its own: its image takes the
+ * Runtime's version, is built when the release ships a new Runtime, and nylorun runs
+ * `ghcr.io/nylorun/sandboxes:<nylorun.runtime>`.
+ */
+export const VERSIONED_WITH = { sandboxes: "runtime" };
 
 async function versionOf(repo, name) {
   return (await readJson(join(repo, name, "package.json"))).version;

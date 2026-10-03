@@ -8,8 +8,10 @@ import {
   parseDerivedPrincipals,
   parsePersisted,
   renderEnvFile,
+  type SandboxStackEnv,
   type StackEnv,
 } from "./env-file.js";
+import { sandboxesEnabled } from "../sandbox/cluster-file.js";
 import {
   ensureHostCredentials,
   ensureVaultKey,
@@ -79,6 +81,11 @@ export async function prepareStack(input: {
   studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
   /** The measurement id Studio reports page views to; absent when telemetry is off. */
   studioAnalyticsId?: string;
+  /**
+   * The sandboxes settings (`nylorun sandbox enable`); null removes them (`disable`).
+   * Undefined keeps the persisted ones while `sandboxes/cluster.json` exists.
+   */
+  sandboxes?: SandboxStackEnv | null;
 }): Promise<PreparedStack> {
   const { paths } = input;
   await ensureHostLayout(paths);
@@ -140,6 +147,13 @@ export async function prepareStack(input: {
     ).join(","),
   };
 
+  const sandboxes =
+    input.sandboxes === null
+      ? undefined
+      : (input.sandboxes ?? (sandboxesEnabled(paths.root) ? persisted.sandboxes : undefined));
+  // The sandboxes image follows the Runtime's, like the runtime image, on every start.
+  if (sandboxes) env.sandboxes = { ...sandboxes, image: input.images.sandboxes };
+
   const { adminKey } = await ensureHostCredentials(paths);
   await ensureVaultKey(paths);
   const host = await writeStackHostConfig(paths, {
@@ -148,6 +162,10 @@ export async function prepareStack(input: {
     runtimeVersion: input.runtimeVersion,
   });
   await writeFileMode(paths.env, renderEnvFile(env), 0o600);
-  await writeFileMode(paths.compose, renderComposeFile(input.project, input.name), 0o644);
+  await writeFileMode(
+    paths.compose,
+    renderComposeFile(input.project, input.name, env.sandboxes ? { sandboxes: true } : {}),
+    0o644,
+  );
   return { env, host, adminKey, firstRun };
 }

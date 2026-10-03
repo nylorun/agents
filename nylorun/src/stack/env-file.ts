@@ -54,7 +54,37 @@ export interface StackEnv {
    * always includes `project`, the Project link's principal.
    */
   derivedPrincipals: string;
+  /** Present once `nylorun sandbox enable` ran for the Tenant (F7.2). */
+  sandboxes?: SandboxStackEnv;
 }
+
+/**
+ * The sandboxes service's settings (`nylorun sandbox enable`): its bearer token (only the
+ * runtime presents it), its image, and the host ports pods reach (Harness API, gates,
+ * egress) on the host address, published on the bind address. The ports persist.
+ */
+export interface SandboxStackEnv {
+  /** NYLORUN_SANDBOXES_TOKEN, 32 bytes as hex. */
+  token: string;
+  image: string;
+  harnessPort: number;
+  gatesPort: number;
+  egressPort: number;
+  /** The Docker host as pods reach it (192.168.65.254 on Docker Desktop). */
+  hostAddress: string;
+  /** Where the pod-facing ports are published (127.0.0.1 on Docker Desktop). */
+  bind: string;
+}
+
+const SANDBOX_KEYS = {
+  token: "NYLORUN_SANDBOXES_TOKEN",
+  image: "NYLORUN_SANDBOXES_IMAGE",
+  harnessPort: "NYLORUN_SANDBOX_HARNESS_PORT",
+  gatesPort: "NYLORUN_SANDBOX_GATES_PORT",
+  egressPort: "NYLORUN_SANDBOX_EGRESS_PORT",
+  hostAddress: "NYLORUN_SANDBOX_HOST_ADDRESS",
+  bind: "NYLORUN_SANDBOX_BIND",
+} as const satisfies Record<keyof SandboxStackEnv, string>;
 
 const KEYS = {
   runtimePort: "NYLORUN_PORT",
@@ -74,7 +104,7 @@ const KEYS = {
   studioAnalyticsId: "NYLORUN_STUDIO_ANALYTICS_ID",
   tenantName: "NYLORUN_TENANT_NAME",
   derivedPrincipals: "NYLORUN_DERIVED_PRINCIPALS",
-} as const satisfies Record<keyof StackEnv, string>;
+} as const satisfies Record<Exclude<keyof StackEnv, "sandboxes">, string>;
 
 /** Compose .env values: single quotes keep a value literal (no interpolation). */
 function quote(key: string, value: string): string {
@@ -95,8 +125,11 @@ function unquote(value: string): string {
 }
 
 export function renderEnvFile(env: StackEnv): string {
-  const line = (field: keyof StackEnv) =>
+  const line = (field: keyof typeof KEYS) =>
     `${KEYS[field]}=${quote(KEYS[field], String(env[field]))}`;
+  const sandboxes = env.sandboxes;
+  const sandboxLine = (field: keyof SandboxStackEnv) =>
+    `${SANDBOX_KEYS[field]}=${quote(SANDBOX_KEYS[field], String(sandboxes![field]))}`;
   return [
     "# Written by `nylorun start`. Mode 0600: holds the Postgres password, the gates",
     "# token and the Object store's secret key. Ports and secrets are kept across",
@@ -145,6 +178,20 @@ export function renderEnvFile(env: StackEnv): string {
     line("tenantName"),
     line("derivedPrincipals"),
     "",
+    ...(sandboxes
+      ? [
+          "# Sandboxes (nylorun sandbox enable): the runtime's token for the sandboxes",
+          "# service, its image, and the host ports pods reach on the host address.",
+          sandboxLine("token"),
+          sandboxLine("image"),
+          sandboxLine("harnessPort"),
+          sandboxLine("gatesPort"),
+          sandboxLine("egressPort"),
+          sandboxLine("hostAddress"),
+          sandboxLine("bind"),
+          "",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -197,6 +244,24 @@ export interface PersistedStackEnv {
   /** Validated origins; absent when the line is missing (an older .env). */
   studioFrameAncestors?: string[];
   derivedPrincipals?: string[];
+  sandboxes?: SandboxStackEnv;
+}
+
+const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+
+/** The sandboxes section, when complete and valid. */
+function parseSandboxes(values: Map<string, string>): SandboxStackEnv | undefined {
+  const token = values.get(SANDBOX_KEYS.token);
+  const image = values.get(SANDBOX_KEYS.image);
+  const harnessPort = port(values.get(SANDBOX_KEYS.harnessPort));
+  const gatesPort = port(values.get(SANDBOX_KEYS.gatesPort));
+  const egressPort = port(values.get(SANDBOX_KEYS.egressPort));
+  const hostAddress = values.get(SANDBOX_KEYS.hostAddress);
+  const bind = values.get(SANDBOX_KEYS.bind);
+  if (!token || !/^[0-9a-f]{64,}$/i.test(token) || !image) return undefined;
+  if (!harnessPort || !gatesPort || !egressPort) return undefined;
+  if (!hostAddress || !IPV4.test(hostAddress) || !bind || !IPV4.test(bind)) return undefined;
+  return { token, image, harnessPort, gatesPort, egressPort, hostAddress, bind };
 }
 
 export function parsePersisted(text: string): PersistedStackEnv {
@@ -226,6 +291,8 @@ export function parsePersisted(text: string): PersistedStackEnv {
       /* rewritten from the default on the next start */
     }
   }
+  const sandboxes = parseSandboxes(values);
+  if (sandboxes) out.sandboxes = sandboxes;
   const ancestors = values.get(KEYS.studioFrameAncestors);
   if (ancestors !== undefined) {
     try {

@@ -1,16 +1,20 @@
 /**
  * `nylorun sandbox ls | rm`: the running local Tenant's sandbox resources (Host feature
  * `sandboxes`), through its Tenant API as the Project's derived principal. Neither starts the
- * Tenant. `nylorun sandbox enable` (sandbox pods on a cluster) arrives with F7.2.
+ * Tenant. `nylorun sandbox enable|disable|status` (sandbox pods on a cluster, F7.2) live in
+ * `../sandbox/commands.ts`.
  */
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { SandboxView } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
+import { runSandboxCommand, sandboxUsage as clusterUsage } from "../sandbox/commands.js";
+import { spawnKubectl } from "../sandbox/kubectl.js";
 import { parseStackFlags, runningTenantApi, type StackDeps, type TenantApi } from "./commands.js";
 
 export const sandboxUsage = `  sandbox ls [--tenant <name>] [--label <key=value>]... [--json]
                                       the Tenant's sandboxes: id, kind, state, attached sessions and labels
-  sandbox rm <id> [--tenant <name>]   delete a sandbox and its files (refused while a turn runs in it)`;
+  sandbox rm <id> [--tenant <name>]   delete a sandbox and its files (refused while a turn runs in it)
+${clusterUsage}`;
 
 const usageError = (message: string) => new CliError(message, 2);
 
@@ -120,10 +124,12 @@ async function rm(deps: StackDeps, args: readonly string[]): Promise<number> {
   return 0;
 }
 
-/** `nylorun sandbox <ls|rm> ...` */
+/** `nylorun sandbox <ls|rm|enable|disable|status> ...` */
 export async function sandboxCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [sub, ...rest] = args;
   if (sub === "ls" || sub === "list") return ls(deps, rest);
   if (sub === "rm" || sub === "delete") return rm(deps, rest);
+  if (sub === "enable" || sub === "disable" || sub === "status")
+    return runSandboxCommand(args, { stack: deps, kubectl: spawnKubectl(deps.env) });
   throw usageError(`Usage:\n${sandboxUsage}`);
 }

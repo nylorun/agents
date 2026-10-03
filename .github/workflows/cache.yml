@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [runtime, studio]
+        image: [runtime, studio, sandboxes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
