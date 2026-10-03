@@ -81,7 +81,12 @@ is refused with `409 run_stale`. A `gates` process needs only
 `NYLORUN_DATABASE_URL`, `NYLORUN_GATES_TOKEN`, its listener
 (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it
-never writes; it serves the database's one Tenant. `NYLORUN_PACKING` (`combined` or `split`) is logged at startup.
+never writes; it serves the database's one Tenant. With `egress`
+(`--service gates,keys,egress`, for pod sandboxes) the same process runs
+egress-gate on `NYLORUN_EGRESS_LISTEN_HOST`:`NYLORUN_EGRESS_LISTEN_PORT`
+(default `0.0.0.0:4200`): a CONNECT proxy that admits a pod's egress token and
+tunnels only to the hosts its sandbox spec allows, on 443 or 80, never to a
+private address. `NYLORUN_PACKING` (`combined` or `split`) is logged at startup.
 
 With an operator listener (a local Tenant's default: container port 4001), the Host
 serves two ports. The public one serves the Tenant API, to browsers too when

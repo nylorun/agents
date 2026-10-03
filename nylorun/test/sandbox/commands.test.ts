@@ -197,4 +197,18 @@ describe(".env and compose.yaml with sandboxes", () => {
     expect(plain).not.toContain("NYLORUN_SANDBOX_HARNESS_PORT");
     expect(plain).toContain("NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200\n");
   });
+
+  it("runs egress-gate in the gateway, published on the bind address, only with sandboxes", () => {
+    const gatewayOf = (compose: string) => compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
+    const plain = gatewayOf(renderComposeFile("nylorun-shop", "shop"));
+    expect(plain).toContain('command: ["--service", "gates,keys"]');
+    expect(plain).not.toMatch(/gates,keys,egress|NYLORUN_EGRESS_|SANDBOX_EGRESS_PORT|^\s+ports:/m);
+    const gateway = gatewayOf(renderComposeFile("nylorun-shop", "shop", { sandboxes: true }));
+    expect(gateway).toContain('command: ["--service", "gates,keys,egress"]');
+    expect(gateway).toContain('NYLORUN_EGRESS_LISTEN_PORT: "4200"');
+    expect(gateway).toContain(
+      '- "${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:${NYLORUN_SANDBOX_EGRESS_PORT:?run nylorun sandbox enable}:4200"',
+    );
+    expect(gateway.match(/^\s+ports:/gm)).toHaveLength(1);
+  });
 });
