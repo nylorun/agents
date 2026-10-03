@@ -82,7 +82,7 @@ describe("start", () => {
     const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
     expect(await runStackCommand("start", [], deps)).toBe(0);
     expect(docker.streamed).toEqual([
-      [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "postgres", "restate", "s2-lite", "gateway", "runtime"],
+      [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "300", "postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime"],
       [...compose(home), "up", "--detach", "--wait", "--wait-timeout", "120", "studio"],
     ]);
     expect(deps.lines).toEqual(startLines(home));

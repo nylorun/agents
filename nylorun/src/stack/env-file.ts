@@ -27,6 +27,11 @@ export interface StackEnv {
   postgresPassword: string;
   /** The token the runtime presents to the gateway (`NYLORUN_GATES_TOKEN`), 32 bytes as hex. */
   gatesToken: string;
+  /**
+   * RustFS's secret key (`NYLORUN_OBJECT_STORE_SECRET_KEY`), 32 bytes as hex: the Object store's
+   * credential, given only to the runtime and the gateway.
+   */
+  objectStoreSecretKey: string;
   /** `publickeyv1_...` of `docker/restate-identity.pem`. */
   restateIdentityKey: string;
   uid: number;
@@ -58,6 +63,7 @@ const KEYS = {
   restatePort: "NYLORUN_RESTATE_PORT",
   postgresPassword: "NYLORUN_POSTGRES_PASSWORD",
   gatesToken: "NYLORUN_GATES_TOKEN",
+  objectStoreSecretKey: "NYLORUN_OBJECT_STORE_SECRET_KEY",
   restateIdentityKey: "NYLORUN_RESTATE_IDENTITY_KEY",
   uid: "NYLORUN_UID",
   gid: "NYLORUN_GID",
@@ -92,9 +98,9 @@ export function renderEnvFile(env: StackEnv): string {
   const line = (field: keyof StackEnv) =>
     `${KEYS[field]}=${quote(KEYS[field], String(env[field]))}`;
   return [
-    "# Written by `nylorun start`. Mode 0600: holds the Postgres password and the",
-    "# gates token. Ports, the password and the token are kept across starts;",
-    "# images, UID/GID and the Host root are refreshed on every start.",
+    "# Written by `nylorun start`. Mode 0600: holds the Postgres password, the gates",
+    "# token and the Object store's secret key. Ports and secrets are kept across",
+    "# starts; images, UID/GID and the Host root are refreshed on every start.",
     "",
     "# Published on 127.0.0.1; clients use http://localhost:<port>.",
     line("runtimePort"),
@@ -107,6 +113,10 @@ export function renderEnvFile(env: StackEnv): string {
     "# The runtime presents this token to the gateway (the Model Gate) with every",
     "# model call.",
     line("gatesToken"),
+    "",
+    "# RustFS (the Object store) accepts this secret key; only the runtime and the",
+    "# gateway receive it.",
+    line("objectStoreSecretKey"),
     "",
     "# Restate signs requests to the Runtime's Worker endpoint with the private",
     "# key in restate-identity.pem; the Runtime accepts only this public key.",
@@ -183,6 +193,7 @@ export interface PersistedStackEnv {
   restatePort?: number;
   postgresPassword?: string;
   gatesToken?: string;
+  objectStoreSecretKey?: string;
   /** Validated origins; absent when the line is missing (an older .env). */
   studioFrameAncestors?: string[];
   derivedPrincipals?: string[];
@@ -204,6 +215,9 @@ export function parsePersisted(text: string): PersistedStackEnv {
     out.postgresPassword = password;
   const gatesToken = values.get(KEYS.gatesToken);
   if (gatesToken && /^[0-9a-f]{64,}$/i.test(gatesToken)) out.gatesToken = gatesToken;
+  const objectStoreSecretKey = values.get(KEYS.objectStoreSecretKey);
+  if (objectStoreSecretKey && /^[0-9a-f]{64}$/i.test(objectStoreSecretKey))
+    out.objectStoreSecretKey = objectStoreSecretKey;
   const principals = values.get(KEYS.derivedPrincipals);
   if (principals !== undefined) {
     try {

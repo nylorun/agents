@@ -520,3 +520,53 @@ describe("the Host's Tenant", () => {
     );
   });
 });
+
+describe("NYLORUN_OBJECT_STORE_*", () => {
+  const store = {
+    NYLORUN_OBJECT_STORE_ENDPOINT: "http://rustfs:9000/",
+    NYLORUN_OBJECT_STORE_ACCESS_KEY: "nylorun",
+    NYLORUN_OBJECT_STORE_SECRET_KEY: "s".repeat(64),
+  };
+
+  it("is absent without an endpoint, so the Tenant keeps blobs on disk", () => {
+    expect(parseStackConfig({}, []).objectStore).toBeUndefined();
+  });
+
+  it("reads the endpoint and credential, with the default bucket and region, in every service", () => {
+    const expected = {
+      endpoint: "http://rustfs:9000",
+      bucket: "nylorun",
+      region: "us-east-1",
+      accessKeyId: "nylorun",
+      secretAccessKey: "s".repeat(64),
+    };
+    expect(parseStackConfig(store, []).objectStore).toEqual(expected);
+    expect(
+      parseStackConfig(
+        { ...store, NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" },
+        ["--service", "gates,keys"],
+      ).objectStore,
+    ).toEqual(expected);
+    expect(
+      parseStackConfig(
+        { ...store, NYLORUN_OBJECT_STORE_BUCKET: "artifacts", NYLORUN_OBJECT_STORE_REGION: "eu-west-1" },
+        [],
+      ).objectStore,
+    ).toMatchObject({ bucket: "artifacts", region: "eu-west-1" });
+  });
+
+  it("requires the credential with the endpoint, and the endpoint with the credential", () => {
+    expect(() =>
+      parseStackConfig({ NYLORUN_OBJECT_STORE_ENDPOINT: "http://rustfs:9000" }, []),
+    ).toThrow(/NYLORUN_OBJECT_STORE_ACCESS_KEY and NYLORUN_OBJECT_STORE_SECRET_KEY are required/);
+    expect(() => parseStackConfig({ NYLORUN_OBJECT_STORE_SECRET_KEY: "x" }, [])).toThrow(
+      /without NYLORUN_OBJECT_STORE_ENDPOINT/,
+    );
+    expect(() =>
+      parseStackConfig({ ...store, NYLORUN_OBJECT_STORE_ENDPOINT: "s3://bucket" }, []),
+    ).toThrow(/NYLORUN_OBJECT_STORE_ENDPOINT must use http or https/);
+    expect(() =>
+      parseStackConfig({ ...store, NYLORUN_OBJECT_STORE_BUCKET: "Bad_Bucket" }, []),
+    ).toThrow(/NYLORUN_OBJECT_STORE_BUCKET/);
+  });
+});

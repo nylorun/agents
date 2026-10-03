@@ -7,8 +7,8 @@ import { PINNED_IMAGES } from "./images.js";
  * network and ports. Container, network and volume names are global on the Docker engine, so
  * every one is `<project>-<role>` (`nylorun-shop-studio`, network `nylorun-shop`, volume
  * `nylorun-shop-postgres`), labelled `dev.nylorun.tenant: <name>`; they are written here, from
- * the project and the Tenant's name. Everything else that varies (ports, the Postgres password,
- * UID/GID, the Host root, the images) comes from `docker/.env`.
+ * the project and the Tenant's name. Everything else that varies (ports, the Postgres password and the other
+ * secrets, UID/GID, the Host root, the images) comes from `docker/.env`.
  *
  * The Tenant's state is its Postgres database, executed through Restate, with its
  * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
@@ -37,6 +37,12 @@ import { PINNED_IMAGES } from "./images.js";
  * Restate's private key and `.env`. The runtime does not wait for the gateway: while
  * it is down, model and MCP calls fail, deliveries are retried, vault writes and
  * token minting answer 503, and the session takes the next message.
+ *
+ * The Object store (blueprint D35) is RustFS, single node and single drive, pinned by digest,
+ * on the `rustfs` volume; it is not published. Its credential is the access key `nylorun` and
+ * the secret key NYLORUN_OBJECT_STORE_SECRET_KEY from `.env`, and only the runtime and the
+ * gateway receive it (NYLORUN_OBJECT_STORE_*). The runtime creates the bucket at boot and
+ * reaches the store through its `s3` BlobStore.
  */
 export function renderComposeFile(project: string, name: string): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -99,6 +105,25 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
+  rustfs: # the Object store (D35); not published, only the runtime and the gateway hold its credential
+    image: ${PINNED_IMAGES.rustfs}
+    container_name: ${project}-rustfs
+    labels: *tenant
+    environment:
+      RUSTFS_ACCESS_KEY: nylorun
+      RUSTFS_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
+      RUSTFS_CONSOLE_ENABLE: "false" # no web console: clients go through the Runtime
+      RUSTFS_OBS_LOG_DIRECTORY: "" # log to stdout (nylorun logs rustfs)
+    # The image runs as uid 10001 and owns /data, which Docker copies into the new volume.
+    volumes:
+      - rustfs:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
   gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     container_name: ${project}-gateway
@@ -114,6 +139,10 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      # The Object store, where model-gate will read file parts (F8.1).
+      NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
+      NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
+      NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
@@ -139,6 +168,7 @@ services:
       postgres: { condition: service_healthy }
       restate: { condition: service_healthy }
       s2-lite: { condition: service_started }
+      rustfs: { condition: service_healthy }
     environment:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
@@ -169,6 +199,10 @@ services:
       NYLORUN_S2_ENDPOINT: http://s2-lite:80
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
+      # The Object store, through the BlobStore seam's s3 adapter; the runtime creates the bucket.
+      NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
+      NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
+      NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
@@ -236,6 +270,7 @@ volumes:
   postgres: { name: ${project}-postgres, labels: *tenant }
   restate: { name: ${project}-restate, labels: *tenant }
   s2-lite: { name: ${project}-s2-lite, labels: *tenant }
+  rustfs: { name: ${project}-rustfs, labels: *tenant }
   workspaces: { name: ${project}-workspaces, labels: *tenant }
 `;
 }

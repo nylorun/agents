@@ -123,6 +123,8 @@ export async function prepareStack(input: {
     postgresPassword: persisted.postgresPassword ?? randomBytes(24).toString("hex"),
     // Kept across starts: a new token would recreate the runtime and gateway containers.
     gatesToken: persisted.gatesToken ?? randomBytes(32).toString("hex"),
+    // Kept across starts: a new key would recreate the runtime, gateway and rustfs containers.
+    objectStoreSecretKey: persisted.objectStoreSecretKey ?? randomBytes(32).toString("hex"),
     restateIdentityKey: identity.publicKey,
     uid: input.uid,
     gid: input.gid,

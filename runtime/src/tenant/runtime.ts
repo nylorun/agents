@@ -74,6 +74,7 @@ import { authorize } from "./effects.js";
 import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import { tenantApi } from "../api/http/app.js";
+import { createFsBlobStore, type BlobStore } from "../blob/index.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -117,6 +118,11 @@ export type TenantOpenHooks = {
   hostRelay?: boolean;
   /** How long a retired stream basin is kept after a reset (tests). Default 60 s. */
   retireGraceMs?: number;
+  /**
+   * The Object store, owned by the caller (the Host's `s3` BlobStore, D35). Without one the
+   * Tenant keeps blobs on disk under `paths.blobs` (the `fs` adapter: embedding, tests).
+   */
+  blobs?: BlobStore;
 } & OpenedTenant;
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -297,6 +303,7 @@ export class TenantRuntime implements TenantHandle {
         sessionStreams,
         signingKeys,
         keys,
+        blobs: hooks.blobs ?? createFsBlobStore({ root: paths.blobs }),
         workerId: hooks.workerId ?? WORKER_ID,
         ownerLeaseMs: config.ownerLeaseMs ?? DEFAULT_OWNER_LEASE_MS,
         wake: async (sessionId, wake) => {

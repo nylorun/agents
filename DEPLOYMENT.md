@@ -1,8 +1,8 @@
 # Runtime deployment
 
 This release supports one machine: the **local Tenant** that `nylorun start`
-runs for a project (the Runtime, its gateway, Studio, Postgres, Restate and
-s2-lite, as Docker Compose project `nylorun-<tenant>`), an installation that
+runs for a project (the Runtime, its gateway, Studio, Postgres, Restate,
+s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
 serves that one **Tenant**, and the application's **Action
 endpoints** (the tools it serves) on the same machine or reachable from it. Vocabulary:
 [runtime/src/CONTEXT.md](./runtime/src/CONTEXT.md).
@@ -35,7 +35,8 @@ Tenant directory `tenant/`, and the vault key in `keys/vault-kek`. Back up the
 vault key with the Postgres volume: the Tenant's stored credentials cannot be
 read without it. The Tenant's data lives in its
 Docker volumes: Postgres (its database, schemas `nylorun` and
-`nylorun_streams`), s2-lite (session history), Restate and the workspaces. Keep
+`nylorun_streams`), s2-lite (session history), Restate, RustFS (the Object store) and
+the workspaces. Keep
 each Project's `.nylorun/link.json` and `credentials.json` private as well;
 model credentials live in the Tenant's vault. `nylorun stop` stops the
 containers and keeps the volumes; `nylorun reset` deletes the volumes, the
@@ -217,6 +218,30 @@ On a managed Postgres, turn on its logical replication option (for example
 `rds.logical_replication` on RDS). With S2 down, commits continue and the slot keeps their
 WAL; the relay catches up in order when S2 returns.
 
+## The Object store
+
+A local Tenant keeps file bytes in an **Object store**: RustFS, one node on one
+drive, in the `rustfs` container on the `nylorun-<tenant>-rustfs` volume. Its
+image is pinned by digest and upgraded only with a release. The Runtime reaches
+it only through the S3 API (its `BlobStore` seam) and uses no RustFS-specific
+feature, so S3 or any S3 server can replace it. Postgres stays the record: an
+object counts only once a row in the Tenant's database refers to it. Back the
+volume up with the Postgres volume.
+
+- RustFS has no published port and no web console. Clients upload and download
+  through the Runtime's API, never from RustFS directly.
+- Its credential is the access key `nylorun` and a secret key that `nylorun start`
+  generates once and keeps in `docker/.env` (`NYLORUN_OBJECT_STORE_SECRET_KEY`,
+  mode 0600). Only the `runtime` and `gateway` containers receive it, as
+  `NYLORUN_OBJECT_STORE_ENDPOINT`, `NYLORUN_OBJECT_STORE_ACCESS_KEY` and
+  `NYLORUN_OBJECT_STORE_SECRET_KEY`. Studio, Postgres, Restate and s2-lite never see it.
+- The runtime creates the bucket (`nylorun`, or `NYLORUN_OBJECT_STORE_BUCKET`) when
+  it starts. `NYLORUN_OBJECT_STORE_REGION` sets the signing region (default
+  `us-east-1`).
+- A Runtime without `NYLORUN_OBJECT_STORE_ENDPOINT` (an embedded or ephemeral
+  Runtime, tests) keeps the bytes on disk, under the Tenant directory's `blobs/`.
+- `nylorun logs rustfs` shows its log. RustFS uses about 75 MB of memory when idle.
+
 ## The gateway: model and tool calls
 
 A local Tenant runs the Runtime image twice (the combined packing). The `runtime`
@@ -296,8 +321,8 @@ Each release publishes the Runtime and Studio as multi-arch images
 | `ghcr.io/nylorun/studio:<studio version>` | `studio/Dockerfile` |
 
 `nylorun up` runs the versions its release pins (`nylorun/package.json`
-`nylorun.runtime` and `nylorun.studio`) beside the official Postgres, Restate
-and s2-lite images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
+`nylorun.runtime` and `nylorun.studio`) beside the official Postgres, Restate,
+s2-lite and RustFS images. `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` replace
 the pinned images, for example with a local build. Tags are never moved, and
 there is no `latest` tag. Studio is not published to npm; it ships only as its
 image.

@@ -26,6 +26,8 @@ export interface TenantPaths {
   tmp: string;
   sandboxes: string;
   pluginData: string;
+  /** The `fs` BlobStore's directory, used when the Host has no Object store. */
+  blobs: string;
   logs: string;
   log: string;
 }

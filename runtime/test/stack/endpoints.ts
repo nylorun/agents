@@ -11,6 +11,11 @@ export interface StackEndpoints {
   postgres: { host: string; port: number; url: string };
   restate: { ingressUrl: string; adminUrl: string };
   s2: { endpoint: string };
+  /**
+   * The S3 server for the `BlobStore` suite (RustFS in the stack): set only when
+   * `NYLORUN_TEST_S3_ENDPOINT` is, so the suite runs only where an S3 server is known to listen.
+   */
+  s3: { endpoint?: string; accessKeyId: string; secretAccessKey: string };
 }
 
 export function stackEndpoints(): StackEndpoints {
@@ -27,6 +32,14 @@ export function stackEndpoints(): StackEndpoints {
     },
     s2: {
       endpoint: `http://127.0.0.1:${port("NYLORUN_TEST_S2_PORT", 58090)}`,
+    },
+    s3: {
+      ...(process.env.NYLORUN_TEST_S3_ENDPOINT
+        ? { endpoint: process.env.NYLORUN_TEST_S3_ENDPOINT }
+        : {}),
+      // The test stack's RustFS credential (compose.yaml).
+      accessKeyId: process.env.NYLORUN_TEST_S3_ACCESS_KEY ?? "nylorun",
+      secretAccessKey: process.env.NYLORUN_TEST_S3_SECRET_KEY ?? "nylorun-test-secret",
     },
   };
 }
