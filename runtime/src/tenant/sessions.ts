@@ -287,7 +287,12 @@ async function sessionSandbox(
         `'${body.agentId}' declares its own sandbox with .sandbox(). Remove it from the agent to attach a sandbox.`
       );
     const sandbox = await attachSandbox(t, request.id, options.grants);
-    return { ...(await pin(definition, sandbox.spec, "sandbox")), sandboxId: sandbox.id, kind: sandbox.kind };
+    // A pod's storage and lifecycle are the resource's, not the agent's sandbox manifest.
+    const { storage: _storage, lifecycle: _lifecycle, ...spec } = sandbox.spec as typeof sandbox.spec & {
+      storage?: unknown;
+      lifecycle?: unknown;
+    };
+    return { ...(await pin(definition, spec, "sandbox")), sandboxId: sandbox.id, kind: sandbox.kind };
   }
   if (isShare(request)) {
     const owner = await t.get<Session>("sessions", request.session);

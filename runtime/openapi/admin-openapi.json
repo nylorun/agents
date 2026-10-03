@@ -22,7 +22,8 @@
         "ag-ui-endpoint",
         "a2a-endpoint",
         "action-endpoints",
-        "sandboxes"
+        "sandboxes",
+        "sandbox-pods"
       ]
     }
   },
@@ -336,6 +337,9 @@
               "sandbox_not_granted",
               "sandbox_busy",
               "sandbox_unavailable",
+              "placement_refused",
+              "sandbox_lost",
+              "sandbox_expired",
               "internal_error"
             ]
           },

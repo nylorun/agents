@@ -105,8 +105,10 @@ const STALE_POD_MS = 60_000;
 
 /**
  * Pod sandboxes (F7.2) whose change has not finished (creating, deleting, an old volume still
- * to delete, an expiry not yet recorded) and whose row has not moved for a minute: a reconcile
- * the `Sandbox` object lost (a send dropped while the Tenant closed) is sent again.
+ * to delete, an expiry not yet recorded), or that should run but whose engine is not connected,
+ * and whose row has not moved for a minute: a reconcile the `Sandbox` object lost (a send
+ * dropped while the Tenant closed) is sent again, and a pod or volume deleted outside the
+ * Runtime is found.
  */
 async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> {
   if (!ctx.pods) return;
@@ -122,7 +124,9 @@ async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> 
         pod.observed === "creating" ||
         pod.observed === "deleting" ||
         expiring ||
-        (pod.desired === "suspended" && pod.observed !== "suspended")
+        (pod.desired === "suspended" && pod.observed !== "suspended") ||
+        // Running, but its engine is not connected: the pod may be gone, or its volume.
+        (pod.desired === "running" && pod.observed === "running" && !ctx.harness.hosting(row.id))
       );
     }),
   );
