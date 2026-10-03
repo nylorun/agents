@@ -37,6 +37,7 @@ import {
   mergeStudioEvents,
   type StudioEvent,
 } from "@/event-presentation";
+import { trackPageView } from "@/analytics";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import {
   embedSession,
@@ -148,11 +149,21 @@ export default function App() {
   return (
     <BrowserRouter basename={scope?.basename ?? "/"}>
       {embedded() ? <EmbedRouteSync basename={scope?.basename ?? ""} /> : null}
+      <PageViews basename={scope?.basename ?? ""} />
       <Routes>
         <Route path="*" element={<StudioRoot tenantId={scope?.tenantId} />} />
       </Routes>
     </BrowserRouter>
   );
+}
+
+/** Reports each route as a page view (a no-op while analytics is off). */
+function PageViews({ basename }: { basename: string }) {
+  const location = useLocation();
+  useEffect(() => {
+    trackPageView(`${basename}${location.pathname}`);
+  }, [basename, location.pathname]);
+  return null;
 }
 
 /** The embed session's status, re-rendered on change (always "ready" outside embed mode). */

@@ -11,9 +11,13 @@
  *   `127.0.0.1` on it.
  * - `NYLORUN_STUDIO_FRAME_ANCESTORS` (default none): exact origins, separated
  *   by spaces, that may frame the dashboard (Studio §8.9). Wildcards are refused.
+ * - `NYLORUN_STUDIO_ANALYTICS_ID` (default none): the Google Analytics
+ *   measurement id the dashboard reports page views to. `nylorun start` sets it
+ *   unless the developer opted out of telemetry.
  */
 import { parseFrameAncestors } from "@nylorun/agents/studio-embed";
 import {
+  parseAnalyticsId,
   parseRuntimeUrl,
   readAdminKeyFile,
   startStudioServer,
@@ -49,6 +53,14 @@ try {
       `NYLORUN_STUDIO_FRAME_ANCESTORS: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  let analyticsId: string | undefined;
+  try {
+    analyticsId = parseAnalyticsId(process.env.NYLORUN_STUDIO_ANALYTICS_ID ?? "");
+  } catch (error) {
+    throw new Error(
+      `NYLORUN_STUDIO_ANALYTICS_ID: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   const studio = await startStudioServer({
     runtimeUrl,
     adminKey,
@@ -56,6 +68,7 @@ try {
     port: listenPort,
     publicPort,
     frameAncestors,
+    ...(analyticsId ? { analyticsId } : {}),
   });
   console.log(
     `Studio listening on 0.0.0.0:${studio.port}; browser URL ${studio.url}; Runtime ${runtimeUrl}`,

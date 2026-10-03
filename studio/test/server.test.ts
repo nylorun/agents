@@ -21,6 +21,7 @@ import {
   LOGIN_TOKEN_TTL_MS,
   SESSION_COOKIE,
   SESSION_TTL_MS,
+  parseAnalyticsId,
   parseRuntimeUrl,
   readAdminKeyFile,
   safeNextPath,
@@ -150,6 +151,7 @@ async function withStudio(
     adminKey?: string;
     clock?: { now: number };
     frameAncestors?: readonly string[];
+    analyticsId?: string;
     log?: (entry: Readonly<Record<string, unknown>>) => void;
   } = {},
 ) {
@@ -893,6 +895,20 @@ test("only the allowlist may frame dashboard files; nothing else can be framed",
     assert.equal(reply.headers["content-security-policy"], "frame-ancestors 'none'");
     assert.match(reply.body, /<meta name="nylorun-frame-ancestors" content="">/);
   });
+});
+
+test("index.html names the analytics measurement id only when Studio has one", async () => {
+  await withStudio(async ({ port }) => {
+    const reply = await send(port, { path: `/tenants/${TENANT_A}` });
+    assert.match(reply.body, /<meta name="nylorun-analytics" content="G-K6RPDFH6Q6">/);
+  }, { analyticsId: "G-K6RPDFH6Q6" });
+  await withStudio(async ({ port }) => {
+    const reply = await send(port, { path: `/tenants/${TENANT_A}` });
+    assert.doesNotMatch(reply.body, /nylorun-analytics/);
+  });
+  assert.equal(parseAnalyticsId(""), undefined);
+  assert.equal(parseAnalyticsId(" G-K6RPDFH6Q6 "), "G-K6RPDFH6Q6");
+  assert.throws(() => parseAnalyticsId('G-1"><script>'), /not a Google Analytics measurement id/);
 });
 
 test("the container entry refuses a wildcard frame allowlist", async () => {

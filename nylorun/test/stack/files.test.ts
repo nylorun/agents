@@ -29,6 +29,7 @@ const env: StackEnv = {
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
   studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
+  studioAnalyticsId: "G-K6RPDFH6Q6",
   stackName: "shop",
   derivedPrincipals: "project,babai",
 };

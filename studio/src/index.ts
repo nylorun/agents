@@ -3,6 +3,7 @@
  * container entry). This package is private: it ships only as that image.
  */
 export {
+  parseAnalyticsId,
   parseRuntimeUrl,
   readAdminKeyFile,
   startStudioServer,

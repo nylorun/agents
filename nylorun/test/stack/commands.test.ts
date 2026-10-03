@@ -15,6 +15,7 @@ import {
 } from "../../src/stack/commands.js";
 import { parseComposePs } from "../../src/stack/docker.js";
 import { stackPaths } from "../../src/stack/paths.js";
+import { STUDIO_ANALYTICS_ID, TELEMETRY_NOTICE, telemetryCommand } from "../../src/telemetry.js";
 import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.js";
 
 /** host.json is written during `start`, so the fakes read it lazily. */
@@ -301,6 +302,34 @@ describe("start never runs a Runtime older than the stack's database", () => {
     expect(await runStackCommand("start", ["--no-studio"], first)).toBe(0);
     return home;
   }
+
+  it("Studio reports page views unless telemetry is off, and says so once", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, { fetch: await healthyFetch(home) });
+    const env = () => readFileSync(stackPaths(home).env, "utf8");
+    expect(await runStackCommand("start", ["--no-open"], deps)).toBe(0);
+    expect(env()).toContain(`NYLORUN_STUDIO_ANALYTICS_ID=${STUDIO_ANALYTICS_ID}\n`);
+    expect(deps.errors).toContain(TELEMETRY_NOTICE);
+    deps.errors.length = 0;
+    expect(await runStackCommand("start", ["--no-open"], deps)).toBe(0);
+    expect(deps.errors).not.toContain(TELEMETRY_NOTICE);
+
+    for (const off of [{ NYLORUN_TELEMETRY_DISABLED: "1" }, { DO_NOT_TRACK: "1" }, { CI: "true" }]) {
+      const quiet = testDeps(home, { fetch: await healthyFetch(home), env: { NYLORUN_HOME: home, ...off } });
+      expect(await runStackCommand("start", ["--no-open"], quiet)).toBe(0);
+      expect(env()).toContain("NYLORUN_STUDIO_ANALYTICS_ID=\n");
+    }
+    await telemetryCommand(["disable"], { nylorunRoot: deps.nylorunRoot!, env: {}, out: () => {} });
+    expect(await runStackCommand("start", ["--no-open"], deps)).toBe(0);
+    expect(env()).toContain("NYLORUN_STUDIO_ANALYTICS_ID=\n");
+  });
+
+  it("a stack started in CI shows no telemetry notice", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, { fetch: await healthyFetch(home), env: { NYLORUN_HOME: home, CI: "1" } });
+    expect(await runStackCommand("start", ["--no-open"], deps)).toBe(0);
+    expect(deps.errors).not.toContain(TELEMETRY_NOTICE);
+  });
 
   it("--studio-embed-origin adds an origin that may frame Studio, and status reports it", async () => {
     const home = await temporaryHome();

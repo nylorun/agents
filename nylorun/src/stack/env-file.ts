@@ -37,6 +37,11 @@ export interface StackEnv {
   studioImage: string;
   /** Exact origins that may frame Studio, separated by spaces (persists). */
   studioFrameAncestors: string;
+  /**
+   * The Google Analytics measurement id Studio reports page views to, or empty
+   * when telemetry is off. Decided again on every start.
+   */
+  studioAnalyticsId: string;
   /** The stack's name: the name of the Tenant its Runtime creates. */
   stackName: string;
   /**
@@ -60,6 +65,7 @@ const KEYS = {
   runtimeImage: "NYLORUN_RUNTIME_IMAGE",
   studioImage: "NYLORUN_STUDIO_IMAGE",
   studioFrameAncestors: "NYLORUN_STUDIO_FRAME_ANCESTORS",
+  studioAnalyticsId: "NYLORUN_STUDIO_ANALYTICS_ID",
   stackName: "NYLORUN_STACK_NAME",
   derivedPrincipals: "NYLORUN_DERIVED_PRINCIPALS",
 } as const satisfies Record<keyof StackEnv, string>;
@@ -118,6 +124,10 @@ export function renderEnvFile(env: StackEnv): string {
     "# Exact origins that may show Studio in a frame (Babai Desktop). Kept across",
     "# starts; change with nylorun start --studio-embed-origin <origin>.",
     line("studioFrameAncestors"),
+    "",
+    "# Studio's anonymous usage analytics; empty when off. Set on every start: turn",
+    "# it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.",
+    line("studioAnalyticsId"),
     "",
     "# The stack's name, which its Runtime gives the Tenant it creates on the first",
     "# start, and the derived principals it registers on that Tenant (keys derived",

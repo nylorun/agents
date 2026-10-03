@@ -19,6 +19,13 @@ import {
 import { findProjectRoot } from "../project/root.js";
 import { seedTenant } from "../project/seed.js";
 import {
+  readTelemetry,
+  STUDIO_ANALYTICS_ID,
+  TELEMETRY_NOTICE,
+  telemetryDecision,
+  writeTelemetry,
+} from "../telemetry.js";
+import {
   dockerPreflight,
   parseComposePs,
   type ComposeService,
@@ -485,6 +492,8 @@ async function bringUp(
   await refuseLauncherRuntime(ctx);
   const overridden = runtimeImageOverridden(deps.env);
   if (!overridden) await refuseDowngrade(ctx, options.allowDowngrade ?? false);
+  const telemetry = await readTelemetry(nylorunRoot(deps));
+  const analytics = telemetryDecision(deps.env, telemetry).enabled;
   const prepared = await prepareStack({
     paths: ctx.paths,
     name: ctx.name,
@@ -503,7 +512,12 @@ async function bringUp(
       ? { derivedPrincipals: deps.env.NYLORUN_DERIVED_PRINCIPALS }
       : {}),
     ...(options.studioEmbedOrigins ? { studioEmbedOrigins: options.studioEmbedOrigins } : {}),
+    ...(analytics ? { studioAnalyticsId: STUDIO_ANALYTICS_ID } : {}),
   });
+  if (analytics && options.studio && telemetry.noticeShown === undefined) {
+    deps.err(TELEMETRY_NOTICE);
+    await writeTelemetry(nylorunRoot(deps), { ...telemetry, noticeShown: new Date().toISOString() });
+  }
   const record = await readStackRecord(ctx.paths.root);
   const project = record?.project ?? ctx.projectDir;
   if (record?.name !== ctx.name || record.project !== project)

@@ -77,6 +77,8 @@ export async function prepareStack(input: {
    * defaults, `add` appends (for example a desktop app's dev server).
    */
   studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
+  /** The measurement id Studio reports page views to; absent when telemetry is off. */
+  studioAnalyticsId?: string;
 }): Promise<PreparedStack> {
   const { paths } = input;
   await ensureHostLayout(paths);
@@ -128,6 +130,7 @@ export async function prepareStack(input: {
     runtimeImage: input.images.runtime,
     studioImage: input.images.studio,
     studioFrameAncestors,
+    studioAnalyticsId: input.studioAnalyticsId ?? "",
     stackName: input.name,
     derivedPrincipals: (input.derivedPrincipals?.trim()
       ? parseDerivedPrincipals(input.derivedPrincipals, "NYLORUN_DERIVED_PRINCIPALS")
