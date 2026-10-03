@@ -53,6 +53,10 @@
     "./compatibility": {
       "types": "./dist/compatibility.d.ts",
       "import": "./dist/compatibility.js"
+    },
+    "./harness-api": {
+      "types": "./dist/harness-api/index.d.ts",
+      "import": "./dist/harness-api/index.js"
     }
   },
   "peerDependencies": {
