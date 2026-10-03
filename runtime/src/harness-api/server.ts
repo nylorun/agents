@@ -8,24 +8,38 @@
  * of the advance reaches the harness as `cancel` with the abort's reason. The run ends with an
  * output (answered once core has settled it, with the transcript's new cursor), a release, or
  * the connection's loss (`connection.lost`).
+ *
+ * F6.2: a harness readies the session's MCP servers itself and records what it found
+ * (`session.mcp`); an Action outcome recorded while its run is held reaches it as
+ * `effect.resolved`; and a harness that declared `workspace` in `hello` serves the Tenant's
+ * workspaces (`workspace`, the `workspace.*` requests). A harness claims `sandbox.*` events
+ * only for a run it holds (its session, or the session owning the run's sandbox) or a session a
+ * workspace request it is serving acts for; a `sandbox.state` claim's record becomes the
+ * workspace's row in the `sandboxes` table.
  */
 import { randomUUID } from "node:crypto";
 import {
   HARNESS_API_VERSION,
   HARNESS_CLAIMS,
   HarnessApiError,
+  type CoreMethod,
   type EffectIntent,
   type HarnessChannel,
   type HarnessClaim,
   type OutputMethod,
   type ParamsOf,
   type ReleaseReason,
+  type ResultOf,
   type RunGrant,
   type TurnOutput,
   type TurnStart,
+  type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
+import type { ActionOutcome } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
-import type { Lease, TenantContext } from "../tenant/context.js";
+import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
+import { sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
+import { workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
 import { recordIntent, recordOutcome } from "./record.js";
@@ -69,14 +83,48 @@ export interface HarnessApiServer {
   /** Serves a harness's channel until it closes. Returns a function that detaches it. */
   attach(channel: HarnessChannel, peer: HarnessPeer): () => void;
   offer(offer: RunOffer): Promise<RunEnd>;
+  /**
+   * An Action outcome of session `sessionId` was recorded: the run holding it, if any, gets it
+   * (`effect.resolved`). Call it after the outcome's commit.
+   */
+  resolved(sessionId: string, effectId: string, outcome: ActionOutcome): void;
+  /** A harness holds a run of `sessionId` here. */
+  holds(sessionId: string): boolean;
+  /**
+   * Sends a `workspace.*` request to a harness that serves workspaces. Throws
+   * `NoWorkspaceHarness` when none is attached.
+   */
+  workspace<M extends CoreMethod>(method: M, params: ParamsOf<M>, signal?: AbortSignal): Promise<ResultOf<M>>;
+  /** Harnesses attached now, and whether one serves workspaces. */
+  status(): HarnessStatus;
   /** Harnesses attached now. */
   readonly connected: number;
   close(): void;
 }
 
+/** The Harness API's state, for Tenant and admin status. */
+export interface HarnessStatus {
+  readonly connected: number;
+  readonly workspace: boolean;
+}
+
+/** No attached harness serves workspaces. */
+export class NoWorkspaceHarness extends Error {
+  override readonly name = "NoWorkspaceHarness";
+  constructor() {
+    super("No harness serving workspaces is connected");
+  }
+}
+
 interface Connection {
   readonly channel: HarnessChannel;
   readonly peer: HarnessPeer;
+  /** Declared `workspace` in its `hello`. */
+  workspace: boolean;
+  /** Sessions its workspace requests in flight act for, with how many each. */
+  readonly claims: Map<string, number>;
+  /** `workspace.sweep` and `workspace.remove` requests in flight: they may stop any workspace. */
+  sweeping: number;
 }
 
 interface Waiting {
@@ -102,9 +150,15 @@ const OUTPUTS: readonly string[] = [
   "checkpoint",
 ];
 
+export interface HarnessApiServerOptions {
+  offerWaitMs?: number;
+  /** The sandbox backend preference a harness that serves workspaces selects with. */
+  sandboxPreference?: string;
+}
+
 export function createHarnessApiServer(
   ctx: TenantContext,
-  options: { offerWaitMs?: number } = {}
+  options: HarnessApiServerOptions = {}
 ): HarnessApiServer {
   const offerWaitMs = options.offerWaitMs ?? 10_000;
   const connections = new Set<Connection>();
@@ -144,13 +198,16 @@ export function createHarnessApiServer(
     async (method: string, params: unknown, signal: AbortSignal): Promise<unknown> => {
       const p = params as Record<string, unknown>;
       if (method === "hello") {
-        const report = await ctx.sandbox.report().catch(() => undefined);
+        const { capabilities } = p as ParamsOf<"hello">;
+        connection.workspace = capabilities.workspace !== undefined;
         return {
           api: HARNESS_API_VERSION,
-          sandbox: { backend: report?.backend ?? null },
+          tenantId: ctx.config.tenantId,
+          sandbox: { backend: options.sandboxPreference ?? null },
           renewEveryMs: renewEveryMs(ctx),
         };
       }
+      if (method === "event") return claim(connection, p as ParamsOf<"event">);
       if (method === "lease")
         return new Promise((resolve, reject) => {
           const entry: Waiting = { connection, resolve };
@@ -186,17 +243,86 @@ export function createHarnessApiServer(
         }
         case "transcript.read":
           return { cursor: run.offer.start.transcript.cursor, entries: [...run.offer.transcript] };
-        case "event": {
-          const event = p as ParamsOf<"event">;
-          if (!HARNESS_CLAIMS.includes(event.type as HarnessClaim) || event.sessionId !== run.grant.sessionId)
-            throw new HarnessApiError("invalid", `A harness may not claim ${event.type} here`);
-          await ctx.store.tx((t) => t.event(event.sessionId, event.turnId, event.type, event.payload as never));
-          return {};
-        }
+        case "session.mcp":
+          return recordMcp(run, p as ParamsOf<"session.mcp">);
         default:
           throw new HarnessApiError("invalid", `Unknown request ${method}`);
       }
     };
+
+  /**
+   * A `sandbox.*` event the harness claims: for a run it holds (the run's session, or the
+   * session owning its sandbox), or a session one of its workspace requests acts for. A
+   * `sandbox.state` record becomes the workspace's `sandboxes` row. Claims are best effort, as
+   * the events of core's own SandboxManager are: a session gone since is skipped.
+   */
+  const claim = async (connection: Connection, event: ParamsOf<"event">): Promise<Record<string, never>> => {
+    if (!HARNESS_CLAIMS.includes(event.type as HarnessClaim))
+      throw new HarnessApiError("invalid", `A harness may not claim ${event.type}`);
+    let allowed = connection.sweeping > 0 || connection.claims.has(event.sessionId);
+    if (event.runId !== undefined) {
+      const run = held(connection, event.runId);
+      allowed ||=
+        event.sessionId === run.grant.sessionId || event.sessionId === run.offer.start.routing.sandbox?.ownerId;
+    }
+    if (!allowed) throw new HarnessApiError("run_not_held", `This harness may not claim events of ${event.sessionId}`);
+    const record = event.record;
+    if (
+      record &&
+      (event.type !== "sandbox.state" ||
+        record.sessionId !== event.sessionId ||
+        !record.key.startsWith(workspacePrefix(ctx.config.tenantId)))
+    )
+      throw new HarnessApiError("invalid", "The workspace record is not this session's");
+    try {
+      await ctx.store.tx(async (t) => {
+        if (record) await t.put("sandboxes", record.key, record satisfies WorkspaceRecord);
+        await t.event(event.sessionId, event.turnId, event.type, event.payload as never);
+      });
+    } catch (error) {
+      ctx.config.logger.warn("harness event claim not recorded", {
+        sessionId: event.sessionId,
+        type: event.type,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return {};
+  };
+
+  /**
+   * What a harness found readying the run's MCP servers: the first snapshot recorded for the
+   * session wins; diagnostics replace those of the same server. Answers the session's snapshot
+   * and the tools the engine advertises.
+   */
+  const recordMcp = (run: Run, params: ParamsOf<"session.mcp">) =>
+    ctx.store.tx(async (t) => {
+      const { lease } = run.offer;
+      const current = await ownedSession(t, lease, lease.sessionId);
+      const diagnostics = params.diagnostics as McpDiagnostic[];
+      const snapshot = params.snapshot as McpSnapshot | undefined;
+      if (snapshot !== undefined && !isSnapshot(snapshot))
+        throw new HarnessApiError("invalid", "The MCP snapshot is malformed");
+      if (snapshot && !current.mcpSnapshot) {
+        current.mcpSnapshot = snapshot;
+        current.mcpDiagnostics = diagnostics;
+        await t.put("sessions", current.id, current);
+      } else if (diagnostics.length > 0) {
+        const prior = [...(current.mcpDiagnostics ?? [])];
+        for (const item of diagnostics) {
+          const index = prior.findIndex(
+            (existing) => existing.capabilityId === item.capabilityId && existing.serverName === item.serverName
+          );
+          if (index >= 0) prior[index] = item;
+          else prior.push(item);
+        }
+        current.mcpDiagnostics = prior;
+        await t.put("sessions", current.id, current);
+      }
+      return {
+        ...(current.mcpSnapshot ? { snapshot: current.mcpSnapshot } : {}),
+        sessionTools: [...(sessionToolsOf(current.mcpSnapshot) ?? [])],
+      } as { snapshot: unknown; sessionTools: unknown[] };
+    });
 
   const output = (run: Run, method: string, params: Record<string, unknown>) => {
     const known = run.outputs.get(method);
@@ -218,8 +344,40 @@ export function createHarnessApiServer(
     get connected() {
       return connections.size;
     },
+    status() {
+      return {
+        connected: connections.size,
+        workspace: [...connections].some((connection) => connection.workspace && !connection.channel.closed),
+      };
+    },
+    holds(sessionId) {
+      for (const run of runs.values())
+        if (run.grant.sessionId === sessionId && !run.ended && run.connection) return true;
+      return false;
+    },
+    resolved(sessionId, effectId, outcome) {
+      for (const run of runs.values())
+        if (run.grant.sessionId === sessionId && !run.ended && run.connection)
+          run.connection.channel.notify("effect.resolved", { runId: run.grant.runId, effectId, outcome });
+    },
+    async workspace(method, params, signal) {
+      const connection = [...connections].find((item) => item.workspace && !item.channel.closed);
+      if (!connection) throw new NoWorkspaceHarness();
+      const session = (params as { session?: { ownerId?: string } }).session?.ownerId;
+      if (session) connection.claims.set(session, (connection.claims.get(session) ?? 0) + 1);
+      else connection.sweeping += 1;
+      try {
+        return await connection.channel.request(method, params, signal);
+      } finally {
+        if (session) {
+          const left = (connection.claims.get(session) ?? 1) - 1;
+          if (left > 0) connection.claims.set(session, left);
+          else connection.claims.delete(session);
+        } else connection.sweeping -= 1;
+      }
+    },
     attach(channel, peer) {
-      const connection: Connection = { channel, peer };
+      const connection: Connection = { channel, peer, workspace: false, claims: new Map(), sweeping: 0 };
       connections.add(connection);
       const handler = serve(connection);
       channel.handle(async (method, params, signal) => {
@@ -308,4 +466,15 @@ export function createHarnessApiServer(
       for (const run of queued.splice(0)) run.end({ kind: "unavailable" });
     },
   };
+}
+
+function isSnapshot(value: unknown): value is McpSnapshot {
+  const snapshot = value as Partial<McpSnapshot> | null;
+  return (
+    typeof snapshot === "object" &&
+    snapshot !== null &&
+    snapshot.snapshotSchemaVersion === 1 &&
+    typeof snapshot.manifestHash === "string" &&
+    Array.isArray(snapshot.mcpTools)
+  );
 }

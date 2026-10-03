@@ -193,19 +193,18 @@ async function i5(temporary, packed) {
       );
     },
   };
-  // The manager's view of a Session Store: `tx(fn)` hands `fn` a transaction.
-  const memoryStore = () => {
-    const tables = new Map();
-    const transaction = {
-      get: async (table, key) => tables.get(table)?.get(key),
-      async put(table, key, value) {
-        if (!tables.has(table)) tables.set(table, new Map());
-        tables.get(table).set(key, value);
+  // The manager's records port (`SandboxRecords`), in memory.
+  const memoryRecords = () => {
+    const records = new Map();
+    return {
+      get: async (key) => records.get(key),
+      async put(record) {
+        records.set(record.key, record);
       },
-      delete: async (table, key) => void tables.get(table)?.delete(key),
-      all: async (table) => [...(tables.get(table)?.values() ?? [])],
+      delete: async (key) => void records.delete(key),
+      list: async () => [...records.values()],
+      count: async () => records.size,
     };
-    return { tx: async (fn) => fn(transaction) };
   };
 
   // Two installations on one machine (two Tenants) share its sandbox backends.
@@ -213,13 +212,13 @@ async function i5(temporary, packed) {
   const tenantB = "tn_0000000000000000000000000b";
   const manager = new SandboxManager({
     scope: tenantA,
-    store: memoryStore(),
+    records: memoryRecords(),
     backends: [fakeBackend],
     preference: "auto",
     ephemeral: false,
     emit() {},
   });
-  await manager.reconcile(() => false);
+  await manager.reconcile(() => false, () => false);
   assert.ok(listed.some((prefix) => prefix === `nylorun-${tenantA}-`));
   assert.ok(listed.every((prefix) => !prefix.includes(tenantB)), "never lists the other prefix");
   assert.ok(removed.every((key) => key.startsWith(`nylorun-${tenantA}-`)));

@@ -1876,6 +1876,20 @@ export const StreamRelayStatusSchema = z
   .strict();
 export type StreamRelayStatus = z.infer<typeof StreamRelayStatusSchema>;
 
+/**
+ * The Tenant's harnesses (F6.2): `in-process` runs one in core's process; `remote` waits for
+ * harnesses on the Harness API listener. `workspace` says one that serves the Tenant's
+ * workspaces is connected.
+ */
+export const HarnessStatusSchema = z
+  .object({
+    mode: z.enum(["in-process", "remote"]),
+    connected: z.number().int().nonnegative(),
+    workspace: z.boolean(),
+  })
+  .strict();
+export type HarnessStatus = z.infer<typeof HarnessStatusSchema>;
+
 export const HostAggregateSchema = z
   .object({
     runningSessions: z.number().int().nonnegative(),
@@ -1885,6 +1899,8 @@ export const HostAggregateSchema = z
     uncertainEffects: z.number().int().nonnegative(),
     /** This process's stream relay, when it runs one (a Host with S2). */
     relay: StreamRelayStatusSchema.optional(),
+    /** The open Tenant's harnesses. */
+    harness: HarnessStatusSchema.optional(),
   })
   .strict();
 export type HostAggregate = z.infer<typeof HostAggregateSchema>;
@@ -2006,6 +2022,8 @@ export const TenantStatusSchema = z
         retained: z.number().int().nonnegative(),
       })
       .strict(),
+    /** The Tenant's harnesses (F6.2). */
+    harness: HarnessStatusSchema.optional(),
     /**
      * Durable Session Execution invocations of this Tenant that need an operator: paused
      * after exhausting retries, or backing off after failures. Absent when the execution

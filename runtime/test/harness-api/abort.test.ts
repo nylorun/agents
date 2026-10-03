@@ -1,7 +1,7 @@
 /**
  * The abort matrix through the Harness API (F6.1): a cancel, a deadline, a shutdown and a lost
  * lease each reach the harness's call with core's reason, and leave the session, its effects
- * and its events exactly as the engine run in the advance leaves them (`harnessApi: false`).
+ * and its events as the advance always left them (§10.7).
  */
 import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,12 +67,11 @@ async function summary(runtime: Pick<Started, "root" | "tenantId">) {
   );
 }
 
-async function scenario(reason: Reason, harnessApi: boolean) {
+async function scenario(reason: Reason) {
   const model = abortableModel();
   let execution: MemoryExecution | undefined;
   const options = {
     modelProvider: model.provider,
-    harnessApi,
     sweepIntervalMs: 60_000,
     ...(reason === "deadline"
       ? {
@@ -140,11 +139,13 @@ describe("an abort through the Harness API", () => {
   it.each(["cancel", "deadline", "shutdown", "ownership.lost"] as const)(
     "settles a %s as the advance does without it",
     async (reason) => {
-      const remote = await scenario(reason, true);
-      const local = await scenario(reason, false);
+      const remote = await scenario(reason);
       expect(remote.seen).toEqual([{ kind: reason, message: expect.any(String) }]);
-      expect(remote).toEqual(local);
       expect(remote).toMatchObject(SETTLED[reason]);
+      expect(remote.events).toEqual(SETTLED[reason].events);
+      expect(remote.effects.map((effect) => effect.status)).toEqual(
+        SETTLED[reason].effects.map((effect) => effect.status)
+      );
     },
     60_000
   );

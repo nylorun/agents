@@ -11,6 +11,7 @@ import {
   HARNESS_ERROR_CODES,
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
+import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 
 const id = z.string().min(1).max(512);
 const runId = z.object({ runId: id });
@@ -62,6 +63,46 @@ export const EffectIntentSchema = z
   })
   .strict();
 
+const workspaceRecord = z
+  .object({
+    key: z.string().min(1).max(512),
+    sessionId: id,
+    sandboxId: id.optional(),
+    backend: z.string(),
+    image: z.string(),
+    state: z.enum(["creating", "running", "stopped"]),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict();
+
+const workspaceCall = z
+  .object({
+    session: z
+      .object({ ownerId: id, sandboxId: id.optional(), activeTurnId: id.nullable() })
+      .strict(),
+    spec: z.unknown(),
+    tool: z.enum(SANDBOX_TOOL_NAMES),
+    input: z.unknown(),
+  })
+  .strict();
+
+const workspaceBytes = z
+  .object({
+    session: workspaceCall.shape.session,
+    spec: z.unknown(),
+    bytes: z.object({ path: z.string().min(1), maxBytes: z.number().int().positive() }).strict(),
+  })
+  .strict();
+
+const workspaceList = z
+  .object({
+    session: workspaceCall.shape.session,
+    spec: z.unknown(),
+    list: z.object({ dir: z.string().min(1), maxEntries: z.number().int().positive() }).strict(),
+  })
+  .strict();
+
 const grant = z
   .object({
     runId: id,
@@ -87,6 +128,7 @@ export const TurnStartSchema = z
         yieldAfter: z.object({ steps: z.number().optional(), ms: z.number().optional() }).strict().optional(),
         flowLimits: z.unknown().optional(),
         fixtureModel: z.boolean(),
+        holdMs: z.number().int().nonnegative().optional(),
       })
       .strict(),
     routing: z
@@ -120,6 +162,7 @@ export const TurnOutputSchema = z
 
 const settled = z.object({ cursor: z.number().int().optional() }).strict();
 const empty = z.object({}).strict();
+const outcomeObject = z.record(z.string(), z.unknown());
 
 const requests: Record<string, { params: z.ZodType; result: z.ZodType }> = {
   hello: {
@@ -134,6 +177,7 @@ const requests: Record<string, { params: z.ZodType; result: z.ZodType }> = {
     result: z
       .object({
         api: z.literal(HARNESS_API_VERSION),
+        tenantId: id,
         sandbox: z.object({ backend: z.string().nullable() }).strict(),
         renewEveryMs: z.number().int().positive(),
       })
@@ -184,6 +228,7 @@ const requests: Record<string, { params: z.ZodType; result: z.ZodType }> = {
         turnId: id.nullable(),
         type: z.enum(HARNESS_CLAIMS),
         payload: z.unknown(),
+        record: workspaceRecord.optional(),
       })
       .strict(),
     result: empty,
@@ -197,6 +242,24 @@ const requests: Record<string, { params: z.ZodType; result: z.ZodType }> = {
   "turn.waiting": { params: TurnOutputSchema, result: settled },
   "turn.failed": { params: TurnOutputSchema, result: settled },
   checkpoint: { params: TurnOutputSchema, result: settled },
+  "workspace.read": { params: z.union([workspaceCall, workspaceBytes, workspaceList]), result: outcomeObject },
+  "workspace.write": { params: workspaceCall, result: outcomeObject },
+  "workspace.exec": { params: workspaceCall, result: outcomeObject },
+  "workspace.report": { params: empty, result: outcomeObject },
+  "workspace.sweep": {
+    params: z.object({ now: z.number().optional() }).strict(),
+    result: z.object({ workspaces: z.array(workspaceRecord) }).strict(),
+  },
+  "workspace.remove": {
+    params: z
+      .object({
+        keys: z.array(z.string().min(1)).optional(),
+        sandboxIds: z.array(id).optional(),
+        all: z.literal(true).optional(),
+      })
+      .strict(),
+    result: empty,
+  },
 };
 
 const messages: Record<string, z.ZodType> = {

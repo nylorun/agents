@@ -29,6 +29,7 @@ import type { SandboxManifest } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
 import type { SandboxResource, Tx } from "../store/types.js";
 import { resolveSandbox } from "../sandbox/resolve.js";
+import { sandboxWorkspaceKey } from "../sandbox/records.js";
 import {
   effectiveSandboxConfig,
   memoryMiB,
@@ -66,7 +67,7 @@ async function viewOf(
   const sessions = await t.sessionsOnSandbox<Session>(sandbox.id);
   const record = await t.get<{ state?: SandboxView["state"] }>(
     "sandboxes",
-    ctx.sandbox.sandboxKeyOf(sandbox.id),
+    sandboxWorkspaceKey(ctx.config.tenantId, sandbox.id),
   );
   return {
     id: sandbox.id,

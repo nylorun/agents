@@ -26,6 +26,9 @@ import { usesFixtureModel } from "../tenant/model-setting.js";
 import { rebaseSessionState, sessionToolsOf, turnManifestOf } from "../tenant/session.js";
 import { bulkOutcomes } from "./record.js";
 
+/** How long a run waits in its lease for a pending Action's outcome (F6.2), by default. */
+const ACTION_HOLD_MS = 5 * 60_000;
+
 /** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
 const ROLLOVER_STEPS = 50;
 const ROLLOVER_MS = 20 * 60_000;
@@ -105,6 +108,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
         ? { flowLimits: ctx.flowLimits }
         : { yieldAfter: yieldAfterOf(ctx) }),
       fixtureModel: segment.fixtureModel,
+      holdMs: ctx.config.actionHoldMs ?? ACTION_HOLD_MS,
     },
     routing: {
       rootManifest: current.manifest,

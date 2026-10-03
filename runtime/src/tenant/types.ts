@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
+  HarnessStatus,
   HostAggregate,
   HostTenant,
   TenantEnvelope,
@@ -55,6 +56,12 @@ export interface TenantConfig {
    * deadline. Default 50 steps or 20 minutes.
    */
   rollover?: { steps?: number; ms?: number };
+  /**
+   * How long a run waits in its lease for a pending Action's outcome (F6.2): the turn goes on
+   * at once when the Action endpoint answers in time, and ends its segment as waiting (resumed
+   * by replay) otherwise. Default 5 minutes; 0 never waits.
+   */
+  actionHoldMs?: number;
   /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
   modelCall?: import("../gates/model-gate.js").ModelCallSettings;
   childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
@@ -77,11 +84,6 @@ export interface TenantConfig {
    */
   flowEnv?: Readonly<Record<string, string | undefined>>;
   vaultFetch?: typeof fetch;
-  /**
-   * Run segments through the Harness API (F6.1, `NYLORUN_HARNESS_API`). Default on; `false`
-   * runs the engine in the advance, as before, until F6.2.
-   */
-  harnessApi?: boolean;
   logger: Logger;
 }
 
@@ -99,6 +101,8 @@ export interface TenantSummary {
   inFlightDeliveries: number;
   pendingActions: number;
   uncertainEffects: number;
+  /** The Tenant's harnesses (F6.2). */
+  harness?: HarnessStatus;
 }
 
 /**

@@ -10,7 +10,7 @@
  *   restore the transcript from before that turn's first edit, as cancel and failure restore
  *   `turnStartState`.
  * - **Lean rows.** The session row stores the engine state with an empty transcript
- *   (`leanState`). `runSegment` folds the record from `Session.history.from` and hands the
+ *   (`leanState`). The advance (`harness-api/start.ts`) folds the record from `Session.history.from` and hands the
  *   engine the full transcript (`withTranscript`).
  * - **Shadow mode** (on in the runtime's tests, `test/setup/transcript-shadow.ts`) keeps the
  *   transcript on the row too and checks the fold against it at every segment start.

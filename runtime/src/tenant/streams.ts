@@ -17,6 +17,7 @@
  * - **Readers.** History and session SSE read the session's stream
  *   (`tenant/session-streams.ts`). This module runs one `tenant/control` reader per Tenant per
  *   process, on the current basin, which calls `ctx.abortLocal` for each `session.cancel`,
+ *   passes an Action's outcome to a run held here for each `action.resolved` (F6.2),
  *   checks the session streams for each `sessions.reset`, and ends a subject's streams for
  *   each `subject.revoked`.
  *
@@ -25,7 +26,7 @@
  */
 import type { Commit, SessionStore } from "../store/types.js";
 import { basinOf } from "../streams/basin.js";
-import { signalCancel, signalSessionsReset } from "../streams/control.js";
+import { signalActionResolved, signalCancel, signalSessionsReset } from "../streams/control.js";
 import {
   createStreamRelay,
   type StreamRelay,
@@ -162,6 +163,14 @@ export async function wireStreams(
             signal.sessionId,
             typeof signal.turnId === "string" ? signal.turnId : undefined
           );
+        else if (
+          signal?.type === "action.resolved" &&
+          typeof signal.sessionId === "string" &&
+          typeof signal.actionId === "string"
+        )
+          void resolveHeld(ctx, signal.sessionId, signal.actionId).catch(
+            report("held run resolution failed")
+          );
         else if (signal?.type === "sessions.reset")
           void checkSessionStreams(ctx).catch(report("session stream check failed"));
         else if (
@@ -287,6 +296,29 @@ export function signalSessionCancel(
         message: messageOf(error),
       })
   );
+}
+
+/**
+ * Appends `action.resolved` for an Action whose outcome just committed, so a run held for it
+ * by a harness of another process goes on (F6.2). Call it from `t.afterCommit`. A lost signal
+ * costs the hold's time only: the segment then ends as waiting and resumes by replay.
+ */
+export function signalActionOutcome(ctx: TenantContext, sessionId: string, actionId: string): void {
+  const streams = ctx.sessionStreams.wiring?.streams;
+  if (!streams) return;
+  void signalActionResolved(streams, currentBasin(ctx), sessionId, actionId).catch((error: unknown) =>
+    ctx.config.logger.warn("action resolved signal failed", { sessionId, message: messageOf(error) })
+  );
+}
+
+/** Passes an Action's recorded outcome to the run of `sessionId` held here, if any. */
+async function resolveHeld(ctx: TenantContext, sessionId: string, actionId: string): Promise<void> {
+  if (!ctx.harness.holds(sessionId)) return;
+  const effect = await ctx.store.tx((t) =>
+    t.get<{ status?: string; outcome?: { value: unknown } }>("effects", actionId)
+  );
+  if (effect?.status === "completed" && effect.outcome)
+    ctx.harness.resolved(sessionId, actionId, effect.outcome);
 }
 
 /**

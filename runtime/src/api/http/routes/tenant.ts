@@ -52,7 +52,7 @@ import { clearObservers } from "../../../tenant/session-streams.js";
 import { usesFixtureModel } from "../../../tenant/model-setting.js";
 import { resetTenant } from "../../../tenant/reset.js";
 import { clearWork, drain } from "../../../tenant/scheduler.js";
-import { buildTenantStatus, seedTenantConfig } from "../../../tenant/status.js";
+import { buildTenantStatus, harnessStatusOf, seedTenantConfig } from "../../../tenant/status.js";
 import {
   tenantReset,
   streamsStatus,
@@ -129,6 +129,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
             (await vault.getHostModel()).configured,
           ...(ctx.stuckInvocations ? { stuckInvocations: ctx.stuckInvocations } : {}),
           streamsStatus: () => streamsStatus(ctx),
+          harness: harnessStatusOf(ctx),
         }),
       );
     },

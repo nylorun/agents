@@ -13,6 +13,7 @@ import {
 } from "@nylorun/core/define";
 import { virtualBackend } from "../../src/adapters/sandbox/virtual.js";
 import { SandboxManager, sandboxCapabilityOf } from "../../src/sandbox/manager.js";
+import { storeSandboxRecords } from "../../src/sandbox/records.js";
 import { createTestSessionStore } from "../support/store.js";
 
 const roots: string[] = [];
@@ -35,7 +36,7 @@ async function setup() {
   const events: { sessionId: string; type: string; state?: string }[] = [];
   const manager = new SandboxManager({
     scope: "tn_sandbox",
-    store,
+    records: storeSandboxRecords(store),
     backends: [virtualBackend({ root })],
     preference: "virtual",
     ephemeral: false,
@@ -82,7 +83,7 @@ it("marks records of compute it does not hold as stopped and removes sandboxes o
   await manager.close();
   const restarted = new SandboxManager({
     scope: "tn_sandbox",
-    store,
+    records: storeSandboxRecords(store),
     backends: [virtualBackend({ root })],
     preference: "virtual",
     ephemeral: false,

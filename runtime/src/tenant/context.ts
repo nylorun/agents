@@ -34,8 +34,8 @@ import type { Keys } from "../keys/keys.js";
 import type { VaultService } from "../vault/service.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
-import type { SandboxManager } from "../sandbox/manager.js";
 import type { HarnessApiServer } from "../harness-api/server.js";
+import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantConfig } from "./types.js";
 import type { SessionStreams } from "./session-streams.js";
 import type { StuckInvocation, Wake } from "../execution/types.js";
@@ -156,8 +156,16 @@ export interface TenantContext {
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
   readonly vault: VaultService;
-  readonly mcp: McpPool;
-  readonly sandbox: SandboxManager;
+  /**
+   * The MCP pool of the Tenant's in-process harness. Absent when harnesses run elsewhere
+   * (`NYLORUN_HARNESS=remote`): each keeps its own (F6.2).
+   */
+  readonly mcp?: McpPool;
+  /**
+   * The workspace capability (F6.2): the Tenant's SandboxManager with an in-process harness,
+   * else the harness that serves workspaces (`harness-api/workspace.ts`).
+   */
+  readonly sandbox: WorkspacePort;
   readonly flowLimits: FlowLimits;
   readonly modelProvider: ModelProvider;
   /** True when the model comes from the Tenant vault selection, served by `modelGate`. */

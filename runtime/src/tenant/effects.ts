@@ -1,8 +1,8 @@
 /**
  * Core's side of effects: `resolveNewFlowEffect` journals and dispatches new workflow effects
  * (linked agent sessions, tool nodes, fn, verify); the takeover helpers say which calls their
- * gate recovers. Also MCP preparation and vault authorization for MCP servers. The journal of
- * a run's effects is `harness-api/record.ts`.
+ * gate recovers. Also vault authorization for MCP servers. The journal of a run's effects is
+ * `harness-api/record.ts`; a harness readies the session's MCP servers itself (`session.mcp`).
  *
  * Every journal write runs in a transaction that locks the effect's session first and checks
  * the advance's ownership epoch (`ownedSession`): after another Worker takes over, the next
@@ -31,7 +31,6 @@ import { mayDispatchMore } from "../core/limits.js";
 import type { Tx } from "../store/types.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
-import { serversOf } from "../mcp/pool.js";
 import { isRemoteMcpCall } from "../harness/calls.js";
 import {
   owningSandboxSessionId,
@@ -358,58 +357,6 @@ export async function resolveNewFlowEffect(
       return { status: "completed", outcome };
     }
     return { status: "pending" };
-  });
-}
-
-/** Discover the session's MCP tools once, or reconnect and refresh diagnostics. */
-export async function prepareMcp(
-  ctx: TenantContext,
-  lease: Lease,
-  signal: AbortSignal
-): Promise<void> {
-  const { store } = ctx;
-  const id = lease.sessionId;
-  const s = await loadSession(ctx, id);
-  if (serversOf(s.manifest).length === 0) return;
-  if (!s.mcpSnapshot) {
-    const found = await ctx.mcp.discover({
-      sessionId: id,
-      manifest: s.manifest,
-      manifestHash: s.manifestHash,
-      pluginRoots: s.pluginRoots ?? {},
-      signal,
-    });
-    await store.tx(async (t) => {
-      const current = await ownedSession(t, lease, id);
-      if (current.mcpSnapshot) return;
-      current.mcpSnapshot = found.snapshot;
-      current.mcpDiagnostics = found.diagnostics;
-      await t.put("sessions", id, current);
-    });
-    return;
-  }
-  const diagnostics = await ctx.mcp.reconnect({
-    sessionId: id,
-    manifest: s.manifest,
-    pluginRoots: s.pluginRoots ?? {},
-    tools: s.mcpSnapshot.mcpTools,
-    signal,
-  });
-  if (diagnostics.length === 0) return;
-  await store.tx(async (t) => {
-    const current = await ownedSession(t, lease, id);
-    const prior = [...(current.mcpDiagnostics ?? [])];
-    for (const item of diagnostics) {
-      const index = prior.findIndex(
-        (existing) =>
-          existing.capabilityId === item.capabilityId &&
-          existing.serverName === item.serverName
-      );
-      if (index >= 0) prior[index] = item;
-      else prior.push(item);
-    }
-    current.mcpDiagnostics = prior;
-    await t.put("sessions", id, current);
   });
 }
 

@@ -37,7 +37,7 @@ function attach(runtime: Started): HarnessChannel {
 const hello = { api: 1, name: "test", version: "0", capabilities: {} };
 
 it("binds a run to its connection, and offers it again when that connection is lost", async () => {
-  const runtime = await boot({ harnessApi: true, harness: "remote", ownerLeaseMs: 300 });
+  const runtime = await boot({ harness: "remote", ownerLeaseMs: 300 });
   cleanups.push(() => runtime.close());
   const holder = attach(runtime);
   const other = attach(runtime);
@@ -83,7 +83,7 @@ it("binds a run to its connection, and offers it again when that connection is l
 });
 
 it("takes over from a lost harness: the call it was running is uncertain, never re-sent", async () => {
-  const runtime = await boot({ harnessApi: true, harness: "remote", ownerLeaseMs: 300 });
+  const runtime = await boot({ harness: "remote", ownerLeaseMs: 300 });
   cleanups.push(() => runtime.close());
   const holder = attach(runtime);
   await holder.request("hello", hello);

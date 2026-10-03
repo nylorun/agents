@@ -18386,6 +18386,31 @@
             ],
             "additionalProperties": false
           },
+          "harness": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "in-process",
+                  "remote"
+                ]
+              },
+              "connected": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "workspace": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "mode",
+              "connected",
+              "workspace"
+            ],
+            "additionalProperties": false
+          },
           "execution": {
             "type": "object",
             "properties": {

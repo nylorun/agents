@@ -21,6 +21,8 @@ import type { HostEffect } from "@nylorun/harness/run";
 import { isFlowEffect, isFlowToolEffect } from "../core/flow-host.js";
 import { sandboxCapabilityOf } from "../sandbox/capability.js";
 import { isSaveArtifactCall } from "../harness/calls.js";
+import { callSaveArtifact } from "../tenant/artifact-tool.js";
+import { isOwnershipLost } from "../store/ownership.js";
 import { manifestFor, mcpToolOf } from "../mcp/snapshot.js";
 import { ownedSession, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import { actionTarget, pinnedTool } from "../tenant/session.js";
@@ -87,7 +89,7 @@ export async function recordIntent(
 ): Promise<IntentAnswer> {
   const { ctx, lease, signal } = scope;
   const request = effect as HostEffect;
-  const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow"> => {
+  const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow" | "save"> => {
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
     // An aborted advance starts no effect; the advance decides what the abort means.
@@ -153,13 +155,34 @@ export async function recordIntent(
       requestHash,
       status: executed ? "invoking" : "pending",
     });
+    // `save_artifact` writes the Tenant's artifacts: core runs it, reading the file through the
+    // workspace capability, wherever the sandbox is.
+    if (executed && request.kind === "tool" && isSaveArtifactCall(agentManifest, request)) return "save";
     if (executed) return { status: "execute" };
     await offerActionFor(scope, t, s, agentManifest, request);
     return { status: "pending" };
   });
+  if (answer === "save") return saveArtifact(scope, request);
   if (answer !== "flow") return answer;
   if (!isFlowEffect(request)) return { status: "pending" };
   return resolveNewFlowEffect(ctx, request, signal, lease);
+}
+
+/**
+ * Runs `save_artifact` (F8.1) for the run and records its outcome, as a harness would record a
+ * call it ran: the run gets the outcome as the intent's answer.
+ */
+async function saveArtifact(scope: RecordScope, request: HostEffect): Promise<IntentAnswer> {
+  let value: unknown;
+  try {
+    value = await callSaveArtifact(scope.ctx, request, scope.signal);
+  } catch (error) {
+    if (isOwnershipLost(error)) throw error;
+    return recordOutcome(scope, request.effectId, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return recordOutcome(scope, request.effectId, { value });
 }
 
 /** A tool or hook Action for the agent's endpoint, in the intent's transaction. */

@@ -1,12 +1,14 @@
 import type {
+  HarnessStatus,
   SeedTenantConfigRequest,
   SeedTenantConfigResponse,
   TenantStatus,
 } from "@nylorun/core/contracts";
 import type { SessionStore } from "../store/types.js";
 import type { VaultService } from "../vault/service.js";
-import type { SandboxManager } from "../sandbox/manager.js";
+import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantConfig } from "./types.js";
+import type { TenantContext } from "./context.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type { StuckInvocation } from "../execution/types.js";
 import type { StreamsStatus } from "./streams.js";
@@ -19,7 +21,7 @@ export interface TenantStatusContext {
   config: TenantConfig;
   store: SessionStore;
   vault: VaultService;
-  sandbox: SandboxManager;
+  sandbox: Pick<WorkspacePort, "report">;
   closing: boolean;
   modelConfigured: boolean;
   /**
@@ -29,6 +31,13 @@ export interface TenantStatusContext {
   stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** This Tenant's Durable Streams status (`streamsStatus` in `streams.ts`). */
   streamsStatus?: () => Promise<StreamsStatus>;
+  /** The Tenant's harnesses (F6.2). */
+  harness?: HarnessStatus;
+}
+
+/** The Tenant's harnesses, for its status and the Host's. */
+export function harnessStatusOf(ctx: Pick<TenantContext, "mcp" | "harness">): HarnessStatus {
+  return { mode: ctx.mcp ? "in-process" : "remote", ...ctx.harness.status() };
 }
 
 /** How long status waits for the execution to list stuck invocations. */
@@ -128,6 +137,7 @@ export async function buildTenantStatus(
       backend: sandboxReport.backend,
       retained: counts.sandboxes,
     },
+    ...(ctx.harness ? { harness: ctx.harness } : {}),
     ...(execution ? { execution } : {}),
     ...(streams ? { streams } : {}),
   };
