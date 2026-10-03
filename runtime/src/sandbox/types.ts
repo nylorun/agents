@@ -59,10 +59,27 @@ export interface SandboxHandle {
   exec(request: ExecRequest, signal: AbortSignal): Promise<ExecResult>;
   /** Returns undefined when the file does not exist. */
   readFile(path: string): Promise<string | undefined>;
+  /**
+   * The file's bytes, or undefined when it does not exist; refuses one larger than `maxBytes`
+   * (`SandboxFileTooLargeError`). For `save_artifact`, which keeps binary files intact.
+   */
+  readBytes?(path: string, maxBytes: number): Promise<Uint8Array | undefined>;
   /** Parent directories must already exist. */
   writeFile(path: string, content: string): Promise<void>;
   /** Release compute; files persist. */
   stop(): Promise<void>;
+}
+
+/** A sandbox file read with `readBytes` is larger than the caller allows. */
+export class SandboxFileTooLargeError extends Error {
+  constructor(
+    readonly path: string,
+    readonly size: number,
+    readonly maxBytes: number,
+  ) {
+    super(`${path} is ${size} bytes, more than ${maxBytes}`);
+    this.name = "SandboxFileTooLargeError";
+  }
 }
 
 export interface SandboxBackend {

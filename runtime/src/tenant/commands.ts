@@ -62,6 +62,7 @@ import {
 import { signalSessionCancel } from "./streams.js";
 import { toolIds } from "./transcript.js";
 import { slimModelEffects } from "./slim.js";
+import { resolveMessageParts } from "../artifacts/parts.js";
 
 /** `outcome`, or a failed one when a tool's output does not match its stored output schema. */
 export function acceptedOutcome(action: Action, outcome: ActionOutcome): ActionOutcome {
@@ -238,9 +239,19 @@ export async function command(
         // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
         s.activeTurnId = randomUUID();
+        // File parts name artifacts the caller may read; each is pinned to a version now.
+        const parts =
+          "parts" in command
+            ? await resolveMessageParts(t, command.parts, id, accessOf(scope))
+            : undefined;
+        const data = "data" in command ? (command.data as JsonValue) : undefined;
         if (isWorkflowManifest(s.manifest)) {
           const input: JsonValue =
-            "content" in command ? command.content : (command.data as JsonValue);
+            "content" in command
+              ? command.content
+              : parts
+              ? ({ parts: parts.pinned } as unknown as JsonValue)
+              : data!;
           s.checkpoint = createFlowCheckpoint({
             manifest: s.manifest,
             sessionId: id,
@@ -266,9 +277,11 @@ export async function command(
               input:
                 "content" in command
                   ? command.content
-                  : typeof command.data === "string"
-                  ? command.data
-                  : JSON.stringify(command.data),
+                  : parts
+                  ? { content: parts.engine }
+                  : typeof data === "string"
+                  ? data
+                  : JSON.stringify(data),
               state: s.state,
               info: s.info,
             });

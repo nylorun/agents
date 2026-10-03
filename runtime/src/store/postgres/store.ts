@@ -82,6 +82,8 @@ import { OwnershipLostError } from "../ownership.js";
 import type {
   ActionDoc,
   ActionKind,
+  ArtifactRow,
+  ArtifactVersionRow,
   ActionStatus,
   CommitListener,
   DefinitionDoc,
@@ -130,6 +132,8 @@ import { createPostgresRecordReader } from "./record.js";
 import { postgresRecordWriter, postgresSandboxRecordWriter } from "./record-writer.js";
 import {
   actions,
+  artifacts,
+  artifactVersions,
   commands,
   definitions,
   effects,
@@ -1422,6 +1426,99 @@ class PostgresTx implements Tx {
     return deleted.length;
   }
 
+  // --- file artifacts --------------------------------------------------------
+
+  async artifact(id: string, options: { lock?: boolean } = {}): Promise<ArtifactRow | undefined> {
+    this.check();
+    const query = this.db.select().from(artifacts).where(eq(artifacts.id, id));
+    const [row] = options.lock ? await query.for("update") : await query;
+    return row;
+  }
+
+  async listArtifacts(filter: { sessionId?: string } = {}): Promise<ArtifactRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(artifacts)
+      .where(filter.sessionId === undefined ? undefined : eq(artifacts.sessionId, filter.sessionId))
+      .orderBy(artifacts.createdAt, artifacts.id);
+  }
+
+  async insertArtifact(row: ArtifactRow, version: ArtifactVersionRow): Promise<void> {
+    this.check();
+    await this.db.insert(artifacts).values(row);
+    await this.db.insert(artifactVersions).values(version);
+  }
+
+  async insertArtifactVersion(version: ArtifactVersionRow): Promise<void> {
+    this.check();
+    await this.db.insert(artifactVersions).values(version);
+    await this.db
+      .update(artifacts)
+      .set({
+        latestVersion: version.version,
+        contentType: version.contentType,
+        updatedAt: version.createdAt,
+      })
+      .where(eq(artifacts.id, version.artifactId));
+  }
+
+  async artifactVersion(
+    artifactId: string,
+    version: number,
+  ): Promise<ArtifactVersionRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(artifactVersions)
+      .where(and(eq(artifactVersions.artifactId, artifactId), eq(artifactVersions.version, version)));
+    return row;
+  }
+
+  async artifactVersions(artifactId: string): Promise<ArtifactVersionRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(artifactVersions)
+      .where(eq(artifactVersions.artifactId, artifactId))
+      .orderBy(artifactVersions.version);
+  }
+
+  async deleteArtifact(id: string): Promise<string[]> {
+    this.check();
+    const deleted = await this.db
+      .delete(artifactVersions)
+      .where(eq(artifactVersions.artifactId, id))
+      .returning({ blobKey: artifactVersions.blobKey });
+    await this.db.delete(artifacts).where(eq(artifacts.id, id));
+    return deleted.map((row) => row.blobKey);
+  }
+
+  async lockArtifactQuota(): Promise<void> {
+    this.check();
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.artifacts'))`);
+  }
+
+  async artifactBytes(): Promise<number> {
+    this.check();
+    const [row] = await this.db
+      .select({
+        bytes: sql<number>`coalesce(sum(${artifactVersions.size}), 0)::bigint`.mapWith(Number),
+      })
+      .from(artifactVersions);
+    return row!.bytes;
+  }
+
+  async artifactBlobKeys(scope: "sessions" | "all"): Promise<string[]> {
+    this.check();
+    const rows = await this.db
+      .select({ blobKey: artifactVersions.blobKey })
+      .from(artifactVersions)
+      .innerJoin(artifacts, eq(artifacts.id, artifactVersions.artifactId))
+      .where(scope === "sessions" ? isNotNull(artifacts.sessionId) : undefined);
+    return rows.map((row) => row.blobKey);
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1450,6 +1547,8 @@ class PostgresTx implements Tx {
       for (const table of SESSION_TABLES) await db.delete(table);
       await db.delete(subjectUsage);
       await db.delete(toolCrossings);
+      // A session's artifacts go with it (their versions by cascade).
+      await db.delete(artifacts).where(isNotNull(artifacts.sessionId));
       // The record goes with the sessions, and the Tenant moves to a new basin: the ids it
       // frees start again in an empty one (Durable Streams §8.1).
       await db.delete(sessionEvents);
@@ -1469,6 +1568,7 @@ class PostgresTx implements Tx {
       await db.delete(endpoints);
       await db.delete(modelUsage);
       await db.delete(modelBudgets);
+      await db.delete(artifacts);
       await db.delete(vaults).where(ne(vaults.scope, "host"));
     }
   }

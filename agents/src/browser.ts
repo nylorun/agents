@@ -15,6 +15,7 @@ import {
 import type { CredentialSelection, VaultInfo } from "@nylorun/core/contracts";
 import type { TokenSource } from "./http.js";
 import { AgentsClient, type SessionClient } from "./session-client.js";
+import type { ArtifactsClient } from "./artifacts.js";
 
 /** What the token callback returns: the token, or the app server's `{ token, expiresAt }`. */
 export type TokenReply = string | { token: string; expiresAt?: string };
@@ -194,6 +195,11 @@ export class BrowserClient {
 
   session(sessionId: string): SessionClient {
     return this.client.session(sessionId);
+  }
+
+  /** The person's file artifacts, in their own sessions (protocol 6). */
+  get artifacts(): ArtifactsClient {
+    return this.client.artifacts;
   }
 
   /** A session of the person's own; the owner is always the token's subject. */

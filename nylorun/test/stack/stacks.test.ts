@@ -142,7 +142,7 @@ describe("start in a project", () => {
     for (const request of tenantApi) {
       const headers = request.init?.headers as Record<string, string>;
       expect(headers.authorization).toBe(`Bearer ${key}`);
-      expect(headers["Nylorun-Protocol"]).toBe("5");
+      expect(headers["Nylorun-Protocol"]).toBe("6");
       expect(Object.keys(headers).map((name) => name.toLowerCase())).not.toContain("nylorun-tenant");
     }
     expect(JSON.parse(tenantApi[0]!.init!.body as string)).toMatchObject({ sandbox: { backend: "virtual" } });

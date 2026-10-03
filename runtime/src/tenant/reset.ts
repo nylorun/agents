@@ -10,6 +10,7 @@ import type { ResetScope, SessionStore } from "../store/types.js";
 import type { SandboxManager } from "../sandbox/manager.js";
 import type { TenantPaths } from "./types.js";
 import { detachAllSessions } from "./sandboxes.js";
+import type { BlobStore } from "../blob/index.js";
 
 export type { ResetScope } from "../store/types.js";
 
@@ -17,6 +18,8 @@ export interface ResetTenantContext {
   store: SessionStore;
   sandbox: SandboxManager;
   paths: TenantPaths;
+  /** Where the deleted artifacts' bytes are; they are removed after the store wipe. */
+  blobs?: BlobStore;
   /** Clear in-memory session observers after the store wipe. */
   clearSessionState: () => void;
 }
@@ -65,13 +68,19 @@ export async function resetTenant(
     await ctx.sandbox.reconcile(() => false, () => false);
   }
 
-  await ctx.store.tx(async (t) => {
+  // The artifacts the reset deletes: their rows go in its transaction, their bytes after it.
+  const blobKeys = await ctx.store.tx(async (t) => {
     // Sandbox resources outlive their sessions: a sessions reset only detaches them.
     if (clearSessions && !clearSandboxes) await detachAllSessions(t);
+    const keys = clearSessions ? await t.artifactBlobKeys(clearAll ? "all" : "sessions") : [];
     await t.reset(scope);
+    return keys;
   });
 
   if (clearSessions) ctx.clearSessionState();
+
+  if (ctx.blobs)
+    for (const key of blobKeys) await ctx.blobs.delete(key).catch(() => undefined);
 
   if (clearSandboxes) replaceDirectory(ctx.paths.sandboxes);
 

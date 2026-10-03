@@ -5,8 +5,12 @@
  * before any stub. Model calls carry a session's run token (F5), minted as an advance would.
  */
 import { request } from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { newTenantId } from "@nylorun/core/compatibility";
+import { newArtifactId, newTenantId } from "@nylorun/core/compatibility";
+import { createFsBlobStore, type BlobStore } from "../../src/blob/index.js";
 import { MODEL_CALLS_PATH } from "../../src/gates/contract.js";
 import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { failure } from "../../src/model/classify.js";
@@ -72,7 +76,7 @@ const logger = {
 };
 
 const servers: GatesServer[] = [];
-async function gate(options: { maxBodyBytes?: number } = {}) {
+async function gate(options: { maxBodyBytes?: number; blobs?: BlobStore } = {}) {
   const server = await startGates({
     gates: {
       listen: { host: "127.0.0.1", port: 0, allowedHosts: ["gateway:4100"] },
@@ -157,6 +161,99 @@ describe("the gates service", () => {
     expect(JSON.stringify(logs)).not.toContain("gate-host-secret");
     expect(JSON.stringify(logs)).not.toContain("from the gate");
     expect(JSON.stringify(logs)).not.toContain(grant.token);
+  });
+
+  it("reads a file part only from the run token's session (protocol 6)", async () => {
+    const providerBodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        providerBodies.push(String(init?.body));
+        return completion("seen");
+      }),
+    );
+    const root = await mkdtemp(join(tmpdir(), "nylorun-gate-files-"));
+    try {
+      const blobs = createFsBlobStore({ root });
+      const server = await gate({ blobs });
+      const sessionA = await running();
+      const sessionB = await running();
+      // One image artifact in each session, as an upload would leave it.
+      const artifactOf = async (sessionId: string, bytes: Uint8Array) => {
+        const id = newArtifactId();
+        const stored = await blobs.put(`artifacts/${id}/v1`, bytes, { contentType: "image/png" });
+        const now = new Date().toISOString();
+        await runs.store.tx((t) =>
+          t.insertArtifact(
+            {
+              id,
+              kind: "file",
+              name: "image.png",
+              contentType: "image/png",
+              sessionId,
+              latestVersion: 1,
+              labelsJson: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              artifactId: id,
+              version: 1,
+              blobKey: stored.key,
+              size: stored.size,
+              sha256: stored.sha256,
+              contentType: "image/png",
+              source: "upload",
+              createdAt: now,
+            },
+          ),
+        );
+        return id;
+      };
+      const mine = await artifactOf(sessionA.claims.sessionId, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1]));
+      const theirs = await artifactOf(sessionB.claims.sessionId, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 2]));
+      const naming = (artifactId: string, effectId: string) => ({
+        ...body,
+        effectId,
+        call: {
+          ...body.call,
+          prompt: [
+            {
+              kind: "message",
+              role: "user",
+              content: [
+                { type: "text", text: "what is this?" },
+                { type: "media", mediaType: "image/png", reference: { artifactId, version: 1 } },
+              ],
+            },
+          ],
+        },
+      });
+
+      // Session A's token naming session B's artifact: refused, and the provider never called.
+      const refused = await post(server, sessionA, {
+        body: naming(theirs, "turn-1:0:model:theirs"),
+        keyed: false,
+      });
+      expect(refused.status).toBe(200);
+      expect(await refused.json()).toMatchObject({
+        outcome: { kind: "failed", code: "invalid_request" },
+      });
+      expect(providerBodies).toEqual([]);
+
+      // Its own artifact reaches the provider as image input.
+      const served = await post(server, sessionA, {
+        body: naming(mine, "turn-1:0:model:mine"),
+        keyed: false,
+      });
+      expect(await served.json()).toMatchObject({ outcome: { output: [{ type: "text", text: "seen" }] } });
+      expect(providerBodies).toHaveLength(1);
+      expect(providerBodies[0]).toContain(
+        `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]).toString("base64")}`,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("serves a call that names no Tenant: the run token names it", async () => {

@@ -1,11 +1,13 @@
 /**
  * Gives a session the sandbox chosen when it was opened. An agent session's pinned manifest is
  * its definition plus the `nylorun.sandbox` capability (the six built-in tools, the sandbox
- * instructions and the resolved spec), also added to each agent it uses as a tool, so the tree
- * shares one spec. The definition in the registry never changes.
+ * instructions and the resolved spec) and the `nylorun.artifacts` capability (`save_artifact`),
+ * also added to each agent it uses as a tool, so the tree shares one spec. The definition in the
+ * registry never changes.
  */
 import { AgentManifestSchema } from "@nylorun/core/contracts";
 import {
+  artifactsCapabilityManifest,
   hashManifest,
   sandboxCapabilityManifest,
   type AgentManifest,
@@ -44,7 +46,8 @@ function addCapability(manifest: AgentManifest, spec: SandboxManifest): AgentMan
   );
   return {
     ...manifest,
-    capabilities: [...capabilities, sandboxCapabilityManifest(spec)],
+    // With a sandbox comes `save_artifact`, so files the agent makes reach the user (F8.1).
+    capabilities: [...capabilities, sandboxCapabilityManifest(spec), artifactsCapabilityManifest()],
   };
 }
 
@@ -61,7 +64,7 @@ export function withSandboxCapability(
     return {
       ok: false,
       message: clash
-        ? `'${manifest.id}' declares a tool named like a sandbox tool (bash, read, write, edit, grep, glob). Rename it, or open the session with sandbox: false.`
+        ? `'${manifest.id}' declares a tool named like a sandbox tool (bash, read, write, edit, grep, glob, save_artifact). Rename it, or open the session with sandbox: false.`
         : `'${manifest.id}' cannot take this sandbox: ${[...new Set(issues)].join("; ")}`,
     };
   }

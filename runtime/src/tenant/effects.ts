@@ -81,6 +81,7 @@ import {
 } from "./transcript.js";
 import { classifyThrown } from "../model/classify.js";
 import { abortKind } from "./worker.js";
+import { callSaveArtifact, isSaveArtifactCall } from "./artifact-tool.js";
 import type { ModelProvider } from "../core/provider.js";
 
 /** What one advance's segment decides for all its effects. */
@@ -162,7 +163,7 @@ type Journaled =
   | { kind: "flow" }
   | {
       kind: "invoke";
-      invoke: "model" | "mcp" | "sandbox";
+      invoke: "model" | "mcp" | "sandbox" | "artifact";
       /** The journaled request, when re-sending a call that outlived its owner (P1.2). */
       journaled?: HostEffect;
       /** An MCP call to a remote server, which crosses the Tool Gate (F4.1). */
@@ -319,17 +320,19 @@ export async function resolveEffect(
             request.toolName
           )
         : undefined;
+    // `save_artifact` (F8.1) runs here, like the sandbox tools.
+    const artifactTool = !mcpTool && !sandboxTool && isSaveArtifactCall(agentManifest, request);
     await t.put("effects", request.effectId, {
       request,
       status:
-        request.kind === "model" || mcpTool || sandboxTool
+        request.kind === "model" || mcpTool || sandboxTool || artifactTool
           ? "invoking"
           : "pending",
     });
-    if (request.kind === "model" || mcpTool || sandboxTool)
+    if (request.kind === "model" || mcpTool || sandboxTool || artifactTool)
       return {
         kind: "invoke",
-        invoke: mcpTool ? "mcp" : sandboxTool ? "sandbox" : "model",
+        invoke: mcpTool ? "mcp" : sandboxTool ? "sandbox" : artifactTool ? "artifact" : "model",
         ...(mcpTool && isRemoteMcpEffect(s, request) ? { remote: true } : {}),
       };
     const tool =
@@ -397,6 +400,8 @@ export async function resolveEffect(
           )
         : invoke === "sandbox"
         ? await callSandboxTool(ctx, request, signal)
+        : invoke === "artifact"
+        ? await callSaveArtifact(ctx, request, signal)
         : await invokeModel(ctx, journaled.journaled ?? request, signal, segment.model);
     return await store.tx(async (t) => {
       const s = await ownedSession(t, lease, request.sessionId);

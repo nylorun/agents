@@ -176,7 +176,7 @@ describe("start", () => {
     expect(deps.lines).toEqual(startLines(home, false));
     const admin = fetch.requests.find((r) => r.url.endsWith("/v1/admin/status"))!;
     expect(admin.url).toBe("http://localhost:8788/v1/admin/status");
-    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe("5");
+    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe("6");
     expect(fetch.requests.filter((request) => request.init?.method === "POST")).toEqual([]);
   });
 

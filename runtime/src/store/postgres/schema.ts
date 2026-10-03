@@ -6,8 +6,8 @@
  *
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables, Action
  *   endpoints, principals, vaults and credentials, signing keys, publishable keys, subject
- *   epochs and usage, settings, the model usage ledger, the model budgets and the Tool Gate's
- *   crossings.
+ *   epochs and usage, settings, the model usage ledger, the model budgets, the Tool Gate's
+ *   crossings and file artifacts with their versions.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -453,6 +453,56 @@ export const sandboxResources = nylorun.table("sandbox_resources", {
   updatedAt: textC().notNull(),
 });
 
+/**
+ * File artifacts (blueprint D35, F8.1): an id, a name and numbered versions. The bytes are in
+ * the Object store under each version's `blobKey`; a blob counts only once its version row
+ * commits. `sessionId` is the session the artifact belongs to, or null for a Tenant-wide one an
+ * application made. `latestVersion` is the newest version's number.
+ */
+export const artifacts = nylorun.table(
+  "artifacts",
+  {
+    id: textC().primaryKey(),
+    kind: text({ enum: ["file"] }).notNull(),
+    name: text().notNull(),
+    contentType: text().notNull(),
+    sessionId: textC(),
+    latestVersion: integer().notNull(),
+    /** Labels as JSON text, or null. */
+    labelsJson: text(),
+    createdAt: textC().notNull(),
+    updatedAt: text().notNull(),
+  },
+  (t) => [
+    index("artifacts_session").on(t.sessionId, t.createdAt, t.id),
+    check("artifacts_kind_check", sql`kind = 'file'`),
+  ],
+);
+
+/** The versions of a file artifact, immutable once written. */
+export const artifactVersions = nylorun.table(
+  "artifact_versions",
+  {
+    artifactId: textC().notNull(),
+    version: integer().notNull(),
+    /** Where the bytes are in the Object store (`BlobStore`). */
+    blobKey: text().notNull(),
+    size: bigint({ mode: "number" }).notNull(),
+    sha256: text().notNull(),
+    contentType: text().notNull(),
+    source: text({ enum: ["upload", "engine"] }).notNull(),
+    createdAt: textC().notNull(),
+  },
+  (t) => [
+    primaryKey({ name: "artifact_versions_pkey", columns: [t.artifactId, t.version] }),
+    foreignKey({
+      name: "artifact_versions_artifact_id_fkey",
+      columns: [t.artifactId],
+      foreignColumns: [artifacts.id],
+    }).onDelete("cascade"),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // nylorun_streams: the record
 
@@ -518,3 +568,5 @@ export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type SandboxResourceRow = typeof sandboxResources.$inferSelect;
+export type ArtifactRow = typeof artifacts.$inferSelect;
+export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;

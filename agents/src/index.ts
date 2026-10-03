@@ -95,9 +95,20 @@ export type {
   SandboxView,
   SandboxEvent,
   SandboxKind,
+  MessagePart,
+  ArtifactView,
+  ArtifactVersionView,
+  ArtifactLink,
+  UploadArtifactResponse,
 } from "@nylorun/core/contracts";
 export { SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";
+export { ArtifactsClient } from "./artifacts.js";
+export type {
+  ArtifactBody,
+  ArtifactLinkWithUrl,
+  UploadArtifactOptions,
+} from "./artifacts.js";
 export type {
   ActAsOptions,
   AgentSource,

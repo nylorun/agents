@@ -16,13 +16,19 @@ export function messagesFromEvents(items: readonly LiveEvent[]): Message[] {
         idempotencyKey?: string;
         content?: unknown;
         data?: unknown;
+        parts?: { type?: string; text?: unknown }[];
       };
       messages.push({
         // The AG-UI endpoint sends the client's message id as the idempotency key.
         id: p.idempotencyKey ?? raw.eventId,
         role: "user",
         content:
-          typeof p.content === "string" ? p.content : JSON.stringify(p.data),
+          typeof p.content === "string"
+            ? p.content
+            : Array.isArray(p.parts)
+            ? // A message with parts (protocol 6): its text; files are artifacts, not text.
+              p.parts.flatMap((part) => (typeof part.text === "string" ? [part.text] : [])).join("\n")
+            : JSON.stringify(p.data),
       });
       sawAssistant = false;
       continue;

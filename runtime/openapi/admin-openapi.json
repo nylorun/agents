@@ -6,12 +6,13 @@
     "description": "The Host's status, its Tenant's state and shutdown, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 5,
+      "max": 6,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
         "action-endpoints",
+        "artifacts",
         "tenant-fixture-model",
         "transcript-events",
         "derived-principals",

@@ -646,12 +646,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -703,12 +704,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -760,12 +762,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -817,12 +820,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -874,12 +878,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -931,12 +936,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -988,12 +994,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -1045,12 +1052,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -1100,12 +1108,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -1155,12 +1164,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -1212,12 +1222,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -1269,12 +1280,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",
@@ -1352,12 +1364,13 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 5,
+        "max": 6,
         "features": [
           "runtime-tenants",
           "admin-status",
           "studio-principal",
           "action-endpoints",
+          "artifacts",
           "tenant-fixture-model",
           "transcript-events",
           "derived-principals",

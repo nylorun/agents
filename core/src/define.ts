@@ -24,7 +24,10 @@ export {
 export type { Delegate } from "./definition/delegate.js";
 export { capability, middleware, model, tool } from "./definition/helpers.js";
 export {
+  ARTIFACTS_CAPABILITY_ID,
   SANDBOX_CAPABILITY_ID,
+  SAVE_ARTIFACT_TOOL,
+  artifactsCapabilityManifest,
   sandboxCapabilityManifest,
 } from "./definition/sandbox-capability.js";
 export { mcp, McpError, normalizeMcpServers } from "./definition/mcp.js";
