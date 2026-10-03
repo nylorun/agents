@@ -8,6 +8,7 @@ import { loopbackPorts } from "./ports.js";
 export {
   ensureStack,
   isStackCommand,
+  readProxyReport,
   readStackStatus,
   stackUsage,
   studioLoginUrl,
@@ -17,6 +18,7 @@ export {
 export type { StackDeps, StackEndpoints, StackStatus, StackTenant } from "./commands.js";
 export { checkDocker } from "./docker.js";
 export type { Check, DockerChecks } from "./docker.js";
+export type { ProxyStatus } from "./proxy.js";
 
 function browserCommand(env: Readonly<Record<string, string | undefined>>): string {
   if (process.platform === "darwin") return "open";
@@ -32,6 +34,8 @@ const STACK_ENV_OWNED = [
   "NYLORUN_TENANT_NAME",
   "NYLORUN_DERIVED_PRINCIPALS",
   "NYLORUN_STUDIO_ANALYTICS_ID",
+  "NYLORUN_STUDIO_PUBLIC_ORIGINS",
+  "NYLORUN_PROXY_PORT",
 ];
 
 /** Real dependencies: docker on PATH, global fetch, the terminal. */

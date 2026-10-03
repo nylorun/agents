@@ -30,6 +30,7 @@ const env: StackEnv = {
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
   studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
   studioAnalyticsId: "G-K6RPDFH6Q6",
+  studioPublicOrigins: "http://shop.localhost:4160",
   tenantName: "shop",
   derivedPrincipals: "project,babai",
 };
@@ -48,7 +49,7 @@ async function mode(path: string): Promise<number> {
 }
 
 describe("compose.yaml", () => {
-  const compose = renderComposeFile("nylorun-shop");
+  const compose = renderComposeFile("nylorun-shop", "shop");
 
   it("matches the committed file", () => {
     expect(compose).toMatchSnapshot();
@@ -144,7 +145,30 @@ describe("compose.yaml", () => {
 
   it("keeps s2-lite's data in a volume its non-root user can write", () => {
     expect(compose).toContain('command: ["lite", "--local-root", "/home/nonroot/data"]');
-    expect(compose).toContain("- s2:/home/nonroot\n");
+    expect(compose).toContain("- s2-lite:/home/nonroot\n");
+    expect(compose).toContain("NYLORUN_S2_ENDPOINT: http://s2-lite:80\n");
+  });
+
+  it("names every container, the network and every volume after the Compose project, with the Tenant's label", () => {
+    const names = [...compose.matchAll(/^ {4}container_name: (\S+)$/gm)].map((m) => m[1]);
+    expect(names).toEqual(
+      ["postgres", "restate", "s2-lite", "gateway", "runtime", "studio"].map((role) => `nylorun-shop-${role}`),
+    );
+    expect(compose).toContain('x-tenant: &tenant\n  dev.nylorun.tenant: "shop"\n');
+    expect(compose.match(/^ {4}labels: \*tenant$/gm)).toHaveLength(7); // six services and the network
+    expect(compose).toContain("networks:\n  default:\n    name: nylorun-shop\n");
+    for (const volume of ["postgres", "restate", "s2-lite", "workspaces"])
+      expect(compose).toContain(`  ${volume}: { name: nylorun-shop-${volume}, labels: *tenant }\n`);
+  });
+
+  it("caps Restate's RocksDB memory", () => {
+    expect(compose).toContain("RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE: 256MiB\n");
+  });
+
+  it("gives Studio a session cookie of its own and the proxy's origin from .env", () => {
+    const studio = compose.slice(compose.indexOf("  studio:"));
+    expect(studio).toContain("NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_shop\n");
+    expect(studio).toContain("NYLORUN_STUDIO_PUBLIC_ORIGINS: ${NYLORUN_STUDIO_PUBLIC_ORIGINS:-}\n");
   });
 
   it("mounts the Restate identity key read-only into Restate and gives the Runtime its public key", () => {
@@ -314,7 +338,7 @@ describe("prepareStack", () => {
     expect(await mode(paths.config)).toBe(0o600);
     expect(await mode(paths.root)).toBe(0o700);
     expect(await mode(paths.docker)).toBe(0o700);
-    expect(await readFile(paths.compose, "utf8")).toBe(renderComposeFile("nylorun-shop"));
+    expect(await readFile(paths.compose, "utf8")).toBe(renderComposeFile("nylorun-shop", "shop"));
     expect(await mode(paths.tenant)).toBe(0o700);
     const written = parseEnvLines(await readFile(paths.env, "utf8"));
     expect(written.get("NYLORUN_TENANT_NAME")).toBe("shop");

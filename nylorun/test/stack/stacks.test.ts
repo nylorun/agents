@@ -8,7 +8,8 @@ import { runStackCommand, type StackDeps } from "../../src/stack/commands.js";
 import { parseEnvLines } from "../../src/stack/env-file.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import { chooseTenantName, sanitizeTenantName } from "../../src/stack/stacks.js";
-import { fakeDocker, fakeFetch, json, temporaryDir, testDeps } from "./support.js";
+import { doctorStack } from "../../src/doctor.js";
+import { fakeDocker, fakeFetch, fakePorts, json, temporaryDir, testDeps } from "./support.js";
 
 /** A machine: `~/.nylorun` (`base`) and directories for projects, in one temporary directory. */
 async function machine() {
@@ -283,17 +284,22 @@ describe("outside a project", () => {
 });
 
 describe("ls", () => {
-  it("lists the Tenants with their project, ports and state, and nothing else under tenants/", async () => {
+  it("lists the Tenants with their project, ports, state and memory, and nothing else under tenants/", async () => {
     const { tmp, base } = await machine();
     await runStackCommand("start", ["--no-studio"], machineDeps(base, await project(join(tmp, "app"))));
     await runStackCommand("start", ["--no-studio", "--tenant", "scratch"], machineDeps(base, tmp));
     // A release before 0.4 kept a directory per Tenant id here.
     await mkdir(join(base, "tenants", "tn_01old", "home"), { recursive: true });
     const docker = fakeDocker({
-      respond: (args) =>
-        args[1] === "ls"
-          ? { code: 0, stdout: JSON.stringify([{ Name: "nylorun-app", Status: "running(6)" }]), stderr: "" }
-          : undefined,
+      respond: (args) => {
+        if (args[1] === "ls")
+          return { code: 0, stdout: JSON.stringify([{ Name: "nylorun-app", Status: "running(6)" }]), stderr: "" };
+        if (args[0] === "ps")
+          return { code: 0, stdout: "nylorun-app-postgres\tapp\nnylorun-app-runtime\tapp\n", stderr: "" };
+        if (args[0] === "stats")
+          return { code: 0, stdout: "nylorun-app-postgres\t100MiB / 7.6GiB\nnylorun-app-runtime\t1.5GiB / 7.6GiB\n", stderr: "" };
+        return undefined;
+      },
     });
     const deps = machineDeps(base, tmp, { docker });
     expect(await runStackCommand("ls", ["--json"], deps)).toBe(0);
@@ -305,21 +311,33 @@ describe("ls", () => {
         root: join(base, "tenants", "app"),
         project: realpathSync(join(tmp, "app")),
         state: "running",
+        memoryBytes: 100 * 2 ** 20 + 1.5 * 2 ** 30,
         runtimeUrl: "http://localhost:8787",
-        studioUrl: "http://localhost:4161",
+        // Through the proxy, whose port the first start chose.
+        studioUrl: "http://app.localhost:4160",
         ports: { runtime: 8787, admin: 8788, studio: 4161, restate: 9070 },
       },
-      expect.objectContaining({ name: "scratch", state: "stopped", ports: { runtime: 50000, admin: 50001, studio: 50002, restate: 50003 } }),
+      expect.objectContaining({ name: "scratch", state: "stopped", memoryBytes: null, ports: { runtime: 50000, admin: 50001, studio: 50002, restate: 50003 } }),
     ]);
     expect(docker.calls.filter((args) => args[0] === "compose")).toEqual([["compose", "ls", "--all", "--format", "json"]]);
+    expect(docker.calls.filter((args) => args[0] === "stats")).toEqual([
+      ["stats", "--no-stream", "--format", "{{.Name}}\t{{.MemUsage}}", "nylorun-app-postgres", "nylorun-app-runtime"],
+    ]);
+    const table = machineDeps(base, tmp, { docker });
+    expect(await runStackCommand("ls", [], table)).toBe(0);
+    expect(table.lines[1]).toMatch(/^app\s+running\s+1\.7 GB\s+http:\/\/localhost:8787\s+http:\/\/app\.localhost:4160\s+\//);
 
     const words = machineDeps(base, tmp, {
       docker: fakeDocker({ respond: () => ({ code: 127, stdout: "", stderr: "", missing: true }) }),
     });
     expect(await runStackCommand("ls", [], words)).toBe(0);
-    expect(words.lines[0]).toMatch(/^TENANT\s+STATE\s+RUNTIME\s+STUDIO\s+PROJECT$/);
+    expect(words.lines[0]).toMatch(/^TENANT\s+STATE\s+MEMORY\s+RUNTIME\s+STUDIO\s+PROJECT$/);
     expect(words.lines).toHaveLength(3);
-    expect(words.lines[1]).toMatch(/^app\s+unknown\s+http:\/\/localhost:8787\s+http:\/\/localhost:4161\s+\//);
+    expect(words.lines[1]).toMatch(/^app\s+unknown\s+-\s+http:\/\/localhost:8787\s+http:\/\/app\.localhost:4160\s+\//);
+    // Without the proxy, Studio's own port.
+    const direct = machineDeps(base, tmp, { env: { NYLORUN_PROXY_DISABLED: "1" } });
+    expect(await runStackCommand("ls", ["--json"], direct)).toBe(0);
+    expect(JSON.parse(direct.lines.join("\n")).tenants[0].studioUrl).toBe("http://localhost:4161");
   });
 
   it("says when there are no Tenants", async () => {
@@ -417,5 +435,257 @@ describe("reset", () => {
     expect(await readFile(join(dir, ".nylorun", "credentials.json"), "utf8")).toContain(
       deriveTenantKey((readJson(join(base, "tenants", "app", "host-credentials.json")) as { adminKey: string }).adminKey, after as string, "project"),
     );
+  });
+});
+
+/** A file of the machine's Studio proxy (`~/.nylorun/proxy/`). */
+const proxyFile = (base: string, file: string) => readFileSync(join(base, "proxy", file), "utf8");
+
+describe("the Studio proxy", () => {
+  /** machineFetch, with Studio's login tokens answered per origin by `login`. */
+  function loginFetch(base: string, login: (origin: string) => Response | undefined) {
+    const machine = machineFetch(base);
+    const fetch = async (url: string, init?: RequestInit) =>
+      url.endsWith("/_studio/login-tokens")
+        ? (login(new URL(url).origin) ?? Promise.reject(new TypeError("fetch failed")))
+        : machine(url, init);
+    return Object.assign(fetch, { tenantOf: machine.tenantOf });
+  }
+  const proxyUp = (base: string) => [
+    "compose", "--project-name", "nylorun-proxy",
+    "--file", join(base, "proxy", "compose.yaml"), "--env-file", join(base, "proxy", ".env"),
+    "up", "--detach",
+  ];
+  const RELOAD = ["exec", "nylorun-proxy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile"];
+
+  it("start serves Studio at http://<name>.localhost:<port>, signed in there", async () => {
+    const { tmp, base } = await machine();
+    const fetch = loginFetch(base, (origin) =>
+      origin === "http://default.localhost:4160" ? json({ loginUrl: "/login?token=t" }, 201) : undefined,
+    );
+    const docker = fakeDocker();
+    const deps = machineDeps(base, tmp, { docker, fetch, interactive: true });
+    expect(await runStackCommand("start", [], deps)).toBe(0);
+    expect(deps.lines).toContain("Studio    http://default.localhost:4160");
+    const next = `next=%2Ftenants%2F${fetch.tenantOf("default")}`;
+    expect(deps.opened).toEqual([`http://default.localhost:4160/login?token=t&${next}`]);
+
+    expect(proxyFile(base, ".env")).toContain("NYLORUN_PROXY_PORT=4160\nNYLORUN_PROXY_IPV6=true\n");
+    const compose = proxyFile(base, "compose.yaml");
+    expect(compose).toContain("container_name: nylorun-proxy\n");
+    expect(compose).toContain('dev.nylorun.proxy: "true"');
+    expect(compose).toContain('- "127.0.0.1:${NYLORUN_PROXY_PORT:?run nylorun start}:80"');
+    expect(compose).toContain('- "[::1]:${NYLORUN_PROXY_PORT:?run nylorun start}:80"');
+    const caddyfile = proxyFile(base, "Caddyfile");
+    expect(caddyfile).toContain("http://default.localhost {\n\treverse_proxy nylorun-default-studio:3000\n");
+    expect(caddyfile).toContain("auto_https off");
+    expect(caddyfile).toMatch(/:80 \{\n\trespond `No Tenant at \{host\}\. "nylorun ls" .*` 404/);
+    const env = parseEnvLines(readFileSync(stackPaths(join(base, "tenants", "default")).env, "utf8"));
+    expect(env.get("NYLORUN_STUDIO_PUBLIC_ORIGINS")).toBe("http://default.localhost:4160");
+    expect(docker.calls).toEqual(
+      expect.arrayContaining([proxyUp(base), ["network", "connect", "nylorun-default", "nylorun-proxy"], RELOAD]),
+    );
+
+    // `nylorun studio` signs in through the proxy too.
+    const studio = machineDeps(base, tmp, { docker, fetch });
+    expect(await runStackCommand("studio", ["--no-open"], studio)).toBe(0);
+    expect(studio.lines.at(-1)).toBe(`Studio    http://default.localhost:4160/login?token=t&${next}`);
+  });
+
+  it("signs in on Studio's own port when the proxy does not answer, and says so", async () => {
+    const { tmp, base } = await machine();
+    const fetch = loginFetch(base, (origin) =>
+      origin === "http://localhost:4161" ? json({ token: "t" }, 201) : json({}, 421),
+    );
+    const deps = machineDeps(base, tmp, { fetch, interactive: true });
+    expect(await runStackCommand("start", [], deps)).toBe(0);
+    expect(deps.errors).toContain(
+      "Studio did not answer through the proxy at http://default.localhost:4160 (Studio refused a login token (HTTP 421).); signing in at http://localhost:4161 instead.",
+    );
+    expect(deps.opened[0]).toMatch(/^http:\/\/localhost:4161\/login\?token=t&/);
+  });
+
+  it("routes every Tenant, joins each one's network, and start names the others running", async () => {
+    const { tmp, base } = await machine();
+    expect(await runStackCommand("start", [], machineDeps(base, tmp))).toBe(0);
+    const docker = fakeDocker({
+      respond: (args) => {
+        if (args[1] === "ls")
+          return { code: 0, stdout: JSON.stringify([{ Name: "nylorun-default", Status: "running(6)" }, { Name: "nylorun-two", Status: "running(6)" }]), stderr: "" };
+        if (args[0] === "ps") return { code: 0, stdout: "nylorun-default-runtime\tdefault\n", stderr: "" };
+        if (args[0] === "stats") return { code: 0, stdout: "nylorun-default-runtime\t1.1GiB / 8GiB\n", stderr: "" };
+        return undefined;
+      },
+    });
+    const two = machineDeps(base, tmp, { docker });
+    expect(await runStackCommand("start", ["--tenant", "two"], two)).toBe(0);
+    expect(two.lines).toContain("Studio    http://two.localhost:4160");
+    const caddyfile = proxyFile(base, "Caddyfile");
+    expect(caddyfile).toContain("reverse_proxy nylorun-default-studio:3000");
+    expect(caddyfile).toContain("reverse_proxy nylorun-two-studio:3000");
+    expect(docker.calls.filter((args) => args[0] === "network")).toEqual([
+      ["network", "connect", "nylorun-default", "nylorun-proxy"],
+      ["network", "connect", "nylorun-two", "nylorun-proxy"],
+    ]);
+    expect(two.errors.at(-1)).toBe('Also running: default (about 1.2 GB). "nylorun stop --all" stops them all.');
+    // Its own ports, beside default's.
+    expect(readJson(join(base, "tenants", "two", "host.json")).port).toBe(50000);
+  });
+
+  it("takes a free port when 4160 is busy on its first start, and keeps it", async () => {
+    const { tmp, base } = await machine();
+    expect(await runStackCommand("start", [], machineDeps(base, tmp, { ports: fakePorts([4160]) }))).toBe(0);
+    expect(proxyFile(base, ".env")).toContain("NYLORUN_PROXY_PORT=50000\n");
+    const again = machineDeps(base, tmp);
+    expect(await runStackCommand("start", [], again)).toBe(0);
+    expect(again.lines).toContain("Studio    http://default.localhost:50000");
+  });
+
+  it("listens on 127.0.0.1 alone when Docker refuses [::1], and says so once", async () => {
+    const { tmp, base } = await machine();
+    const docker = fakeDocker({
+      respond: (args) =>
+        args[2] === "nylorun-proxy" && args.includes("up") && readFileSync(args[4]!, "utf8").includes("[::1]")
+          ? { code: 1, stdout: "", stderr: "Error response from daemon: listen tcp6 [::1]:4160: bind: cannot assign requested address\n" }
+          : undefined,
+    });
+    const deps = machineDeps(base, tmp, { docker });
+    expect(await runStackCommand("start", [], deps)).toBe(0);
+    expect(deps.lines).toContain("Studio    http://default.localhost:4160");
+    expect(deps.errors.filter((line) => line.includes("[::1]"))).toEqual([
+      "Docker refused the Studio proxy on [::1]:4160 (Error response from daemon: listen tcp6 [::1]:4160: bind: cannot assign requested address); it listens on 127.0.0.1 only, so a browser that resolves *.localhost to ::1 alone does not reach it.",
+    ]);
+    expect(proxyFile(base, ".env")).toContain("NYLORUN_PROXY_IPV6=false\n");
+    expect(proxyFile(base, "compose.yaml")).not.toContain("[::1]");
+    const again = machineDeps(base, tmp, { docker });
+    expect(await runStackCommand("start", [], again)).toBe(0);
+    expect(again.errors.filter((line) => line.includes("[::1]"))).toEqual([]);
+  });
+
+  it("never fails start: a proxy that does not come up leaves Studio on its own port", async () => {
+    const { tmp, base } = await machine();
+    const docker = fakeDocker({
+      respond: (args) =>
+        args[2] === "nylorun-proxy" ? { code: 1, stdout: "", stderr: "pull access denied\n" } : undefined,
+    });
+    const deps = machineDeps(base, tmp, { docker });
+    expect(await runStackCommand("start", [], deps)).toBe(0);
+    expect(deps.lines).toContain("Studio    http://localhost:4161");
+    expect(deps.errors).toContain(
+      'Warning: the Studio proxy is not available (docker compose up: pull access denied); Studio is on its own port. See "nylorun doctor".',
+    );
+  });
+
+  it("NYLORUN_PROXY_DISABLED=1: no proxy, Studio on its own port", async () => {
+    const { tmp, base } = await machine();
+    const docker = fakeDocker();
+    const deps = machineDeps(base, tmp, { docker, env: { NYLORUN_PROXY_DISABLED: "1" } });
+    expect(await runStackCommand("start", [], deps)).toBe(0);
+    expect(deps.lines).toContain("Studio    http://localhost:4161");
+    expect(existsSync(join(base, "proxy"))).toBe(false);
+    expect(docker.calls.some((args) => args.includes("nylorun-proxy"))).toBe(false);
+    const env = parseEnvLines(readFileSync(stackPaths(join(base, "tenants", "default")).env, "utf8"));
+    expect(env.get("NYLORUN_STUDIO_PUBLIC_ORIGINS")).toBe("");
+  });
+
+  it("status shows Studio through the proxy and on its own port; doctor reports the proxy", async () => {
+    const { tmp, base } = await machine();
+    expect(await runStackCommand("start", [], machineDeps(base, tmp))).toBe(0);
+    const docker = fakeDocker({
+      respond: (args) => {
+        if (args.includes("ps") && args[0] === "compose")
+          return { code: 0, stdout: JSON.stringify([{ Service: "studio", State: "running", Health: "healthy" }]), stderr: "" };
+        if (args[0] === "inspect") return { code: 0, stdout: "running\n", stderr: "" };
+        return undefined;
+      },
+    });
+    const status = machineDeps(base, tmp, { docker });
+    await runStackCommand("status", [], status);
+    expect(status.lines).toContain(
+      'Studio      http://default.localhost:4160  running, healthy (also http://localhost:4161; log in with "nylorun studio")',
+    );
+    const lines: string[] = [];
+    await doctorStack({ json: false, deps: machineDeps(base, tmp, { docker }), log: (line) => lines.push(line) });
+    expect(lines.join("\n")).toMatch(/proxy\s+✓ running on 127\.0\.0\.1:4160 and \[::1\]:4160/);
+  });
+});
+
+describe("stop --all", () => {
+  it("stops every running Tenant and the proxy, keeping volumes", async () => {
+    const { tmp, base } = await machine();
+    for (const name of ["default", "two", "three"])
+      await runStackCommand("start", ["--no-studio", "--tenant", name], machineDeps(base, tmp));
+    const docker = fakeDocker({
+      respond: (args) =>
+        args[1] === "ls"
+          ? {
+              code: 0,
+              stdout: JSON.stringify([
+                { Name: "nylorun-default", Status: "running(6)" },
+                { Name: "nylorun-three", Status: "exited(6)" },
+                { Name: "nylorun-two", Status: "exited(1), running(5)" },
+                { Name: "nylorun-proxy", Status: "running(1)" },
+              ]),
+              stderr: "",
+            }
+          : undefined,
+    });
+    const deps = machineDeps(base, tmp, { docker });
+    expect(await runStackCommand("stop", ["--all"], deps)).toBe(0);
+    expect(docker.streamed.map((args) => [args[2], args.at(-1)])).toEqual([
+      ["nylorun-default", "stop"],
+      ["nylorun-two", "stop"],
+    ]);
+    expect(docker.calls).toContainEqual(["compose", "--project-name", "nylorun-proxy", "stop"]);
+    expect(deps.lines).toEqual(["Stopped Tenants default, two and the Studio proxy; their data is kept."]);
+    await expect(runStackCommand("stop", ["--all", "--tenant", "two"], deps)).rejects.toMatchObject({ exitCode: 2 });
+  });
+});
+
+describe("reset and delete with the proxy", () => {
+  it("detach the proxy before Compose removes the network; delete drops the route", async () => {
+    const { tmp, base } = await machine();
+    await runStackCommand("start", [], machineDeps(base, tmp));
+    await runStackCommand("start", ["--tenant", "two"], machineDeps(base, tmp));
+    const order: string[] = [];
+    const docker = fakeDocker({
+      respond: (args) => (order.push(args.slice(0, 3).join(" ")), undefined),
+      streamCode: (args) => (order.push(`${args[2]} ${args.at(-3)}`), 0),
+    });
+    expect(await runStackCommand("reset", ["--yes", "--tenant", "two"], machineDeps(base, tmp, { docker }))).toBe(0);
+    expect(await runStackCommand("delete", ["two", "--yes"], machineDeps(base, tmp, { docker }))).toBe(0);
+    const removals = order.filter((line) => /disconnect|down/.test(line));
+    expect(removals).toEqual([
+      "network disconnect --force",
+      "nylorun-two down",
+      "network disconnect --force",
+      "nylorun-two down",
+    ]);
+    expect(docker.calls).toContainEqual(["network", "disconnect", "--force", "nylorun-two", "nylorun-proxy"]);
+    expect(proxyFile(base, "Caddyfile")).not.toContain("two.localhost");
+    expect(proxyFile(base, "Caddyfile")).toContain("default.localhost");
+    expect(docker.calls.at(-1)).toEqual(["exec", "nylorun-proxy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile"]);
+  });
+});
+
+describe("a Tenant created by nylorun 0.5", () => {
+  it("refuses to start on its old volumes; reset drops them", async () => {
+    const { tmp, base } = await machine();
+    await runStackCommand("start", ["--no-studio", "--tenant", "shop"], machineDeps(base, tmp));
+    const docker = fakeDocker({
+      respond: (args) =>
+        args[0] === "volume" && args[1] === "ls"
+          ? { code: 0, stdout: "nylorun-shop_postgres\nnylorun-shop_restate\nnylorun-shop_s2\nnylorun-shop-x\n", stderr: "" }
+          : undefined,
+    });
+    const refused = runStackCommand("start", ["--tenant", "shop"], machineDeps(base, tmp, { docker }));
+    await expect(refused).rejects.toMatchObject({ exitCode: 3 });
+    await expect(refused).rejects.toThrow(
+      'Tenant shop was created by nylorun 0.5; its data is in the old volumes nylorun-shop_postgres, nylorun-shop_restate, nylorun-shop_s2. Run "nylorun reset --tenant shop" to start it fresh',
+    );
+    expect(docker.streamed).toEqual([]);
+    expect(await runStackCommand("reset", ["--yes", "--tenant", "shop"], machineDeps(base, tmp, { docker }))).toBe(0);
+    expect(docker.calls).toContainEqual(["volume", "rm", "nylorun-shop_postgres", "nylorun-shop_restate", "nylorun-shop_s2"]);
+    expect(docker.calls).toContainEqual(["network", "rm", "nylorun-shop_default"]);
   });
 });

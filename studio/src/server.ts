@@ -14,8 +14,9 @@
  * - Every `/_studio/*` request needs a session, cookie or bearer, except the
  *   two that create one. The dashboard's static files carry no data and are
  *   served without one; only `frameAncestors` may frame them.
- * - `Host` must be the published loopback address (DNS rebinding); requests
- *   that change state must carry this origin's `Origin`; no CORS headers.
+ * - `Host` must be a served origin's: the published loopback address, or one
+ *   of `publicOrigins` (DNS rebinding); requests that change state must carry
+ *   the request's own `Origin`; no CORS headers.
  * - Studio serves its installation's one Tenant, which it learns from the
  *   Admin API (`admin.status().tenant`): `/` redirects to `/tenants/<id>`, and
  *   a route or login token naming another Tenant is refused. Tenant API calls
@@ -51,7 +52,12 @@ import {
   type RuntimeCompatibility,
 } from "./runtime-compat.js";
 
-export const SESSION_COOKIE = "nylorun_studio_session";
+/**
+ * The session cookie's default name. `nylorun` names it per Tenant
+ * (`nylorun_studio_<tenant>`): browsers share cookies across ports on one
+ * host, so two Studios on localhost would overwrite each other's session.
+ */
+export const DEFAULT_SESSION_COOKIE = "nylorun_studio_session";
 export const LOGIN_TOKEN_TTL_MS = 2 * 60 * 1000;
 /** How long a browser stays signed in: 30 days. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -74,6 +80,18 @@ export type StudioServerOptions = Readonly<{
   host?: string;
   /** Port the browser uses (Docker's published port). Default: the bound port. */
   publicPort?: number;
+  /**
+   * Exact `http:` origins Studio also serves, beside `localhost` and
+   * `127.0.0.1` on `publicPort` (`NYLORUN_STUDIO_PUBLIC_ORIGINS`, validated
+   * with `parsePublicOrigins`), e.g. `nylorun`'s proxy
+   * `http://shop.localhost:4160`. Default: none.
+   */
+  publicOrigins?: readonly string[];
+  /**
+   * The session cookie's name (`NYLORUN_STUDIO_SESSION_COOKIE`, validated with
+   * `parseSessionCookieName`). Default `DEFAULT_SESSION_COOKIE`.
+   */
+  sessionCookie?: string;
   /** Built dashboard directory. Default: `dist/web` beside this module. */
   webRoot?: string;
   /**
@@ -132,6 +150,43 @@ export function parseAnalyticsId(value: string): string | undefined {
   if (!ANALYTICS_ID.test(id))
     throw new Error(`${id} is not a Google Analytics measurement id (G-XXXXXXXXXX).`);
   return id;
+}
+
+const COOKIE_NAME = /^[A-Za-z0-9_-]+$/;
+
+/** Validates `NYLORUN_STUDIO_SESSION_COOKIE`: empty (the default) or a cookie token of `[A-Za-z0-9_-]`. */
+export function parseSessionCookieName(value: string): string {
+  const name = value.trim();
+  if (name === "") return DEFAULT_SESSION_COOKIE;
+  if (!COOKIE_NAME.test(name))
+    throw new Error(`${name} is not a cookie name: use letters, digits, _ and -.`);
+  return name;
+}
+
+/**
+ * Validates `NYLORUN_STUDIO_PUBLIC_ORIGINS`: exact `http:` origins separated by
+ * spaces, such as `http://shop.localhost:4160`; no wildcards or paths.
+ */
+export function parsePublicOrigins(value: string): string[] {
+  const entries = value.split(/\s+/u).filter((entry) => entry !== "");
+  for (const entry of entries) {
+    let url: URL | undefined;
+    try {
+      url = new URL(entry);
+    } catch {
+      url = undefined;
+    }
+    if (
+      url === undefined ||
+      url.protocol !== "http:" ||
+      entry.includes("*") ||
+      url.origin !== entry
+    )
+      throw new Error(
+        `${entry} is not an exact http origin. Use origins such as http://shop.localhost:4160, with no wildcards or paths.`,
+      );
+  }
+  return [...new Set(entries)];
 }
 
 /** Validates `NYLORUN_RUNTIME_URL`: absolute http(s), no credentials, query or fragment. */
@@ -425,6 +480,8 @@ export async function startStudioServer(
   const admin = createAdmin({ url: runtimeUrl, key: adminKey });
   const frameAncestors = [...(options.frameAncestors ?? [])];
   const analyticsId = parseAnalyticsId(options.analyticsId ?? "");
+  const sessionCookie = parseSessionCookieName(options.sessionCookie ?? "");
+  const publicOrigins = parsePublicOrigins((options.publicOrigins ?? []).join(" "));
   const dashboard = {
     frameAncestors: frameAncestorSources(frameAncestors),
     transformIndex: (html: string) => injectIndexMeta(html, frameAncestors, analyticsId),
@@ -451,6 +508,8 @@ export async function startStudioServer(
   let boundPort = 0;
   let publicPort = 0;
   let publicHosts: ReadonlySet<string> = new Set();
+  /** The origins `publicHosts` stands for, for the 421 answer. */
+  let servedOrigins = "";
 
   const studioKey = (tenantId: string): string => {
     if (studioKeyMemo?.tenantId !== tenantId)
@@ -538,7 +597,7 @@ export async function startStudioServer(
         ? { kind: "bearer", tenant: claims.tenant, subject: claims.sub }
         : undefined;
     }
-    return cookieValues(request, SESSION_COOKIE).some((value) =>
+    return cookieValues(request, sessionCookie).some((value) =>
       validSession(signingKey, value, at),
     )
       ? { kind: "cookie", tenant: null, subject: null }
@@ -552,9 +611,11 @@ export async function startStudioServer(
     return entry !== undefined && entry.expiresAt > now() ? entry : undefined;
   };
 
+  /** `origin` is the request's own, which passed the Host check: the login URL opens there. */
   const mintLoginToken = async (
     request: IncomingMessage,
     response: ServerResponse,
+    origin: string,
   ): Promise<void> => {
     const provided = bearer(request);
     if (
@@ -604,7 +665,7 @@ export async function startStudioServer(
     loginTokens.set(token, { expiresAt, tenant, subject });
     const reply: StudioLoginTokenResponse = {
       token,
-      url: `http://localhost:${publicPort}/login?token=${token}`,
+      url: `${origin}/login?token=${token}`,
       expiresAt: new Date(expiresAt).toISOString(),
       tenant,
       subject,
@@ -662,7 +723,7 @@ export async function startStudioServer(
     const session = issueSession(signingKey, at);
     response.writeHead(303, {
       location: safeNextPath(url.searchParams.get("next")),
-      "set-cookie": `${SESSION_COOKIE}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`,
+      "set-cookie": `${sessionCookie}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`,
       "cache-control": "no-store",
     });
     response.end();
@@ -699,9 +760,10 @@ export async function startStudioServer(
       return fail(
         response,
         421,
-        `Studio only serves http://localhost:${publicPort} and http://127.0.0.1:${publicPort}.`,
+        `Studio only serves ${servedOrigins}.`,
       );
     }
+    // A served origin: `host` passed the check above.
     const origin = `http://${host}`;
 
     if (!SAFE_METHODS.has(method)) {
@@ -712,7 +774,7 @@ export async function startStudioServer(
       }
       // Minting is authorized by the admin key; the CLI sends no Origin.
       if (pathname === "/_studio/login-tokens" && method === "POST")
-        return await mintLoginToken(request, response);
+        return await mintLoginToken(request, response, origin);
       if (requestOrigin === undefined) {
         request.resume();
         return fail(
@@ -863,7 +925,15 @@ export async function startStudioServer(
   }
   boundPort = address.port;
   publicPort = options.publicPort ?? boundPort;
-  publicHosts = new Set([`localhost:${publicPort}`, `127.0.0.1:${publicPort}`]);
+  const served = [
+    ...new Set([
+      `http://localhost:${publicPort}`,
+      `http://127.0.0.1:${publicPort}`,
+      ...publicOrigins,
+    ]),
+  ];
+  publicHosts = new Set(served.map((origin) => new URL(origin).host));
+  servedOrigins = `${served.slice(0, -1).join(", ")} and ${served.at(-1)!}`;
 
   return Object.freeze({
     port: boundPort,

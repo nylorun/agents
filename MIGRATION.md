@@ -1,3 +1,44 @@
+# Local Tenants: readable names, several Tenants, Studio at `<name>.localhost`
+
+Every container, network and volume of a local Tenant is now named after the Tenant and
+labelled `dev.nylorun.tenant: <name>`, so several Tenants run side by side and are easy to
+tell apart in Docker. The Compose service `s2` is now `s2-lite`. Each Studio has its own
+address, `http://<name>.localhost:4160`, through one small proxy container per machine
+(`nylorun-proxy`), and its own session cookie. Restate's memory is capped, so a Tenant uses
+about 600–700 MB (was about 1.3 GB). `nylorun ls` shows each Tenant's memory, and
+`nylorun stop --all` stops them all.
+
+**A Tenant created by nylorun 0.5 starts fresh.** Its data is in volumes with the old
+names; `nylorun start` refuses it (exit 3) and names them, so it never runs on new, empty
+volumes with the old keys.
+
+What to do, from nylorun 0.5:
+
+1. Upgrade `nylorun`.
+2. For each Tenant created by 0.5 (`nylorun ls`), run `nylorun reset --tenant <name>`. It
+   deletes the Tenant's data, keys and old volumes (`<project>_postgres`, `_restate`,
+   `_s2`, `_workspaces`) and the old network `<project>_default`; the next
+   `nylorun start` creates the Tenant anew and relinks the project. Re-enter model
+   credentials that were not in `.env`, and run `npm run dev` to register your agents
+   again.
+3. Replace the old names in scripts, CI and bookmarks:
+
+| Before | After (Tenant `shop`) |
+| --- | --- |
+| Containers `nylorun-shop-<service>-1` | `nylorun-shop-<service>`: `nylorun-shop-postgres`, `-restate`, `-s2-lite`, `-gateway`, `-runtime`, `-studio` |
+| Service `s2` (`nylorun logs s2`, `docker compose … s2`) | `s2-lite` (`nylorun logs s2-lite`) |
+| Network `nylorun-shop_default` | `nylorun-shop` |
+| Volumes `nylorun-shop_postgres`, `_restate`, `_s2`, `_workspaces` | `nylorun-shop-postgres`, `-restate`, `-s2-lite`, `-workspaces` |
+| Studio at `http://localhost:<port>` | `http://shop.localhost:4160` (`start`, `ls`, `nylorun studio`); `http://localhost:<port>` still works and `nylorun status` shows it |
+| Studio session cookie `nylorun_studio_session` | `nylorun_studio_shop` (`NYLORUN_STUDIO_SESSION_COOKIE`; Studio's default is unchanged): sign in again with `nylorun studio` |
+| `nylorun ls` columns `TENANT STATE RUNTIME STUDIO PROJECT` | `TENANT STATE MEMORY RUNTIME STUDIO PROJECT`; JSON adds `memoryBytes` |
+
+The proxy publishes on `127.0.0.1` and `[::1]` at port 4160 (or a free port chosen once,
+kept in `~/.nylorun/proxy/.env`) and holds no Tenant data. Set `NYLORUN_PROXY_DISABLED=1`
+to run without it; Studio is then `http://localhost:<port>` as before. A Tenant under
+`NYLORUN_HOME` or `NYLORUN_COMPOSE_PROJECT` never uses it. See
+[nylorun: The Studio proxy](./nylorun/README.md#the-studio-proxy).
+
 # Local Tenants: "Tenant" replaces "stack"
 
 `nylorun` now calls what it runs a **Tenant**: each local installation holds one Tenant,

@@ -79,6 +79,8 @@ export async function prepareStack(input: {
   studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
   /** The measurement id Studio reports page views to; absent when telemetry is off. */
   studioAnalyticsId?: string;
+  /** Studio's origin through the proxy; absent without the proxy. */
+  studioPublicOrigin?: string;
 }): Promise<PreparedStack> {
   const { paths } = input;
   await ensureHostLayout(paths);
@@ -131,6 +133,7 @@ export async function prepareStack(input: {
     studioImage: input.images.studio,
     studioFrameAncestors,
     studioAnalyticsId: input.studioAnalyticsId ?? "",
+    studioPublicOrigins: input.studioPublicOrigin ?? "",
     tenantName: input.name,
     derivedPrincipals: (input.derivedPrincipals?.trim()
       ? parseDerivedPrincipals(input.derivedPrincipals, "NYLORUN_DERIVED_PRINCIPALS")
@@ -146,6 +149,6 @@ export async function prepareStack(input: {
     runtimeVersion: input.runtimeVersion,
   });
   await writeFileMode(paths.env, renderEnvFile(env), 0o600);
-  await writeFileMode(paths.compose, renderComposeFile(input.project), 0o644);
+  await writeFileMode(paths.compose, renderComposeFile(input.project, input.name), 0o644);
   return { env, host, adminKey, firstRun };
 }

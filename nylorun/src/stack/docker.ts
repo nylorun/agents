@@ -140,3 +140,67 @@ export function parseComposePs(stdout: string): ComposeService[] {
     };
   });
 }
+
+const UNITS: Record<string, number> = {
+  b: 1,
+  kb: 1e3,
+  mb: 1e6,
+  gb: 1e9,
+  tb: 1e12,
+  kib: 2 ** 10,
+  mib: 2 ** 20,
+  gib: 2 ** 30,
+  tib: 2 ** 40,
+};
+
+/** `123.4MiB` (from `docker stats` MemUsage) in bytes; undefined when unreadable. */
+export function parseByteSize(text: string): number | undefined {
+  const match = /^([\d.]+)\s*([a-z]+)$/i.exec(text.trim());
+  const unit = match ? UNITS[match[2]!.toLowerCase()] : undefined;
+  return match && unit ? Number(match[1]) * unit : undefined;
+}
+
+/** `812 MB`, `2.1 GB`. */
+export function formatBytes(bytes: number): string {
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
+}
+
+/**
+ * Memory in use per Tenant: the sum over its running containers, found by the label
+ * `dev.nylorun.tenant`, from one `docker stats --no-stream`. Undefined when Docker does not
+ * answer; a Tenant with no running container is absent.
+ */
+export async function tenantMemory(docker: DockerRunner): Promise<Map<string, number> | undefined> {
+  const ps = await docker.run([
+    "ps",
+    "--filter",
+    "label=dev.nylorun.tenant",
+    "--format",
+    '{{.Names}}\t{{.Label "dev.nylorun.tenant"}}',
+  ]);
+  if (ps.code !== 0) return undefined;
+  const owners = new Map(
+    ps.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim().split("\t"))
+      .filter((cells): cells is [string, string] => cells.length === 2 && cells[1] !== ""),
+  );
+  const memory = new Map<string, number>();
+  if (owners.size === 0) return memory;
+  const stats = await docker.run([
+    "stats",
+    "--no-stream",
+    "--format",
+    "{{.Name}}\t{{.MemUsage}}",
+    ...owners.keys(),
+  ]);
+  if (stats.code !== 0) return undefined;
+  for (const line of stats.stdout.split(/\r?\n/)) {
+    const [name, usage] = line.trim().split("\t");
+    const tenant = name ? owners.get(name) : undefined;
+    const bytes = usage ? parseByteSize(usage.split("/")[0]!) : undefined;
+    if (tenant && bytes !== undefined) memory.set(tenant, (memory.get(tenant) ?? 0) + bytes);
+  }
+  for (const [tenant, bytes] of memory) memory.set(tenant, Math.round(bytes));
+  return memory;
+}

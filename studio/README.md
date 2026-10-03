@@ -18,25 +18,30 @@ npx nylorun status     # reports Studio's health and URL
 npx nylorun logs studio
 ```
 
-Studio publishes on loopback (`127.0.0.1:4161` by default) and the CLI opens it
-as `http://localhost:<port>`.
+Studio publishes on loopback (`127.0.0.1:4161` by default). The CLI opens it
+through its Studio proxy as `http://<tenant>.localhost:4160`, or as
+`http://localhost:<port>` without the proxy
+([nylorun](../nylorun/README.md#the-studio-proxy)).
 
 ## Login and access
 
 1. The CLI asks Studio for a login token: `POST /_studio/login-tokens` with the
    Host's admin key. The token is 256 random bits, single-use, and valid for
-   two minutes.
+   two minutes. Its login URL is on the origin the CLI called.
 2. The CLI opens `/login?token=…` (optionally `&next=/tenants/<id>`) in the
-   browser and prints only `http://localhost:<port>`. Studio consumes the
-   token, sets an `HttpOnly`, `SameSite=Strict` session cookie for 30 days and
-   redirects to `next` or `/`.
+   browser and prints only Studio's origin. Studio consumes the token, sets an
+   `HttpOnly`, `SameSite=Strict` session cookie for 30 days and redirects to
+   `next` or `/`.
 3. Every `/_studio/*` request needs that cookie (or an embedded session's
    bearer). The dashboard's files carry no data and the `/` redirect names only
    the Tenant id, so they need none. The `Host` header must be `localhost` or
-   `127.0.0.1` on the published port; state-changing requests must carry this
-   origin's `Origin`; Studio never sends CORS headers.
-4. The session cookie is `v1.<issued>.<nonce>.<signature>`, an HMAC-SHA256
-   with a key derived from the admin key. Studio keeps no session state, so a
+   `127.0.0.1` on the published port, or the host of one of
+   `NYLORUN_STUDIO_PUBLIC_ORIGINS` (any other answers `421` listing the served
+   origins); state-changing requests must carry the request's own `Origin`;
+   Studio never sends CORS headers.
+4. The session cookie (`nylorun_studio_session`, or
+   `NYLORUN_STUDIO_SESSION_COOKIE`) is `v1.<issued>.<nonce>.<signature>`, an
+   HMAC-SHA256 with a key derived from the admin key. Studio keeps no session state, so a
    session survives container restarts and ends after 30 days or when the admin
    key changes (`nylorun reset`).
 
@@ -79,6 +84,8 @@ The container entry is `dist/server-main.js`:
 | `NYLORUN_ADMIN_KEY_FILE` | `host-credentials.json`, mounted read-only (required) |
 | `PORT` | Listen port inside the container (default `3000`) |
 | `NYLORUN_STUDIO_PUBLIC_PORT` | The published loopback port the browser uses |
+| `NYLORUN_STUDIO_PUBLIC_ORIGINS` | Exact `http:` origins, separated by spaces, that Studio also serves beside `localhost` and `127.0.0.1` on the public port, e.g. `http://shop.localhost:4160` (default none). No wildcards or paths |
+| `NYLORUN_STUDIO_SESSION_COOKIE` | The session cookie's name, `[A-Za-z0-9_-]+` (default `nylorun_studio_session`). `nylorun start` sets `nylorun_studio_<tenant>`: browsers share cookies across ports, so Studios on one host need their own |
 | `NYLORUN_STUDIO_FRAME_ANCESTORS` | Exact origins that may frame the dashboard (default none) |
 | `NYLORUN_STUDIO_ANALYTICS_ID` | Google Analytics measurement id for anonymous page views (default none: no analytics). `nylorun start` sets it unless telemetry is off; see [Telemetry](../nylorun/README.md#telemetry) |
 

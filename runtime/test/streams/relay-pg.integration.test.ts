@@ -110,7 +110,7 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
         SELECT confirmed_flush_lsn::text AS lsn FROM pg_replication_slots WHERE slot_name = ${slot}`;
       return row?.lsn ?? null;
     };
-    return { tenantId, slot, streams, write, relay, inS2, until, confirmed };
+    return { tenantId, slot, streams, record, write, relay, inS2, until, confirmed };
   }
 
   const range = (n: number) => Array.from({ length: n }, (_, i) => i);
@@ -130,6 +130,23 @@ describe.skipIf(!STACK_ENABLED)("stream relay on logical replication", () => {
     const [pending] = await sql<{ reconcile_pending: boolean }[]>`
       SELECT reconcile_pending FROM nylorun_streams.relay_slots WHERE slot_name = ${t.slot}`;
     expect(pending?.reconcile_pending).toBe(false);
+  });
+
+  it("reports no lag, never a negative one, once the relay has confirmed everything", async () => {
+    const t = await setup();
+    const source = createPgoutputSource({ connectionString: url, tenantId: t.tenantId, slot: t.slot, retryMs: 200 });
+    const relay = createStreamRelay({ source, record: t.record, streams: t.streams });
+    relays.push(relay);
+    relay.start();
+    await t.until("the relay to be active", () => relay.status().active);
+    await t.write("s1", 3);
+    await t.until("every row in S2", async () => (await t.inS2("s1")).length === 3);
+    await t.until("the slot to confirm the last row", async () => (await source.lag()) === 0);
+    const [raw] = await sql<{ diff: string }[]>`
+      SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)::text AS diff
+      FROM pg_replication_slots WHERE slot_name = ${t.slot}`;
+    expect(Number(raw!.diff)).toBeLessThanOrEqual(0); // confirmed at or past the WAL position
+    expect(await source.lag()).toBe(0);
   });
 
   it("replays what a crashed relay received but S2 never got", async () => {

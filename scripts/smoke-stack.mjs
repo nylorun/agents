@@ -47,7 +47,7 @@ try {
     assert.equal(status.project, stack.project);
     assert.equal(status.runtime.healthy, true);
     assert.equal(status.runtime.url, runtimeUrl);
-    for (const service of ["postgres", "restate", "s2", "gateway", "runtime", "studio"]) {
+    for (const service of ["postgres", "restate", "s2-lite", "gateway", "runtime", "studio"]) {
       const entry = status.services.find((s) => s.service === service);
       assert.equal(entry?.state, "running", `${service} is running`);
       assert.ok(entry.health === "" || entry.health === "healthy", `${service} is healthy`);
