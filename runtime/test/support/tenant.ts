@@ -82,7 +82,25 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   streams?: DurableStreams;
   /** How long a retired stream basin is kept after a reset. Default 60 s. */
   retireGraceMs?: number;
+  /**
+   * The Tenant's harness (`TenantOpenHooks.harness`). Default from `NYLORUN_TEST_HARNESS`
+   * (`memory`, `json`, or `off` for no Harness API), else `memory`.
+   */
+  harness?: TenantOpenHooks["harness"];
+  harnessTap?: TenantOpenHooks["harnessTap"];
 };
+
+/**
+ * The harness mode of the suite: `NYLORUN_TEST_HARNESS=memory|json|off`, and
+ * `NYLORUN_HARNESS_API=0` for the path without the Harness API.
+ */
+export function testHarnessMode(): "memory" | "json" | "off" {
+  if (process.env.NYLORUN_HARNESS_API === "0") return "off";
+  const mode = process.env.NYLORUN_TEST_HARNESS ?? "memory";
+  if (mode !== "memory" && mode !== "json" && mode !== "off")
+    throw new Error(`NYLORUN_TEST_HARNESS must be memory, json or off, not ${mode}`);
+  return mode;
+}
 
 /**
  * Default streams of Tenants whose Host root outlives `close()` (`retainRoot`, `hostRoot`), by
@@ -202,6 +220,7 @@ export async function startTestTenant(
       : { vaultFetch: options.vaultFetch }),
     ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
+    harnessApi: options.harnessApi ?? testHarnessMode() !== "off",
     logger,
   };
 
@@ -214,6 +233,8 @@ export async function startTestTenant(
     ...(options.workerId ? { workerId: options.workerId } : {}),
     streams: options.streams ?? defaultStreams,
     ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
+    harness: options.harness ?? (testHarnessMode() === "json" ? "json" : "memory"),
+    ...(options.harnessTap ? { harnessTap: options.harnessTap } : {}),
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {

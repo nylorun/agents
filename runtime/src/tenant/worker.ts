@@ -51,6 +51,8 @@
  */
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
+import type { AbortReason } from "@nylorun/core/harness-api";
+import { RunAbort } from "@nylorun/harness/api";
 import type {
   AdvanceResult,
   DeliverResult,
@@ -73,17 +75,16 @@ export const DEFAULT_ADVANCE_DEADLINE_MS = 50 * 60_000;
 export const DEFAULT_ADVANCE_GRACE_MS = 30_000;
 
 /** Why an advance's signal aborted (see "Abort reasons" above). */
-export type AdvanceAbortKind = "cancel" | "shutdown" | "deadline" | "ownership.lost";
+export type AdvanceAbortKind = AbortReason;
 
-/** The abort reason of an advance. */
-export class AdvanceAbort extends Error {
+/**
+ * The abort reason of an advance. A harness run's reason (`RunAbort`) has the same kinds, so the
+ * executors read either one.
+ */
+export class AdvanceAbort extends RunAbort {
   override readonly name: string = "AdvanceAbort";
-  constructor(
-    readonly kind: AdvanceAbortKind,
-    message: string,
-    options?: { cause?: unknown }
-  ) {
-    super(message, options);
+  constructor(kind: AdvanceAbortKind, message: string, options?: { cause?: unknown }) {
+    super(kind, message, options);
   }
 }
 
@@ -102,7 +103,7 @@ export class AdvanceDeadlineError extends AdvanceAbort {
  */
 export function abortKind(signal: AbortSignal): AdvanceAbortKind | undefined {
   if (!signal.aborted) return undefined;
-  return signal.reason instanceof AdvanceAbort ? signal.reason.kind : "shutdown";
+  return signal.reason instanceof RunAbort ? signal.reason.kind : "shutdown";
 }
 
 /** The execution's abort reason as a `shutdown`, keeping its message. */

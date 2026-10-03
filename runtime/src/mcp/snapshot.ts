@@ -1,5 +1,6 @@
 import type { JsonObject } from "@nylorun/core/define";
-import type { AgentManifest } from "@nylorun/core/define";
+import { delegateManifest, type AgentManifest } from "@nylorun/core/define";
+import type { DurableSessionTool, HostEffect } from "@nylorun/harness/run";
 
 export interface McpToolRecord {
   /** The agent used as a tool that declares the server; absent for the session's root agent. */
@@ -38,4 +39,44 @@ export function declaredToolNames(manifest: AgentManifest): Set<string> {
   for (const capability of manifest.capabilities)
     for (const tool of capability.tools ?? []) names.add(tool.name);
   return names;
+}
+
+/** The tools of a snapshot, as the engine advertises them. */
+export function sessionToolsOf(
+  snapshot: McpSnapshot | undefined
+): readonly DurableSessionTool[] | undefined {
+  if (!snapshot?.mcpTools.length) return undefined;
+  return snapshot.mcpTools.map((tool) => ({
+    ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
+    capabilityId: tool.capabilityId,
+    name: tool.name,
+    ...(tool.description === undefined
+      ? {}
+      : { description: tool.description }),
+    inputSchema: tool.inputSchema,
+    ...(tool.outputSchema === undefined
+      ? {}
+      : { outputSchema: tool.outputSchema }),
+  }));
+}
+
+/** The snapshot's record of an MCP tool call, or undefined when the call is not an MCP tool. */
+export function mcpToolOf(
+  snapshot: McpSnapshot | undefined,
+  request: Pick<HostEffect, "agent" | "capabilityId" | "toolName">
+): McpToolRecord | undefined {
+  return snapshot?.mcpTools.find(
+    (tool) =>
+      tool.agentId === request.agent?.id &&
+      tool.capabilityId === request.capabilityId &&
+      tool.name === request.toolName
+  );
+}
+
+/** The manifest of the agent an effect belongs to: the root, or an agent it uses as a tool. */
+export function manifestFor(
+  manifest: AgentManifest,
+  agent: HostEffect["agent"]
+): AgentManifest | undefined {
+  return agent ? delegateManifest(manifest, agent.id) : manifest;
 }

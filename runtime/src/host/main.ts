@@ -240,6 +240,7 @@ export async function main(): Promise<void> {
     logger,
     baseline,
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
+    ...(stack.harnessApi === undefined ? {} : { harnessApi: stack.harnessApi }),
   });
 
   // The process's Durable Session Execution: Restate when its endpoints are set, else the

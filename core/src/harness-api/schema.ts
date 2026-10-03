@@ -94,7 +94,10 @@ export const TurnStartSchema = z
         rootManifest: z.record(z.string(), z.unknown()),
         pluginRoots: z.record(z.string(), z.string()),
         mcpSnapshot: z.unknown().optional(),
-        sandbox: z.object({ ownerId: id, spec: z.unknown().optional() }).strict().optional(),
+        sandbox: z
+          .object({ ownerId: id, sandboxId: id.optional(), spec: z.unknown().optional() })
+          .strict()
+          .optional(),
       })
       .strict(),
   })

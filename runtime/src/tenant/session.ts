@@ -1,46 +1,22 @@
 /**
  * Pure helpers over the session document: turn-manifest pins and variants, state rebasing,
- * the tools of an MCP snapshot, and the event target of an Action. No store access and no I/O.
+ * and the event target of an Action. No store access and no I/O. (The tools of an MCP snapshot
+ * live in `mcp/snapshot.ts`.)
  *
  * Later waves: stable; the async store conversion (Wave 1 / A) does not change these.
  */
-import {
-  agentTurnValue,
-  type DurableSessionTool,
-  type HostEffect,
-} from "@nylorun/harness/run";
+import { agentTurnValue } from "@nylorun/harness/run";
 import type { Action } from "@nylorun/core/contracts";
-import {
-  delegateManifest,
-  type AgentManifest,
-  type JsonValue,
-} from "@nylorun/core/define";
+import type { AgentManifest, JsonValue } from "@nylorun/core/define";
 import { isWorkflowManifest } from "../core/flow-host.js";
 import {
   allowedManifestHashes,
   rebaseTurnState,
   type TurnManifestStore,
 } from "../core/turn-manifest.js";
-import type { McpSnapshot, McpToolRecord } from "../mcp/snapshot.js";
 import type { Session } from "./context.js";
 
-export function sessionToolsOf(
-  snapshot: McpSnapshot | undefined
-): readonly DurableSessionTool[] | undefined {
-  if (!snapshot?.mcpTools.length) return undefined;
-  return snapshot.mcpTools.map((tool) => ({
-    ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-    capabilityId: tool.capabilityId,
-    name: tool.name,
-    ...(tool.description === undefined
-      ? {}
-      : { description: tool.description }),
-    inputSchema: tool.inputSchema,
-    ...(tool.outputSchema === undefined
-      ? {}
-      : { outputSchema: tool.outputSchema }),
-  }));
-}
+export { manifestFor, sessionToolsOf } from "../mcp/snapshot.js";
 
 /** Turn-manifest store backed by the session's `variants` map (no schema change). */
 export function variantStore(session: Session): TurnManifestStore {
@@ -84,26 +60,6 @@ export function rebaseSessionState(session: Session, turnHash: string): void {
     isAllowedHash: (hash) => allowed.has(hash),
   });
   if (next !== session.state) session.state = next;
-}
-
-export function mcpToolOf(
-  session: Session,
-  request: Pick<HostEffect, "agent" | "capabilityId" | "toolName">
-): McpToolRecord | undefined {
-  return session.mcpSnapshot?.mcpTools.find(
-    (tool) =>
-      tool.agentId === request.agent?.id &&
-      tool.capabilityId === request.capabilityId &&
-      tool.name === request.toolName
-  );
-}
-
-/** The manifest of the agent an effect belongs to: the root, or an agent it uses as a tool. */
-export function manifestFor(
-  manifest: AgentManifest,
-  agent: HostEffect["agent"]
-): AgentManifest | undefined {
-  return agent ? delegateManifest(manifest, agent.id) : manifest;
 }
 
 export function pinnedTool(

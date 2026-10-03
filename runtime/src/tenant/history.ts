@@ -16,13 +16,18 @@
  *   transcript on the row too and checks the fold against it at every segment start.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
+import { applyUpdate, transcriptOf, type TranscriptUpdate } from "@nylorun/core/harness-api";
 
-/** The payload of one `transcript.updated` event. */
-export interface TranscriptUpdate {
-  keep: number;
-  entries: unknown[];
-  length: number;
-}
+export {
+  CHUNK_BYTES,
+  TranscriptFoldError,
+  applyUpdate,
+  applyUpdates,
+  transcriptOf,
+  transcriptUpdates,
+  withTranscript,
+  type TranscriptUpdate,
+} from "@nylorun/core/harness-api";
 
 /** Where a session's fold starts. */
 export interface SessionHistory {
@@ -31,9 +36,6 @@ export interface SessionHistory {
   /** The latest snapshot (`keep: 0`), which `from` moves to when the next turn starts. */
   snapshot?: number;
 }
-
-/** An edit's entries are split so each event stays well under S2's 1 MiB record limit. */
-export const CHUNK_BYTES = 256 * 1024;
 
 let shadow = false;
 /** Shadow mode: keep the transcript on the session row and check the fold against it. */
@@ -45,13 +47,6 @@ export function setTranscriptShadow(on: boolean): boolean {
   const previous = shadow;
   shadow = on;
   return previous;
-}
-
-export class TranscriptFoldError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TranscriptFoldError";
-  }
 }
 
 /** The fold and the transcript on the row differ (shadow mode only). */
@@ -67,90 +62,44 @@ export class TranscriptParityError extends Error {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The engine state's transcript, or none. */
-export function transcriptOf(state: unknown): unknown[] {
-  const transcript = (state as { transcript?: unknown } | undefined)?.transcript;
-  return Array.isArray(transcript) ? transcript : [];
-}
-
-/**
- * The edits from `before` to `after`, split into chunks of at most `CHUNK_BYTES` of entries.
- * Empty when nothing changed.
- */
-export function transcriptUpdates(
-  before: readonly unknown[],
-  after: readonly unknown[],
-  chunkBytes = CHUNK_BYTES
-): TranscriptUpdate[] {
-  let keep = 0;
-  while (keep < before.length && keep < after.length && same(before[keep], after[keep])) keep += 1;
-  if (keep === before.length && keep === after.length) return [];
-  const added = after.slice(keep);
-  if (added.length === 0) return [{ keep, entries: [], length: keep }];
-  const updates: TranscriptUpdate[] = [];
-  let chunk: unknown[] = [];
-  let bytes = 0;
-  let base = keep;
-  const flush = () => {
-    updates.push({ keep: base, entries: chunk, length: base + chunk.length });
-    base += chunk.length;
-    chunk = [];
-    bytes = 0;
-  };
-  for (const entry of added) {
-    const size = JSON.stringify(entry).length;
-    if (chunk.length > 0 && bytes + size > chunkBytes) flush();
-    chunk.push(entry);
-    bytes += size;
-  }
-  flush();
-  return updates;
-}
-
-/** Applies one edit. Throws `TranscriptFoldError` when it does not fit the transcript. */
-export function applyUpdate(transcript: readonly unknown[], update: TranscriptUpdate): unknown[] {
-  if (update.keep > transcript.length)
-    throw new TranscriptFoldError(
-      `transcript.updated keeps ${update.keep} entries of ${transcript.length}`
-    );
-  const next = [...transcript.slice(0, update.keep), ...update.entries];
-  if (next.length !== update.length)
-    throw new TranscriptFoldError(
-      `transcript.updated should give ${update.length} entries, not ${next.length}`
-    );
-  return next;
-}
-
 /**
  * Folds a session's events, from the start of its record or from a snapshot, into the
  * transcript the engine resumes from.
  */
 export function foldTranscript(events: Iterable<Pick<LiveEvent, "type" | "turnId" | "payload">>): unknown[] {
+  return foldTranscriptWithCursor(events).transcript;
+}
+
+/**
+ * `foldTranscript`, and the cursor of the fold: the `seq` of the last event that changed it
+ * (`transcript.updated`, `turn.cancelled`, `turn.failed`), or -1. A harness that holds the
+ * transcript at the same cursor holds this one.
+ */
+export function foldTranscriptWithCursor(
+  events: Iterable<Pick<LiveEvent, "type" | "turnId" | "payload"> & { seq?: number }>
+): { transcript: unknown[]; cursor: number } {
   let transcript: unknown[] = [];
+  let cursor = -1;
   // The transcript before the current turn's first edit: what a cancel or failure restores.
   let turn: { id: string | null; before: unknown[] } | undefined;
   for (const event of events) {
     if (event.type === "transcript.updated") {
       if (!turn || turn.id !== event.turnId) turn = { id: event.turnId, before: transcript };
       transcript = applyUpdate(transcript, event.payload as TranscriptUpdate);
+      cursor = event.seq ?? cursor;
     } else if (event.type === "turn.cancelled" || event.type === "turn.failed") {
       if (turn && turn.id === event.turnId) transcript = turn.before;
       turn = undefined;
+      cursor = event.seq ?? cursor;
     } else if (event.type === "turn.completed") turn = undefined;
   }
-  return transcript;
+  return { transcript, cursor };
 }
 
 /** `state` with an empty transcript (what the session row stores outside shadow mode). */
 export function leanState<T>(state: T): T {
   if (shadow || !state || transcriptOf(state).length === 0) return state;
   return { ...state, transcript: [] };
-}
-
-/** `state` with `transcript` (what the engine runs on). */
-export function withTranscript<T>(state: T, transcript: readonly unknown[]): T {
-  if (!state) return state;
-  return { ...state, transcript: [...transcript] };
 }
 
 /** In shadow mode, checks the fold against the transcript the row kept. */

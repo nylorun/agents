@@ -83,8 +83,8 @@ export interface RunRouting {
   readonly rootManifest: unknown;
   readonly pluginRoots: Readonly<Record<string, string>>;
   readonly mcpSnapshot?: unknown;
-  /** The session that owns the tree's sandbox. */
-  readonly sandbox?: { readonly ownerId: string; readonly spec?: unknown };
+  /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
+  readonly sandbox?: { readonly ownerId: string; readonly sandboxId?: string; readonly spec?: unknown };
 }
 
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */

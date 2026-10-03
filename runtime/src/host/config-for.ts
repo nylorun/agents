@@ -19,6 +19,8 @@ export function configForFactory(options: {
   model?: TenantConfig["model"];
   /** How Tenants may call Action endpoints (`StackConfig.delivery`). */
   delivery?: TenantConfig["delivery"];
+  /** Whether segments run through the Harness API (`StackConfig.harnessApi`). */
+  harnessApi?: boolean;
 }): (id: string) => TenantConfig {
   const { baseline } = options;
   return (id: string): TenantConfig => {
@@ -31,6 +33,7 @@ export function configForFactory(options: {
       sandbox: { backend: sandboxBackend },
       model: options.model ?? { kind: "vault" },
       ...(options.delivery ? { delivery: options.delivery } : {}),
+      ...(options.harnessApi === undefined ? {} : { harnessApi: options.harnessApi }),
       childEnv: tenantChildEnvironment(
         baseline,
         options.hostConfig,

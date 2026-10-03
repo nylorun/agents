@@ -40,6 +40,15 @@ const moduleImports = {
       forbidden: ["tenant", "core", "api", "host", "execution", "gates", "streams"],
       except: [],
     },
+    // A harness (F6, D37) runs the engine and its calls with what it is given: the executors
+    // and the Harness API. It reaches no store, record, key, vault, stream, execution, API or
+    // infrastructure code, and never the provider adapter.
+    {
+      dir: "harness",
+      forbidden: ["tenant", "store", "record", "keys", "vault", "streams", "execution", "api", "infra"],
+      forbiddenFiles: ["model/pi-"],
+      except: [],
+    },
   ],
 };
 // The provider adapter runs behind the Model Gate (blueprint §15): the loop calls the gate and
@@ -135,6 +144,10 @@ export function checkBoundaries(name) {
             const top = target.split(/[\\/]/)[0];
             if (rule.forbidden.includes(top))
               throw new Error(`${path} imports ${match[1]}; ${rule.dir}/ must not import ${top}/`);
+            const file = target.split(/[\\/]/).join("/");
+            const prefix = (rule.forbiddenFiles ?? []).find((item) => file.startsWith(item));
+            if (prefix)
+              throw new Error(`${path} imports ${match[1]}; ${rule.dir}/ must not import ${prefix}*`);
           }
         }
       if (relative[0] === "src")
