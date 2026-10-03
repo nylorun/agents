@@ -371,18 +371,17 @@ async function runRemoteSegment(
     else {
       const recorded =
         result.status === "yielded" || result.status === "completed" || result.status === "paused";
-      cursor = await settle(
+      cursor = await settleTurn(
         ctx,
         lease,
         started,
         result,
         recorded ? output.transcript ?? [] : [],
+        signal,
         segment.cursor
       );
     }
     end.reply(cursor === undefined ? {} : { cursor });
-    // F8.2: once the turn has committed, export its sandbox outputs. Never throws.
-    if (result.status === "completed") await exportOutputs(ctx, lease.sessionId, started.activeTurnId, signal);
   } catch (error) {
     if (end?.kind === "output") end.refuse(error);
     if (
@@ -480,6 +479,26 @@ async function wakeWorkflowOf(
       error: "Agent turn was cancelled",
       schedule: ctx.wake,
     });
+}
+
+/**
+ * `settle`, then, for a completed turn, the turn-end export of its sandbox outputs (F8.2): after
+ * the turn has committed and while the advance still holds the lease. The harness hears back
+ * after the export. The export never throws.
+ */
+async function settleTurn(
+  ctx: TenantContext,
+  lease: Lease,
+  s: Session,
+  result: SegmentResult,
+  updates: readonly TranscriptUpdate[],
+  signal: AbortSignal,
+  cursor?: number
+): Promise<number | undefined> {
+  const kept = await settle(ctx, lease, s, result, updates, cursor);
+  if (result.status === "completed")
+    await exportOutputs(ctx, lease.sessionId, s.activeTurnId, signal);
+  return kept;
 }
 
 /**

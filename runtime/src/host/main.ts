@@ -188,7 +188,7 @@ async function runGates(stack: StackConfig): Promise<void> {
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
   if (stack.services.has("gates") || stack.services.has("keys")) return runGates(stack);
-  if (stack.services.has("harness")) return runHarness(stack);
+  if (stack.services.has("harness")) return runHarness(stack, baselineEnvironment(process.env));
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
