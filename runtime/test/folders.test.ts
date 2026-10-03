@@ -49,7 +49,7 @@ const bash = (command: string) => ({ name: "bash", args: { command } });
 
 async function boot(
   modelProvider: ModelProvider,
-  options: { wrapBlobs?: (blobs: BlobStore) => BlobStore } = {},
+  options: { wrapBlobs?: (blobs: BlobStore) => BlobStore; harness?: "memory" | "json" | "ws" } = {},
 ): Promise<Runtime> {
   const runtime = await startTestTenant({
     applicationKey: APP,
@@ -354,4 +354,26 @@ it("skips an export past the per-file limit with artifact.export.skipped, and th
     artifacts: unknown[];
   };
   expect(listed.artifacts).toEqual([]);
+});
+
+it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", async () => {
+  const runtime = await boot(
+    turns([[bash("mkdir -p outputs/site && printf '<p>hi</p>' > outputs/site/index.html && printf 'x' > scratch.txt")]]),
+    { harness: "ws" },
+  );
+  await openSession(runtime, "s1", { sandbox: {} });
+  await turn(runtime, "s1", "build");
+  const [created] = await eventually(runtime, "s1", "artifact.created");
+  expect(created!.payload).toMatchObject({ kind: "folder", name: "outputs", version: 1, source: "export", fileCount: 1 });
+  const tree = (await (
+    await fetch(`${runtime.url}/v1/artifacts/${created!.payload.artifactId}/versions/1/tree`, { headers: auth })
+  ).json()) as { entries: { path: string; sha256: string }[] };
+  expect(tree.entries.map(({ path, sha256 }) => ({ path, sha256 }))).toEqual([
+    { path: "site/index.html", sha256: sha("<p>hi</p>") },
+  ]);
+  // The workspace is the harness's: its compute record is in the harness's file, mirrored by core.
+  const status = (await (await fetch(`${runtime.url}/v1/tenant`, { headers: auth })).json()) as {
+    harness: { mode: string; workspace: boolean };
+  };
+  expect(status.harness).toMatchObject({ mode: "remote", workspace: true });
 });

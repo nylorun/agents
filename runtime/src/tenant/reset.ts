@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { ResetScope, SessionStore } from "../store/types.js";
-import type { SandboxManager } from "../sandbox/manager.js";
+import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantPaths } from "./types.js";
 import { detachAllSessions } from "./sandboxes.js";
 import type { BlobStore } from "../blob/index.js";
@@ -17,7 +17,7 @@ export type { ResetScope } from "../store/types.js";
 
 export interface ResetTenantContext {
   store: SessionStore;
-  sandbox: SandboxManager;
+  sandbox: WorkspacePort;
   paths: TenantPaths;
   /** Where the deleted artifacts' bytes are; they are removed after the store wipe. */
   blobs?: BlobStore;
@@ -66,7 +66,7 @@ export async function resetTenant(
   const clearAll = scope === "all";
 
   if (clearSandboxes) {
-    await ctx.sandbox.reconcile(() => false, () => false);
+    await ctx.sandbox.removeAll();
   }
 
   // The artifacts the reset deletes: their rows go in its transaction, their bytes after it.

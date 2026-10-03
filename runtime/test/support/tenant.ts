@@ -85,7 +85,7 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   retireGraceMs?: number;
   /**
    * The Tenant's harness (`TenantOpenHooks.harness`). Default from `NYLORUN_TEST_HARNESS`
-   * (`memory`, `json`, or `off` for no Harness API), else `memory`.
+   * (`memory`, `json` or `ws`), else `memory`.
    */
   harness?: TenantOpenHooks["harness"];
   harnessTap?: TenantOpenHooks["harnessTap"];
@@ -94,14 +94,14 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
 };
 
 /**
- * The harness mode of the suite: `NYLORUN_TEST_HARNESS=memory|json|off`, and
- * `NYLORUN_HARNESS_API=0` for the path without the Harness API.
+ * The harness mode of the suite, `NYLORUN_TEST_HARNESS`: `memory` (default) and `json` run the
+ * Tenant's harness in process over a memory channel; `ws` runs a harness service over a loopback
+ * WebSocket, with its own MCP pool and sandboxes and no store (F6.2).
  */
-export function testHarnessMode(): "memory" | "json" | "off" {
-  if (process.env.NYLORUN_HARNESS_API === "0") return "off";
+export function testHarnessMode(): "memory" | "json" | "ws" {
   const mode = process.env.NYLORUN_TEST_HARNESS ?? "memory";
-  if (mode !== "memory" && mode !== "json" && mode !== "off")
-    throw new Error(`NYLORUN_TEST_HARNESS must be memory, json or off, not ${mode}`);
+  if (mode !== "memory" && mode !== "json" && mode !== "ws")
+    throw new Error(`NYLORUN_TEST_HARNESS must be memory, json or ws, not ${mode}`);
   return mode;
 }
 
@@ -223,7 +223,7 @@ export async function startTestTenant(
       : { vaultFetch: options.vaultFetch }),
     ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
-    harnessApi: options.harnessApi ?? testHarnessMode() !== "off",
+    ...(options.actionHoldMs === undefined ? {} : { actionHoldMs: options.actionHoldMs }),
     logger,
   };
 
@@ -236,7 +236,7 @@ export async function startTestTenant(
     ...(options.workerId ? { workerId: options.workerId } : {}),
     streams: options.streams ?? defaultStreams,
     ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
-    harness: options.harness ?? (testHarnessMode() === "json" ? "json" : "memory"),
+    harness: options.harness ?? testHarnessMode(),
     ...(options.harnessTap ? { harnessTap: options.harnessTap } : {}),
     ...(options.wrapBlobs
       ? { blobs: options.wrapBlobs(createFsBlobStore({ root: paths.blobs })) }

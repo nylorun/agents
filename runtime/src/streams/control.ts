@@ -21,6 +21,17 @@ export async function signalCancel(
   await streams.append(basin, CONTROL_STREAM, [signal]);
 }
 
+/** Appends an `action.resolved` signal: a run held for the Action goes on with its outcome. */
+export async function signalActionResolved(
+  streams: DurableStreams,
+  basin: string,
+  sessionId: string,
+  actionId: string,
+): Promise<void> {
+  const signal: ControlSignal = { type: "action.resolved", sessionId, actionId };
+  await streams.append(basin, CONTROL_STREAM, [signal]);
+}
+
 /**
  * Appends a `sessions.reset` signal to the old generation's basin: every process with the
  * Tenant open moves its readers to `generation` and ends the streams of deleted sessions.

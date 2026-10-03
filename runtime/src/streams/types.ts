@@ -174,7 +174,18 @@ export interface SubjectRevokedSignal {
   epoch: number;
 }
 
+/**
+ * An Action of `sessionId` has its outcome (F6.2): the process whose harness holds the
+ * session's run while the Action is pending passes it on (`effect.resolved`).
+ */
+export interface ActionResolvedSignal {
+  type: "action.resolved";
+  sessionId: string;
+  actionId: string;
+}
+
 export type ControlSignal =
   | SessionCancelSignal
   | SessionsResetSignal
-  | SubjectRevokedSignal;
+  | SubjectRevokedSignal
+  | ActionResolvedSignal;

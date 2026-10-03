@@ -4,13 +4,19 @@
  * own abort controller: core's `cancel` aborts it with core's reason, a renewal core refuses
  * with `ownership.lost`, and `stop()` with `shutdown`. While a run is live it renews its lease
  * every `renewEveryMs`; renewing stops once the run is aborted.
+ *
+ * A run whose Action is pending is held (F6.2): it waits up to `holdMs` for core's
+ * `effect.resolved` and goes on in the same lease, instead of ending the segment and being
+ * replayed by the next one.
  */
 import {
   HARNESS_API_VERSION,
   type AbortReason,
   type HarnessChannel,
+  type ResultOf,
   type RunGrant,
 } from "@nylorun/core/harness-api";
+import type { ActionOutcome } from "@nylorun/core/contracts";
 import { ABORT_MESSAGES, RunAbort } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { runTurn } from "./run.js";
@@ -30,6 +36,18 @@ export interface HarnessOptions {
   readonly transcriptCacheMb?: number;
   readonly name?: string;
   readonly version?: string;
+  /** What `hello` declares: `workspace` when this harness serves the Tenant's workspaces. */
+  readonly capabilities?: { readonly workspace?: unknown };
+  /** Sees core's answer to `hello` (the Tenant, the sandbox backend preference). */
+  onHello?(answer: ResultOf<"hello">): void;
+  /** Sees every grant a run gets: when it is leased, and each renewal with a new run token. */
+  onGrant?(grant: RunGrant): void;
+  /**
+   * The longest a run waits for a pending Action's outcome before its segment ends as waiting:
+   * core says how long each run may (`TurnStart.options.holdMs`), never past the segment's
+   * yield budget. Default: as long as core says.
+   */
+  readonly holdMs?: number;
 }
 
 export interface Harness {
@@ -48,6 +66,10 @@ export interface Harness {
 interface Live extends HarnessRun {
   grant: RunGrant;
   readonly controller: AbortController;
+  /** Outcomes core sent for this run's pending Actions (`effect.resolved`), until taken. */
+  readonly resolved: Map<string, ActionOutcome>;
+  /** Waiters for one of those outcomes, by effect id. */
+  readonly waiting: Map<string, (outcome: ActionOutcome) => void>;
 }
 
 export function createHarness(options: HarnessOptions): Harness {
@@ -67,6 +89,19 @@ export function createHarness(options: HarnessOptions): Harness {
   };
 
   channel.listen((method, params) => {
+    if (method === "effect.resolved") {
+      const { runId, effectId, outcome } = params as {
+        runId: string;
+        effectId: string;
+        outcome: ActionOutcome;
+      };
+      const run = live.get(runId);
+      if (!run) return;
+      const waiter = run.waiting.get(effectId);
+      if (waiter) waiter(outcome);
+      else run.resolved.set(effectId, outcome);
+      return;
+    }
     if (method !== "cancel") return;
     const { runId, reason, message } = params as {
       runId: string;
@@ -76,6 +111,30 @@ export function createHarness(options: HarnessOptions): Harness {
     const run = live.get(runId);
     if (run) abort(run, reason, message);
   });
+
+  /** Waits for core's outcome of a pending Action of `run`, at most `ms`, or until it aborts. */
+  const hold = (held: HarnessRun, effectId: string, ms: number) => {
+    const run = live.get(held.runId);
+    if (!run || ms <= 0) return Promise.resolve(undefined);
+    const known = run.resolved.get(effectId);
+    if (known) {
+      run.resolved.delete(effectId);
+      return Promise.resolve(known);
+    }
+    return new Promise<ActionOutcome | undefined>((resolve) => {
+      const done = (outcome: ActionOutcome | undefined) => {
+        clearTimeout(timer);
+        run.waiting.delete(effectId);
+        run.signal.removeEventListener("abort", aborted);
+        resolve(outcome);
+      };
+      const aborted = () => done(undefined);
+      const timer = setTimeout(() => done(undefined), ms);
+      timer.unref?.();
+      run.waiting.set(effectId, done);
+      run.signal.addEventListener("abort", aborted, { once: true });
+    });
+  };
   channel.onClose(() => {
     for (const run of live.values()) abort(run, "shutdown", "The Harness API connection closed");
   });
@@ -86,12 +145,14 @@ export function createHarness(options: HarnessOptions): Harness {
       channel.request("lease.renew", { runId: run.runId }).then(
         (answer) => {
           if (!answer.ok) abort(run, "ownership.lost");
-          else if (answer.token)
+          else if (answer.token && answer.token !== run.grant.token) {
             run.grant = {
               ...run.grant,
               token: answer.token,
               tokenExpiresAt: answer.tokenExpiresAt,
             };
+            options.onGrant?.(run.grant);
+          }
         },
         (error: unknown) => {
           if (!run.controller.signal.aborted)
@@ -108,10 +169,28 @@ export function createHarness(options: HarnessOptions): Harness {
 
   const begin = (grant: RunGrant, start: HarnessRun["start"]) => {
     const controller = new AbortController();
-    const run: Live = { runId: grant.runId, grant, start, controller, signal: controller.signal };
+    const run: Live = {
+      runId: grant.runId,
+      grant,
+      start,
+      controller,
+      signal: controller.signal,
+      resolved: new Map(),
+      waiting: new Map(),
+    };
     live.set(run.runId, run);
+    options.onGrant?.(grant);
     const stopRenewing = renew(run);
-    const done = runTurn({ channel, executors, cache }, run)
+    const done = runTurn(
+      {
+        channel,
+        executors,
+        cache,
+        hold,
+        ...(options.holdMs === undefined ? {} : { holdMs: options.holdMs }),
+      },
+      run,
+    )
       .catch((error: unknown) =>
         options.logger?.warn("harness run failed", {
           runId: run.runId,
@@ -156,9 +235,13 @@ export function createHarness(options: HarnessOptions): Harness {
         api: HARNESS_API_VERSION,
         name: options.name ?? "@nylorun/harness",
         version: options.version ?? "0",
-        capabilities: {},
+        capabilities:
+          options.capabilities?.workspace === undefined
+            ? {}
+            : { workspace: options.capabilities.workspace },
       });
       renewEveryMs = hello.renewEveryMs;
+      options.onHello?.(hello);
       lease();
     },
     async stop(waitMs = Infinity) {

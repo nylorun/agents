@@ -2,7 +2,7 @@
  * Lease renewal of an advance (§10.6). One beat renews the session's ownership lease and
  * re-mints the run token when it nears its end (F5, `run-grants.ts`). The harness asks for a
  * beat every `renewEveryMs` (`lease.renew`) and gets the current token back; until it holds the
- * run, and on the `NYLORUN_HARNESS_API=0` path, core beats itself (`startHeartbeat`).
+ * run, core beats itself (`startHeartbeat`).
  *
  * A lease that cannot be renewed drops the run token and aborts the advance with
  * `ownership.lost`. Once the advance is aborted (cancel, deadline, Worker stop) a beat renews

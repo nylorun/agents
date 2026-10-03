@@ -17,8 +17,11 @@
  * (`NYLORUN_OBJECT_STORE_*`) the Tenant's blobs go to it through the `s3` BlobStore, and a
  * process running core creates its bucket; without one they stay on disk (`fs`). A process
  * running the gates service (the local stack's `gateway` container) starts only the gate, and egress-gate with `egress` (`runGates`): it needs
- * neither host.json nor host-credentials.json, and reads the files a prompt names from the Object store. See the startup order in `main()`. Tests compose a Host without this
- * entry, with `createHost` and an injected Tenant module.
+ * neither host.json nor host-credentials.json, and reads the files a prompt names from the Object store. A process running the harness service (`--service harness`, F6.2)
+ * starts only the harness (`harness/main.ts`), which connects to core's Harness API. With `NYLORUN_HARNESS=remote`
+ * the Tenant runs no harness of its own: core starts the Harness API listener (`NYLORUN_HARNESS_LISTEN_*`) and
+ * harnesses that present `NYLORUN_HARNESS_TOKEN` run its segments and hold its workspaces. See the startup order
+ * in `main()`. Tests compose a Host without this entry, with `createHost` and an injected Tenant module.
  */
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -58,6 +61,8 @@ import { httpModelGate } from "../gates/http-client.js";
 import type { ObjectStoreConfig, StackConfig } from "./stack-config.js";
 import { createS3BlobStore, type S3BlobStore } from "../blob/index.js";
 import { createRunGrants } from "../tenant/run-grants.js";
+import { runHarness } from "../harness/main.js";
+import { startHarnessListener, type HarnessListener } from "../harness-api/ws-server.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -191,6 +196,7 @@ export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
   if (stack.services.has("gates") || stack.services.has("keys") || stack.services.has("egress"))
     return runGates(stack);
+  if (stack.services.has("harness")) return runHarness(stack, baselineEnvironment(process.env));
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
@@ -234,6 +240,7 @@ export async function main(): Promise<void> {
     ...(stack.services.has("loop")
       ? { modelGate: stack.modelGate ? stack.modelGate.url : "in-process" }
       : {}),
+    harness: stack.harnessMode ?? "in-process",
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "fs",
@@ -251,7 +258,6 @@ export async function main(): Promise<void> {
     logger,
     baseline,
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
-    ...(stack.harnessApi === undefined ? {} : { harnessApi: stack.harnessApi }),
   });
 
   // The process's Durable Session Execution: Restate when its endpoints are set, else the
@@ -337,6 +343,7 @@ export async function main(): Promise<void> {
           ...(keys ? { keys } : {}),
           ...(streams ? { streams, hostRelay: true } : {}),
           ...(blobs ? { blobs } : {}),
+          ...(stack.harnessMode === "remote" ? { harness: "remote" as const } : {}),
           ...opened,
         }),
     }),
@@ -375,8 +382,12 @@ export async function main(): Promise<void> {
       beforeTenants: async () => {
         await hostExecution.stop();
         await relay?.stop();
+        // The harnesses' runs stop with the Tenant's advances; their connections close after.
       },
-      afterTenants: () => infra.close(),
+      afterTenants: async () => {
+        await harnessListener?.close();
+        await infra.close();
+      },
     },
   };
   const host = createHost(options);
@@ -392,10 +403,25 @@ export async function main(): Promise<void> {
   // Restate's state (§14.8), and starts the stream relay. A Tenant that cannot
   // be opened leaves the Host listening but not ready, with the cause in
   // `/v1/admin/status`.
+  // The Harness API listener (NYLORUN_HARNESS=remote): only harnesses connect here, with the
+  // harness credential, and only while the Tenant is open.
+  let harnessListener: HarnessListener | undefined;
   try {
     await hostExecution.start();
+    if (stack.harnessListener)
+      harnessListener = await startHarnessListener({
+        ...stack.harnessListener.listen,
+        token: stack.harnessListener.token,
+        attach: async () => {
+          const resolved = await module.resolve();
+          const handle = resolved.kind === "open" ? resolved.handle : undefined;
+          return handle?.attachHarness ? (channel, peer) => handle.attachHarness!(channel, peer) : undefined;
+        },
+        logger,
+      });
     await host.listen();
   } catch (error) {
+    await harnessListener?.close().catch(() => undefined);
     await hostExecution.stop().catch(() => undefined);
     await module.close().catch(() => undefined);
     await relay?.stop().catch(() => undefined);
@@ -414,6 +440,7 @@ export async function main(): Promise<void> {
   const tenant = module.tenant();
   logger.info("host_ready", {
     url: host.url,
+    ...(harnessListener ? { harness: harnessListener.url } : {}),
     hostId: config.hostId,
     tenantId: tenant.id,
     tenant: tenant.state,

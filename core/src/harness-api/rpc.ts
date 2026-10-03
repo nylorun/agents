@@ -6,7 +6,7 @@
  * Frames: `{t:"req",id,m,p}`, `{t:"res",id,ok,r|e:{code,message}}`, `{t:"msg",m,p}`,
  * `{t:"abort",id}` (the requester gave up), `{t:"ping"}`.
  */
-import type { HarnessErrorCode, HarnessMethod, ParamsOf, ResultOf } from "./messages.js";
+import type { CoreMethod, HarnessErrorCode, HarnessMethod, ParamsOf, ResultOf } from "./messages.js";
 import { HARNESS_ERROR_CODES } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
 import { validateFrame, validateMessage, validateParams, validateResult } from "./schema.js";
@@ -36,7 +36,12 @@ export type RequestHandler = (method: string, params: unknown, signal: AbortSign
 export type MessageListener = (method: string, params: unknown) => void;
 
 export interface HarnessChannel {
-  request<M extends HarnessMethod>(method: M, params: ParamsOf<M>, signal?: AbortSignal): Promise<ResultOf<M>>;
+  /** A request to the other side: a harness asks core (`HarnessMethod`), core asks a harness (`CoreMethod`). */
+  request<M extends HarnessMethod | CoreMethod>(
+    method: M,
+    params: ParamsOf<M>,
+    signal?: AbortSignal
+  ): Promise<ResultOf<M>>;
   /** A one-way message. Dropped once the channel is closed. */
   notify(method: string, params: unknown): void;
   /** Answers the other side's requests. One handler per channel. */

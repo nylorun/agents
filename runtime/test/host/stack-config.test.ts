@@ -93,7 +93,7 @@ describe("parseServices", () => {
   it("rejects unknown, later, empty and repeated services", () => {
     expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
     expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
-    expect(() => parseServices(["--service", "harness"])).toThrow(/not in this release/);
+    expect(() => parseServices(["--service", "sandboxd"])).toThrow(/not in this release/);
     expect(() => parseServices(["--service", "core,,loop"])).toThrow(/empty entry/);
     expect(() => parseServices(["--service", "core,core"])).toThrow(/twice/);
   });
@@ -441,12 +441,88 @@ describe("NYLORUN_BROWSER_ACCESS", () => {
   });
 });
 
-describe("NYLORUN_HARNESS_API", () => {
-  it("is absent by default, and 1 or 0 when set", () => {
-    expect(parseStackConfig({}, []).harnessApi).toBeUndefined();
-    expect(parseStackConfig({ NYLORUN_HARNESS_API: "1" }, []).harnessApi).toBe(true);
-    expect(parseStackConfig({ NYLORUN_HARNESS_API: "0" }, []).harnessApi).toBe(false);
-    expect(() => parseStackConfig({ NYLORUN_HARNESS_API: "off" }, [])).toThrow(StackConfigError);
+const HARNESS_TOKEN = "ab".repeat(32);
+
+describe("NYLORUN_HARNESS (F6.2)", () => {
+  it("runs the harness in process by default", () => {
+    expect(parseStackConfig({}, []).harnessMode).toBeUndefined();
+    expect(parseStackConfig({ NYLORUN_HARNESS: "in-process" }, [])).toMatchObject({ harnessMode: "in-process" });
+    expect(parseStackConfig({}, []).harnessListener).toBeUndefined();
+    expect(() => parseStackConfig({ NYLORUN_HARNESS: "elsewhere" }, [])).toThrow(StackConfigError);
+  });
+
+  it("starts the Harness API listener for remote harnesses, with its own credential", () => {
+    const stack = parseStackConfig(
+      {
+        NYLORUN_HARNESS: "remote",
+        NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN,
+        NYLORUN_HARNESS_ALLOWED_HOSTS: "runtime:4200",
+      },
+      []
+    );
+    expect(stack.harnessListener).toEqual({
+      listen: {
+        host: "0.0.0.0",
+        port: 4200,
+        allowedHosts: ["runtime:4200", "localhost:4200", "127.0.0.1:4200", "[::1]:4200"],
+      },
+      token: HARNESS_TOKEN,
+    });
+    expect(() => parseStackConfig({ NYLORUN_HARNESS: "remote", NYLORUN_HARNESS_ALLOWED_HOSTS: "runtime:4200" }, [])).toThrow(
+      /NYLORUN_HARNESS_TOKEN is required/
+    );
+    expect(() => parseStackConfig({ NYLORUN_HARNESS: "remote", NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN }, [])).toThrow(
+      /NYLORUN_HARNESS_ALLOWED_HOSTS is required/
+    );
+    expect(() =>
+      parseStackConfig(
+        { NYLORUN_HARNESS: "remote", NYLORUN_HARNESS_TOKEN: "short", NYLORUN_HARNESS_LISTEN_HOST: "127.0.0.1" },
+        []
+      )
+    ).toThrow(/at least 32 bytes/);
+  });
+});
+
+describe("--service harness", () => {
+  const base = {
+    NYLORUN_HARNESS_URL: "ws://runtime:4200/nylorun/harness/v1",
+    NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN,
+    NYLORUN_GATES_URL: "http://gateway:4100",
+  };
+
+  it("runs alone, and reads where core and the gates are", () => {
+    expect(parseStackConfig(base, ["--service", "harness"]).harness).toEqual({
+      url: base.NYLORUN_HARNESS_URL,
+      token: HARNESS_TOKEN,
+      gatesUrl: "http://gateway:4100",
+      root: "/harness",
+      healthPort: 4300,
+    });
+    expect(() => parseServices(["--service", "harness,core"])).toThrow(/may not share a process/);
+    expect(() => parseServices(["--service", "harness,gates"])).toThrow(/may not share a process/);
+  });
+
+  it.each([
+    ["NYLORUN_DATABASE_URL", "postgres://postgres@postgres:5432/nylorun"],
+    ["NYLORUN_GATES_TOKEN", "cd".repeat(32)],
+    ["NYLORUN_KEYS_URL", "http://gateway:4100"],
+    ["NYLORUN_RESTATE_INGRESS_URL", "http://restate:8080"],
+    ["NYLORUN_RESTATE_ADMIN_URL", "http://restate:9070"],
+  ])("refuses to start with %s set", (name, value) => {
+    expect(() => parseStackConfig({ ...base, [name]: value }, ["--service", "harness"])).toThrow(
+      new RegExp(`refuses to start with ${name}`)
+    );
+  });
+
+  it("requires its URL, token and the gates", () => {
+    for (const name of ["NYLORUN_HARNESS_URL", "NYLORUN_HARNESS_TOKEN", "NYLORUN_GATES_URL"]) {
+      const env: Record<string, string> = { ...base };
+      delete env[name];
+      expect(() => parseStackConfig(env, ["--service", "harness"])).toThrow(new RegExp(`${name} is required`));
+    }
+    expect(() =>
+      parseStackConfig({ ...base, NYLORUN_HARNESS_URL: "http://runtime:4200" }, ["--service", "harness"])
+    ).toThrow(/NYLORUN_HARNESS_URL must use ws or wss/);
   });
 });
 

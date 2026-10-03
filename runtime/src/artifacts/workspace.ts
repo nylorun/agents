@@ -3,8 +3,9 @@
  * export its outputs as a folder artifact. Two calls, a listing and one file's bytes, both the
  * claim of whoever holds the workspace: the Runtime stores what it is given without observing it.
  *
- * Today one implementation, `sandboxWorkspaceReader`, over the in-process `SandboxManager` (the
- * virtual backend). F6.2 reimplements it over the Harness API's `workspace.read`, and F7.2's pod
+ * One implementation, `sandboxWorkspaceReader`, over the workspace capability (F6.2,
+ * `harness-api/workspace.ts`): the in-process `SandboxManager`, or the harness that serves the
+ * Tenant's workspaces (`workspace.read`). F6.2 reimplements it over the Harness API's `workspace.read`, and F7.2's pod
  * sandboxes are read through the same seam, so the export never knows which kind of sandbox it
  * reads.
  */
@@ -13,6 +14,9 @@ import {
   type AgentManifest,
 } from "@nylorun/core/define";
 import { sandboxCapabilityOf, type SandboxManager } from "../sandbox/manager.js";
+
+/** What the reader needs of a workspace: a `SandboxManager`, or the workspace capability. */
+export type WorkspaceFiles = Pick<SandboxManager, "listFiles" | "readBytes">;
 import { SandboxFileTooLargeError } from "../sandbox/types.js";
 
 /** Whose workspace to read: the session whose turn ended, resolved to the workspace it uses. */
@@ -64,8 +68,8 @@ export interface WorkspaceReader {
   ): Promise<Uint8Array | undefined>;
 }
 
-/** The reader over this process's `SandboxManager`, in each sandbox's queue of tool calls. */
-export function sandboxWorkspaceReader(sandbox: SandboxManager): WorkspaceReader {
+/** The reader over the workspaces, in each sandbox's queue of tool calls. */
+export function sandboxWorkspaceReader(sandbox: WorkspaceFiles): WorkspaceReader {
   const target = (session: WorkspaceSession) => {
     const capability = sandboxCapabilityOf(session.manifest, SANDBOX_CAPABILITY_ID, "read");
     if (!capability) return undefined;
