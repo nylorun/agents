@@ -36,6 +36,13 @@
       "when": 1791033032750,
       "tag": "0004_sandbox_resources",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791038725360,
+      "tag": "0005_artifacts",
+      "breakpoints": true
     }
   ]
 }

@@ -115,7 +115,14 @@ export function historyOf(events: readonly LiveEvent[], contextId: string, taskI
         add(
           clientMessageId(event),
           "ROLE_USER",
-          ["content" in payload ? { text: String(payload.content) } : valuePart(payload.data)]
+          "content" in payload
+            ? [{ text: String(payload.content) }]
+            : Array.isArray(payload.parts)
+            ? // Parts (protocol 6): text as text, a file part as its artifact reference.
+              payload.parts.map((part: { type?: string; text?: unknown }) =>
+                part.type === "text" ? valuePart(part.text) : valuePart(part)
+              )
+            : [valuePart(payload.data)]
         );
         break;
       case "command.respond":

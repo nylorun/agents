@@ -114,7 +114,12 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
 
   app.use(async (c, next) => {
     const { incoming } = c.env;
-    if (requestHasBody(incoming) && !isJsonContentType(headerValue(incoming, "content-type")))
+    if (
+      requestHasBody(incoming) &&
+      !isJsonContentType(headerValue(incoming, "content-type")) &&
+      // An artifact upload's body is the file itself, of any type.
+      tenantRouteOf(incoming)?.bytes !== true
+    )
       return rejectedResponse(
         415,
         "unsupported_media_type",
@@ -184,7 +189,12 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
     const named =
       tenantHeader === undefined || tenantHeader.trim() === "" ? undefined : tenantHeader.trim();
 
-    if (!protocolAccepted(headerValue(incoming, PROTOCOL_HEADER)))
+    const protocol = headerValue(incoming, PROTOCOL_HEADER);
+    // A capability link is opened without the header; when one is sent, it is checked.
+    if (
+      !protocolAccepted(protocol) &&
+      !(protocol === undefined && tenantRouteOf(incoming)?.unversioned === true)
+    )
       return protocolRejectedResponse();
 
     const resolution = await module.resolve();
@@ -237,6 +247,20 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
 /** A route a browser page may call, decided from the route alone (`api/http/define.ts`). */
 function browserRoute(method: string, segments: readonly string[]): boolean {
   return findTenantRoute(method, segments)?.browser === true;
+}
+
+/** The Tenant route a request names, if any; a malformed path names none. */
+function tenantRouteOf(incoming: IncomingMessage) {
+  const segments: string[] = [];
+  for (const segment of pathnameOf(incoming).split("/").filter(Boolean)) {
+    try {
+      segments.push(decodeURIComponent(segment));
+    } catch {
+      return undefined;
+    }
+  }
+  if (segments[0] !== "v1" || segments[1] === "admin") return undefined;
+  return findTenantRoute(incoming.method ?? "GET", segments);
 }
 
 /** The answer's status: a Response's, or the Node response's when it was written there. */

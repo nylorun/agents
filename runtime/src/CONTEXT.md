@@ -236,10 +236,44 @@ _Avoid_: "executor key" (removed in protocol 3).
 **Admin key**: Host-level secret in `host-credentials.json` (mode 0600).
 Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
 
+**File artifact**: A file a client uploaded or our engine saved (`artifacts/`, protocol 6): an
+`af_` id, a name, a kind (`file`) and numbered immutable versions, each with its size, SHA-256,
+media type and source (`upload` or `engine`). Rows in `artifacts` and `artifact_versions`; bytes
+in the Object store at a random key per version, counted once the version's row commits. It
+belongs to a session (and goes with it on a sessions reset) or, made by an application, to the
+Tenant. An upload is one streamed request (`POST /v1/artifacts`, `POST
+/v1/artifacts/{id}/versions`) within the Tenant's **artifact limits** (`artifacts.config`:
+`fileBytes`, default 100 MiB; `totalBytes`, default 10 GiB; `413 limit_exceeded` past either,
+with nothing stored). Downloads stream through core with Range. A session's artifacts are in its
+history as `artifact.created`, `artifact.version.created` and `artifact.deleted`. A subject
+reaches only the artifacts of their own sessions (`artifacts/service.ts`).
+_Avoid_: "media", "asset" or "attachment" for it; `MediaStore` (removed).
+
+**Capability link**: A short-lived URL that downloads one artifact version with no credential
+and no `Nylorun-Protocol` (`GET /v1/artifact-links/<token>`, minted by `POST
+/v1/artifacts/{id}/links`): an ES256 JWT (`typ: nylorun-artifact+jwt`, `aud: nylorun-artifact`,
+`sub` the artifact, `ver` the version) signed by the keys service with the Tenant's signing key,
+at most 15 minutes, opening nothing once the artifact is deleted (`artifacts/links.ts`). The
+Host's request log shows its path as `/v1/artifact-links/:token`.
+_Avoid_: "presigned URL" (the Object store's own URLs never leave the Runtime).
+
+**Message parts**: A user message's `parts` (protocol 6): `text`, and `file` naming an artifact
+the caller may read, of the session or Tenant-wide, at a version or its latest. The commands
+service pins each file to a version and gives the engine an opaque media part whose reference is
+`{ artifactId, version }`; model-gate reads the bytes (`artifacts/files.ts`) only for the call's
+session, the run token's on the gate's route, and reads none for a call without one, so the
+transcript and the record hold only the reference. An image becomes image input, a text file text, and
+another file a refused call (`invalid_request`).
+
+**`save_artifact`**: Our engine's built-in tool (`nylorun.artifacts` capability, added beside the
+sandbox capability to a session with a sandbox): it saves a sandbox file (`path`) or text
+(`content`) as a file artifact of its session, with its turn and tool call on the event
+(`tenant/artifact-tool.ts`).
+
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 5`; the Host serves 4 and 5; required features
-`admin-status`, `studio-principal` and `action-endpoints`, and the Host still advertises
-`runtime-tenants` for protocol 4 clients; optional Host features
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 6`; the Host serves 4, 5 and 6; required features
+`admin-status`, `studio-principal`, `action-endpoints` and `artifacts`, and the Host still
+advertises `runtime-tenants` for protocol 4 clients; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
 `subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint` and
 `a2a-endpoint`).
@@ -314,7 +348,7 @@ One line each; the module named is where the term lives in code.
 - **Migration**: One step of the Tenant database's schema: a SQL file drizzle-kit generated from `schema.ts`, or custom SQL for what it does not model (the schemas, `doc()`, the relay's publication). The Host applies the missing ones at startup under an advisory lock and records them in `nylorun.__drizzle_migrations`; a database holding one this Runtime does not ship is `schema-too-new`. The schema version is the number applied (`store/postgres/migrate.ts`).
 - **Durable Session Execution**: Delivers wakes, runs at most one advance per session, and arms the Tenant sweep; Restate (`execution/types.ts`, `adapters/execution/restate.ts`).
 - **Durable Streams**: One ordered, resumable stream per session plus `tenant/control`; S2 (`streams/types.ts`, `adapters/streams/s2.ts`).
-- **Object store**: Where the Tenant's file bytes live, behind the `BlobStore` seam (`blob/types.ts`): the `s3` adapter over the plain S3 API (`blob/s3.ts`; RustFS in the local stack, `NYLORUN_OBJECT_STORE_*`), or the `fs` adapter under `TenantPaths.blobs` without one (`blob/fs.ts`). Tenant code reaches it as `ctx.blobs`. Postgres stays the record: a blob counts only once a committed row names its key.
+- **Object store**: Where the Tenant's file bytes live, behind the `BlobStore` seam (`blob/types.ts`): the `s3` adapter over the plain S3 API (`blob/s3.ts`; RustFS in the local stack, `NYLORUN_OBJECT_STORE_*`), or the `fs` adapter under `TenantPaths.blobs` without one (`blob/fs.ts`). Tenant code reaches it as `ctx.blobs`; model-gate builds its own from the same configuration to read the files a prompt names. Postgres stays the record: a blob counts only once a committed row names its key (a file artifact's version).
 - **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
 - **SessionStream**: The shared read of one observed session's stream in this process, followed by that session's SSE and in-process clients, each from its own next sequence (`tenant/session-streams.ts`).
 - **Advance**: One run of a session's current segment under ownership: load the checkpoint, run the engine, settle (`tenant/advance.ts`).
