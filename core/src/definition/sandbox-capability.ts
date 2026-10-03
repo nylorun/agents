@@ -20,7 +20,8 @@ export const SAVE_ARTIFACT_TOOL = "save_artifact";
 
 const ARTIFACTS_INSTRUCTIONS =
   "Use save_artifact to hand the user a file you made: a path in the sandbox, or text you pass as content. " +
-  "The user sees it as an artifact of this session and can download it; reply with its name, not its bytes.";
+  "The user sees it as an artifact of this session and can download it; reply with its name, not its bytes. " +
+  "Files you write under /workspace/outputs reach the user too: when your turn ends, they become the session's outputs folder.";
 
 async function artifactsRuntimeOnly(): Promise<never> {
   throw new ToolError(

@@ -95,6 +95,14 @@ const workspaceBytes = z
   })
   .strict();
 
+const workspaceList = z
+  .object({
+    session: workspaceCall.shape.session,
+    spec: z.unknown(),
+    list: z.object({ dir: z.string().min(1), maxEntries: z.number().int().positive() }).strict(),
+  })
+  .strict();
+
 const grant = z
   .object({
     runId: id,
@@ -234,7 +242,7 @@ const requests: Record<string, { params: z.ZodType; result: z.ZodType }> = {
   "turn.waiting": { params: TurnOutputSchema, result: settled },
   "turn.failed": { params: TurnOutputSchema, result: settled },
   checkpoint: { params: TurnOutputSchema, result: settled },
-  "workspace.read": { params: z.union([workspaceCall, workspaceBytes]), result: outcomeObject },
+  "workspace.read": { params: z.union([workspaceCall, workspaceBytes, workspaceList]), result: outcomeObject },
   "workspace.write": { params: workspaceCall, result: outcomeObject },
   "workspace.exec": { params: workspaceCall, result: outcomeObject },
   "workspace.report": { params: empty, result: outcomeObject },

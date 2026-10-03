@@ -470,6 +470,28 @@ refuse a larger upload with `413 limit_exceeded`, and nothing is stored. Acting 
 a person (`as()`, a subject token), a client reaches only the artifacts of that
 person's sessions, and an upload names one of them.
 
+### Outputs: folder artifacts
+
+At the end of each turn, the Runtime exports the files the agent wrote into
+`/workspace/outputs` of its sandbox as a version of the session's **folder**
+artifact `outputs` (kind `folder`): the first export creates it, and each later
+turn whose outputs changed adds a version, announced by `artifact.created` or
+`artifact.version.created` with `source: "export"`. A file that did not change is
+stored once. Read a folder as a tree, one file by path, a diff or a zip:
+
+```ts
+const outputs = (await client.artifacts.list({ sessionId })).find((a) => a.kind === "folder");
+const { entries } = await client.artifacts.tree(outputs.artifactId); // [{ path, size, sha256, contentType }]
+const page = await client.artifacts.file(outputs.artifactId, "app/index.html", { range: { start: 0 } });
+const { added, removed, changed } = await client.artifacts.diff(outputs.artifactId, { from: 1 });
+const zip = await client.artifacts.zip(outputs.artifactId); // a streamed Response
+const { url } = await client.artifacts.link(outputs.artifactId, { file: "app/index.html" }); // or the zip without `file`
+```
+
+An export past a limit (10,000 files, 1 GiB, the per-file limit or the Tenant
+total) stores nothing and records `artifact.export.skipped`; the turn still
+completes.
+
 ## Acting for a person (app servers)
 
 A server that signs people in and calls the Runtime for them (an "app server")

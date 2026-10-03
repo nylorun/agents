@@ -776,10 +776,29 @@ export interface Tx {
    * reading the total a new version must fit under.
    */
   lockArtifactQuota(): Promise<void>;
-  /** The bytes every artifact version holds. */
+  /**
+   * The bytes the artifacts store: every file version, plus each distinct content-addressed file
+   * of the folders once (F8.2).
+   */
   artifactBytes(): Promise<number>;
-  /** The blob keys of every artifact version: of session artifacts only, or of all of them. */
+  /**
+   * The blob keys of every artifact version (a folder's: its manifests): of session artifacts
+   * only, or of all of them.
+   */
   artifactBlobKeys(scope: "sessions" | "all"): Promise<string[]>;
+  /** Records the distinct content-addressed files a folder version references (F8.2). */
+  insertArtifactContent(
+    artifactId: string,
+    version: number,
+    files: readonly { sha256: string; size: number }[],
+  ): Promise<void>;
+  /** Those of `shas` some committed folder version references. */
+  referencedArtifactContent(shas: readonly string[]): Promise<Set<string>>;
+  /**
+   * The distinct content-addressed files folder versions reference: of one artifact, of session
+   * artifacts only, or of all of them.
+   */
+  artifactContentShas(scope: "sessions" | "all" | { artifactId: string }): Promise<string[]>;
 
   // --- tenant settings (non-secret) -----------------------------------------
 

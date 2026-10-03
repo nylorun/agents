@@ -11,6 +11,7 @@ import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantPaths } from "./types.js";
 import { detachAllSessions } from "./sandboxes.js";
 import type { BlobStore } from "../blob/index.js";
+import { contentKey } from "../artifacts/folders.js";
 
 export type { ResetScope } from "../store/types.js";
 
@@ -72,8 +73,13 @@ export async function resetTenant(
   const blobKeys = await ctx.store.tx(async (t) => {
     // Sandbox resources outlive their sessions: a sessions reset only detaches them.
     if (clearSessions && !clearSandboxes) await detachAllSessions(t);
-    const keys = clearSessions ? await t.artifactBlobKeys(clearAll ? "all" : "sessions") : [];
+    const scoped = clearAll ? "all" : "sessions";
+    const keys = clearSessions ? await t.artifactBlobKeys(scoped) : [];
+    // Folders' content-addressed files: those no remaining folder names (F8.2).
+    const content = clearSessions ? await t.artifactContentShas(scoped) : [];
     await t.reset(scope);
+    const kept = await t.referencedArtifactContent(content);
+    for (const sha of content) if (!kept.has(sha)) keys.push(contentKey(sha));
     return keys;
   });
 

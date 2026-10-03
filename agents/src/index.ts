@@ -100,6 +100,9 @@ export type {
   ArtifactVersionView,
   ArtifactLink,
   UploadArtifactResponse,
+  ArtifactTree,
+  ArtifactDiff,
+  FolderEntry,
 } from "@nylorun/core/contracts";
 export { SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";

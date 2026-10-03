@@ -265,13 +265,28 @@ export interface WorkspaceBytesCall {
 }
 
 /**
+ * The regular files under a directory of a workspace, recursively, at most `maxEntries + 1`
+ * (the turn-end export, F8.2). The answer is `{kind: "listed", path, listing: {entries,
+ * truncated}}`, `{kind: "missing", path}` (no sandbox yet, or not a directory) or a failed tool
+ * outcome.
+ */
+export interface WorkspaceListCall {
+  readonly session: WorkspaceSession;
+  readonly spec: unknown;
+  readonly list: { readonly dir: string; readonly maxEntries: number };
+}
+
+/**
  * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
  * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `sandbox.*` events
  * while the request is in flight. `workspace.read` stays generic: F8.2 exports outputs
  * through it.
  */
 export interface CoreRequests {
-  "workspace.read": { params: WorkspaceCall | WorkspaceBytesCall; result: Record<string, unknown> };
+  "workspace.read": {
+    params: WorkspaceCall | WorkspaceBytesCall | WorkspaceListCall;
+    result: Record<string, unknown>;
+  };
   "workspace.write": { params: WorkspaceCall; result: Record<string, unknown> };
   "workspace.exec": { params: WorkspaceCall; result: Record<string, unknown> };
   /** The harness's sandbox selection report (`GET /v1/tenant/sandbox`, Tenant status). */

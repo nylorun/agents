@@ -102,7 +102,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `POST /v1/admin/host/shutdown` | admin key | Host-private; not in `@nylorun/admin` |
 | `GET /v1/admin/openapi.json` | admin key | The Admin API's OpenAPI 3.2 document |
 | `/v1/*` Tenant routes | application key, subject token or delivery token | Require `Nylorun-Protocol`; nothing names the Tenant |
-| `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported |
+| `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported; a folder's link opens its zip, or one of its files |
 
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
 with `415 unsupported_media_type`, except an artifact upload (`POST /v1/artifacts`,
@@ -114,7 +114,10 @@ from the route alone, and the Tenant admits an `Origin` only with a publishable
 key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant keys
 and delivery tokens are refused from browsers before they are looked up. Missing or
 unsupported protocol → `426` before authentication (the Host serves protocols 4, 5 and 6;
-protocol 6 adds file artifacts and message `parts`). Protocol 5 and 6 clients name no Tenant. A protocol 4 client's `Nylorun-Tenant` naming
+protocol 6 adds file and folder artifacts and message `parts`; at each turn's end the
+Runtime exports `/workspace/outputs` of the session's sandbox as a version of its
+`outputs` folder, read at `/v1/artifacts/{id}/versions/{n|latest}/tree`, `/files/{path}`,
+`/diff?from=` and `/zip`). Protocol 5 and 6 clients name no Tenant. A protocol 4 client's `Nylorun-Tenant` naming
 another Tenant (or malformed), a publishable key of another Tenant, a Tenant that
 could not be opened and rejected credentials → opaque `404` with identical body. A path or method no route serves is `404 Route not found`
 once the caller is known.

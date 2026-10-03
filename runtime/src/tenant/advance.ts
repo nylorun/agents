@@ -68,6 +68,7 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
+import { exportOutputs } from "../artifacts/export.js";
 import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
@@ -342,6 +343,8 @@ async function runRemoteSegment(
       );
     }
     end.reply(cursor === undefined ? {} : { cursor });
+    // F8.2: once the turn has committed, export its sandbox outputs. Never throws.
+    if (result.status === "completed") await exportOutputs(ctx, lease.sessionId, started.activeTurnId, signal);
   } catch (error) {
     if (end?.kind === "output") end.refuse(error);
     if (

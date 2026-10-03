@@ -5,7 +5,7 @@
  * service, like subject and delivery tokens: `sub` is the artifact, `ver` the version, `aud`
  * `nylorun-artifact`, and it lives at most `ARTIFACT_LINK_MAX_TTL_SECONDS` (the subject-token
  * maximum, so a key rotation never revokes a live link). A link opens nothing once its artifact
- * is deleted.
+ * is deleted. A folder's link (F8.2) opens its zip, or with a `path` claim one of its files.
  */
 import { randomUUID } from "node:crypto";
 import { errors, jwtVerify } from "jose";
@@ -29,12 +29,14 @@ export interface MintedArtifactLink {
   path: string;
   artifactId: string;
   version: number;
+  /** The folder's file the link opens. */
+  file?: string;
   expiresAt: string;
 }
 
 export async function mintArtifactLink(
   ctx: TenantContext,
-  link: { artifactId: string; version: number; expiresIn?: number },
+  link: { artifactId: string; version: number; expiresIn?: number; file?: string },
 ): Promise<MintedArtifactLink> {
   const ttl = Math.max(
     1,
@@ -52,6 +54,7 @@ export async function mintArtifactLink(
       aud: ARTIFACT_LINK_AUDIENCE,
       sub: link.artifactId,
       ver: link.version,
+      ...(link.file === undefined ? {} : { path: link.file }),
       iat,
       exp: iat + ttl,
       jti: randomUUID(),
@@ -61,6 +64,7 @@ export async function mintArtifactLink(
     path: `${ARTIFACT_LINK_PATH}/${token}`,
     artifactId: link.artifactId,
     version: link.version,
+    ...(link.file === undefined ? {} : { file: link.file }),
     expiresAt: new Date((iat + ttl) * 1000).toISOString(),
   };
 }
@@ -72,7 +76,7 @@ export async function mintArtifactLink(
 export async function verifyArtifactLink(
   ctx: TenantContext,
   raw: string,
-): Promise<{ artifactId: string; version: number }> {
+): Promise<{ artifactId: string; version: number; file?: string }> {
   const checked = tokenKeyId(raw, ARTIFACT_LINK_TOKEN_TYPE);
   if ("refused" in checked) return refused(ctx, `artifact_link_${checked.refused}`);
   const row = await ctx.store.tx((t) => t.signingKey(checked.kid));
@@ -93,16 +97,23 @@ export async function verifyArtifactLink(
     return refused(ctx, "artifact_link_invalid");
   }
   if (row.state === "revoked") expired(ctx, "artifact_link_key_revoked");
-  const { sub, ver, exp, iat } = claims as { sub: unknown; ver: unknown; exp: number; iat: number };
+  const { sub, ver, path, exp, iat } = claims as {
+    sub: unknown;
+    ver: unknown;
+    path: unknown;
+    exp: number;
+    iat: number;
+  };
   if (
     !isArtifactId(sub) ||
     typeof ver !== "number" ||
     !Number.isInteger(ver) ||
     ver < 1 ||
+    (path !== undefined && (typeof path !== "string" || path === "")) ||
     exp - iat > ARTIFACT_LINK_MAX_TTL_SECONDS
   )
     return refused(ctx, "artifact_link_claims");
-  return { artifactId: sub, version: ver };
+  return { artifactId: sub, version: ver, ...(typeof path === "string" ? { file: path } : {}) };
 }
 
 function refused(ctx: TenantContext, reason: string): never {

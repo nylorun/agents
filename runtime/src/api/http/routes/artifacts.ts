@@ -1,21 +1,29 @@
 /**
- * File artifacts (`/v1/artifacts/**`, protocol 6): upload a file in one streamed request (a new
+ * Artifacts (`/v1/artifacts/**`, protocol 6): upload a file in one streamed request (a new
  * artifact, or a new version of one), list and read them, download a version with HTTP Range
  * through the Runtime, mint a capability link, and delete. `GET /v1/artifact-links/{token}`
  * opens a capability link with no other credential and no `Nylorun-Protocol`. The Tenant's
  * limits are `GET`/`PUT /v1/tenant/artifacts`.
  *
+ * Folders (F8.2) come from turn-end exports: a version's tree, one file by path (with Range), a
+ * diff between two versions and a streamed zip. A folder's capability link opens its zip, or
+ * one file when minted with `file`.
+ *
  * Acting for a person, a caller reaches only the artifacts of that person's sessions, as it
  * reaches only their sessions.
  */
+import { posix } from "node:path";
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import {
   ArtifactLabelsSchema,
   CreateArtifactLinkRequestSchema,
   PutTenantArtifactsRequestSchema,
+  type FolderManifest,
 } from "@nylorun/core/contracts";
 import {
+  ArtifactDiff,
+  ArtifactTree,
   ArtifactLink,
   ArtifactView,
   CreateArtifactLinkRequest,
@@ -31,11 +39,14 @@ import {
   readArtifactsConfig,
   writeArtifactsConfig,
 } from "../../../artifacts/config.js";
+import { contentKey, diffManifests, entryAt, readManifest } from "../../../artifacts/folders.js";
 import { mintArtifactLink, verifyArtifactLink } from "../../../artifacts/links.js";
+import { zipStream, zipTooLarge } from "../../../artifacts/zip.js";
 import { normalizeContentType } from "../../../artifacts/media-types.js";
 import {
   artifactContent,
   deleteArtifact,
+  folderContent,
   getArtifact,
   listArtifacts,
   readableArtifact,
@@ -166,21 +177,49 @@ export function parseRange(
   return { start, end };
 }
 
-/** `inline; filename=…`, with an ASCII fallback and the UTF-8 name. */
-function disposition(name: string): string {
+/** `inline; filename=…` (or `attachment`), with an ASCII fallback and the UTF-8 name. */
+function disposition(name: string, type: "inline" | "attachment" = "inline"): string {
   const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
-  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+/** One file to serve: a file artifact's version, or a file of a folder version. */
+interface ServedFile {
+  /** The download's file name. */
+  readonly name: string;
+  readonly blobKey: string;
+  readonly size: number;
+  readonly sha256: string;
+  readonly contentType: string;
+}
+
+/** A file artifact's version, to serve; a folder is a 400 (its files, tree and zip serve it). */
+function fileOf(artifact: ArtifactRow, version: ArtifactVersionRow): ServedFile {
+  if (artifact.kind !== "file")
+    fail(400, `Artifact ${artifact.id} is a folder; read its tree, its files or its zip`);
+  return { ...version, name: artifact.name };
+}
+
+/** A folder's file at `path`, to serve. */
+function folderFile(manifest: FolderManifest, path: string): ServedFile {
+  const entry = entryAt(manifest, path);
+  return {
+    name: posix.basename(entry.path),
+    blobKey: contentKey(entry.sha256),
+    size: entry.size,
+    sha256: entry.sha256,
+    contentType: entry.contentType,
+  };
 }
 
 /**
- * The version's bytes, streamed from the Object store: the whole file, or the one range asked
+ * The file's bytes, streamed from the Object store: the whole file, or the one range asked
  * for (`206`, `Content-Range`), or `416` when it starts past the end. Served so a browser never
  * runs it as a page of the Runtime's origin.
  */
 async function contentResponse(
   ctx: TenantContext,
-  artifact: ArtifactRow,
-  version: ArtifactVersionRow,
+  version: ServedFile,
   request: Request,
 ): Promise<Response> {
   const range = parseRange(request.headers.get("range") ?? undefined, version.size);
@@ -188,7 +227,7 @@ async function contentResponse(
     "accept-ranges": "bytes",
     etag: `"${version.sha256}"`,
     "cache-control": "private, max-age=0",
-    "content-disposition": disposition(artifact.name),
+    "content-disposition": disposition(version.name),
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; sandbox",
   };
@@ -221,6 +260,49 @@ async function contentResponse(
       "content-type": version.contentType,
       "content-length": String(length),
       ...(sent ? { "content-range": `bytes ${sent.start}-${sent.end}/${got.size}` } : {}),
+    },
+  });
+}
+
+/** A folder version as a zip, streamed: each file read from the Object store as it is reached. */
+function zipResponse(
+  ctx: TenantContext,
+  artifact: ArtifactRow,
+  version: ArtifactVersionRow,
+  manifest: FolderManifest,
+  request: Request,
+): Response {
+  const refused = zipTooLarge(manifest.entries.length, version.size);
+  if (refused) fail(400, refused);
+  const iterator = zipStream(
+    manifest.entries.map((entry) => ({
+      name: entry.path,
+      open: async () => {
+        const got = await ctx.blobs.get(contentKey(entry.sha256), { signal: request.signal });
+        if (!got) throw new Error(`The bytes of ${entry.path} are missing from the Object store`);
+        return got.body as unknown as AsyncIterable<Uint8Array>;
+      },
+    })),
+    new Date(version.createdAt),
+  );
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await iterator.next();
+      if (next.done) controller.close();
+      else controller.enqueue(next.value);
+    },
+    async cancel() {
+      await iterator.return(undefined);
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "application/zip",
+      "content-disposition": disposition(`${artifact.name}-v${version.version}.zip`, "attachment"),
+      "cache-control": "private, max-age=0",
+      etag: `"${version.sha256}"`,
+      "x-content-type-options": "nosniff",
     },
   });
 }
@@ -364,7 +446,7 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Artifacts"],
       summary: "Download a version of an artifact",
       description:
-        "Streams the bytes through the Runtime. One `Range: bytes=…` gives `206` with `Content-Range`; several ranges give the whole file.",
+        "Streams the bytes through the Runtime. One `Range: bytes=…` gives `206` with `Content-Range`; several ranges give the whole file. A folder is a `400`: read its tree, its files or its zip.",
       request: { params: versionParam },
       responses: { 200: fileContent("The file"), ...ranged },
     },
@@ -376,7 +458,137 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
         versionNumber(c.req.param("version")),
         accessOf(c.get("scope")),
       );
-      return contentResponse(ctx, artifact, version, c.req.raw);
+      return contentResponse(ctx, fileOf(artifact, version), c.req.raw);
+    },
+  );
+
+  tenantRoute(
+    api,
+    OWN,
+    {
+      method: "get",
+      path: "/v1/artifacts/{artifactId}/versions/{version}/tree",
+      tags: ["Artifacts"],
+      summary: "List a folder version's files",
+      description:
+        "The folder version's manifest: every file's path, size, SHA-256 and media type, sorted by path. A file artifact is a `400`.",
+      request: { params: versionParam },
+      responses: { 200: json(ArtifactTree, "The files") },
+    },
+    async (c) => {
+      const { artifact, version, manifest } = await folderContent(
+        c.env.tenant,
+        c.req.param("artifactId")!,
+        versionNumber(c.req.param("version")),
+        accessOf(c.get("scope")),
+      );
+      return jsonResponse(200, {
+        artifactId: artifact.id,
+        version: version.version,
+        entries: manifest.entries,
+      });
+    },
+  );
+
+  tenantRoute(
+    api,
+    OWN,
+    {
+      method: "get",
+      path: "/v1/artifacts/{artifactId}/versions/{version}/files/{path}",
+      tags: ["Artifacts"],
+      summary: "Download one file of a folder version",
+      description:
+        "Streams the file at `path` (its path in the folder, with `/` percent-encoded as `%2F`) through the Runtime, with Range as for a file artifact.",
+      request: {
+        params: versionParam.extend({
+          path: z.string().meta({ description: "The file's path in the folder, percent-encoded" }),
+        }),
+      },
+      responses: { 200: fileContent("The file"), ...ranged },
+    },
+    async (c) => {
+      const ctx = c.env.tenant;
+      const { manifest } = await folderContent(
+        ctx,
+        c.req.param("artifactId")!,
+        versionNumber(c.req.param("version")),
+        accessOf(c.get("scope")),
+      );
+      return contentResponse(ctx, folderFile(manifest, c.req.param("path")!), c.req.raw);
+    },
+  );
+
+  tenantRoute(
+    api,
+    OWN,
+    {
+      method: "get",
+      path: "/v1/artifacts/{artifactId}/versions/{version}/diff",
+      tags: ["Artifacts"],
+      summary: "Compare two folder versions",
+      description:
+        "The files added, removed and changed from version `from` (default: the one before) to this one. Version 1 without `from` lists every file as added.",
+      request: {
+        params: versionParam,
+        query: z.object({
+          from: z.string().optional().meta({ description: "The version to compare against" }),
+        }),
+      },
+      responses: { 200: json(ArtifactDiff, "What changed") },
+    },
+    async (c) => {
+      const ctx = c.env.tenant;
+      const access = accessOf(c.get("scope"));
+      const id = c.req.param("artifactId")!;
+      const to = await folderContent(ctx, id, versionNumber(c.req.param("version")), access);
+      const query = c.req.query("from");
+      const fromVersion =
+        query === undefined
+          ? to.version.version > 1
+            ? to.version.version - 1
+            : undefined
+          : versionNumber(query);
+      const from =
+        fromVersion === undefined ? undefined : await folderContent(ctx, id, fromVersion, access);
+      return jsonResponse(
+        200,
+        diffManifests(
+          to.artifact.id,
+          from && { version: from.version.version, manifest: from.manifest },
+          { version: to.version.version, manifest: to.manifest },
+        ),
+      );
+    },
+  );
+
+  tenantRoute(
+    api,
+    OWN,
+    {
+      method: "get",
+      path: "/v1/artifacts/{artifactId}/versions/{version}/zip",
+      tags: ["Artifacts"],
+      summary: "Download a folder version as a zip",
+      description:
+        "Streams the folder's files as one zip archive (deflated, UTF-8 names), read from the Object store as it goes. A file artifact is a `400`.",
+      request: { params: versionParam },
+      responses: {
+        200: {
+          description: "The zip archive",
+          content: { "application/zip": { schema: z.string().meta({ format: "binary" }) } },
+        },
+      },
+    },
+    async (c) => {
+      const ctx = c.env.tenant;
+      const { artifact, version, manifest } = await folderContent(
+        ctx,
+        c.req.param("artifactId")!,
+        versionNumber(c.req.param("version")),
+        accessOf(c.get("scope")),
+      );
+      return zipResponse(ctx, artifact, version, manifest, c.req.raw);
     },
   );
 
@@ -389,7 +601,7 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Artifacts"],
       summary: "Mint a capability link",
       description:
-        "A short-lived path that downloads one version, with Range, with no other credential: for `<img>` tags, UIs and sharing. Signed by the Runtime with the Tenant's signing key; at most 15 minutes; it opens nothing once the artifact is deleted.",
+        "A short-lived path that downloads one version, with Range, with no other credential: for `<img>` tags, UIs and sharing. Signed by the Runtime with the Tenant's signing key; at most 15 minutes; it opens nothing once the artifact is deleted. A folder's link opens its zip, or with `file` that one file.",
       request: {
         params: artifactId,
         body: { required: true, content: { "application/json": { schema: CreateArtifactLinkRequest } } },
@@ -400,16 +612,21 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       const request = CreateArtifactLinkRequestSchema.parse(await readJson(c.req.raw));
       const id = c.req.param("artifactId")!;
-      const version = await ctx.store.tx(async (t) => {
+      const { artifact, version } = await ctx.store.tx(async (t) => {
         const artifact = await readableArtifact(t, id, accessOf(c.get("scope")));
-        return (await versionOf(t, artifact, request.version)).version;
+        return { artifact, version: await versionOf(t, artifact, request.version) };
       });
+      if (request.file !== undefined) {
+        if (artifact.kind !== "folder") fail(400, "file names a file of a folder artifact");
+        entryAt(await readManifest(ctx.blobs, version), request.file);
+      }
       return jsonResponse(
         200,
         await mintArtifactLink(ctx, {
           artifactId: id,
-          version,
+          version: version.version,
           ...(request.expiresIn === undefined ? {} : { expiresIn: request.expiresIn }),
+          ...(request.file === undefined ? {} : { file: request.file }),
         }),
       );
     },
@@ -444,15 +661,22 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Artifacts"],
       summary: "Open a capability link",
       description:
-        "Downloads the version the link names, with Range, until it expires (`401 token_expired`). Needs no credential and no `Nylorun-Protocol`.",
+        "Downloads the version the link names, with Range, until it expires (`401 token_expired`): a file, a folder's file, or a folder's zip. Needs no credential and no `Nylorun-Protocol`.",
       request: { params: z.object({ token: z.string() }) },
       responses: { 200: fileContent("The file"), ...ranged },
     },
     async (c) => {
       const ctx = c.env.tenant;
-      const { artifactId: id, version } = await verifyArtifactLink(ctx, c.req.param("token")!);
+      const { artifactId: id, version, file } = await verifyArtifactLink(ctx, c.req.param("token")!);
       const opened = await artifactContent(ctx, id, version, undefined).catch(() => fail(404, "Not found"));
-      return contentResponse(ctx, opened.artifact, opened.version, c.req.raw);
+      if (opened.artifact.kind === "file") {
+        if (file !== undefined) fail(404, "Not found");
+        return contentResponse(ctx, fileOf(opened.artifact, opened.version), c.req.raw);
+      }
+      const manifest = await readManifest(ctx.blobs, opened.version);
+      return file === undefined
+        ? zipResponse(ctx, opened.artifact, opened.version, manifest, c.req.raw)
+        : contentResponse(ctx, folderFile(manifest, file), c.req.raw);
     },
   );
 

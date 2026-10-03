@@ -64,6 +64,8 @@ export function artifactFiles(options: {
         `Artifact ${reference.artifactId} version ${reference.version} is not available.`,
       );
     const { artifact, version } = found;
+    if (artifact.kind !== "file")
+      throw new FileUnavailableError(`${artifact.name} is a folder; a model reads files only.`);
     if (version.size > maxBytes)
       throw new FileUnavailableError(
         `${artifact.name} is ${version.size} bytes; a model reads files of at most ${maxBytes} bytes.`,

@@ -39,6 +39,14 @@ export interface WorkspacePort {
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome>;
+  /** Lists the files under `dir` of the workspace of `session` (the turn-end export, F8.2). */
+  listFiles(
+    session: SandboxSessionRef,
+    capability: CapabilityManifest,
+    dir: string,
+    maxEntries: number,
+    signal: AbortSignal
+  ): ReturnType<SandboxManager["listFiles"]>;
   /** Reads a file of the workspace of `session` as bytes, at most `maxBytes` (`save_artifact`). */
   readBytes(
     session: SandboxSessionRef,
@@ -62,6 +70,8 @@ export function localWorkspace(manager: SandboxManager): WorkspacePort {
   return {
     run: (session, capability, toolName, input, signal) =>
       manager.run(session, capability, toolName, input, signal),
+    listFiles: (session, capability, dir, maxEntries, signal) =>
+      manager.listFiles(session, capability, dir, maxEntries, signal),
     readBytes: (session, capability, path, maxBytes, signal) =>
       manager.readBytes(session, capability, path, maxBytes, signal),
     report: () => manager.report(),
@@ -157,6 +167,27 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
           return fail(503, `The harness serving workspaces went away: ${error.message}`, {
             code: "request_rejected",
           });
+        throw error;
+      }
+    },
+    async listFiles(session, capability, dir, maxEntries, signal) {
+      try {
+        const answer = (await options.server.workspace(
+          "workspace.read",
+          { session: sessionOf(session), spec: capability.sandbox ?? {}, list: { dir, maxEntries } },
+          signal
+        )) as { kind: string; path?: string; listing?: unknown; code?: string; message?: string };
+        if (answer.kind === "listed")
+          return {
+            kind: "listed",
+            path: String(answer.path),
+            listing: answer.listing as Extract<Awaited<ReturnType<SandboxManager["listFiles"]>>, { kind: "listed" }>["listing"],
+          };
+        if (answer.kind === "missing") return { kind: "missing", path: String(answer.path) };
+        return { kind: "failed", code: String(answer.code), message: String(answer.message) };
+      } catch (error) {
+        // No harness holds the workspaces: there is nothing to export.
+        if (error instanceof NoWorkspaceHarness) return { kind: "missing", path: dir };
         throw error;
       }
     },

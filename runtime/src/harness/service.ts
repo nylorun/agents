@@ -15,6 +15,7 @@ import {
   type RequestHandler,
   type WorkspaceBytesCall,
   type WorkspaceCall,
+  type WorkspaceListCall,
   type WorkspaceSession,
 } from "@nylorun/core/harness-api";
 import type { CapabilityManifest, SandboxManifest, SandboxToolName } from "@nylorun/core/define";
@@ -137,6 +138,16 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       case "workspace.read":
       case "workspace.write":
       case "workspace.exec": {
+        if (method === "workspace.read" && "list" in (params as object)) {
+          const call = params as WorkspaceListCall;
+          return sandbox().listFiles(
+            refOf(call.session),
+            { id: "sandbox", type: "agent", sandbox: call.spec as SandboxManifest, tools: [] } as CapabilityManifest,
+            call.list.dir,
+            call.list.maxEntries,
+            signal
+          );
+        }
         if (method === "workspace.read" && "bytes" in (params as object)) {
           const call = params as WorkspaceBytesCall;
           const read = await sandbox().readBytes(
