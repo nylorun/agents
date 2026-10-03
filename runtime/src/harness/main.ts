@@ -24,7 +24,7 @@ import { createHostLogger } from "../host/logger.js";
 import type { StackConfig } from "../host/stack-config.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { localBackend } from "../adapters/sandbox/local.js";
-import { awaitNetworkPolicy, blockedAddresses } from "../sandbox/pods/network-gate.js";
+import { awaitNetworkPolicy } from "../sandbox/pods/network-gate.js";
 import { podHost, type PodHost } from "./pod.js";
 import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
@@ -52,7 +52,7 @@ export async function runHarness(
   let pod: PodHost | undefined;
   if (config.pod) {
     const { waitedMs } = await awaitNetworkPolicy({
-      addresses: blockedAddresses(process.env),
+      addresses: config.pod.blocked,
       log: (message, fields) => logger.info(message, fields),
     });
     logger.info("sandbox_network_policy_in_force", { sandboxId: config.pod.sandboxId, waitedMs });
@@ -65,7 +65,7 @@ export async function runHarness(
   const service = startHarnessService({
     url: config.url,
     token,
-    ...(pod ? { sandboxBackends: [localBackend({ proxyEnv: () => pod.proxyEnv() })] } : {}),
+    ...(pod ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv() })] } : {}),
     paths,
     childEnv: { ...baseline, HOME: paths.home, TMPDIR: paths.tmp },
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),

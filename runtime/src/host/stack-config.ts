@@ -36,6 +36,7 @@
  * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
  */
 import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
+import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 
 /** A Runtime service this release has. */
 export type RuntimeService = "core" | "loop" | "gates" | "keys" | "harness";
@@ -177,6 +178,8 @@ export interface PodHostConfig {
   httpUrl: string;
   /** `NYLORUN_EGRESS_PROXY`: egress-gate's address, or undefined while it is not published. */
   egressProxy?: string;
+  /** Addresses the pod's NetworkPolicy must block, probed before the engine starts. */
+  blocked: BlockedAddress[];
 }
 
 /** A harness process (`--service harness`). */
@@ -817,6 +820,7 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
       joinFile: need("NYLORUN_SANDBOX_JOIN_FILE"),
       httpUrl: origin,
       ...(egress ? { egressProxy: egress.replace(/\/+$/, "") } : {}),
+      blocked: blockedAddresses(env),
     },
   };
 }

@@ -176,7 +176,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
     const joinFile = join(harnessRoot, "join-token");
     await writeFile(joinFile, fake.joinToken(name)!);
     const host = podHost(
-      { sandboxId: "run/one", podUid: fake.podUid(name)!, joinFile, httpUrl: listener.url.replace(/^ws/, "http").replace(/\/nylorun.*$/, "") },
+      { sandboxId: "run/one", podUid: fake.podUid(name)!, joinFile, httpUrl: listener.url.replace(/^ws/, "http").replace(/\/nylorun.*$/, ""), blocked: [] },
       { info: () => undefined, warn: () => undefined },
     );
     let service: HarnessService | undefined;
@@ -190,7 +190,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
         modelProvider: podModel,
         useVaultModel: false,
         toolGate: {},
-        sandboxBackends: [localBackend({ workspace, proxyEnv: () => host.proxyEnv() })],
+        sandboxBackends: [localBackend({ workspace, env: { PATH: process.env.PATH }, proxyEnv: () => host.proxyEnv() })],
         logger: { info: () => undefined, warn: () => undefined },
         name: "pod",
         backoff: { minMs: 50, maxMs: 200 },

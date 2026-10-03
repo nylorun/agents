@@ -521,6 +521,7 @@ describe("sandbox pods (F7.2)", () => {
         joinFile: "/run/nylorun/join/token",
         httpUrl: "http://192.168.65.254:47321",
         egressProxy: "http://192.168.65.254:47323",
+        blocked: [{ host: "10.96.0.1", port: 443 }],
       },
       gatesUrl: "http://192.168.65.254:47322",
       root: "/harness",

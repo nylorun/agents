@@ -33,8 +33,8 @@ export interface LocalBackendOptions {
   readonly workspace?: string;
   /** The proxy variables of the moment (the egress token rotates); default none. */
   readonly proxyEnv?: () => Readonly<Record<string, string>>;
-  /** The base environment of commands. Default: this process's, without `NYLORUN_*`. */
-  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** The base environment of commands (the engine's allowlisted one); `NYLORUN_*` is dropped. */
+  readonly env: Readonly<Record<string, string | undefined>>;
 }
 
 /** This process's environment without the engine's own variables. */
@@ -69,9 +69,9 @@ function collector() {
   };
 }
 
-export function localBackend(options: LocalBackendOptions = {}): SandboxBackend {
+export function localBackend(options: LocalBackendOptions): SandboxBackend {
   const workspace = options.workspace ?? SANDBOX_WORKSPACE;
-  const env = baseEnv(options.env ?? process.env, workspace);
+  const env = baseEnv(options.env, workspace);
 
   const exec = (request: ExecRequest, signal: AbortSignal): Promise<ExecResult> =>
     new Promise((resolve, reject) => {
