@@ -1536,17 +1536,28 @@ export const TranscriptUpdatedPayloadSchema = z
   })
   .passthrough();
 
-/** Where an artifact version's bytes came from: a client's upload, or our engine's `save_artifact`. */
-export const ArtifactSourceSchema = z.enum(["upload", "engine"]);
+/**
+ * Where an artifact version's bytes came from: a client's upload, our engine's `save_artifact`,
+ * or the turn-end export of a sandbox's outputs (F8.2), whose listing and bytes the harness
+ * holding the workspace supplied.
+ */
+export const ArtifactSourceSchema = z.enum(["upload", "engine", "export"]);
 export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
 /**
- * `artifact.created` and `artifact.version.created` (protocol 6): a file artifact of the session,
- * or a new version of one, committed. Ids, sizes and hashes, never bytes.
+ * What an artifact holds: one file, or a folder (F8.2), whose versions are manifests of paths to
+ * content-addressed files.
+ */
+export const ArtifactKindSchema = z.enum(["file", "folder"]);
+export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
+/**
+ * `artifact.created` and `artifact.version.created` (protocol 6): a file or folder artifact of the
+ * session, or a new version of one, committed. Ids, sizes and hashes, never bytes. A folder's
+ * `size` is the sum of its files' and its `sha256` is its manifest's.
  */
 export const ArtifactVersionPayloadSchema = z
   .object({
     artifactId: z.string(),
-    kind: z.literal("file"),
+    kind: ArtifactKindSchema,
     name: z.string(),
     contentType: z.string(),
     version: z.number().int().positive(),
@@ -1555,11 +1566,49 @@ export const ArtifactVersionPayloadSchema = z
     source: ArtifactSourceSchema,
     /** The tool call that saved it (`save_artifact`), when our engine did. */
     callId: z.string().optional(),
+    /** A folder's number of files. */
+    fileCount: z.number().int().nonnegative().optional(),
+    /**
+     * True when the listing and the bytes are the harness's claim (a turn-end export): the
+     * Runtime stored what the harness holding the workspace supplied, without observing it.
+     */
+    claimed: z.boolean().optional(),
   })
   .passthrough();
 /** `artifact.deleted`: the artifact and every version of it are gone. */
 export const ArtifactDeletedPayloadSchema = z
   .object({ artifactId: z.string(), name: z.string() })
+  .passthrough();
+/** Why a turn-end export stored nothing although the sandbox had outputs (F8.2). */
+export const ArtifactExportSkipReasonSchema = z.enum([
+  "too_many_files",
+  "file_too_large",
+  "too_large",
+  "tenant_total",
+]);
+export type ArtifactExportSkipReason = z.infer<typeof ArtifactExportSkipReasonSchema>;
+/**
+ * `artifact.export.skipped`: the turn's outputs were past a limit, so no folder version was
+ * written. The turn itself completed.
+ */
+export const ArtifactExportSkippedPayloadSchema = z
+  .object({
+    /** The folder artifact the export writes: `outputs`. */
+    name: z.string(),
+    reason: ArtifactExportSkipReasonSchema,
+    message: z.string(),
+    /** The limit passed: files, or bytes. */
+    limit: z.number().int().nonnegative().optional(),
+    /** The file past the per-file limit (`file_too_large`). */
+    path: z.string().optional(),
+  })
+  .passthrough();
+/**
+ * `artifact.export.failed`: the turn-end export could not finish (the sandbox or the Object store
+ * failed). The turn itself completed; the next turn exports again.
+ */
+export const ArtifactExportFailedPayloadSchema = z
+  .object({ name: z.string(), message: z.string() })
   .passthrough();
 
 /**
@@ -1611,6 +1660,16 @@ export const EVENT_CATALOG = {
     version: 1,
   },
   "artifact.deleted": { payload: ArtifactDeletedPayloadSchema, source: "api", version: 1 },
+  "artifact.export.skipped": {
+    payload: ArtifactExportSkippedPayloadSchema,
+    source: "api",
+    version: 1,
+  },
+  "artifact.export.failed": {
+    payload: ArtifactExportFailedPayloadSchema,
+    source: "api",
+    version: 1,
+  },
   "transcript.updated": {
     payload: TranscriptUpdatedPayloadSchema,
     source: "loop",
@@ -3020,18 +3079,23 @@ export const ARTIFACT_FILE_BYTES_DEFAULT = 100 * 1024 * 1024;
 export const ARTIFACT_TOTAL_BYTES_DEFAULT = 10 * 1024 * 1024 * 1024;
 /** The longest artifact name, in characters. */
 export const ARTIFACT_NAME_MAX = 255;
+/** The longest path of a file in a folder artifact, in characters. */
+export const ARTIFACT_PATH_MAX = 1024;
 
 /** Labels: up to 32, keys 1–63 characters, values up to 256. */
 export const ArtifactLabelsSchema = z
   .record(z.string().min(1).max(63), z.string().max(256))
   .refine((labels) => Object.keys(labels).length <= 32, { message: "At most 32 labels" });
 
-/** One version of a file artifact: immutable once it exists. */
+/**
+ * One version of an artifact: immutable once it exists. A folder version's `size` is the sum of
+ * its files' sizes and its `sha256` is its manifest's.
+ */
 export const ArtifactVersionViewSchema = z
   .object({
     version: z.number().int().positive(),
     size: z.number().int().nonnegative(),
-    sha256: z.string().meta({ description: "SHA-256 of the bytes, lowercase hex" }),
+    sha256: z.string().meta({ description: "SHA-256 of the bytes (a folder: of its manifest), lowercase hex" }),
     contentType: z.string(),
     source: ArtifactSourceSchema,
     createdAt: z.string(),
@@ -3039,11 +3103,14 @@ export const ArtifactVersionViewSchema = z
   .strict();
 export type ArtifactVersionView = z.infer<typeof ArtifactVersionViewSchema>;
 
-/** A file artifact: an id, a name and numbered versions, its bytes in the Object store. */
+/**
+ * An artifact: an id, a name and numbered versions, its bytes in the Object store. A file's
+ * version is its bytes; a folder's (F8.2) is a manifest of paths to content-addressed files.
+ */
 export const ArtifactViewSchema = z
   .object({
     artifactId: z.string(),
-    kind: z.literal("file"),
+    kind: ArtifactKindSchema,
     name: z.string(),
     contentType: z.string().meta({ description: "The latest version's media type" }),
     /** The session it belongs to; absent for a Tenant-wide artifact an application made. */
@@ -3082,6 +3149,11 @@ export const CreateArtifactLinkRequestSchema = z
     version: z.number().int().positive().optional(),
     /** Seconds until the link stops working. Default 300, at most 900. */
     expiresIn: z.number().int().min(1).max(ARTIFACT_LINK_MAX_TTL_SECONDS).optional(),
+    /**
+     * A folder's file, by its path in the folder: the link opens that one file. Without it, a
+     * folder's link opens its zip.
+     */
+    file: z.string().min(1).max(ARTIFACT_PATH_MAX).optional(),
   })
   .strict();
 export type CreateArtifactLinkRequest = z.infer<typeof CreateArtifactLinkRequestSchema>;
@@ -3093,10 +3165,78 @@ export const ArtifactLinkSchema = z
     path: z.string(),
     artifactId: z.string(),
     version: z.number().int().positive(),
+    /** The folder's file the link opens; absent for a file artifact, or a folder's zip. */
+    file: z.string().optional(),
     expiresAt: z.string(),
   })
   .strict();
 export type ArtifactLink = z.infer<typeof ArtifactLinkSchema>;
+
+// --- Folder artifacts (protocol 6, F8.2) -------------------------------------------------------
+
+/** The media type of a folder artifact and of its manifests. */
+export const FOLDER_CONTENT_TYPE = "application/vnd.nylorun.folder+json";
+/** The manifest format a folder version is stored as. */
+export const FOLDER_MANIFEST_FORMAT = "nylorun.folder.v1";
+/** The folder artifact a session's turn-end export writes, one per session. */
+export const OUTPUTS_ARTIFACT_NAME = "outputs";
+/** The most files one turn-end export stores; past it the export is skipped. */
+export const EXPORT_MAX_FILES = 10_000;
+/** The most bytes one turn-end export stores (before dedupe); past it the export is skipped. */
+export const EXPORT_MAX_BYTES = 1024 * 1024 * 1024;
+
+/** One file of a folder: its path in the folder (`/`-separated, relative), size, hash and type. */
+export const FolderEntrySchema = z
+  .object({
+    path: z.string().min(1).max(ARTIFACT_PATH_MAX),
+    size: z.number().int().nonnegative(),
+    sha256: z.string().meta({ description: "SHA-256 of the file's bytes, lowercase hex" }),
+    contentType: z.string(),
+  })
+  .strict();
+export type FolderEntry = z.infer<typeof FolderEntrySchema>;
+
+/**
+ * A folder version as stored: the files, sorted by path, each naming its content-addressed
+ * bytes by SHA-256. The one manifest format for folders, reused by P5's snapshots.
+ */
+export const FolderManifestSchema = z
+  .object({
+    format: z.literal(FOLDER_MANIFEST_FORMAT),
+    entries: z.array(FolderEntrySchema),
+  })
+  .strict();
+export type FolderManifest = z.infer<typeof FolderManifestSchema>;
+
+/** `GET /v1/artifacts/{id}/versions/{n|latest}/tree`: a folder version's files. */
+export const ArtifactTreeSchema = z
+  .object({
+    artifactId: z.string(),
+    version: z.number().int().positive(),
+    /** Every file, sorted by path. */
+    entries: z.array(FolderEntrySchema),
+  })
+  .strict();
+export type ArtifactTree = z.infer<typeof ArtifactTreeSchema>;
+
+/** `GET /v1/artifacts/{id}/versions/{n|latest}/diff?from=m`: what changed between two versions. */
+export const ArtifactDiffSchema = z
+  .object({
+    artifactId: z.string(),
+    /** The version compared against; absent when there is none (version 1, no `from`). */
+    from: z.number().int().positive().optional(),
+    to: z.number().int().positive(),
+    /** Files only in `to`, sorted by path. */
+    added: z.array(FolderEntrySchema),
+    /** Files only in `from`. */
+    removed: z.array(FolderEntrySchema),
+    /** Files in both whose bytes or media type differ. */
+    changed: z.array(
+      z.object({ path: z.string(), from: FolderEntrySchema, to: FolderEntrySchema }).strict(),
+    ),
+  })
+  .strict();
+export type ArtifactDiff = z.infer<typeof ArtifactDiffSchema>;
 
 /** A Tenant's artifact limits, stored as Tenant setting `artifacts.config`. */
 export const TenantArtifactsConfigSchema = z
@@ -3121,7 +3261,10 @@ export type PutTenantArtifactsRequest = z.infer<typeof PutTenantArtifactsRequest
 export const TenantArtifactsViewSchema = z
   .object({
     limits: z.object({ fileBytes: z.number().int(), totalBytes: z.number().int() }).strict(),
-    /** Bytes every artifact version holds now. */
+    /**
+     * Bytes the artifacts store now: every file version, plus each distinct file of the folders
+     * once (folders share content-addressed files).
+     */
     usedBytes: z.number().int().nonnegative(),
   })
   .strict();

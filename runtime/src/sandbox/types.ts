@@ -64,10 +64,23 @@ export interface SandboxHandle {
    * (`SandboxFileTooLargeError`). For `save_artifact`, which keeps binary files intact.
    */
   readBytes?(path: string, maxBytes: number): Promise<Uint8Array | undefined>;
+  /**
+   * The regular files under directory `dir`, recursively, with paths relative to it (`/`-
+   * separated) in path order; symbolic links are skipped. Undefined when `dir` is not a
+   * directory. Stops after `maxEntries + 1` files (`truncated`). For the turn-end export (F8.2).
+   */
+  listFiles?(dir: string, maxEntries: number): Promise<SandboxListing | undefined>;
   /** Parent directories must already exist. */
   writeFile(path: string, content: string): Promise<void>;
   /** Release compute; files persist. */
   stop(): Promise<void>;
+}
+
+/** The files `listFiles` found: paths relative to the directory listed. */
+export interface SandboxListing {
+  readonly entries: readonly { readonly path: string; readonly size: number }[];
+  /** More files than `maxEntries` were found; `entries` holds the first `maxEntries + 1`. */
+  readonly truncated: boolean;
 }
 
 /** A sandbox file read with `readBytes` is larger than the caller allows. */

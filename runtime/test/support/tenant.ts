@@ -83,6 +83,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   streams?: DurableStreams;
   /** How long a retired stream basin is kept after a reset. Default 60 s. */
   retireGraceMs?: number;
+  /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
+  wrapBlobs?: (blobs: BlobStore) => BlobStore;
 };
 
 /**
@@ -215,6 +217,9 @@ export async function startTestTenant(
     ...(options.workerId ? { workerId: options.workerId } : {}),
     streams: options.streams ?? defaultStreams,
     ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
+    ...(options.wrapBlobs
+      ? { blobs: options.wrapBlobs(createFsBlobStore({ root: paths.blobs })) }
+      : {}),
     createKekIfMissing: true,
   };
   if (options.vaultKek === null) {

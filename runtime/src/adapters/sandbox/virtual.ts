@@ -4,7 +4,7 @@
  * It is not a VM boundary; it exists so the first run and CI work on any machine.
  */
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { SANDBOX_WORKSPACE } from "@nylorun/core/define";
 import type {
   ExecRequest,
@@ -118,6 +118,27 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
           const stat = await fs.stat(path);
           if (stat.size > maxBytes) throw new SandboxFileTooLargeError(path, stat.size, maxBytes);
           return fs.readFileBuffer(path);
+        },
+        async listFiles(dir, maxEntries) {
+          if (!(await fs.exists(dir)) || !(await fs.lstat(dir)).isDirectory) return undefined;
+          const entries: { path: string; size: number }[] = [];
+          const walk = async (absolute: string, relative: string): Promise<boolean> => {
+            for (const name of (await fs.readdir(absolute)).sort()) {
+              const path = posix.join(absolute, name);
+              const inFolder = relative === "" ? name : `${relative}/${name}`;
+              const stat = await fs.lstat(path);
+              if (stat.isSymbolicLink) continue;
+              if (stat.isDirectory) {
+                if (!(await walk(path, inFolder))) return false;
+              } else if (stat.isFile) {
+                entries.push({ path: inFolder, size: stat.size });
+                if (entries.length > maxEntries) return false;
+              }
+            }
+            return true;
+          };
+          const complete = await walk(dir, "");
+          return { entries, truncated: !complete };
         },
         async writeFile(path, content) {
           await fs.writeFile(path, content, "utf8");

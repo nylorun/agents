@@ -41,6 +41,7 @@ import type { StuckInvocation, Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
 import type { SigningKeys } from "./signing-keys.js";
 import type { BlobStore } from "../blob/index.js";
+import type { WorkspaceReader } from "../artifacts/workspace.js";
 import type { RunGrants } from "./run-grants.js";
 import { fail } from "./http.js";
 
@@ -179,6 +180,11 @@ export interface TenantContext {
    * they mean, and a blob counts once a committed row names its key.
    */
   readonly blobs: BlobStore;
+  /**
+   * How core reads a session's sandbox workspace at turn end, to export its outputs (F8.2): over
+   * this process's `sandbox` today; over the Harness API's `workspace.read` from F6.2.
+   */
+  readonly workspaces: WorkspaceReader;
   /**
    * The run token of each session an advance of this process owns (F5): the credential the
    * HTTP gate clients present for that session's model and MCP calls (`run-grants.ts`).
