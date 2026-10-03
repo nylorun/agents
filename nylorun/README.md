@@ -38,7 +38,7 @@ nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allo
                                    # create (first run) and start the Tenant; link the project; print the URLs; open Studio signed in
 nylorun down|stop [--tenant <name> | --all]   # stop the containers (--all: every Tenant's); keep volumes
 nylorun status [--tenant <name>] [--json]   # the Tenant, its Host root and id, services, endpoints, Runtime health
-nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, gateway, runtime, studio
+nylorun logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, studio
 nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on the Tenant; starts it if needed
 nylorun reset [--tenant <name>] [--yes]        # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
 nylorun ls [--json]                # the Tenants on this machine, with their state, memory and URLs

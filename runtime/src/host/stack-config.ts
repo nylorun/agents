@@ -24,7 +24,8 @@
  *   probes from inside the container.
  *
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
- * `infra/*` builds the clients from them. So is who the Host's Tenant is when its database
+ * `infra/*` builds the clients from them. So is the Object store (`NYLORUN_OBJECT_STORE_*`),
+ * which every service may read; `host/main.ts` builds the `BlobStore` from it. So is who the Host's Tenant is when its database
  * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
  */
 import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
@@ -181,6 +182,26 @@ export interface StackConfig {
   };
   /** Present when the process runs core or loop: who its Tenant is on first start. */
   tenant?: TenantSettings;
+  /**
+   * The Object store (blueprint D35) behind the `BlobStore` seam's `s3` adapter, from
+   * `NYLORUN_OBJECT_STORE_*`; the local stack's RustFS. Absent: the Tenant keeps blobs on disk
+   * (the `fs` adapter, `TenantPaths.blobs`).
+   */
+  objectStore?: ObjectStoreConfig;
+}
+
+/** Where the Object store is and the credential for it (`NYLORUN_OBJECT_STORE_*`). */
+export interface ObjectStoreConfig {
+  /** `NYLORUN_OBJECT_STORE_ENDPOINT`: the S3 endpoint, e.g. `http://rustfs:9000`. */
+  endpoint: string;
+  /** `NYLORUN_OBJECT_STORE_BUCKET`. Default `nylorun`. */
+  bucket: string;
+  /** `NYLORUN_OBJECT_STORE_REGION`. Default `us-east-1`. */
+  region: string;
+  /** `NYLORUN_OBJECT_STORE_ACCESS_KEY`. */
+  accessKeyId: string;
+  /** `NYLORUN_OBJECT_STORE_SECRET_KEY`. */
+  secretAccessKey: string;
 }
 
 /**
@@ -483,6 +504,7 @@ export function parseStackConfig(
     );
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
+  const objectStore = parseObjectStore(env);
   return {
     services,
     ...(deprecatedRole ? { deprecatedRole } : {}),
@@ -497,7 +519,38 @@ export function parseStackConfig(
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
+    ...(objectStore ? { objectStore } : {}),
   };
+}
+
+/** S3 bucket names: 3 to 63 lowercase letters, digits, dots and hyphens. */
+const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+
+/** `StackConfig.objectStore` from `NYLORUN_OBJECT_STORE_*`, or `undefined` without an endpoint. */
+function parseObjectStore(env: EnvSnapshot): ObjectStoreConfig | undefined {
+  const endpoint = parseUrl(env, "NYLORUN_OBJECT_STORE_ENDPOINT", ["http:", "https:"]);
+  const accessKeyId = read(env, "NYLORUN_OBJECT_STORE_ACCESS_KEY");
+  const secretAccessKey = read(env, "NYLORUN_OBJECT_STORE_SECRET_KEY");
+  if (endpoint === undefined) {
+    if (accessKeyId !== undefined || secretAccessKey !== undefined)
+      throw new StackConfigError(
+        "NYLORUN_OBJECT_STORE_ACCESS_KEY or _SECRET_KEY is set without NYLORUN_OBJECT_STORE_ENDPOINT: set the S3 endpoint, e.g. http://rustfs:9000",
+      );
+    return undefined;
+  }
+  if (accessKeyId === undefined || secretAccessKey === undefined)
+    throw new StackConfigError(
+      "NYLORUN_OBJECT_STORE_ACCESS_KEY and NYLORUN_OBJECT_STORE_SECRET_KEY are required with NYLORUN_OBJECT_STORE_ENDPOINT (`nylorun start` sets them)",
+    );
+  const bucket = read(env, "NYLORUN_OBJECT_STORE_BUCKET") ?? "nylorun";
+  if (!BUCKET.test(bucket))
+    throw new StackConfigError(
+      `NYLORUN_OBJECT_STORE_BUCKET must be an S3 bucket name (3 to 63 of a-z 0-9 . -), not ${bucket}`,
+    );
+  const region = read(env, "NYLORUN_OBJECT_STORE_REGION") ?? "us-east-1";
+  if (!/^[a-z0-9-]+$/.test(region))
+    throw new StackConfigError(`NYLORUN_OBJECT_STORE_REGION is not a region: ${region}`);
+  return { endpoint: endpoint.replace(/\/+$/, ""), bucket, region, accessKeyId, secretAccessKey };
 }
 
 function parseTenant(env: EnvSnapshot): TenantSettings {

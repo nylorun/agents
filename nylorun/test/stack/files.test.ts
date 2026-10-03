@@ -22,6 +22,7 @@ const env: StackEnv = {
   restatePort: 9070,
   postgresPassword: "0123456789abcdef0123456789abcdef0123456789abcdef",
   gatesToken: "fedcba9876543210".repeat(4),
+  objectStoreSecretKey: "0123abcd".repeat(8),
   restateIdentityKey: "publickeyv1_CgojDdtCBsK8zYsbqruLmwXgWqMYxDfu3n5qJdcJeNtv",
   uid: 501,
   gid: 20,
@@ -89,7 +90,10 @@ describe("compose.yaml", () => {
     expect(compose).toContain("NYLORUN_RUNTIME_URL: http://runtime:4001");
   });
 
-  it("pins Postgres, Restate and s2 and takes the Runtime and Studio images from .env", () => {
+  it("pins Postgres, Restate, s2 and RustFS (by digest) and takes the Runtime and Studio images from .env", () => {
+    expect(compose).toContain(
+      "image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c\n",
+    );
     expect(compose).toContain("image: postgres:17.11\n");
     expect(compose).toContain("image: docker.restate.dev/restatedev/restate:1.7.12\n");
     expect(compose).toContain("image: ghcr.io/s2-streamstore/s2:0.43.0\n");
@@ -151,13 +155,41 @@ describe("compose.yaml", () => {
   it("names every container, the network and every volume after the Compose project, with the Tenant's label", () => {
     const names = [...compose.matchAll(/^ {4}container_name: (\S+)$/gm)].map((m) => m[1]);
     expect(names).toEqual(
-      ["postgres", "restate", "s2-lite", "gateway", "runtime", "studio"].map((role) => `nylorun-shop-${role}`),
+      ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "studio"].map(
+        (role) => `nylorun-shop-${role}`,
+      ),
     );
     expect(compose).toContain('x-tenant: &tenant\n  dev.nylorun.tenant: "shop"\n');
-    expect(compose.match(/^ {4}labels: \*tenant$/gm)).toHaveLength(7); // six services and the network
+    expect(compose.match(/^ {4}labels: \*tenant$/gm)).toHaveLength(8); // seven services and the network
     expect(compose).toContain("networks:\n  default:\n    name: nylorun-shop\n");
-    for (const volume of ["postgres", "restate", "s2-lite", "workspaces"])
+    for (const volume of ["postgres", "restate", "s2-lite", "rustfs", "workspaces"])
       expect(compose).toContain(`  ${volume}: { name: nylorun-shop-${volume}, labels: *tenant }\n`);
+  });
+
+  it("runs RustFS on a named volume and gives its credential only to the runtime and the gateway", () => {
+    const service = (name: string) => {
+      const start = compose.indexOf(`\n  ${name}:`);
+      const end = compose.indexOf("\n  ", compose.indexOf("\n    restart:", start) + 1);
+      return compose.slice(start, end === -1 ? undefined : end);
+    };
+    const rustfs = service("rustfs");
+    expect(rustfs).toContain("- rustfs:/data\n");
+    expect(rustfs).toContain("RUSTFS_ACCESS_KEY: nylorun\n");
+    expect(rustfs).toContain("RUSTFS_SECRET_KEY: ${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}\n");
+    expect(rustfs).not.toMatch(/^\s+ports:/m);
+    for (const name of ["runtime", "gateway"]) {
+      const block = service(name);
+      expect(block).toContain("NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000\n");
+      expect(block).toContain("NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun\n");
+      expect(block).toContain(
+        "NYLORUN_OBJECT_STORE_SECRET_KEY: ${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}\n",
+      );
+    }
+    // The secret appears in rustfs, the runtime and the gateway, nowhere else.
+    expect(compose.match(/\$\{NYLORUN_OBJECT_STORE_SECRET_KEY/g)).toHaveLength(3);
+    for (const name of ["postgres", "restate", "s2-lite", "studio"])
+      expect(service(name)).not.toContain("OBJECT_STORE");
+    expect(service("runtime")).toContain("rustfs: { condition: service_healthy }");
   });
 
   it("leaves Restate's memory settings at Restate's defaults", () => {
@@ -198,6 +230,7 @@ describe(".env", () => {
       restatePort: 9070,
       postgresPassword: env.postgresPassword,
       gatesToken: env.gatesToken,
+      objectStoreSecretKey: env.objectStoreSecretKey,
       studioFrameAncestors: ["nylorun://localhost", "http://nylorun.localhost"],
       derivedPrincipals: ["project", "babai"],
     });
@@ -309,6 +342,8 @@ describe("prepareStack", () => {
     expect(prepared.env).toMatchObject({ runtimePort: 8787, adminPort: 8788, studioPort: 4161, restatePort: 9070, uid: 501, gid: 20, hostRoot: paths.root });
     expect(prepared.env.postgresPassword).toMatch(/^[0-9a-f]{48}$/);
     expect(prepared.env.gatesToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(prepared.env.objectStoreSecretKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(prepared.env.objectStoreSecretKey).not.toBe(prepared.env.gatesToken);
     expect(prepared.env.restateIdentityKey).toMatch(/^publickeyv1_[1-9A-HJ-NP-Za-km-z]{43,44}$/);
     const pem = await readFile(paths.restateIdentity, "utf8");
     expect(pem).toMatch(/^-----BEGIN PRIVATE KEY-----\n/);
@@ -370,6 +405,7 @@ describe("prepareStack", () => {
     expect(second.env.restatePort).toBe(9070);
     expect(second.env.postgresPassword).toBe(first.env.postgresPassword);
     expect(second.env.gatesToken).toBe(first.env.gatesToken);
+    expect(second.env.objectStoreSecretKey).toBe(first.env.objectStoreSecretKey);
     expect(second.env.restateIdentityKey).toBe(first.env.restateIdentityKey);
     expect(second.env.uid).toBe(777);
     expect(second.env.runtimeImage).toBe("nylorun-runtime:dev");

@@ -15,6 +15,7 @@ const endpoints = {
   restateIngress: `http://127.0.0.1:${port("NYLORUN_TEST_RESTATE_INGRESS_PORT", 58080)}`,
   restateAdmin: `http://127.0.0.1:${port("NYLORUN_TEST_RESTATE_ADMIN_PORT", 59070)}`,
   s2: `http://127.0.0.1:${port("NYLORUN_TEST_S2_PORT", 58090)}`,
+  s3: `http://127.0.0.1:${port("NYLORUN_TEST_S3_PORT", 59000)}`,
 };
 
 function docker(args) {
@@ -61,6 +62,7 @@ async function waitReady(timeoutMs = 120_000) {
     "restate admin": () => httpOk(`${endpoints.restateAdmin}/health`),
     "restate ingress": () => httpOk(`${endpoints.restateIngress}/restate/health`),
     s2: () => httpOk(`${endpoints.s2}/health`),
+    rustfs: () => httpOk(`${endpoints.s3}/health`),
   };
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -81,7 +83,7 @@ try {
     docker(["up", "--detach", "--wait", "--wait-timeout", "120"]);
     await waitReady();
     console.log(
-      `Test stack ready: postgres 127.0.0.1:${endpoints.postgres}, restate ${endpoints.restateIngress} (admin ${endpoints.restateAdmin}), s2 ${endpoints.s2}`,
+      `Test stack ready: postgres 127.0.0.1:${endpoints.postgres}, restate ${endpoints.restateIngress} (admin ${endpoints.restateAdmin}), s2 ${endpoints.s2}, rustfs ${endpoints.s3}`,
     );
   } else if (command === "down") {
     docker(["down", "--volumes", "--remove-orphans"]);

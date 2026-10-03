@@ -47,7 +47,7 @@ try {
     assert.equal(status.project, stack.project);
     assert.equal(status.runtime.healthy, true);
     assert.equal(status.runtime.url, runtimeUrl);
-    for (const service of ["postgres", "restate", "s2-lite", "gateway", "runtime", "studio"]) {
+    for (const service of ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "studio"]) {
       const entry = status.services.find((s) => s.service === service);
       assert.equal(entry?.state, "running", `${service} is running`);
       assert.ok(entry.health === "" || entry.health === "healthy", `${service} is healthy`);
@@ -64,6 +64,11 @@ try {
       await printenv("gateway", "NYLORUN_GATES_TOKEN"),
       "the runtime and the gateway share the gates token",
     );
+    // The Object store (F8.1): only the runtime and the gateway hold RustFS's credential.
+    const storeKey = await printenv("runtime", "NYLORUN_OBJECT_STORE_SECRET_KEY");
+    assert.match(storeKey, /^[0-9a-f]{64}$/, "the runtime holds the Object store's secret key");
+    assert.equal(await printenv("gateway", "NYLORUN_OBJECT_STORE_SECRET_KEY"), storeKey);
+    assert.equal(await printenv("studio", "NYLORUN_OBJECT_STORE_SECRET_KEY"), "", "Studio does not");
     const mounted = (await stack.compose(["exec", "-T", "gateway", "ls", "-A", "/nylorun"])).trim();
     assert.equal(mounted, "keys\ntenant", "the gateway mounts only the Tenant directory and the vault key");
 

@@ -1,9 +1,9 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`.env > renders every setting, including the Restate identity public key 1`] = `
-"# Written by \`nylorun start\`. Mode 0600: holds the Postgres password and the
-# gates token. Ports, the password and the token are kept across starts;
-# images, UID/GID and the Host root are refreshed on every start.
+"# Written by \`nylorun start\`. Mode 0600: holds the Postgres password, the gates
+# token and the Object store's secret key. Ports and secrets are kept across
+# starts; images, UID/GID and the Host root are refreshed on every start.
 
 # Published on 127.0.0.1; clients use http://localhost:<port>.
 NYLORUN_PORT=8787
@@ -16,6 +16,10 @@ NYLORUN_POSTGRES_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef
 # The runtime presents this token to the gateway (the Model Gate) with every
 # model call.
 NYLORUN_GATES_TOKEN=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+
+# RustFS (the Object store) accepts this secret key; only the runtime and the
+# gateway receive it.
+NYLORUN_OBJECT_STORE_SECRET_KEY=0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd0123abcd
 
 # Restate signs requests to the Runtime's Worker endpoint with the private
 # key in restate-identity.pem; the Runtime accepts only this public key.
@@ -107,6 +111,25 @@ services:
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
+  rustfs: # the Object store (D35); not published, only the runtime and the gateway hold its credential
+    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    container_name: nylorun-shop-rustfs
+    labels: *tenant
+    environment:
+      RUSTFS_ACCESS_KEY: nylorun
+      RUSTFS_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
+      RUSTFS_CONSOLE_ENABLE: "false" # no web console: clients go through the Runtime
+      RUSTFS_OBS_LOG_DIRECTORY: "" # log to stdout (nylorun logs rustfs)
+    # The image runs as uid 10001 and owns /data, which Docker copies into the new volume.
+    volumes:
+      - rustfs:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
   gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     container_name: nylorun-shop-gateway
@@ -122,6 +145,10 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
+      # The Object store, where model-gate will read file parts (F8.1).
+      NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
+      NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
+      NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
@@ -147,6 +174,7 @@ services:
       postgres: { condition: service_healthy }
       restate: { condition: service_healthy }
       s2-lite: { condition: service_started }
+      rustfs: { condition: service_healthy }
     environment:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
@@ -177,6 +205,10 @@ services:
       NYLORUN_S2_ENDPOINT: http://s2-lite:80
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
+      # The Object store, through the BlobStore seam's s3 adapter; the runtime creates the bucket.
+      NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
+      NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
+      NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
     extra_hosts:
@@ -244,6 +276,7 @@ volumes:
   postgres: { name: nylorun-shop-postgres, labels: *tenant }
   restate: { name: nylorun-shop-restate, labels: *tenant }
   s2-lite: { name: nylorun-shop-s2-lite, labels: *tenant }
+  rustfs: { name: nylorun-shop-rustfs, labels: *tenant }
   workspaces: { name: nylorun-shop-workspaces, labels: *tenant }
 "
 `;

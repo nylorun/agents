@@ -5,6 +5,9 @@
 #   NYLORUN_TEST_STACK=1 npm run test:integration -w @nylorun/runtime
 #   npm run test:stack:down -w @nylorun/runtime
 #
+# The BlobStore suite runs against its RustFS when NYLORUN_TEST_S3_ENDPOINT is set
+# (http://127.0.0.1:59000 by default; CI's integration job sets it).
+#
 # Throwaway state: no volumes, and s2-lite keeps streams in memory. Every
 # service publishes on loopback only. Ports can be overridden with the
 # NYLORUN_TEST_*_PORT variables, which the integration tests read too.
@@ -53,3 +56,20 @@ services:
     command: ["lite"]
     ports:
       - "127.0.0.1:${NYLORUN_TEST_S2_PORT:-58090}:80"
+
+  rustfs: # the Object store (BlobStore suite), on tmpfs; the same image as the local stack
+    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    environment:
+      RUSTFS_ACCESS_KEY: nylorun
+      RUSTFS_SECRET_KEY: nylorun-test-secret
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOG_DIRECTORY: "" # log to stdout
+    ports:
+      - "127.0.0.1:${NYLORUN_TEST_S3_PORT:-59000}:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700 # the image runs as rustfs (10001)

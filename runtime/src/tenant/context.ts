@@ -40,6 +40,7 @@ import type { SessionStreams } from "./session-streams.js";
 import type { StuckInvocation, Wake } from "../execution/types.js";
 import type { WorkState } from "./scheduler.js";
 import type { SigningKeys } from "./signing-keys.js";
+import type { BlobStore } from "../blob/index.js";
 import { fail } from "./http.js";
 
 export interface Session {
@@ -164,6 +165,12 @@ export interface TenantContext {
    * `signingKeys`' private key.
    */
   readonly keys: Keys;
+  /**
+   * The Object store's `BlobStore` seam (D35): the Host's `s3` store (RustFS in the local
+   * stack), or the `fs` store under `paths.blobs` without one. Bytes only; Postgres holds what
+   * they mean, and a blob counts once a committed row names its key.
+   */
+  readonly blobs: BlobStore;
   /** Set by drain/close; reset clears it again. Stops new advances. */
   closing: boolean;
   /** Set once close has finished releasing resources. */

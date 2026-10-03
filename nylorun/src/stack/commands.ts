@@ -54,8 +54,8 @@ import {
 } from "./stacks.js";
 import { mintStudioLogin, studioOrigin, type FetchLike } from "./studio-login.js";
 
-export const STACK_SERVICES = ["postgres", "restate", "s2-lite", "gateway", "runtime", "studio"] as const;
-const CORE_SERVICES = ["postgres", "restate", "s2-lite", "gateway", "runtime"] as const;
+export const STACK_SERVICES = ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime", "studio"] as const;
+const CORE_SERVICES = ["postgres", "restate", "s2-lite", "rustfs", "gateway", "runtime"] as const;
 
 export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset]
                                       start the project's Tenant, creating it and the Project link (.nylorun/link.json,

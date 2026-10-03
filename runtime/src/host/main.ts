@@ -13,8 +13,10 @@
  * `NYLORUN_DERIVED_PRINCIPALS`; tenancy.md §4); with S2, a process running core
  * runs the stream relay, which feeds the Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
- * the Tenant and the infrastructure checks. A process running the gates service (the local
- * stack's `gateway` container) starts only the gate (`runGates`): it needs
+ * the Tenant and the infrastructure checks. With an Object store
+ * (`NYLORUN_OBJECT_STORE_*`) the Tenant's blobs go to it through the `s3` BlobStore, and a
+ * process running core creates its bucket; without one they stay on disk (`fs`). A process
+ * running the gates service (the local stack's `gateway` container) starts only the gate (`runGates`): it needs
  * neither host.json nor host-credentials.json. See the startup order in `main()`. Tests compose a Host without this
  * entry, with `createHost` and an injected Tenant module.
  */
@@ -53,7 +55,8 @@ import { startGates } from "./gates.js";
 import { httpToolGate } from "../gates/tool-client.js";
 import { httpKeys } from "../keys/client.js";
 import { httpModelGate } from "../gates/http-client.js";
-import type { StackConfig } from "./stack-config.js";
+import type { ObjectStoreConfig, StackConfig } from "./stack-config.js";
+import { createS3BlobStore, type S3BlobStore } from "../blob/index.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -74,6 +77,45 @@ function resolveHostRoot(): string {
   const root =
     fromEnv && fromEnv.length > 0 ? fromEnv : resolve(homedir(), ".nylorun");
   return resolve(root);
+}
+
+/** The Object store's `s3` BlobStore (D35), from `StackConfig.objectStore`. */
+function objectStore(config: ObjectStoreConfig): S3BlobStore {
+  return createS3BlobStore({
+    endpoint: config.endpoint,
+    bucket: config.bucket,
+    region: config.region,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+  });
+}
+
+/**
+ * Creates the Object store's bucket unless it exists, retrying while the store starts. In the
+ * background: nothing uses the store yet (F8.1b), so a store that stays down is logged and
+ * does not hold up the Host.
+ */
+async function ensureBucket(
+  store: S3BlobStore,
+  bucket: string,
+  logger: ReturnType<typeof createHostLogger>,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await store.ensureBucket();
+      logger.info("object_store_ready", { bucket });
+      return;
+    } catch (error) {
+      if (attempt >= 10) {
+        logger.error("object_store_unavailable", {
+          bucket,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * attempt, 5000)));
+    }
+  }
 }
 
 /** The slot's lag in WAL bytes, when the source can tell. */
@@ -99,6 +141,7 @@ async function runGates(stack: StackConfig): Promise<void> {
     services: [...stack.services],
     ...(stack.packing ? { packing: stack.packing } : {}),
     endpoints: describeEndpoints(stack.endpoints),
+    objectStore: stack.objectStore ? "s3" : "none",
   });
   const database = createDatabase(stack);
   let server;
@@ -181,6 +224,7 @@ export async function main(): Promise<void> {
       : {}),
     mode: stack.listen ? "container" : "local",
     endpoints: describeEndpoints(stack.endpoints),
+    objectStore: stack.objectStore ? "s3" : "fs",
   });
   const infra = createInfra(stack, { logger });
   const database = infra.database;
@@ -245,6 +289,12 @@ export async function main(): Promise<void> {
   // With the keys service, vault writes and token signing cross it, and this process never
   // reads the vault key (F4.2).
   const keys = stack.keys ? httpKeys({ url: stack.keys.url, token: stack.keys.token }) : undefined;
+  // The Object store (D35): the stack's S3 server through the BlobStore seam, handed to the
+  // Tenant (`TenantContext.blobs`). Without one the Tenant keeps blobs on disk. core creates
+  // the bucket.
+  const blobs = stack.objectStore ? objectStore(stack.objectStore) : undefined;
+  if (blobs && stack.services.has("core"))
+    void ensureBucket(blobs, stack.objectStore!.bucket, logger);
   const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
   const module = createTenantModule({
     open: createPostgresTenantOpener({
@@ -267,6 +317,7 @@ export async function main(): Promise<void> {
           ...(toolGate ? { toolGate } : {}),
           ...(keys ? { keys } : {}),
           ...(streams ? { streams, hostRelay: true } : {}),
+          ...(blobs ? { blobs } : {}),
           ...opened,
         }),
     }),
