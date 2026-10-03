@@ -1,23 +1,15 @@
 /**
- * The engine host: `resolveEffect` journals each effect before it is invoked and dispatches it
- * to the Model Gate, the MCP pool, the SandboxManager, or an Action for the agent's endpoint.
- * `resolveNewFlowEffect` does the same for workflow effects (linked agent sessions, tool
- * nodes, fn, verify). Also MCP preparation and vault authorization for MCP servers.
+ * Core's side of effects: `resolveNewFlowEffect` journals and dispatches new workflow effects
+ * (linked agent sessions, tool nodes, fn, verify); the takeover helpers say which calls their
+ * gate recovers. Also MCP preparation and vault authorization for MCP servers. The journal of
+ * a run's effects is `harness-api/record.ts`.
  *
  * Every journal write runs in a transaction that locks the effect's session first and checks
  * the advance's ownership epoch (`ownedSession`): after another Worker takes over, the next
  * write throws `ownership.lost` and nothing is written. The model, MCP, sandbox and vault
  * calls run between transactions, never inside one.
- *
- * `invokeModel` lives here rather than in `advance.ts`: it is one of the effect dispatchers,
- * and keeping it here avoids an import cycle between the advance and the engine host.
  */
-import type {
-  Action,
-  ActionOutcome,
-  EventPayload,
-  SessionCommand,
-} from "@nylorun/core/contracts";
+import type { Action, ActionOutcome, SessionCommand } from "@nylorun/core/contracts";
 import type { EffectResolution, HostEffect } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import {
@@ -30,24 +22,19 @@ import {
 import {
   countActiveFlowWork,
   deriveAgentEffectSessionId,
-  isFlowEffect,
   isFlowToolEffect,
   isWorkflowManifest,
   linkedMessageKey,
   linkedTurnEnd,
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
-import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
-import { isOwnershipLost } from "../store/ownership.js";
-import type { RuntimeModelCall } from "../contracts.js";
 import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
-import { findServer, serversOf } from "../mcp/pool.js";
-import { sandboxCapabilityOf } from "../sandbox/manager.js";
+import { serversOf } from "../mcp/pool.js";
+import { isRemoteMcpCall } from "../harness/calls.js";
 import {
   owningSandboxSessionId,
-  sandboxWorkspaceOf,
   sandboxSpecOf,
   sessionSandboxSpec,
 } from "../sandbox/share.js";
@@ -62,81 +49,15 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import {
-  actionTarget,
-  linkedAgentOutput,
-  manifestFor,
-  mcpToolOf,
-  pinnedTool,
-  turnManifestOf,
-} from "./session.js";
+import { linkedAgentOutput, turnManifestOf } from "./session.js";
 import { command } from "./commands.js";
 import { offerAction } from "./delivery.js";
-import {
-  assistantMessage,
-  contextCompacted,
-  modelFailed,
-  toolCompleted,
-  toolIds,
-} from "./transcript.js";
-import { classifyThrown } from "../model/classify.js";
-import { abortKind } from "./worker.js";
-import { callSaveArtifact, isSaveArtifactCall } from "./artifact-tool.js";
-import type { ModelProvider } from "../core/provider.js";
-
-/** What one advance's segment decides for all its effects. */
-export interface SegmentOptions {
-  /** Overrides the Tenant's model (the fixture-model Tenant setting, `model-setting.ts`). */
-  model?: ModelProvider;
-}
-
-/**
- * Call the model for one effect. A provider failure comes back as a failure outcome
- * (Model Calls §6), whichever provider serves the call; only an abort throws, and the
- * advance decides what the abort means.
- */
-export async function invokeModel(
-  ctx: TenantContext,
-  request: HostEffect,
-  signal: AbortSignal,
-  model?: ModelProvider
-): Promise<unknown> {
-  try {
-    if (model) return await model(request, signal);
-    if (!ctx.useVaultModel) return await ctx.modelProvider(request, signal);
-    return await ctx.modelGate.call(
-      {
-        tenantId: ctx.config.tenantId,
-        sessionId: request.sessionId,
-        turnId: request.turnId,
-        agentId: request.agentId,
-        effectId: request.effectId,
-        invocationId: String(request.context.invocationId),
-        call: request.input as RuntimeModelCall,
-      },
-      signal
-    );
-  } catch (error) {
-    if (signal.aborted) {
-      // A call that outlives this process stops only when told to: on a user cancel. After a
-      // shutdown or a lost lease the next owner re-sends it and picks up its outcome (P1.2).
-      if (!model && ctx.useVaultModel && abortKind(signal) === "cancel" && ctx.modelGate.cancel)
-        await ctx.modelGate.cancel({
-          tenantId: ctx.config.tenantId,
-          sessionId: request.sessionId,
-          effectId: request.effectId,
-        });
-      throw error;
-    }
-    return classifyThrown(error);
-  }
-}
 
 /**
  * The outcome of a flow `agent` effect once the linked turn it started ended, or undefined
  * while it has not. The linked session may still show an earlier iteration's turn.
  */
-async function linkedOutcome(
+export async function linkedOutcome(
   t: Tx,
   effect: { request: HostEffect; agentSessionId?: string },
   agent: Session | undefined
@@ -158,18 +79,6 @@ async function linkedOutcome(
   };
 }
 
-type Journaled =
-  | { kind: "resolved"; resolution: EffectResolution }
-  | { kind: "flow" }
-  | {
-      kind: "invoke";
-      invoke: "model" | "mcp" | "sandbox" | "artifact";
-      /** The journaled request, when re-sending a call that outlived its owner (P1.2). */
-      journaled?: HostEffect;
-      /** An MCP call to a remote server, which crosses the Tool Gate (F4.1). */
-      remote?: boolean;
-    };
-
 /**
  * True when this Tenant's remote MCP calls outlive the process that sent them (the gates
  * service, F4.1 G3): after a takeover or a shutdown, the journaled call is re-sent and joins
@@ -181,11 +90,7 @@ export function recoversMcpCalls(ctx: TenantContext): boolean {
 
 /** True when `request` calls a tool of a remote (`streamable-http` or `sse`) MCP server. */
 export function isRemoteMcpEffect(s: Session, request: HostEffect): boolean {
-  if (request.kind !== "tool") return false;
-  const tool = mcpToolOf(s, request);
-  if (!tool) return false;
-  const declared = findServer(s.manifest, tool.agentId, tool.capabilityId, tool.serverName);
-  return declared !== undefined && declared.server.type !== "stdio";
+  return isRemoteMcpCall({ rootManifest: s.manifest, mcpSnapshot: s.mcpSnapshot }, request);
 }
 
 /**
@@ -195,295 +100,6 @@ export function isRemoteMcpEffect(s: Session, request: HostEffect): boolean {
  */
 export function recoversModelCalls(ctx: TenantContext): boolean {
   return ctx.useVaultModel && ctx.modelGate.recovers === true;
-}
-
-/**
- * What an effect's journal row must match on replay. A delegation's context carries only the
- * parent's tool call id, for its events; rows journaled before it existed still match.
- */
-function requestIdentity(request: HostEffect): HostEffect {
-  if (request.kind !== "delegation") return request;
-  const { context: _, ...identity } = request;
-  return identity as HostEffect;
-}
-
-function delegationCallId(request: HostEffect): { callId?: string } {
-  const callId = (request.context as { callId?: unknown } | undefined)?.callId;
-  return typeof callId === "string" ? { callId } : {};
-}
-
-export async function resolveEffect(
-  ctx: TenantContext,
-  request: HostEffect,
-  signal: AbortSignal,
-  lease: Lease,
-  segment: SegmentOptions = {}
-): Promise<EffectResolution> {
-  const { store } = ctx;
-  const journaled = await store.tx(async (t): Promise<Journaled> => {
-    const s = await ownedSession(t, lease, request.sessionId);
-    if (s.status === "cancelled" || s.activeTurnId !== request.turnId)
-      throw new Error("Turn cancelled");
-    // An aborted advance starts no effect; the advance decides what the abort means.
-    signal.throwIfAborted();
-    const resolved = (resolution: EffectResolution): Journaled => ({
-      kind: "resolved",
-      resolution,
-    });
-    const existing = await t.get("effects", request.effectId);
-    if (existing) {
-      if (canonical(requestIdentity(existing.request)) !== canonical(requestIdentity(request)))
-        throw new Error("Effect identity request drift");
-      if (existing.status === "completed")
-        return resolved({ status: "completed", outcome: existing.outcome });
-      // A model call its previous owner left running at the gate: re-send it, same key and
-      // request, to join it or collect its outcome.
-      if (
-        existing.status === "invoking" &&
-        request.kind === "model" &&
-        recoversModelCalls(ctx)
-      )
-        return { kind: "invoke", invoke: "model", journaled: existing.request as HostEffect };
-      // A remote MCP call its previous owner left running at the gate: the same, by effect id.
-      if (
-        existing.status === "invoking" &&
-        recoversMcpCalls(ctx) &&
-        isRemoteMcpEffect(s, existing.request as HostEffect)
-      )
-        return {
-          kind: "invoke",
-          invoke: "mcp",
-          journaled: existing.request as HostEffect,
-          remote: true,
-        };
-      if (request.kind === "agent" && existing.status === "pending") {
-        const agentSessionId = existing.agentSessionId as string | undefined;
-        if (agentSessionId) {
-          const agent = await t.get<Session>("sessions", agentSessionId);
-          const outcome = await linkedOutcome(t, existing, agent);
-          if (outcome) {
-            existing.status = "completed";
-            existing.outcome = outcome;
-            await t.put("effects", request.effectId, existing);
-            return resolved({ status: "completed", outcome });
-          }
-        }
-      }
-      return resolved({
-        status:
-          existing.status === "uncertain" || existing.status === "invoking"
-            ? "uncertain"
-            : "pending",
-      });
-    }
-    if (
-      request.kind === "agent" ||
-      request.kind === "fn" ||
-      request.kind === "verify" ||
-      isFlowToolEffect(request)
-    ) {
-      // Handled outside the agent-manifest path below.
-      return { kind: "flow" };
-    }
-    if (request.kind === "delegation") {
-      // Lifecycle points of an agent used as a tool: journaled once, so replays never re-emit.
-      const outcome = { value: null };
-      await t.put("effects", request.effectId, {
-        request,
-        status: "completed",
-        outcome,
-      });
-      const settled = request.effectId.endsWith(":settled");
-      await t.event(
-        s.id,
-        s.activeTurnId,
-        settled ? "delegation.completed" : "delegation.started",
-        {
-          agent: request.agent!,
-          ...delegationCallId(request),
-          ...(request.input as object),
-        }
-      );
-      return resolved({ status: "completed", outcome });
-    }
-    const agentManifest = manifestFor(s.manifest, request.agent);
-    if (!agentManifest)
-      throw new Error(
-        `Agent '${request.agent?.id ?? ""}' is not used as a tool`
-      );
-    const mcpTool = request.kind === "tool" ? mcpToolOf(s, request) : undefined;
-    const sandboxTool =
-      request.kind === "tool" && !mcpTool
-        ? sandboxCapabilityOf(
-            agentManifest,
-            request.capabilityId,
-            request.toolName
-          )
-        : undefined;
-    // `save_artifact` (F8.1) runs here, like the sandbox tools.
-    const artifactTool = !mcpTool && !sandboxTool && isSaveArtifactCall(agentManifest, request);
-    await t.put("effects", request.effectId, {
-      request,
-      status:
-        request.kind === "model" || mcpTool || sandboxTool || artifactTool
-          ? "invoking"
-          : "pending",
-    });
-    if (request.kind === "model" || mcpTool || sandboxTool || artifactTool)
-      return {
-        kind: "invoke",
-        invoke: mcpTool ? "mcp" : sandboxTool ? "sandbox" : artifactTool ? "artifact" : "model",
-        ...(mcpTool && isRemoteMcpEffect(s, request) ? { remote: true } : {}),
-      };
-    const tool =
-      request.kind === "tool"
-        ? pinnedTool(agentManifest, request.capabilityId, request.toolName)
-        : undefined;
-    const base = {
-      actionId: request.effectId,
-      sessionId: request.sessionId,
-      turnId: request.turnId,
-      agentId: request.agentId,
-      manifestHash: request.manifestHash,
-      implementationVersion: s.implementationVersion,
-      input: request.input,
-      context: request.context,
-      status: "pending" as const,
-      generation: 0,
-      ...(request.agent ? { agent: request.agent } : {}),
-    };
-    const action: Action =
-      request.kind === "hook"
-        ? {
-            ...base,
-            kind: "hook",
-            hook: {
-              at: request.hook!.at,
-              scope: request.hook!.scope,
-              capabilityIds: [...request.hook!.capabilityIds],
-            },
-          }
-        : {
-            ...base,
-            kind: "tool",
-            capabilityId: request.capabilityId!,
-            toolName: request.toolName!,
-            ...(tool?.inputSchema ? { inputSchema: tool.inputSchema } : {}),
-            ...(tool?.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-          };
-    await t.put("actions", action.actionId, action);
-    await t.event(s.id, s.activeTurnId, "action.pending", {
-      actionId: action.actionId,
-      kind: action.kind,
-      ...actionTarget(action),
-      ...(action.kind === "tool" ? toolIds(request.context) : {}),
-      input: action.input,
-    });
-    await offerAction(t, ctx, action);
-    return resolved({ status: "pending" });
-  });
-  if (journaled.kind === "resolved") return journaled.resolution;
-  if (journaled.kind === "flow") {
-    if (isFlowEffect(request))
-      return resolveNewFlowEffect(ctx, request, signal, lease);
-    return { status: "pending" };
-  }
-  const invoke = journaled.invoke;
-  try {
-    // The intent is committed; the call itself runs outside any transaction.
-    const value =
-      invoke === "mcp"
-        ? await callMcpTool(
-            ctx,
-            journaled.journaled ?? request,
-            abortOn(signal, journaled.remote && recoversMcpCalls(ctx) ? ["cancel", "shutdown"] : ["cancel"])
-          )
-        : invoke === "sandbox"
-        ? await callSandboxTool(ctx, request, signal)
-        : invoke === "artifact"
-        ? await callSaveArtifact(ctx, request, signal)
-        : await invokeModel(ctx, journaled.journaled ?? request, signal, segment.model);
-    return await store.tx(async (t) => {
-      const s = await ownedSession(t, lease, request.sessionId);
-      // Only a cancel discards an outcome in hand (§10.7). After any other abort (shutdown,
-      // deadline) it is recorded, so the next advance replays it instead of calling again.
-      if (
-        s.status === "cancelled" ||
-        s.activeTurnId !== request.turnId ||
-        abortKind(signal) === "cancel"
-      )
-        throw new Error("Turn cancelled");
-      const effect = await t.get("effects", request.effectId);
-      effect.status = "completed";
-      effect.outcome = { value };
-      await t.put("effects", request.effectId, effect);
-      const failed = invoke === "model" ? modelFailed(request, value) : undefined;
-      // A summary call is never an assistant message; the last one publishes context.compacted.
-      const summarizing =
-        invoke === "model" && Boolean((request.context as { compaction?: unknown }).compaction);
-      const compacted =
-        summarizing && !failed ? contextCompacted(request, value) : undefined;
-      const transcript =
-        failed || summarizing
-          ? undefined
-          : invoke === "model"
-          ? assistantMessage(request, value)
-          : toolCompleted(request, value);
-      if (failed) await t.event(s.id, request.turnId, "model.failed", failed);
-      if (compacted)
-        await t.event(s.id, request.turnId, "context.compacted", compacted);
-      if (transcript && invoke === "model")
-        await t.event(
-          s.id,
-          request.turnId,
-          "message.assistant",
-          transcript as EventPayload<"message.assistant">
-        );
-      else if (transcript)
-        await t.event(
-          s.id,
-          request.turnId,
-          "tool.completed",
-          transcript as EventPayload<"tool.completed">
-        );
-      return { status: "completed" as const, outcome: effect.outcome };
-    });
-  } catch (error) {
-    // A lost epoch writes nothing: the new owner decides what the effect became.
-    if (isOwnershipLost(error)) throw error;
-    // A shutdown leaves a model call running at the gate, still `invoking`: the next advance
-    // re-sends it (P1.2). The segment stops for the shutdown as usual.
-    if (invoke === "model" && recoversModelCalls(ctx) && abortKind(signal) === "shutdown")
-      throw error;
-    // The same for a remote MCP call at the Tool Gate (G3). A user cancel stops it there: a
-    // keyed call outlives the request that sent it.
-    if (invoke === "mcp" && journaled.remote && recoversMcpCalls(ctx)) {
-      if (abortKind(signal) === "shutdown") throw error;
-      if (abortKind(signal) === "cancel" && ctx.toolGate.cancel)
-        await ctx.toolGate.cancel({
-          tenantId: ctx.config.tenantId,
-          sessionId: request.sessionId,
-          effectId: request.effectId,
-        });
-    }
-    await store.tx(async (t) => {
-      const s =
-        request.sessionId === lease.sessionId
-          ? await t.assertEpoch<Session>(request.sessionId, lease.epoch)
-          : await t.lockSession<Session>(request.sessionId);
-      const effect = await t.get("effects", request.effectId);
-      if (!effect) return;
-      effect.status = "uncertain";
-      effect.error = error instanceof Error ? error.message : String(error);
-      await t.put("effects", request.effectId, effect);
-      if (s && s.status !== "cancelled" && s.activeTurnId === request.turnId)
-        await t.event(s.id, request.turnId, "effect.uncertain", {
-          effectId: request.effectId,
-          message: effect.error,
-        });
-    });
-    return { status: "uncertain" };
-  }
 }
 
 type FlowStep =
@@ -798,50 +414,6 @@ export async function prepareMcp(
 }
 
 /**
- * A signal that follows `signal` only for the abort kinds in `kinds`. An MCP call stops on a
- * cancel; at the Tool Gate it also stops waiting on a shutdown, since the gate keeps the call
- * for the next owner. Otherwise a shutdown or a deadline lets the call finish and records it,
- * so the next advance replays it.
- */
-function abortOn(
-  signal: AbortSignal,
-  kinds: readonly ReturnType<typeof abortKind>[]
-): AbortSignal {
-  const controller = new AbortController();
-  const follow = () => {
-    if (kinds.includes(abortKind(signal))) controller.abort(signal.reason);
-  };
-  if (signal.aborted) follow();
-  else signal.addEventListener("abort", follow, { once: true });
-  return controller.signal;
-}
-
-async function callMcpTool(
-  ctx: TenantContext,
-  request: HostEffect,
-  signal: AbortSignal
-): Promise<unknown> {
-  const s = await loadSession(ctx, request.sessionId);
-  const tool = mcpToolOf(s, request);
-  if (!tool)
-    throw new Error(
-      `MCP tool '${request.toolName ?? ""}' is not in the session snapshot`
-    );
-  return ctx.mcp.call({
-    sessionId: s.id,
-    ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
-    capabilityId: tool.capabilityId,
-    serverName: tool.serverName,
-    serverToolName: tool.serverToolName,
-    args: request.input,
-    manifest: s.manifest,
-    pluginRoots: s.pluginRoots ?? {},
-    effectId: request.effectId,
-    signal,
-  });
-}
-
-/**
  * The sandbox a linked session inherits from its tree's owner when that sandbox was chosen at
  * open (pinned on the owner). A definition that declares its own sandbox keeps it, as before.
  */
@@ -857,38 +429,6 @@ function inheritedSandbox(
   const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) throw new Error(sandboxed.message);
   return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
-}
-
-async function callSandboxTool(
-  ctx: TenantContext,
-  request: HostEffect,
-  signal: AbortSignal
-): Promise<unknown> {
-  const { s, workspace } = await ctx.store.tx(async (t) => {
-    const s = await sessionOf(t, request.sessionId);
-    // Agents used as tools share the session's sandbox; the tree declares one sandbox spec.
-    const lookup = await sandboxLookup(t, s.id);
-    return { s, workspace: sandboxWorkspaceOf(s, lookup) };
-  });
-  const capability = sandboxCapabilityOf(
-    manifestFor(s.manifest, request.agent),
-    request.capabilityId,
-    request.toolName
-  );
-  if (!capability)
-    throw new Error(`'${request.toolName ?? ""}' is not a sandbox tool`);
-  return ctx.sandbox.run(
-    {
-      id: workspace.ownerId,
-      activeTurnId: s.activeTurnId,
-      manifest: s.manifest,
-      ...(workspace.sandboxId === undefined ? {} : { sandboxId: workspace.sandboxId }),
-    },
-    capability,
-    request.toolName as never,
-    request.input,
-    signal
-  );
 }
 
 /** Vault authorization for an MCP server request made on behalf of a session. */

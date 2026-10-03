@@ -12,12 +12,7 @@
  */
 import { basename } from "node:path";
 import type { SandboxToolOutcome } from "@nylorun/core/contracts";
-import {
-  ARTIFACTS_CAPABILITY_ID,
-  SANDBOX_CAPABILITY_ID,
-  SAVE_ARTIFACT_TOOL,
-  type AgentManifest,
-} from "@nylorun/core/define";
+import { SANDBOX_CAPABILITY_ID } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { isArtifactId } from "@nylorun/core/compatibility";
 import { readArtifactLimits } from "../artifacts/config.js";
@@ -31,15 +26,7 @@ import { HttpError } from "./http.js";
 import { manifestFor } from "./session.js";
 import { toolIds } from "./transcript.js";
 
-/** True when `request` calls `save_artifact` of the `nylorun.artifacts` capability `manifest` has. */
-export function isSaveArtifactCall(manifest: AgentManifest | undefined, request: HostEffect): boolean {
-  return (
-    request.kind === "tool" &&
-    request.capabilityId === ARTIFACTS_CAPABILITY_ID &&
-    request.toolName === SAVE_ARTIFACT_TOOL &&
-    manifest?.capabilities.some((capability) => capability.id === ARTIFACTS_CAPABILITY_ID) === true
-  );
-}
+export { isSaveArtifactCall } from "../harness/calls.js";
 
 const failed = (code: string, message: string): SandboxToolOutcome => ({
   kind: "failed",

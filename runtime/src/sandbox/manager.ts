@@ -13,7 +13,6 @@ import type { EventPayload } from "@nylorun/core/contracts";
 import { createHash } from "node:crypto";
 import {
   SANDBOX_WORKSPACE,
-  isSandboxToolName,
   type AgentManifest,
   type CapabilityManifest,
   type SandboxToolName,
@@ -47,6 +46,8 @@ import {
   type SandboxListing,
   type SandboxSpec,
 } from "./types.js";
+
+export { sandboxCapabilityOf } from "./capability.js";
 
 export interface SandboxSessionRef {
   /** The session whose log records the workspace's events: the owning session. */
@@ -116,19 +117,6 @@ export interface SandboxManagerOptions {
 export type SandboxEventType = "sandbox.state" | "sandbox.exec";
 
 const READ_TOOLS = new Set<SandboxToolName>(["read", "grep", "glob"]);
-
-/** The sandbox capability that owns this tool call, when the call is a built-in sandbox tool. */
-export function sandboxCapabilityOf(
-  manifest: AgentManifest | undefined,
-  capabilityId: string | undefined,
-  toolName: string | undefined
-): CapabilityManifest | undefined {
-  if (!manifest || !capabilityId || !toolName || !isSandboxToolName(toolName)) return undefined;
-  const capability = manifest.capabilities.find((item) => item.id === capabilityId);
-  return capability?.sandbox && capability.tools?.some((tool) => tool.name === toolName)
-    ? capability
-    : undefined;
-}
 
 export class SandboxManager {
   private selection?: Promise<SandboxSelection>;

@@ -1,0 +1,311 @@
+/**
+ * The Harness API's server, one per Tenant (blueprint D37). Harnesses attach a channel each and
+ * keep `lease` requests waiting; an advance that took a session's lease *offers* its segment
+ * (`offer`), and the first waiting harness takes it as a run. Offers are served in order; one
+ * no harness takes within `offerWaitMs` ends `unavailable`.
+ *
+ * A run is bound to the connection that leased it: any other gets `run_not_held`. Core's abort
+ * of the advance reaches the harness as `cancel` with the abort's reason. The run ends with an
+ * output (answered once core has settled it, with the transcript's new cursor), a release, or
+ * the connection's loss (`connection.lost`).
+ */
+import { randomUUID } from "node:crypto";
+import {
+  HARNESS_API_VERSION,
+  HARNESS_CLAIMS,
+  HarnessApiError,
+  type EffectIntent,
+  type HarnessChannel,
+  type HarnessClaim,
+  type OutputMethod,
+  type ParamsOf,
+  type ReleaseReason,
+  type RunGrant,
+  type TurnOutput,
+  type TurnStart,
+} from "@nylorun/core/harness-api";
+import { isOwnershipLost } from "../store/ownership.js";
+import type { Lease, TenantContext } from "../tenant/context.js";
+import type { RunOf } from "../tenant/run-grants.js";
+import { abortKind } from "../tenant/worker.js";
+import { recordIntent, recordOutcome } from "./record.js";
+import { beat, renewEveryMs, tokenOf } from "./renew.js";
+
+/** Who is on the other end of a connection, for logs. */
+export interface HarnessPeer {
+  readonly name: string;
+}
+
+/** A segment an advance offers to a harness. */
+export interface RunOffer {
+  readonly lease: Lease;
+  readonly start: TurnStart;
+  /** The advance's controller: its abort is the run's `cancel`. */
+  readonly controller: AbortController;
+  /** The transcript core folded at `start.transcript.cursor`, for `transcript.read`. */
+  readonly transcript: readonly unknown[];
+  /** What the run token names, for its re-mint on renewal (F5). */
+  readonly run: RunOf;
+  /** Called when a harness takes the run. */
+  readonly onTaken?: () => void;
+}
+
+/** How a run ended. An output waits for `reply` (or `refuse`) before the harness hears back. */
+export type RunEnd =
+  | {
+      readonly kind: "output";
+      readonly method: OutputMethod;
+      readonly output: TurnOutput;
+      reply(answer: { cursor?: number }): void;
+      refuse(error: unknown): void;
+    }
+  | { readonly kind: "released"; readonly reason: ReleaseReason }
+  /** Core's controller aborted before any harness took the run. */
+  | { readonly kind: "aborted" }
+  /** No harness took the run within `offerWaitMs`. */
+  | { readonly kind: "unavailable" };
+
+export interface HarnessApiServer {
+  /** Serves a harness's channel until it closes. Returns a function that detaches it. */
+  attach(channel: HarnessChannel, peer: HarnessPeer): () => void;
+  offer(offer: RunOffer): Promise<RunEnd>;
+  /** Harnesses attached now. */
+  readonly connected: number;
+  close(): void;
+}
+
+interface Connection {
+  readonly channel: HarnessChannel;
+  readonly peer: HarnessPeer;
+}
+
+interface Waiting {
+  readonly connection: Connection;
+  resolve(answer: { run: RunGrant; input: TurnStart }): void;
+}
+
+interface Run {
+  grant: RunGrant;
+  readonly offer: RunOffer;
+  connection?: Connection;
+  ended?: true;
+  /** Outputs received, by method: a repeated one gets the same answer. */
+  readonly outputs: Map<string, Promise<{ cursor?: number }>>;
+  end(end: RunEnd): void;
+}
+
+const OUTPUTS: readonly string[] = [
+  "turn.completed",
+  "turn.paused",
+  "turn.waiting",
+  "turn.failed",
+  "checkpoint",
+];
+
+export function createHarnessApiServer(
+  ctx: TenantContext,
+  options: { offerWaitMs?: number } = {}
+): HarnessApiServer {
+  const offerWaitMs = options.offerWaitMs ?? 10_000;
+  const connections = new Set<Connection>();
+  const waiting: Waiting[] = [];
+  const queued: Run[] = [];
+  const runs = new Map<string, Run>();
+  let closed = false;
+
+  /** Hands queued runs to waiting harnesses, in order. */
+  const match = () => {
+    while (queued.length > 0 && waiting.length > 0) {
+      const run = queued.shift()!;
+      const lease = waiting.shift()!;
+      run.connection = lease.connection;
+      // The run token the advance holds now (F5): the gate calls of this run present it.
+      run.grant = { ...run.grant, ...tokenOf(ctx, run.offer.lease) };
+      runs.set(run.grant.runId, run);
+      lease.resolve({ run: run.grant, input: run.offer.start });
+      run.offer.onTaken?.();
+    }
+  };
+
+  const held = (connection: Connection, runId: string, output?: string): Run => {
+    const run = runs.get(runId);
+    if (!run || run.connection !== connection || (run.ended && !(output && run.outputs.has(output))))
+      throw new HarnessApiError("run_not_held", `Run ${runId} is not held by this harness`);
+    return run;
+  };
+
+  const scope = (run: Run) => ({
+    ctx,
+    lease: run.offer.lease,
+    signal: run.offer.controller.signal,
+  });
+
+  const serve = (connection: Connection) =>
+    async (method: string, params: unknown, signal: AbortSignal): Promise<unknown> => {
+      const p = params as Record<string, unknown>;
+      if (method === "hello") {
+        const report = await ctx.sandbox.report().catch(() => undefined);
+        return {
+          api: HARNESS_API_VERSION,
+          sandbox: { backend: report?.backend ?? null },
+          renewEveryMs: renewEveryMs(ctx),
+        };
+      }
+      if (method === "lease")
+        return new Promise((resolve, reject) => {
+          const entry: Waiting = { connection, resolve };
+          waiting.push(entry);
+          signal.addEventListener("abort", () => {
+            const index = waiting.indexOf(entry);
+            if (index >= 0) waiting.splice(index, 1);
+            reject(signal.reason);
+          });
+          match();
+        });
+      if (OUTPUTS.includes(method)) return output(held(connection, String(p.runId), method), method, p);
+      const run = held(connection, String(p.runId));
+      switch (method) {
+        case "lease.renew":
+          return beat(ctx, run.offer.lease, run.offer.controller, run.offer.run, () => !run.ended);
+        case "lease.release":
+          run.end({ kind: "released", reason: p.reason as ReleaseReason });
+          return {};
+        case "effect.intent": {
+          const { effect, requestHash } = p as ParamsOf<"effect.intent">;
+          if (effect.sessionId !== run.grant.sessionId || effect.turnId !== run.grant.turnId)
+            throw new HarnessApiError("invalid", "The effect is not of this run's turn");
+          return recordIntent(scope(run), effect as EffectIntent, requestHash);
+        }
+        case "effect.outcome": {
+          const { effectId, ...result } = p as ParamsOf<"effect.outcome">;
+          return recordOutcome(
+            scope(run),
+            effectId,
+            "error" in result ? { error: result.error } : { value: result.value }
+          );
+        }
+        case "transcript.read":
+          return { cursor: run.offer.start.transcript.cursor, entries: [...run.offer.transcript] };
+        case "event": {
+          const event = p as ParamsOf<"event">;
+          if (!HARNESS_CLAIMS.includes(event.type as HarnessClaim) || event.sessionId !== run.grant.sessionId)
+            throw new HarnessApiError("invalid", `A harness may not claim ${event.type} here`);
+          await ctx.store.tx((t) => t.event(event.sessionId, event.turnId, event.type, event.payload as never));
+          return {};
+        }
+        default:
+          throw new HarnessApiError("invalid", `Unknown request ${method}`);
+      }
+    };
+
+  const output = (run: Run, method: string, params: Record<string, unknown>) => {
+    const known = run.outputs.get(method);
+    if (known) return known;
+    const answer = new Promise<{ cursor?: number }>((reply, refuse) =>
+      run.end({
+        kind: "output",
+        method: method as OutputMethod,
+        output: params as unknown as TurnOutput,
+        reply,
+        refuse,
+      })
+    );
+    run.outputs.set(method, answer);
+    return answer;
+  };
+
+  return {
+    get connected() {
+      return connections.size;
+    },
+    attach(channel, peer) {
+      const connection: Connection = { channel, peer };
+      connections.add(connection);
+      const handler = serve(connection);
+      channel.handle(async (method, params, signal) => {
+        try {
+          return await handler(method, params, signal);
+        } catch (error) {
+          if (isOwnershipLost(error)) throw new HarnessApiError("ownership_lost", (error as Error).message);
+          throw error;
+        }
+      });
+      const detach = () => {
+        if (!connections.delete(connection)) return;
+        for (let i = waiting.length - 1; i >= 0; i -= 1)
+          if (waiting[i]!.connection === connection) waiting.splice(i, 1);
+        for (const run of runs.values())
+          if (run.connection === connection) run.end({ kind: "released", reason: "connection.lost" });
+      };
+      channel.onClose(detach);
+      return detach;
+    },
+    offer(offer) {
+      const { lease, controller } = offer;
+      return new Promise<RunEnd>((resolve) => {
+        const checkpoint = offer.start.checkpoint as { turnId: string };
+        let timer: NodeJS.Timeout | undefined;
+        const onAbort = () => {
+          const index = queued.indexOf(run);
+          if (index >= 0) {
+            queued.splice(index, 1);
+            run.end({ kind: "aborted" });
+            return;
+          }
+          if (run.ended || !run.connection) return;
+          const reason = controller.signal.reason;
+          run.connection.channel.notify("cancel", {
+            runId: run.grant.runId,
+            reason: abortKind(controller.signal)!,
+            ...(reason instanceof Error ? { message: reason.message } : {}),
+          });
+        };
+        const run: Run = {
+          grant: { runId: randomUUID(), sessionId: lease.sessionId, turnId: checkpoint.turnId, epoch: lease.epoch },
+          offer,
+          outputs: new Map(),
+          end(end) {
+            if (run.ended) return;
+            run.ended = true;
+            clearTimeout(timer);
+            controller.signal.removeEventListener("abort", onAbort);
+            // An output's run stays held until core answers it, so a repeat gets the same answer.
+            if (end.kind === "output") {
+              const forget = () => runs.delete(run.grant.runId);
+              resolve({
+                ...end,
+                reply: (answer) => {
+                  forget();
+                  end.reply(answer);
+                },
+                refuse: (error) => {
+                  forget();
+                  end.refuse(error);
+                },
+              });
+            } else {
+              runs.delete(run.grant.runId);
+              resolve(end);
+            }
+          },
+        };
+        if (closed) return run.end({ kind: "unavailable" });
+        queued.push(run);
+        if (controller.signal.aborted) return onAbort();
+        controller.signal.addEventListener("abort", onAbort);
+        timer = setTimeout(() => {
+          const index = queued.indexOf(run);
+          if (index < 0) return;
+          queued.splice(index, 1);
+          run.end({ kind: "unavailable" });
+        }, offerWaitMs);
+        timer.unref();
+        match();
+      });
+    },
+    close() {
+      closed = true;
+      for (const run of queued.splice(0)) run.end({ kind: "unavailable" });
+    },
+  };
+}

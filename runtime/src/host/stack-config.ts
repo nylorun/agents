@@ -166,6 +166,11 @@ export interface StackConfig {
    */
   browserAccess?: boolean;
   /**
+   * `NYLORUN_HARNESS_API` (`1` or `0`): whether segments run through the Harness API (F6.1).
+   * Absent means on; `0` runs the engine in the advance, as before, until F6.2.
+   */
+  harnessApi?: boolean;
+  /**
    * The operator listener in container mode (`NYLORUN_ADMIN_LISTEN_PORT`, `…_HOST`,
    * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
    */
@@ -502,6 +507,9 @@ export function parseStackConfig(
     throw new StackConfigError(
       `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
     );
+  const rawHarnessApi = read(env, "NYLORUN_HARNESS_API");
+  if (rawHarnessApi !== undefined && rawHarnessApi !== "0" && rawHarnessApi !== "1")
+    throw new StackConfigError(`NYLORUN_HARNESS_API must be 0 or 1, not ${rawHarnessApi}`);
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const objectStore = parseObjectStore(env);
@@ -516,6 +524,7 @@ export function parseStackConfig(
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
     ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
+    ...(rawHarnessApi === undefined ? {} : { harnessApi: rawHarnessApi === "1" }),
     ...(operator ? { operator } : {}),
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),

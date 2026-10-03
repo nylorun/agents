@@ -4,7 +4,9 @@ import type {
   HostTenant,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
+import type { HarnessChannel } from "@nylorun/core/harness-api";
 import type { FlowLimits } from "../core/limits.js";
+import type { HarnessPeer } from "../harness-api/server.js";
 import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantCause } from "./cause.js";
@@ -75,6 +77,11 @@ export interface TenantConfig {
    */
   flowEnv?: Readonly<Record<string, string | undefined>>;
   vaultFetch?: typeof fetch;
+  /**
+   * Run segments through the Harness API (F6.1, `NYLORUN_HARNESS_API`). Default on; `false`
+   * runs the engine in the advance, as before, until F6.2.
+   */
+  harnessApi?: boolean;
   logger: Logger;
 }
 
@@ -117,6 +124,8 @@ export interface TenantHandle {
   /** Stop scheduling; wait for or cancel active turns. */
   drain(activeWork: "drain" | "cancel", timeoutMs?: number): Promise<void>;
   close(): Promise<void>; // ends every stream this Tenant holds
+  /** Serves a harness's Harness API channel until it closes. Returns a function that detaches it. */
+  attachHarness?(channel: HarnessChannel, peer: HarnessPeer): () => void;
 }
 
 /**

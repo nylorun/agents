@@ -35,6 +35,7 @@ import type { VaultService } from "../vault/service.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { SandboxManager } from "../sandbox/manager.js";
+import type { HarnessApiServer } from "../harness-api/server.js";
 import type { TenantConfig } from "./types.js";
 import type { SessionStreams } from "./session-streams.js";
 import type { StuckInvocation, Wake } from "../execution/types.js";
@@ -191,6 +192,11 @@ export interface TenantContext {
    * Absent when the gates run in this process, which needs no token (G6).
    */
   readonly runGrants?: RunGrants;
+  /**
+   * The Harness API server (D37): advances offer their segments here, and the Tenant's
+   * harnesses (the in-process one, or attached ones) run them.
+   */
+  readonly harness: HarnessApiServer;
   /** Set by drain/close; reset clears it again. Stops new advances. */
   closing: boolean;
   /** Set once close has finished releasing resources. */

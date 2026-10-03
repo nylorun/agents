@@ -76,6 +76,13 @@ import { inProcessKeys, type Keys } from "../keys/keys.js";
 import type { RunGrants } from "./run-grants.js";
 import { tenantApi } from "../api/http/app.js";
 import { createFsBlobStore, type BlobStore } from "../blob/index.js";
+import type { HarnessChannel, MemoryPortsOptions } from "@nylorun/core/harness-api";
+import {
+  createHarnessApiServer,
+  type HarnessApiServer,
+  type HarnessPeer,
+} from "../harness-api/server.js";
+import { startInProcessHarness, type InProcessHarness } from "../harness-api/in-process.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
@@ -130,6 +137,14 @@ export type TenantOpenHooks = {
    * Tenant keeps blobs on disk under `paths.blobs` (the `fs` adapter: embedding, tests).
    */
   blobs?: BlobStore;
+  /**
+   * The Tenant's harness (F6.1): `memory` (default) runs one in this process over a memory
+   * channel, `json` the same through JSON with every frame validated (tests), `remote` none:
+   * harnesses attach with `TenantHandle.attachHarness`.
+   */
+  harness?: "memory" | "json" | "remote";
+  /** Sees each frame of the in-process harness's channel (tests and benchmarks). */
+  harnessTap?: MemoryPortsOptions["tap"];
 } & OpenedTenant;
 
 /** Default ownership lease of an advance; the heartbeat renews it every third. */
@@ -161,7 +176,8 @@ export class TenantRuntime implements TenantHandle {
     readonly worker: TenantWorker,
     private readonly detach: () => Promise<void>,
     /** How long close waits for running advances: the execution's advance grace period. */
-    private readonly closeGraceMs: number
+    private readonly closeGraceMs: number,
+    private readonly harness?: InProcessHarness
   ) {}
 
   static async open(
@@ -182,6 +198,7 @@ export class TenantRuntime implements TenantHandle {
     const store: SessionStore = hooks.store;
     let wired: StreamsWiring | undefined;
     let detach: (() => Promise<void>) | undefined;
+    let harness: InProcessHarness | undefined;
     try {
       // With the keys service (F4.2) the key lives in the gateway: this process never reads,
       // creates or holds it, and the gateway reports a missing key on its readiness.
@@ -294,6 +311,7 @@ export class TenantRuntime implements TenantHandle {
         workers: new TenantWorkers(),
       };
       const sweepHooks = new Set<() => Promise<void>>();
+      let harnessServer!: HarnessApiServer;
       ctx = {
         config,
         envelope,
@@ -306,6 +324,9 @@ export class TenantRuntime implements TenantHandle {
         useVaultModel,
         modelGate,
         toolGate,
+        get harness() {
+          return harnessServer;
+        },
         closing: false,
         closed: false,
         work: createWorkState(),
@@ -338,6 +359,16 @@ export class TenantRuntime implements TenantHandle {
           return () => sweepHooks.delete(hook);
         },
       };
+      harnessServer = createHarnessApiServer(ctx);
+      // Without the Harness API there is nothing to run one for.
+      const mode = config.harnessApi === false ? "remote" : hooks.harness ?? "memory";
+      harness =
+        mode === "remote"
+          ? undefined
+          : await startInProcessHarness(ctx, {
+              json: mode === "json",
+              ...(hooks.harnessTap ? { tap: hooks.harnessTap } : {}),
+            });
       wired = await wireStreams(ctx, {
         store: opened,
         streams: hooks.streams ?? new MemoryStreams(),
@@ -361,9 +392,10 @@ export class TenantRuntime implements TenantHandle {
       };
       if (local) await local.start(workers.handlers);
       await execution.armSweep(config.tenantId);
-      return new TenantRuntime(ctx, envelope, worker, detach, workers.graceMs);
+      return new TenantRuntime(ctx, envelope, worker, detach, workers.graceMs, harness);
     } catch (error) {
       await detach?.().catch(() => undefined);
+      await harness?.stop().catch(() => undefined);
       await wired?.close().catch(() => undefined);
       await store.close().catch(() => undefined);
       throw error;
@@ -422,6 +454,10 @@ export class TenantRuntime implements TenantHandle {
     return this.ctx.onSweep(hook);
   }
 
+  attachHarness(channel: HarnessChannel, peer: HarnessPeer): () => void {
+    return this.ctx.harness.attach(channel, peer);
+  }
+
   async close(): Promise<void> {
     const ctx = this.ctx;
     ctx.closing = true;
@@ -436,6 +472,14 @@ export class TenantRuntime implements TenantHandle {
       ["session streams", () => endAllStreams(ctx.sessionStreams)],
       // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
       ["idle", () => waitForIdle(ctx, Math.max(0, idleBy - Date.now()))],
+      [
+        "harness",
+        async () => {
+          ctx.harness.close();
+          // Advances still running were abandoned at "idle": their runs are left behind too.
+          await this.harness?.stop(Math.max(0, idleBy - Date.now()));
+        },
+      ],
       ["sandbox", () => ctx.sandbox.close()],
       [
         "streams",

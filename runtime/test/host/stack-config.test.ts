@@ -416,6 +416,15 @@ describe("NYLORUN_BROWSER_ACCESS", () => {
   });
 });
 
+describe("NYLORUN_HARNESS_API", () => {
+  it("is absent by default, and 1 or 0 when set", () => {
+    expect(parseStackConfig({}, []).harnessApi).toBeUndefined();
+    expect(parseStackConfig({ NYLORUN_HARNESS_API: "1" }, []).harnessApi).toBe(true);
+    expect(parseStackConfig({ NYLORUN_HARNESS_API: "0" }, []).harnessApi).toBe(false);
+    expect(() => parseStackConfig({ NYLORUN_HARNESS_API: "off" }, [])).toThrow(StackConfigError);
+  });
+});
+
 describe("NYLORUN_ADMIN_LISTEN_*", () => {
   const base = {
     NYLORUN_LISTEN_HOST: "0.0.0.0",

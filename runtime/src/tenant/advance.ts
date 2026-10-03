@@ -14,12 +14,18 @@
  * - **Epoch-checked writes.** Every transaction of the advance and of the engine host
  *   (`effects.ts`) runs through `ownedTx`/`ownedSession`, which checks the epoch first. A
  *   mismatch throws `ownership.lost` with no write; the advance stops and returns `done`.
- * - **Heartbeat.** While the segment runs, a timer scoped to the advance renews the lease
- *   (a column update). A failed renewal aborts the segment.
+ * - **Heartbeat.** While the segment runs the lease is renewed (a column update): by the
+ *   harness that holds the run (`lease.renew`), and by core until one takes it. A failed
+ *   renewal aborts the segment.
  * - **Run token** (F5). Right after taking the lease the advance mints the run token its
- *   gate calls present (`run-grants.ts`); the heartbeat re-mints it before it expires, and it
- *   is dropped when the lease is lost or released.
+ *   gate calls present (`run-grants.ts`); each renewal re-mints it before it expires, and it
+ *   is dropped when the lease is lost or released. A harness gets it with its run.
  * - **Release** when the advance ends, whatever the outcome.
+ *
+ * The segment runs in a harness (Harness API v1, `harness-api/`): the advance offers it with
+ * its `turn.start`, the in-process harness (or one attached to the Tenant) runs the engine and
+ * reports how it ended, and the advance settles that exactly as it settled the engine's result.
+ * With `NYLORUN_HARNESS_API=0` the engine runs here instead (`runSegment`), until F6.2.
  *
  * Session outcomes never throw out of `advance`: a segment that throws is settled as a
  * failed turn. Only infrastructure errors (the Session Store is unreachable) throw, and the
@@ -49,37 +55,40 @@ import {
   wakeLinkedWorkflow,
 } from "../core/flow-host.js";
 import type { AdvanceResult } from "../execution/types.js";
+import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { Lease, Session, TenantContext } from "./context.js";
-import {
-  linkedAgentOutput,
-  rebaseSessionState,
-  sessionToolsOf,
-  turnManifestOf,
-} from "./session.js";
+import { linkedAgentOutput, sessionToolsOf, turnManifestOf } from "./session.js";
 import {
   isRemoteMcpEffect,
   prepareMcp,
   recoversMcpCalls,
   recoversModelCalls,
-  resolveEffect,
 } from "./effects.js";
+import { resolveEffect } from "./resolve.js";
 import { slimModelEffects } from "./slim.js";
 import {
-  checkParity,
-  foldTranscript,
+  applyUpdates,
   leanState,
   transcriptOf,
+  transcriptShadow,
   transcriptUpdates,
   withTranscript,
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
 import { exportOutputs } from "../artifacts/export.js";
-import { dropRunGrant, grantRun, renewRunGrant, type RunOf } from "./run-grants.js";
-import { usesFixtureModel } from "./model-setting.js";
+import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
 import { toolFixtureModel } from "../core/provider.js";
+import { startHeartbeat } from "../harness-api/renew.js";
+import {
+  buildTurnStart,
+  startSegment,
+  yieldAfterOf,
+  type SegmentStart,
+} from "../harness-api/start.js";
+import type { RunEnd } from "../harness-api/server.js";
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
@@ -101,6 +110,19 @@ class SegmentStopped extends Error {
   }
 }
 
+/**
+ * The harness holding the run went away without giving it back (`connection.lost`): an effect
+ * it was running may still be running, or may have died with it. Like a Worker that died, the
+ * advance keeps the lease, which lapses, so the next advance takes the session over and marks
+ * what was `invoking` `uncertain` (§11.4). Never leaves `advance`.
+ */
+class RunLost extends Error {
+  override readonly name = "RunLost";
+  constructor() {
+    super("The harness holding the run went away");
+  }
+}
+
 /** Throws `SegmentStopped` when the signal aborted for a reason that must not settle. */
 function stopIfLeaving(signal: AbortSignal): void {
   const kind = abortKind(signal);
@@ -111,7 +133,17 @@ type SegmentResult =
   | Awaited<ReturnType<typeof runDurable>>
   | Awaited<ReturnType<typeof runFlowDurable>>;
 
+/** No harness took the segment (`HarnessApiServer.offer`): the advance is retried later. */
+class HarnessUnavailable extends Error {
+  override readonly name = "HarnessUnavailable";
+  constructor() {
+    super("No harness took the segment");
+  }
+}
+
 const DONE: AdvanceResult = { status: "done" };
+/** How soon an advance whose segment no harness took is tried again. */
+const UNAVAILABLE_RETRY_MS = 1000;
 /** Shortest `busy` retry, so a lease about to lapse is not polled in a tight loop. */
 const MIN_RETRY_MS = 25;
 
@@ -147,14 +179,31 @@ export async function advance(
   else signal.addEventListener("abort", forward, { once: true });
   ctx.work.running.set(id, controller);
   ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
-  const run = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
+  // A harness renews the lease once it holds the run; until then, and without one, core does.
+  const run: RunOf = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
   const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
+  let release = true;
   try {
     await grantRun(ctx, lease, run);
-    await runSegment(ctx, lease, taken.session, controller.signal);
+    if (ctx.config.harnessApi !== false)
+      await runRemoteSegment(ctx, lease, taken.session, controller, run, () => heartbeat.stop());
+    else await runSegment(ctx, lease, taken.session, controller.signal);
   } catch (error) {
-    if (error instanceof SegmentStopped && error.kind === "shutdown") {
+    if (error instanceof RunLost) {
+      ctx.config.logger.warn("advance lost its harness; the lease lapses and the session is taken over", {
+        sessionId: id,
+        epoch: lease.epoch,
+      });
+      release = false;
+      result = { status: "busy", retryAfterMs: ctx.ownerLeaseMs };
+    } else if (error instanceof HarnessUnavailable) {
+      ctx.config.logger.warn("advance found no harness; session left for the next advance", {
+        sessionId: id,
+        epoch: lease.epoch,
+      });
+      result = { status: "busy", retryAfterMs: UNAVAILABLE_RETRY_MS };
+    } else if (error instanceof SegmentStopped && error.kind === "shutdown") {
       // Left for the next advance, which resumes from the checkpoint once this one releases.
       ctx.config.logger.info("advance stopped for shutdown; session left for the next advance", {
         sessionId: id,
@@ -176,7 +225,8 @@ export async function advance(
       ctx.work.runningTurns.delete(id);
     }
     // Best effort: a release that fails leaves a lease that simply expires.
-    await ctx.store
+    if (release)
+      await ctx.store
       .tx((t) => t.releaseOwnership(id, lease.owner, lease.epoch))
       .catch((error) =>
         ctx.config.logger.warn("advance failed to release ownership", {
@@ -261,74 +311,121 @@ export async function takeOver(
 }
 
 /**
- * Renews the lease every third of its length while the advance runs, and the run token when
- * it nears its end; aborts the advance when the lease is lost.
- * Stops renewing once the advance is aborted (cancel, deadline, Worker stop): an advance that
- * does not wind down within the lease is taken over when it lapses (`worker.ts`).
+ * Runs one segment in a harness and settles it. Throws only `ownership.lost`, `SegmentStopped`,
+ * `HarnessUnavailable` and infrastructure errors. `onTaken` runs when a harness takes the run.
  */
-function startHeartbeat(
+async function runRemoteSegment(
   ctx: TenantContext,
   lease: Lease,
+  started: Session,
   controller: AbortController,
-  run: RunOf
-): { stop(): void } {
-  const every = Math.max(10, Math.floor(ctx.ownerLeaseMs / 3));
-  let stopped = false;
-  let timer: NodeJS.Timeout | undefined;
-  const beat = async () => {
-    if (controller.signal.aborted) {
-      stopped = true;
-      return;
-    }
-    try {
-      const renewed = await ctx.store.tx((t) =>
-        t.renewOwnership(
-          lease.sessionId,
-          lease.owner,
-          lease.epoch,
-          new Date(Date.now() + ctx.ownerLeaseMs)
-        )
+  run: RunOf,
+  onTaken: () => void
+): Promise<void> {
+  const { signal } = controller;
+  let end: RunEnd | undefined;
+  try {
+    // prepareMcp mutates the session's mcpSnapshot; read current after it.
+    if (!isWorkflowManifest(started.manifest)) await prepareMcp(ctx, lease, signal);
+    const segment = await startSegment(ctx, lease, { harness: true });
+    end = await ctx.harness.offer({
+      lease,
+      start: buildTurnStart(ctx, segment),
+      controller,
+      transcript: segment.transcript,
+      run,
+      onTaken,
+    });
+    if (end.kind === "unavailable") throw new HarnessUnavailable();
+    // Aborted before a harness took it: settled as an abort of the engine would be.
+    if (end.kind === "aborted") throw signal.reason;
+    // Checked before the abort: whatever core's signal says, the run's effects are unaccounted for.
+    if (end.kind === "released" && end.reason === "connection.lost") throw new RunLost();
+    stopIfLeaving(signal);
+    if (end.kind === "released")
+      throw new SegmentStopped(end.reason === "ownership.lost" ? "ownership.lost" : "shutdown");
+    const { output } = end;
+    if (output.thrown) throw thrownError(output.thrown);
+    const result = resultOf(output, segment);
+    let cursor: number | undefined;
+    if (
+      signal.reason instanceof AdvanceDeadlineError &&
+      (result.status === "cancelled" || result.status === "failed")
+    )
+      await settleFailure(ctx, lease, started, signal.reason);
+    else {
+      const recorded =
+        result.status === "yielded" || result.status === "completed" || result.status === "paused";
+      cursor = await settleTurn(
+        ctx,
+        lease,
+        started,
+        result,
+        recorded ? output.transcript ?? [] : [],
+        signal,
+        segment.cursor
       );
-      if (!renewed && !stopped) {
-        stopped = true;
-        // Calls under the lost lease are stale at the gate anyway; make no more of them.
-        dropRunGrant(ctx, lease);
-        controller.abort(new AdvanceAbort("ownership.lost", "Ownership lost"));
-        return;
-      }
-      if (!stopped)
-        await renewRunGrant(ctx, lease, run, () => !stopped).catch((error: unknown) =>
-          ctx.config.logger.warn("advance failed to renew its run token", {
-            sessionId: lease.sessionId,
-            message: error instanceof Error ? error.message : String(error),
-          })
-        );
-    } catch (error) {
-      if (!stopped)
-        ctx.config.logger.warn("advance heartbeat failed", {
-          sessionId: lease.sessionId,
-          message: error instanceof Error ? error.message : String(error),
-        });
     }
-    arm();
-  };
-  const arm = () => {
-    if (stopped) return;
-    timer = setTimeout(() => void beat(), every);
-    timer.unref();
-  };
-  arm();
-  return {
-    stop() {
-      stopped = true;
-      clearTimeout(timer);
-    },
-  };
+    end.reply(cursor === undefined ? {} : { cursor });
+  } catch (error) {
+    if (end?.kind === "output") end.refuse(error);
+    if (
+      isOwnershipLost(error) ||
+      error instanceof SegmentStopped ||
+      error instanceof HarnessUnavailable ||
+      error instanceof RunLost
+    )
+      throw error;
+    stopIfLeaving(signal);
+    // A segment stopped by its deadline fails with the deadline, not the abort it caused.
+    const deadline = signal.aborted && signal.reason instanceof AdvanceDeadlineError;
+    await settleFailure(ctx, lease, started, deadline ? signal.reason : error);
+  }
 }
 
-/** Segment rollover defaults (Model Calls §10), well inside the advance deadline. */
-const ROLLOVER_STEPS = 50;
-const ROLLOVER_MS = 20 * 60_000;
+/** The error an engine threw in the harness, as it would have been thrown here. */
+function thrownError(thrown: NonNullable<TurnOutput["thrown"]>): Error {
+  const error = new Error(thrown.message);
+  // A lost epoch stops the segment without a write, wherever it was noticed.
+  return thrown.code === "ownership_lost"
+    ? Object.assign(error, { code: "ownership.lost" })
+    : error;
+}
+
+/**
+ * A harness's output as the engine's result, so `settle` is unchanged. The checkpoint is the
+ * segment's own (with the agent's new state); in shadow mode the state gets back the transcript
+ * the harness edited.
+ */
+function resultOf(output: TurnOutput, segment: SegmentStart): SegmentResult {
+  const { current } = segment;
+  const status = output.status ?? "failed";
+  if (status === "waiting" || status === "uncertain")
+    return {
+      status,
+      checkpoint: current.checkpoint as DurableCheckpoint,
+      effectIds: output.effectIds ?? [],
+    };
+  let state = output.state;
+  if (state !== undefined && transcriptShadow())
+    state = withTranscript(state, applyUpdates(segment.transcript, output.transcript ?? []));
+  const checkpoint =
+    state === undefined || isWorkflowManifest(current.manifest)
+      ? current.checkpoint
+      : { ...current.checkpoint!, state };
+  return {
+    status,
+    checkpoint,
+    result: {
+      status,
+      ...(state === undefined ? {} : { state }),
+      ...(output.output === undefined ? {} : { output: output.output }),
+      ...(output.pending === undefined ? {} : { pending: output.pending }),
+      ...(output.error === undefined ? {} : { error: output.error }),
+    },
+    ...(output.cancelEffectIds ? { cancelEffectIds: output.cancelEffectIds } : {}),
+  } as SegmentResult;
+}
 
 /** Runs one segment and settles it. Throws only `ownership.lost` and infrastructure errors. */
 async function runSegment(
@@ -337,35 +434,16 @@ async function runSegment(
   started: Session,
   signal: AbortSignal
 ): Promise<void> {
-  const id = lease.sessionId;
   try {
     // prepareMcp mutates the session's mcpSnapshot; read current after it.
     if (!isWorkflowManifest(started.manifest))
       await prepareMcp(ctx, lease, signal);
-    const { current, fixtureModel } = await ownedTx<
-      { current: Session; fixtureModel: boolean },
-      Session
-    >(ctx.store, id, lease.epoch, async (t, current) => {
-      if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
-        rebaseSessionState(current, current.checkpoint.manifestHash);
-        await adoptStoredTranscript(t, current);
-        const cp = current.checkpoint as DurableCheckpoint;
-        current.checkpoint = { ...cp, state: current.state };
-        await t.put("sessions", id, current);
-      }
-      return { current, fixtureModel: await usesFixtureModel(t) };
-    });
-    // One history (P0.3): the engine resumes from the transcript folded from the record.
-    let startTranscript: unknown[] = [];
-    let engineCheckpoint = current.checkpoint;
-    if (!isWorkflowManifest(current.manifest) && current.checkpoint) {
-      const cp = current.checkpoint as DurableCheckpoint;
-      if (cp.state) {
-        startTranscript = await foldSession(ctx, current);
-        checkParity(id, startTranscript, transcriptOf(cp.state));
-        engineCheckpoint = { ...cp, state: withTranscript(cp.state, startTranscript) };
-      }
-    }
+    const { current, fixtureModel, transcript: startTranscript } = await startSegment(ctx, lease);
+    const cp = current.checkpoint as DurableCheckpoint | undefined;
+    const engineCheckpoint =
+      !isWorkflowManifest(current.manifest) && cp?.state
+        ? { ...cp, state: withTranscript(cp.state, startTranscript) }
+        : current.checkpoint;
     const segment = fixtureModel ? { model: fixture } : {};
     const host = {
       resolveEffect: (e: HostEffect) =>
@@ -385,10 +463,7 @@ async function runSegment(
           signal,
           sessionTools: sessionToolsOf(current.mcpSnapshot),
           host,
-          yieldAfter: {
-            steps: ctx.config.rollover?.steps ?? ROLLOVER_STEPS,
-            ms: ctx.config.rollover?.ms ?? ROLLOVER_MS,
-          },
+          yieldAfter: yieldAfterOf(ctx),
         });
     // The engine turns an abort into a `cancelled` (agents) or `failed` (workflows) result;
     // only a user cancel may settle that, and it already did.
@@ -406,9 +481,7 @@ async function runSegment(
           ? (result.result as { state?: unknown } | undefined)?.state
           : undefined;
       const updates = state ? transcriptUpdates(startTranscript, transcriptOf(state)) : [];
-      await settle(ctx, lease, started, result, updates);
-      // F8.2: once the turn has committed, export its sandbox outputs. Never throws.
-      if (result.status === "completed") await exportOutputs(ctx, id, started.activeTurnId, signal);
+      await settleTurn(ctx, lease, started, result, updates, signal);
     }
   } catch (error) {
     if (isOwnershipLost(error) || error instanceof SegmentStopped) throw error;
@@ -459,15 +532,41 @@ async function wakeWorkflowOf(
     });
 }
 
-/** Record a segment result, then cancel failed siblings and wake a linked workflow. */
+/**
+ * `settle`, then, for a completed turn, the turn-end export of its sandbox outputs (F8.2): after
+ * the turn has committed and while the advance still holds the lease. Both segment paths settle
+ * through here. The export never throws.
+ */
+async function settleTurn(
+  ctx: TenantContext,
+  lease: Lease,
+  s: Session,
+  result: SegmentResult,
+  updates: readonly TranscriptUpdate[],
+  signal: AbortSignal,
+  cursor?: number
+): Promise<number | undefined> {
+  const kept = await settle(ctx, lease, s, result, updates, cursor);
+  if (result.status === "completed")
+    await exportOutputs(ctx, lease.sessionId, s.activeTurnId, signal);
+  return kept;
+}
+
+/**
+ * Record a segment result, then cancel failed siblings and wake a linked workflow. Returns the
+ * cursor of the transcript it recorded (`cursor` when it recorded no edit), or undefined when
+ * the transcript was not kept.
+ */
 async function settle(
   ctx: TenantContext,
   lease: Lease,
   s: Session,
   result: SegmentResult,
-  updates: readonly TranscriptUpdate[] = []
-): Promise<void> {
+  updates: readonly TranscriptUpdate[] = [],
+  cursor?: number
+): Promise<number | undefined> {
   const id = lease.sessionId;
+  let kept: number | undefined;
   const siblingCancelIds = await ownedTx<string[], Session>(
     ctx.store,
     id,
@@ -507,7 +606,7 @@ async function settle(
       if (result.status === "yielded") {
         // The turn goes on in a new segment: same turn, next checkpoint, woken right away.
         const finished = result.checkpoint as DurableCheckpoint;
-        await recordTranscript(t, id, s.activeTurnId, current, updates);
+        kept = (await recordTranscript(t, id, s.activeTurnId, current, updates)) ?? cursor;
         current.state = leanState((result.result as any).state);
         current.checkpoint = {
           ...finished,
@@ -530,8 +629,10 @@ async function settle(
       }
       const flow = isWorkflowManifest(current.manifest);
       if (!flow) {
-        if (result.status !== "failed")
-          await recordTranscript(t, id, s.activeTurnId, current, updates);
+        if (result.status !== "failed") {
+          const last = await recordTranscript(t, id, s.activeTurnId, current, updates);
+          if (result.status !== "cancelled") kept = last ?? cursor;
+        }
         current.state =
           result.status === "failed"
             ? current.turnStartState
@@ -621,6 +722,7 @@ async function settle(
       /* agent may already be terminal */
     }
   }
+  return kept;
 }
 
 /** A segment threw: fail the turn, restore the turn-start state, wake a linked workflow. */
@@ -665,47 +767,22 @@ function leanCheckpoint<T extends object | undefined>(checkpoint: T): T {
   return { ...checkpoint, state: leanState(state) };
 }
 
-/** Appends a segment's transcript edits; a snapshot moves `history.snapshot`. */
+/**
+ * Appends a segment's transcript edits; a snapshot moves `history.snapshot`. Returns the seq of
+ * the last edit, if any.
+ */
 async function recordTranscript(
   t: Tx,
   id: string,
   turnId: string | null,
   s: Session,
   updates: readonly TranscriptUpdate[]
-): Promise<void> {
+): Promise<number | undefined> {
+  let last: number | undefined;
   for (const update of updates) {
     const event = await t.event(id, turnId, "transcript.updated", update);
     if (update.keep === 0) s.history = { from: s.history?.from ?? event.seq, snapshot: event.seq };
+    last = event.seq;
   }
-}
-
-/**
- * A session written before transcripts were recorded keeps its transcript on its row: record
- * it once (the turn's starting transcript, then the turn so far), and store the row lean.
- */
-async function adoptStoredTranscript(t: Tx, s: Session): Promise<void> {
-  if (s.history) return;
-  const now = transcriptOf(s.state);
-  const start = s.activeTurnId ? transcriptOf(s.turnStartState) : now;
-  if (now.length === 0 && start.length === 0) return;
-  let first: number | undefined;
-  const write = async (turnId: string | null, updates: TranscriptUpdate[]) => {
-    for (const update of updates) {
-      const event = await t.event(s.id, turnId, "transcript.updated", update);
-      first ??= event.seq;
-    }
-  };
-  await write(null, transcriptUpdates([], start));
-  if (s.activeTurnId) await write(s.activeTurnId, transcriptUpdates(start, now));
-  s.history = { from: first ?? 0, snapshot: first ?? 0 };
-  s.state = leanState(s.state);
-  s.turnStartState = leanState(s.turnStartState);
-}
-
-/** The session's transcript, folded from its record from `history.from`. */
-async function foldSession(ctx: TenantContext, s: Session): Promise<unknown[]> {
-  const rows = await ctx.store
-    .record()
-    .readRange(ctx.store.tenantId, s.id, s.history?.from ?? 0, Number.MAX_SAFE_INTEGER);
-  return foldTranscript(rows.map((row) => row.body as LiveEvent));
+  return last;
 }
