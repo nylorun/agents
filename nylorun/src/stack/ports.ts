@@ -1,6 +1,8 @@
 import { createServer } from "node:net";
 
 export const DEFAULT_PORTS = {
+  /** The Studio proxy, one per machine (`http://<tenant>.localhost:<port>`). */
+  proxy: 4160,
   runtime: 8787,
   /** The Runtime's operator listener (Admin API). */
   admin: 8788,

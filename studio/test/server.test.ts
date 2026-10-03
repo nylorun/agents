@@ -19,10 +19,12 @@ import { deriveStudioToken } from "@nylorun/admin";
 import {
   EMBED_SESSION_TTL_MS,
   LOGIN_TOKEN_TTL_MS,
-  SESSION_COOKIE,
+  DEFAULT_SESSION_COOKIE as SESSION_COOKIE,
   SESSION_TTL_MS,
   parseAnalyticsId,
+  parsePublicOrigins,
   parseRuntimeUrl,
+  parseSessionCookieName,
   readAdminKeyFile,
   safeNextPath,
   startStudioServer,
@@ -148,6 +150,8 @@ async function withStudio(
   }) => Promise<void>,
   extra: {
     publicPort?: number;
+    publicOrigins?: readonly string[];
+    sessionCookie?: string;
     adminKey?: string;
     clock?: { now: number };
     frameAncestors?: readonly string[];
@@ -364,6 +368,11 @@ test("Host must be the published loopback address (DNS rebinding)", async () => 
       });
       assert.equal(minted.status, 421, host);
     }
+    const refused = await send(port, { path: "/", host: `rebind.attacker.example:${port}` });
+    assert.equal(
+      JSON.parse(refused.body).message,
+      `Studio only serves http://localhost:${port} and http://127.0.0.1:${port}.`,
+    );
     // Container-internal names on the listen port reach /healthz only.
     assert.equal((await send(port, { path: "/healthz", host: `studio:${port}` })).status, 200);
     assert.equal((await send(port, { path: "/", host: `studio:${port}`, headers: { cookie } })).status, 421);
@@ -388,6 +397,118 @@ test("the Host check uses the published port, not the listen port", async () => 
     },
     { publicPort },
   );
+});
+
+test("the session cookie has the configured name, and only that name is read", async () => {
+  const name = "nylorun_studio_shop";
+  await withStudio(async ({ port }) => {
+    const { token } = await mint(port);
+    const login = await send(port, { path: `/login?token=${token}` });
+    assert.equal(login.status, 303);
+    const cookie = String(login.headers["set-cookie"]?.[0] ?? "").split(";")[0]!;
+    assert.match(cookie, new RegExp(`^${name}=v1\\.`));
+    const value = cookie.slice(name.length + 1);
+    // Another Studio's cookie on the same host is not this Studio's session.
+    const hello = (cookie: string) => send(port, { path: "/_studio/hello", headers: { cookie } });
+    assert.equal((await hello(`${SESSION_COOKIE}=${value}`)).status, 401);
+    assert.equal((await hello(`nylorun_studio_api=${value}`)).status, 401);
+    assert.equal((await hello(`nylorun_studio_api=x; ${cookie}`)).status, 200);
+    // State changes read the same cookie.
+    const command = await send(port, {
+      method: "POST",
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1/commands`,
+      body: JSON.stringify({ type: "message", content: "hi" }),
+      headers: { cookie, origin: `http://localhost:${port}`, "content-type": "application/json" },
+    });
+    assert.equal(command.status, 200, command.body);
+  }, { sessionCookie: name });
+
+  assert.equal(SESSION_COOKIE, "nylorun_studio_session");
+  assert.equal(parseSessionCookieName(""), SESSION_COOKIE);
+  assert.equal(parseSessionCookieName(" nylorun_studio_my-app "), "nylorun_studio_my-app");
+  for (const bad of ["a b", "a=b", "a;b", "a.b", "studio\u00e9", '"x"'])
+    assert.throws(() => parseSessionCookieName(bad), /not a cookie name/, bad);
+  const runtime = await startFakeRuntime();
+  try {
+    await assert.rejects(
+      startStudioServer({ runtimeUrl: runtime.url, adminKey: ADMIN_KEY, port: 0, sessionCookie: "a;b" }),
+      /not a cookie name/,
+    );
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("public origins join the Host and Origin checks; the login URL is the request's origin", async () => {
+  const proxy = "http://shop.localhost:4160";
+  const proxyHost = "shop.localhost:4160";
+  await withStudio(async ({ port }) => {
+    for (const [host, origin] of [
+      [proxyHost, proxy],
+      [`localhost:${port}`, `http://localhost:${port}`],
+      [`127.0.0.1:${port}`, `http://127.0.0.1:${port}`],
+    ] as const) {
+      const minted = await send(port, {
+        method: "POST",
+        path: "/_studio/login-tokens",
+        host,
+        headers: { authorization: `Bearer ${ADMIN_KEY}` },
+      });
+      assert.equal(minted.status, 201, host);
+      const { url, token } = JSON.parse(minted.body) as { url: string; token: string };
+      assert.equal(url, `${origin}/login?token=${token}`);
+      assert.equal((await send(port, { path: `/login?token=${token}`, host })).status, 303, host);
+    }
+
+    const cookie = await session(port);
+    assert.equal((await send(port, { path: "/", host: proxyHost })).status, 302);
+    assert.equal((await send(port, { path: "/_studio/hello", host: proxyHost, headers: { cookie } })).status, 200);
+    const path = `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1/commands`;
+    const command = (host: string, origin: string) =>
+      send(port, {
+        method: "POST",
+        path,
+        host,
+        body: JSON.stringify({ type: "message", content: "hi" }),
+        headers: { cookie, origin, "content-type": "application/json" },
+      });
+    assert.equal((await command(proxyHost, proxy)).status, 200);
+    // Only the request's own origin, even when the other one is served too.
+    assert.equal((await command(proxyHost, `http://localhost:${port}`)).status, 403);
+    assert.equal((await command(`localhost:${port}`, proxy)).status, 403);
+
+    for (const host of ["api.localhost:4160", "shop.localhost:4161", "shop.localhost", `shop.localhost:${port}`]) {
+      const refused = await send(port, { path: "/", host });
+      assert.equal(refused.status, 421, host);
+      assert.equal(
+        JSON.parse(refused.body).message,
+        `Studio only serves http://localhost:${port}, http://127.0.0.1:${port} and ${proxy}.`,
+      );
+    }
+  }, { publicOrigins: [proxy] });
+
+  // Without it, the proxy's Host is refused.
+  await withStudio(async ({ port }) => {
+    assert.equal((await send(port, { path: "/", host: proxyHost })).status, 421);
+  });
+
+  assert.deepEqual(parsePublicOrigins(""), []);
+  assert.deepEqual(
+    parsePublicOrigins(` ${proxy}  http://127.0.0.1:4160 ${proxy} `),
+    [proxy, "http://127.0.0.1:4160"],
+  );
+  for (const bad of [
+    "https://shop.localhost:4160",
+    "http://shop.localhost:4160/",
+    "http://shop.localhost:4160/x",
+    "http://shop.localhost:4160?x=1",
+    "http://*.localhost:4160",
+    "http://u:p@shop.localhost:4160",
+    "http://Shop.localhost:4160",
+    "shop.localhost:4160",
+    "nylorun://localhost",
+  ])
+    assert.throws(() => parsePublicOrigins(bad), /not an exact http origin/, bad);
 });
 
 test("state changes need this origin's Origin header", async () => {
@@ -911,20 +1032,27 @@ test("index.html names the analytics measurement id only when Studio has one", a
   assert.throws(() => parseAnalyticsId('G-1"><script>'), /not a Google Analytics measurement id/);
 });
 
-test("the container entry refuses a wildcard frame allowlist", async () => {
+test("the container entry refuses invalid configuration, naming the variable", async () => {
   const { spawn } = await import("node:child_process");
   const dir = await mkdtemp(join(tmpdir(), "nylorun-studio-entry-"));
   const keyFile = join(dir, "host-credentials.json");
   await writeFile(keyFile, JSON.stringify({ adminKey: ADMIN_KEY }));
   try {
-    for (const value of ["*", "https://*.example.com", "nylorun:"]) {
+    for (const [name, value] of [
+      ["NYLORUN_STUDIO_FRAME_ANCESTORS", "*"],
+      ["NYLORUN_STUDIO_FRAME_ANCESTORS", "https://*.example.com"],
+      ["NYLORUN_STUDIO_FRAME_ANCESTORS", "nylorun:"],
+      ["NYLORUN_STUDIO_PUBLIC_ORIGINS", "http://*.localhost:4160"],
+      ["NYLORUN_STUDIO_PUBLIC_ORIGINS", "http://shop.localhost:4160/x"],
+      ["NYLORUN_STUDIO_SESSION_COOKIE", "a;b"],
+    ] as const) {
       const child = spawn(process.execPath, [new URL("../dist/server-main.js", import.meta.url).pathname], {
         env: {
           ...process.env,
           NYLORUN_RUNTIME_URL: "http://127.0.0.1:9",
           NYLORUN_ADMIN_KEY_FILE: keyFile,
           PORT: "3999",
-          NYLORUN_STUDIO_FRAME_ANCESTORS: value,
+          [name]: value,
         },
         stdio: ["ignore", "ignore", "pipe"],
       });
@@ -932,7 +1060,7 @@ test("the container entry refuses a wildcard frame allowlist", async () => {
       child.stderr.on("data", (chunk) => (stderr += chunk));
       const [code] = await once(child, "exit");
       assert.equal(code, 1, value);
-      assert.match(stderr, /NYLORUN_STUDIO_FRAME_ANCESTORS/);
+      assert.match(stderr, new RegExp(`^${name}: `), value);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

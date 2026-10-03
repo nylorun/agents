@@ -217,7 +217,7 @@ try {
     await docker([
       "run", "--detach", "--rm",
       "--name", stubName,
-      "--network", `${stack.project}_default`,
+      "--network", stack.project, // the Tenant's network is named after its Compose project
       "--network-alias", STUB_ALIAS,
       "--publish", "127.0.0.1::8080",
       "--entrypoint", "node",
@@ -464,7 +464,7 @@ try {
       await docker([
         "run", "--detach", "--rm",
         "--name", mcpName,
-        "--network", `${stack.project}_default`,
+        "--network", stack.project, // the Tenant's network is named after its Compose project
         "--network-alias", MCP_ALIAS,
         "--publish", "127.0.0.1::8080",
         "--entrypoint", "node",

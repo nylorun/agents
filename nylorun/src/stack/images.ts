@@ -4,12 +4,13 @@ import { pinnedVersion } from "./versions.js";
  * Images a local Tenant runs. The Runtime and Studio tags are pinned by this
  * CLI release; `NYLORUN_RUNTIME_IMAGE` and `NYLORUN_STUDIO_IMAGE` override them
  * (local builds, CI images). Postgres, Restate and s2-lite are the official
- * images, pinned here.
+ * images, pinned here, as is Caddy for the machine's Studio proxy.
  */
 export const PINNED_IMAGES = {
   postgres: "postgres:17.11",
   restate: "docker.restate.dev/restatedev/restate:1.7.12",
   s2: "ghcr.io/s2-streamstore/s2:0.43.0",
+  proxy: "caddy:2.11.6",
 } as const;
 
 export interface StackImages {
@@ -18,6 +19,7 @@ export interface StackImages {
   postgres: string;
   restate: string;
   s2: string;
+  proxy: string;
 }
 
 function override(

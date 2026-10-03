@@ -42,6 +42,11 @@ export interface StackEnv {
    * when telemetry is off. Decided again on every start.
    */
   studioAnalyticsId: string;
+  /**
+   * Origins Studio also serves besides localhost and 127.0.0.1 on its port, separated by
+   * spaces: the proxy's `http://<name>.localhost:<port>`, or empty. Decided on every start.
+   */
+  studioPublicOrigins: string;
   /** The Tenant's name, which the Runtime gives the Tenant it creates. */
   tenantName: string;
   /**
@@ -66,6 +71,7 @@ const KEYS = {
   studioImage: "NYLORUN_STUDIO_IMAGE",
   studioFrameAncestors: "NYLORUN_STUDIO_FRAME_ANCESTORS",
   studioAnalyticsId: "NYLORUN_STUDIO_ANALYTICS_ID",
+  studioPublicOrigins: "NYLORUN_STUDIO_PUBLIC_ORIGINS",
   tenantName: "NYLORUN_TENANT_NAME",
   derivedPrincipals: "NYLORUN_DERIVED_PRINCIPALS",
 } as const satisfies Record<keyof StackEnv, string>;
@@ -128,6 +134,10 @@ export function renderEnvFile(env: StackEnv): string {
     "# Studio's anonymous usage analytics; empty when off. Set on every start: turn",
     "# it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.",
     line("studioAnalyticsId"),
+    "",
+    "# Studio's address through the proxy (http://<name>.localhost:<port>); empty",
+    "# without the proxy. Set on every start.",
+    line("studioPublicOrigins"),
     "",
     "# The Tenant's name, which the Runtime gives the Tenant it creates on the first",
     "# start, and the derived principals it registers on that Tenant (keys derived",

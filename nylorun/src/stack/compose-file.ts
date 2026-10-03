@@ -4,8 +4,11 @@ import { PINNED_IMAGES } from "./images.js";
  * A local Tenant's Compose file (Runtime Architecture §14.3), written to
  * `<Host root>/docker/compose.yaml` by `nylorun start`. Each local Tenant is one installation
  * (tenancy.md §6): its own Compose project (`nylorun-<name>`, the file's `name`), volumes,
- * network and ports. Everything else that varies (ports, the Postgres password, UID/GID, the
- * Host root, the images, the Tenant's name) comes from `docker/.env`.
+ * network and ports. Container, network and volume names are global on the Docker engine, so
+ * every one is `<project>-<role>` (`nylorun-shop-studio`, network `nylorun-shop`, volume
+ * `nylorun-shop-postgres`), labelled `dev.nylorun.tenant: <name>`; they are written here, from
+ * the project and the Tenant's name. Everything else that varies (ports, the Postgres password,
+ * UID/GID, the Host root, the images, Studio's public origins) comes from `docker/.env`.
  *
  * The Tenant's state is its Postgres database, executed through Restate, with its
  * history in s2-lite; the Runtime's /ready checks all three. Postgres initialises the
@@ -35,13 +38,18 @@ import { PINNED_IMAGES } from "./images.js";
  * it is down, model and MCP calls fail, deliveries are retried, vault writes and
  * token minting answer 503, and the session takes the next message.
  */
-export function renderComposeFile(project: string): string {
+export function renderComposeFile(project: string, name: string): string {
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
 name: ${project}
+
+x-tenant: &tenant
+  dev.nylorun.tenant: "${name}"
 
 services:
   postgres: # Session Store
     image: ${PINNED_IMAGES.postgres}
+    container_name: ${project}-postgres
+    labels: *tenant
     # Logical replication feeds the stream relay; a stuck slot is capped at 4 GB of WAL.
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=4GB"]
     environment:
@@ -60,9 +68,14 @@ services:
 
   restate: # Durable Session Execution
     image: ${PINNED_IMAGES.restate}
+    container_name: ${project}-restate
+    labels: *tenant
     command: ["--node-name=restate-1"] # stable name, so data is found on restart
     environment:
       RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE: /run/nylorun/restate-identity.pem
+      # RocksDB's memory (block cache and memtables) defaults to 2 GiB; a local Tenant needs a
+      # fraction of it, and several Tenants share a laptop.
+      RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE: 256MiB
     volumes:
       - restate:/restate-data
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
@@ -75,20 +88,24 @@ services:
       retries: 30
     restart: unless-stopped
 
-  s2: # Durable Streams; not published, only the Runtime reaches it
+  s2-lite: # Durable Streams; not published, only the Runtime reaches it
     image: ${PINNED_IMAGES.s2}
+    container_name: ${project}-s2-lite
+    labels: *tenant
     command: ["lite", "--local-root", "/home/nonroot/data"] # local disk; listens on port 80
     # The image runs as uid 65532. Docker fills a new volume with the image's
     # /home/nonroot, owned by that user; a volume at a path the image lacks
     # (e.g. /data) is root-owned and s2-lite cannot write it.
     volumes:
-      - s2:/home/nonroot
+      - s2-lite:/home/nonroot
     # The s2 image has no shell or HTTP client, so it has no health check;
     # the Runtime's /ready covers it.
     restart: unless-stopped
 
   gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
+    container_name: ${project}-gateway
+    labels: *tenant
     command: ["--service", "gates,keys"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
@@ -117,12 +134,14 @@ services:
 
   runtime:
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
+    container_name: ${project}-runtime
+    labels: *tenant
     command: ["--service", "core,loop"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
       postgres: { condition: service_healthy }
       restate: { condition: service_healthy }
-      s2: { condition: service_started }
+      s2-lite: { condition: service_started }
     environment:
       NYLORUN_HOME: /nylorun
       NYLORUN_PACKING: combined
@@ -150,7 +169,7 @@ services:
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
       NYLORUN_WORKER_URL: http://runtime:9080 # registered with Restate; not published
       NYLORUN_RESTATE_IDENTITY_KEY: \${NYLORUN_RESTATE_IDENTITY_KEY:?run nylorun start}
-      NYLORUN_S2_ENDPOINT: http://s2:80
+      NYLORUN_S2_ENDPOINT: http://s2-lite:80
       NYLORUN_S2_TOKEN: ignored # s2-lite has no access tokens yet
       NYLORUN_WORKSPACE_STORE_URL: file:///workspaces
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
@@ -182,6 +201,8 @@ services:
 
   studio: # dashboard + trusted proxy
     image: \${NYLORUN_STUDIO_IMAGE:?run nylorun start}
+    container_name: ${project}-studio
+    labels: *tenant
     user: "\${NYLORUN_UID}:\${NYLORUN_GID}" # reads the 0600 admin key file
     depends_on:
       runtime: { condition: service_healthy }
@@ -189,8 +210,13 @@ services:
       NYLORUN_RUNTIME_URL: http://runtime:4001 # the operator listener: Admin and Tenant API
       NYLORUN_ADMIN_KEY_FILE: /run/nylorun/host-credentials.json
       PORT: "3000"
-      # Studio's Host check accepts localhost/127.0.0.1 on the published port.
+      # Studio's Host check accepts localhost/127.0.0.1 on the published port, and the
+      # proxy's origin (http://<name>.localhost:<port>), kept in .env.
       NYLORUN_STUDIO_PUBLIC_PORT: \${NYLORUN_STUDIO_PORT}
+      NYLORUN_STUDIO_PUBLIC_ORIGINS: \${NYLORUN_STUDIO_PUBLIC_ORIGINS:-}
+      # Browsers share cookies across ports of one host: a cookie per Tenant keeps the
+      # sessions of two Studios on localhost apart.
+      NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_${name}
       # Exact origins that may frame Studio (Babai Desktop); kept in .env.
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
       # Studio's anonymous usage analytics; empty when telemetry is off.
@@ -206,10 +232,15 @@ services:
       retries: 30
     restart: unless-stopped
 
+networks:
+  default:
+    name: ${project}
+    labels: *tenant
+
 volumes:
-  postgres: {}
-  restate: {}
-  s2: {}
-  workspaces: {}
+  postgres: { name: ${project}-postgres, labels: *tenant }
+  restate: { name: ${project}-restate, labels: *tenant }
+  s2-lite: { name: ${project}-s2-lite, labels: *tenant }
+  workspaces: { name: ${project}-workspaces, labels: *tenant }
 `;
 }

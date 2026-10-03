@@ -2,23 +2,24 @@ import { STACK_CLIENT_HOST } from "./host-files.js";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-/** Studio's origin as the CLI opens it: always `localhost` (the cookie's host). */
+/** Studio's published origin: always `localhost` (the cookie's host). */
 export function studioOrigin(port: number): string {
   return `http://${STACK_CLIENT_HOST}:${port}`;
 }
 
 /**
  * Ask the Studio container for a single-use login token with the admin key
- * (`POST /_studio/login-tokens`, Studio §6) and return the URL to open.
+ * (`POST /_studio/login-tokens`, Studio §6) on `origin` (its published port, or
+ * the proxy's `http://<name>.localhost:<port>`) and return the URL to open there.
  * Accepts `{ loginUrl }`, `{ url }` or `{ token }` in the response.
  */
 export async function mintStudioLogin(input: {
   fetch: FetchLike;
-  studioPort: number;
+  origin: string;
   adminKey: string;
   timeoutMs?: number;
 }): Promise<string> {
-  const origin = studioOrigin(input.studioPort);
+  const { origin } = input;
   const response = await input.fetch(`${origin}/_studio/login-tokens`, {
     method: "POST",
     headers: {
@@ -36,7 +37,7 @@ export async function mintStudioLogin(input: {
   for (const field of ["loginUrl", "url"]) {
     const value = body[field];
     if (typeof value === "string" && value !== "") {
-      // A relative URL is resolved against the published origin.
+      // A relative URL is resolved against the origin it was minted on.
       return new URL(value, origin).toString();
     }
   }
