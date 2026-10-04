@@ -20,6 +20,13 @@ import {
 import { z } from "zod";
 import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import {
+  SessionManifestViewSchema,
+  SessionUsageTotalsSchema,
+  ModelCallsPageSchema,
+  type SessionItemsResponse,
+  type SessionSummary,
+  type ListAgentsResponse,
+  type ListPublicAgentsResponse,
   parseSessionEvent,
   parseSubjectHeaders,
   type SubjectScope,
@@ -32,6 +39,7 @@ import {
   type SessionCommand,
   type VaultInfo,
 } from "@nylorun/core/contracts";
+import { CallsReadClient, SessionsReadClient } from "./reads.js";
 import { AccessClient, TokensClient } from "./access.js";
 import { SandboxesClient } from "./sandboxes.js";
 import { ArtifactsClient } from "./artifacts.js";
@@ -202,14 +210,20 @@ export class AgentsClient {
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
     return this.transport.hostFeatures(options.signal);
   }
+  get sessions(): SessionsReadClient {
+    return new SessionsReadClient(this.transport);
+  }
+  get calls(): CallsReadClient {
+    return new CallsReadClient(this.transport);
+  }
   listAgents(
     options: { signal?: AbortSignal } = {}
-  ): Promise<{ agents: { manifest: AgentManifest }[] }> {
+  ): Promise<ListAgentsResponse | { agents: (ListPublicAgentsResponse["agents"][number] & { manifest?: never })[] }> {
     return this.transport.json("/v1/agents", "GET", undefined, options.signal);
   }
   listSessions(
     options: { agentId?: string; signal?: AbortSignal } = {}
-  ): Promise<{ sessions: SessionView[] }> {
+  ): Promise<{ sessions: SessionSummary[] }> {
     const query = options.agentId
       ? `?agentId=${encodeURIComponent(options.agentId)}`
       : "";
@@ -507,26 +521,81 @@ export class SessionClient {
       options.signal
     );
   }
+  async manifest(options: { signal?: AbortSignal } = {}) {
+    await this.transport.requireFeature("session-reads", options.signal);
+    return SessionManifestViewSchema.parse(
+      await this.transport.json(`${this.path}/manifest`, "GET", undefined, options.signal),
+    );
+  }
+  async usage(options: { turnId?: string; signal?: AbortSignal } = {}) {
+    await this.transport.requireFeature("session-reads", options.signal);
+    const query = new URLSearchParams();
+    if (options.turnId !== undefined) query.set("turnId", options.turnId);
+    return SessionUsageTotalsSchema.parse(
+      await this.transport.json(
+        `${this.path}/usage${query.size ? `?${query}` : ""}`,
+        "GET",
+        undefined,
+        options.signal,
+      ),
+    );
+  }
+  async modelCalls(
+    options: { turnId?: string; limit?: number; cursor?: string; signal?: AbortSignal } = {},
+  ) {
+    await this.transport.requireFeature("session-reads", options.signal);
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.turnId !== undefined) query.set("turnId", options.turnId);
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    return ModelCallsPageSchema.parse(
+      await this.transport.json(
+        `${this.path}/calls/model?${query}`,
+        "GET",
+        undefined,
+        options.signal,
+      ),
+    );
+  }
   /** `agent` narrows to one agent used as a tool: its delegationId or its path. */
+  history(options: {
+    cursor?: string;
+    agent?: string;
+    signal?: AbortSignal;
+    limit: number;
+  }): Promise<SessionItemsResponse & { tail: boolean }>;
+  history(options?: {
+    cursor?: string;
+    agent?: string;
+    signal?: AbortSignal;
+  }): Promise<SessionItemsResponse>;
   async history(
-    options: { cursor?: string; agent?: string; signal?: AbortSignal } = {}
+    options: { cursor?: string; agent?: string; signal?: AbortSignal; limit?: number } = {},
   ) {
     const query = new URLSearchParams();
     if (options.cursor) query.set("cursor", options.cursor);
     if (options.agent) query.set("agent", options.agent);
+    if (options.limit !== undefined) {
+      await this.transport.requireFeature("session-reads", options.signal);
+      query.set("limit", String(options.limit));
+    }
     const search = query.toString();
-    const page = z
-      .object({ items: z.array(z.unknown()), cursor: z.string().nullable() })
-      .parse(
-        await this.transport.json(
-          `${this.path}/items${search ? `?${search}` : ""}`,
-          "GET",
-          undefined,
-          options.signal
-        )
-      );
+    const schema = z.object({ items: z.array(z.unknown()), cursor: z.string().nullable() });
+    const page = (
+      options.limit === undefined ? schema : schema.extend({ tail: z.boolean() })
+    ).parse(
+      await this.transport.json(
+        `${this.path}/items${search ? `?${search}` : ""}`,
+        "GET",
+        undefined,
+        options.signal,
+      ),
+    );
     // Typed when the catalog knows the type; a newer Runtime's type stays a bare envelope.
-    return { items: page.items.map(parseSessionEvent), cursor: page.cursor };
+    return {
+      items: page.items.map(parseSessionEvent),
+      cursor: page.cursor,
+      ...("tail" in page ? { tail: page.tail } : {}),
+    };
   }
   async *observe(
     options: { cursor?: string; signal?: AbortSignal; follow?: boolean } = {},
