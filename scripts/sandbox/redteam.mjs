@@ -18,7 +18,7 @@
 //   and Admin APIs' routes with a host or run token → never answered.
 import assert from "node:assert/strict";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { subjectTokenIssuer } from "@nylorun/core/contracts";
+import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import {
   ALLOWED_HOST,
   HOST_JOIN_PATH,
@@ -58,7 +58,7 @@ try {
       "another sandbox's egress token": await egressToken({ sbx: "sbx_other" }),
       "a later host epoch": await egressToken({ epc: epoch + 1 }),
       ...(epoch > 1 ? { "an earlier host epoch": await egressToken({ epc: epoch - 1 }) } : {}),
-      "another Tenant's": await egressToken({ iss: subjectTokenIssuer(newTenantId()) }),
+      "another Tenant's": await egressToken({ iss: tenantTokenIssuer(newTenantId()) }),
       "an expired one": await egressToken({ iat: now() - 900, exp: now() - 120 }),
     };
     for (const [label, token] of Object.entries(refusedAtEgress))

@@ -65,7 +65,7 @@ the Tenant API, `adminPort` (when present) the operator listener.
 (`adminPort` in host.json, or `NYLORUN_ADMIN_LISTEN_PORT` in a container; a
 local Tenant's is container port 4001, published on loopback as `NYLORUN_ADMIN_PORT`),
 the Host serves two ports (`ListenerRole` in `host/create-host.ts`). The public
-listener serves the Tenant API, with browser access when enabled, and answers
+listener serves the Tenant API, to servers and to browsers with a trusted issuer's token, and answers
 admin routes with the opaque `404`. The operator listener serves the Admin API,
 Host shutdown and the Tenant API, never to browsers. Without one, a single
 `combined` listener serves everything. Studio uses the operator listener.
@@ -75,7 +75,7 @@ _Avoid_: proxying the operator port.
 validates `Nylorun-Protocol`, serves admin routes, and forwards Tenant routes to its one
 Tenant Runtime, which it opens at start (`host/create-host.ts`: the listeners and the
 `Host` check; `host/app.ts`: the rest of the pipeline, a Hono app). A protocol 4
-`Nylorun-Tenant`, or a publishable key, naming another Tenant gets the opaque `404`. Only
+`Nylorun-Tenant` naming another Tenant gets the opaque `404`. Only
 `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`, `hostId`
 and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
 (`infra/readiness.ts`). The Tenant's data is its Postgres database; the Host keeps its
@@ -89,7 +89,7 @@ data and logs: the one Tenant of an installation, its state in the Postgres sche
 `nylorun` of its own database (the `nylorun.tenant` row holds its envelope), its record in
 `nylorun_streams`, and the Tenant directory `<host root>/tenant/`. The Host creates it on
 first start (`store/postgres/tenant.ts`: `NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, its
-Studio and derived principals). Nothing in a request selects it. Ids match `tn_` plus 26
+Studio principal). Nothing in a request selects it. Ids match `tn_` plus 26
 Crockford characters; the id stays as identity (token issuers, keys, basins). A Tenant
 that cannot be opened fails the Host's readiness with its cause (`tenant/cause.ts`).
 _Avoid_: "scope" as the name for this unit.
@@ -126,19 +126,21 @@ _Avoid_: "server token" / `serverToken` as the public name (legacy API).
 **Subject**: The person an application principal acts for, named with
 `Nylorun-Subject` (feature `subject-headers`, `tenant/auth.ts`). Chosen by the
 integrator (`app:42`); 1–200 visible ASCII characters, `host` and `installation`
-reserved (they own the host model's vault and the installation vaults). A subject reaches only sessions and vaults whose
+reserved (they own the host model's vault and the installation vaults). A subject reaches only sessions whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
-missing one. Only application principals may send it; with a delivery token it is
-`403`.
-A **subject token** names its subject itself.
+missing one. Vault routes take no subject (`403 scope_required`, protocol 7). Only
+application principals may send it; with a delivery token it is `403`.
+A **trusted issuer**'s token names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
 **Installation vault**: A vault with `scope: "installation"`, owned by the reserved
 subject `installation` (F9 C1, `vault/service.ts`): the installation's own
 credentials (shared tool keys, the operator's MCP connections). Only an application
-key acting for no one creates, lists or changes one; any session may attach one and
-select its credentials. A request acting for a subject never sees one (the opaque
-`404`). Studio's Connections page manages them. The `host` model vault is neither: it
+key acting for no one creates, lists or changes one (as every vault: vault routes are
+application-only since protocol 7); any session may attach one and select its
+credentials. Studio's Connections page manages them. A person's vault (`scope: "user"`,
+created by an application key for `ownerUserId`) attaches only to that person's
+sessions. The `host` model vault is neither: it
 is never listed or attached.
 _Avoid_: "shared vault", "org vault".
 
@@ -165,89 +167,58 @@ _Avoid_: "broker" (Cloud's).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
-`vaults:own`, `tenant:settings`, `sandboxes:write` (`SUBJECT_SCOPES`). Each route declares
-the scopes that allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
+`tenant:settings`, `sandboxes:write` (`SUBJECT_SCOPES`). `vaults:own`, retired in
+protocol 7, is still accepted and grants nothing. Each route declares the scopes that
+allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
 lookup (`403 scope_required`); reset, config seed, endpoints, actions, the
-sandbox tool routes, `/v1/tokens` and `/v1/access/**` are open to no subject.
-A subject token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
-`vaults:own`, `sandboxes:write`).
-
-**Subject token**: ES256 JWT (`typ: nylorun-subject+jwt`) for one subject and one
-**role**, minted by `POST /v1/tokens` with an application key and sent as the
-bearer (feature `subject-tokens`, `tenant/tokens.ts`). Lives at most 15 minutes.
-Its scopes and agents are its role's, narrowed by the mint, resolved on every
-request. Forged, foreign or malformed tokens are the opaque `404`; a verified
-token that a new one would fix (expired, revoked, key revoked, role removed) is
-`401 token_expired`. It may not set session `info`, send `message.manifest` or
-store OAuth refresh credentials, and sees only `{ agentId, name, description }`
-of the agents it may use.
-_Avoid_: "session token", "JWT" as the public name; accepting one from a query
-string.
+sandbox tool routes, vaults and `/v1/access/**` are open to no subject.
+A trusted issuer's token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
+`sandboxes:write`) and `studio`.
 
 **Trusted issuer**: An identity provider whose JWTs the Tenant API accepts as
 bearers (feature `trusted-issuers`, F9 I2), declared in the **identity file**
 (`NYLORUN_IDENTITY_FILE`, YAML, `tenant/identity-file.ts`, read once at boot; a
 malformed file stops the boot). A bearer is its token when the unverified `iss`
-names it (`tenant/issuers.ts`, before the subject-token branch): RS256, ES256 or
+names it (`tenant/issuers.ts`): RS256, ES256 or
 EdDSA, at most 16 KiB, `aud` matching, `exp − iat` within `maxLifetime`, a key
 from its static `keys` or its JWKS (configured URL only, cached by `kid`, one
 refetch a minute for an unknown `kid`; unreachable → `401 issuer_unavailable`
-for new kids). It becomes the `token` AuthScope with `issuer: <name>` and role
-`issuer:<name>`: the subject its template renders from scalar claims, the claim's
-scopes within `allowedScopes` (`ISSUER_SCOPES`: the token scopes plus `studio`, an
-operator scope no route requires), the issuer's agent allowlist and rendered
-sandbox grants, no limits and no revocation epoch. Accepted from browsers without
-a publishable key; CORS comes from the operator's proxy. `GET /v1/me` reports it
-as `via: issuer:<name>`.
+for new kids). It becomes the `token` AuthScope with `issuer: <name>`: the subject
+its template renders from scalar claims, the claim's scopes within `allowedScopes`
+(`ISSUER_SCOPES`: the token scopes plus `studio`, an operator scope no route
+requires), the issuer's agent allowlist and rendered sandbox grants; only its expiry
+ends it (an expired one is `401 token_expired`, and a stream it opened ends with
+`event: nylorun.closed`). It may not set session `info` or send `message.manifest`,
+and sees only `{ agentId, name, description }` of the agents it may use. Accepted from
+browsers with no toggle; the Runtime sends no CORS headers (the operator's proxy
+does). Any other JWT is the opaque `404`. `GET /v1/me` reports it as
+`via: issuer:<name>`.
 _Avoid_: "SSO login" (the Runtime signs no one in), "external token".
 
-**Signing key**: A Tenant's ES256 key pair for subject and delivery tokens (`signing_keys`,
-`tenant/signing-keys.ts`): the public JWK in the clear, the private key sealed
-with the vault KEK. States `standby`, `current` (signs), `previous` (verifies),
-`revoked`. Rotation never signs anyone out; `force` does.
-
-**Access policy**: The Tenant setting `access.policy`: its **roles** (token
-scopes, an agent allowlist, **subject limits**), what a publishable key grants
-alone (`anon`), and the longest token lifetime. Without roles nothing is minted
-(`tenant/access-policy.ts`).
-
-**Revocation epoch**: A per-subject counter in every subject token (`epc`).
-`POST /v1/access/revocations` bumps it: older tokens are refused and the
-subject's open streams end with `event: nylorun.closed` on every process
-(`subject.revoked` on `tenant/control`, `checkSessionStreams` as backstop).
+**Signing key**: A Tenant's ES256 key pair for the tokens the Runtime signs itself
+(delivery tokens, capability links, run and host tokens; `signing_keys`,
+`tenant/signing-keys.ts`): the public JWK in the clear (`GET /v1/access/jwks`), the
+private key sealed with the vault KEK. States `standby`, `current` (signs), `previous`
+(verifies), `revoked`. Rotation never signs anyone out; `force` does.
 
 **Runtime AG-UI endpoint**: `/v1/ag-ui/agents/:agent` (feature
 `ag-ui-endpoint`, `api/ag-ui/routes.ts`): run, thread messages, reattach and
-cancel, for a person named by a subject token or by subject headers. The SDK's
+cancel, for a person named by a trusted issuer's token or by subject headers. The SDK's
 `createAgUiHandler` forwards here. A **thread session** is
 `sessionIdFor(subject, agent, thread)` (`api/ag-ui/session-id.ts`), the same on
 every path; it is created on the thread's first run with the options in
 `forwardedProps.nylorun.session` and never changed by a later run.
 _Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
 
-**Publishable key**: `nr_pub_<tenantId>_<32 Crockford characters>` in
-`Nylorun-Key` (feature `browser-access`, `tenant/browser.ts`): names the Tenant
-and one client app, with an **origin allowlist** (exact origins, or
-`http://localhost:*` and `http://127.0.0.1:*`; `[]` for native apps). Public by
-design and stored as it is; revocable. Alone it grants the **anon role**
-(`anon` in the access policy: at most `agents:read`, empty by default) and owns
-no session or vault.
-_Avoid_: calling it an API key or a secret; using it to authorize (tokens do).
-
-**Browser access**: Whether requests with an `Origin` may reach Tenant routes
-(`browserAccess`; `NYLORUN_BROWSER_ACCESS`, on in a local Tenant). The Host answers
-preflights for browser routes from the route alone; the Tenant admits an
-`Origin` only with a publishable key that lists it, and only then sets CORS
-headers. `/health`, `/ready`, admin routes and delivery tokens refuse
-`Origin` always.
-
-**Subject limits**: A role's `turnsPerHour` (a token bucket per subject) and
-`concurrentTurns` (sessions `runnable`, `running` or `waiting`), checked when a
-subject token starts a turn (`429 limit_exceeded`, `tenant/subject-limits.ts`).
+**Browsers**: A request with an `Origin` reaches the Tenant routes of the public
+listener (protocol 7): a trusted issuer's token is served, an application key or a
+delivery token is `403 origin_rejected`. The Runtime sends no CORS headers and answers
+`OPTIONS` with `204` and `Allow` only; the operator's proxy answers preflights.
+`/health`, `/ready`, admin routes and the operator listener refuse `Origin`.
+_Avoid_: browser keys and Runtime CORS settings (gone in protocol 7).
 
 **App server**: The developer's own server: signs people in, names the subject
-and scopes on each Runtime call (`client.as`) or mints subject tokens for its
-pages, hosts the AG-UI handler (which forwards to the Runtime's AG-UI endpoint)
+and scopes on each Runtime call (`client.as`), hosts the AG-UI handler (which forwards to the Runtime's AG-UI endpoint)
 and the Action endpoint, and strips any `Nylorun-*` header its clients send. Nylorun ships
 libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
@@ -344,12 +315,13 @@ sandbox capability to a session with a sandbox): it saves a sandbox file (`path`
 (`tenant/artifact-tool.ts`).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 6`; the Host serves 4, 5 and 6; required features
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 7`; the Host serves 4 to 7; required features
 `admin-status`, `studio-principal`, `action-endpoints` and `artifacts`, and the Host still
 advertises `runtime-tenants` for protocol 4 clients; optional Host features
-`tenant-fixture-model`, `transcript-events`, `derived-principals`,
-`subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint`,
-`a2a-endpoint`, `action-endpoints`, `sandboxes`, `sandbox-pods` and `operator-keys`).
+`tenant-fixture-model`, `transcript-events`, `subject-headers`, `ag-ui-endpoint`,
+`a2a-endpoint`, `action-endpoints`, `sandboxes`, `sandbox-pods`, `trusted-issuers` and
+`operator-keys`). Protocol 7 removed subject tokens, the access policy, revocations,
+browser keys, the Runtime's CORS and derived principals; their routes answer `404`.
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
@@ -360,15 +332,9 @@ creates its Tenant. Its key is derived from the admin key and the Tenant id
 `tenant/principals.ts`); the Tenant stores only its hash. Studio derives it to call the
 Tenant API; the admin key is never a Tenant bearer.
 
-**Derived principal**: Application principal, named by its client (`babai`),
-whose key is derived from the admin key, the principal id and the Tenant id
-(`deriveTenantKey`, `admin/src/derived-credentials.ts`). The Host registers each one
-it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default `project`) by hash when
-it creates its Tenant, and adds one configured later on its next start (feature
-`derived-principals`), so the client stores no key. The Studio principal is the first
-of these, with its own derivation. `project` (`PROJECT_PRINCIPAL_ID`) was the one a
-Project on the same machine derived; Projects now hold the operator key `project`.
-Derived principals other than `studio` leave in F9 I3.
+**Derived principal**: Gone in protocol 7. Only the Studio principal's key is derived
+from the admin key; every other application key is an operator key. Principals an
+earlier Host derived stay in the `principals` table and keep working as ordinary keys.
 
 **Operator key** (F9 I1, Host feature `operator-keys`): a revocable application key of
 the Tenant, named by its principal id (`^[a-z][a-z0-9-]{0,31}$`) and managed with the
@@ -412,7 +378,7 @@ _Avoid_: "A2A proxy"; parsing A2A messages in the app server.
 
 One line each; the module named is where the term lives in code.
 
-- **Route declaration**: A Tenant or Admin route declared once with who may call it (`RouteAccess`: credentials, subject scopes, browser access), which serves it, checks subject scopes (`requireScopes`), answers its browser preflight and describes it (`api/http/define.ts`, `api/route.ts`). A path or method no route declares is `404 Route not found` once the caller is known.
+- **Route declaration**: A Tenant or Admin route declared once with who may call it (`RouteAccess`: credentials, subject scopes), which serves it, checks subject scopes (`requireScopes`) and describes it (`api/http/define.ts`, `api/route.ts`). A path or method no route declares is `404 Route not found` once the caller is known.
 - **OpenAPI document**: The Tenant API's and the Admin API's OpenAPI 3.2 descriptions, generated from the route declarations (`api/openapi.ts`): served (`/openapi.json`, `/v1/admin/openapi.json`), packed (`@nylorun/runtime/openapi.json`, `/admin-openapi.json`), attached to each release; `runtime/openapi/` is their committed snapshot.
 - **Profile**: Who operates the Runtime's infrastructure, OSS or Cloud; not a code switch, since only endpoints (`host/stack-config.ts`) and the vault key differ.
 - **Tenant handle**: The `TenantHandle` of the Host's open Tenant Runtime, bound to its database, basin and vault key (`tenant/types.ts`, opened by `tenant/store-pg.ts`, kept by `tenant/module.ts`).
@@ -448,10 +414,10 @@ One line each; the module named is where the term lives in code.
 - **Transcript fold**: The own loop's model-facing transcript, rebuilt from the session's `transcript.updated` events (internal, never served) at each segment start; `turn.cancelled` and `turn.failed` undo their turn's edits. The session row stores the engine state without it, folding from `Session.history.from` (`tenant/history.ts`, blueprint P0.3). Tests run in shadow mode (`test/setup/transcript-shadow.ts`), which also keeps the transcript on the row and checks the fold against it.
 - **Stream relay**: Feeds Durable Streams from the record, exactly once and in order per session (`matchSeq`), acknowledging the replication slot only after S2 has the events; reconciles the record with S2 after a new or lost slot. On a Host with S2 one process-wide relay reads logical replication once the Tenant is open, filling in its id (`streams/relay/`, `adapters/replication/pgoutput.ts`); otherwise the Tenant relays its own commits (`tenant/streams.ts`). The only writer of session streams.
 - **Basin generation**: The Tenant's current S2 basin, from 0; a sessions reset moves to the next, so ids it frees start in an empty basin, and the old basin is deleted after a grace period (`streams/basin.ts`, `tenant/streams.ts`).
-- **Sandbox resource**: A sandbox with its own id, kind (`virtual`, or `pod` with sandbox pods; see **Pod sandbox**), spec and labels (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, `GET /v1/sandboxes?label=k=v`, the `sandbox_resources` table, `tenant/sandboxes.ts`; Host feature `sandboxes`, blueprint D39). Ids are `/`-separated segments, sent percent-encoded as one path segment. A session attaches with `PutSessionRequest.sandbox = { id }` (`Session.sandboxId`) and pins the sandbox's spec; its workspace is keyed by the sandbox id (`SandboxManager.sandboxKeyOf`), so attached sessions share files, and deleting a session (a sessions reset) only detaches it. Turns are serial per sandbox (`409 sandbox_busy`), checked with the subject token's `sbx` grants at every turn start (`checkSandboxTurn`). The Tenant holds at most `limits.sandboxes` (default 100). Lifecycle events (`sandbox.created`, `.attached`, `.detached`, `.deleted`) go to the sandbox's own stream in the record (`nylorun_streams.sandbox_events`, `record/sandbox.ts`), not relayed to S2; the session's log records `sandbox.attached`.
+- **Sandbox resource**: A sandbox with its own id, kind (`virtual`, or `pod` with sandbox pods; see **Pod sandbox**), spec and labels (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, `GET /v1/sandboxes?label=k=v`, the `sandbox_resources` table, `tenant/sandboxes.ts`; Host feature `sandboxes`, blueprint D39). Ids are `/`-separated segments, sent percent-encoded as one path segment. A session attaches with `PutSessionRequest.sandbox = { id }` (`Session.sandboxId`) and pins the sandbox's spec; its workspace is keyed by the sandbox id (`SandboxManager.sandboxKeyOf`), so attached sessions share files, and deleting a session (a sessions reset) only detaches it. Turns are serial per sandbox (`409 sandbox_busy`), checked with a token caller's sandbox grants at every turn start (`checkSandboxTurn`). The Tenant holds at most `limits.sandboxes` (default 100). Lifecycle events (`sandbox.created`, `.attached`, `.detached`, `.deleted`) go to the sandbox's own stream in the record (`nylorun_streams.sandbox_events`, `record/sandbox.ts`), not relayed to S2; the session's log records `sandbox.attached`.
 - **Pod sandbox** (F7.2, Host feature `sandbox-pods`, D32–D34, D36, D38, D42): a sandbox resource of kind `pod`: an agent-sandbox Sandbox on the Tenant's cluster, driven only by the sandboxes service (`sandbox/pods/client.ts`, `NYLORUN_SANDBOXES_URL`). Its lifecycle is a pure decision (`sandbox/pods/lifecycle.ts`) carried out by the `Sandbox` object's reconcile (`sandbox/pods/reconcile.ts`; Restate `NylorunSandbox`, or `MemoryExecution`), serialized per sandbox, with `idle` and `ttl` timers; the row's `desired`/`observed`/`rev`/`host_epoch` columns are its state. The pod runs the engine (`--service harness` with `NYLORUN_SANDBOX_KIND=pod`) copied from the Runtime image: it waits for its NetworkPolicy (`sandbox/pods/network-gate.ts`), exchanges its join token for a host token (`sandbox/join.ts`, `tenant/host-token.ts`, `POST /nylorun/harness/v1/host/join`), and connects to the Harness API as its sandbox's host: it alone leases the turns of sessions attached to it and serves their workspace (`local` backend). Placement (`sandbox/placement.ts`) is checked at session open: `placement_refused`, `sandbox_unavailable`; turns refuse `sandbox_lost` and `sandbox_expired`.
 _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
-- **sbx grant**: An entry of a subject token's `sbx` claim (`POST /v1/tokens` `sandboxes`): an exact sandbox id, or a prefix ending in `/*` (`team-a/*` reaches `team-a/proj-42`, not `team-a`). A token without one reaches no sandbox; any other id is the 404 of a missing one. Application keys, with or without subject headers, reach every sandbox; changing one through a subject needs `sandboxes:write`.
+- **Sandbox grant**: A sandbox a trusted issuer's token reaches, rendered from the issuer's `sandboxes` templates (identity file): an exact sandbox id, or a prefix ending in `/*` (`team-a/*` reaches `team-a/proj-42`, not `team-a`). A token without one reaches no sandbox; any other id is the 404 of a missing one. Application keys, with or without subject headers, reach every sandbox; changing one through a subject needs `sandboxes:write`.
 - **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`). Sharing through `{ session }` is deprecated for clients: they share a sandbox resource; linked sessions of a flow still inherit through `sandboxOwnerId`, and a tree whose owner is attached to a sandbox resource works in that sandbox.
 - **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions and stops idle sandboxes (`tenant/sweep.ts`).
 

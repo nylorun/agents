@@ -15,11 +15,11 @@ const server = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-/** The application acting for another person, with that person's vault scope only. */
+/** The application acting for another person: vault and Tenant routes refuse it. */
 const actingForBao = {
   ...server,
   "nylorun-subject": "bao",
-  "nylorun-scopes": "vaults:own",
+  "nylorun-scopes": "sessions:own",
 };
 
 type BootOpts = {

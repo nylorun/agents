@@ -33,7 +33,6 @@ function browserCommand(env: Readonly<Record<string, string | undefined>>): stri
  */
 const STACK_ENV_OWNED = [
   "NYLORUN_TENANT_NAME",
-  "NYLORUN_DERIVED_PRINCIPALS",
   "NYLORUN_STUDIO_ANALYTICS_ID",
 ];
 

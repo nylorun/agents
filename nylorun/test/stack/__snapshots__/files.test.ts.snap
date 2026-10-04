@@ -43,19 +43,17 @@ NYLORUN_HOST_ROOT=/Users/dev/.nylorun/tenants/shop
 NYLORUN_RUNTIME_IMAGE=ghcr.io/nylorun/runtime:0.10.0-beta
 NYLORUN_STUDIO_IMAGE=ghcr.io/nylorun/studio:0.9.0-beta
 
-# Exact origins that may show Studio in a frame (Babai Desktop). Kept across
-# starts; change with nylorun start --studio-embed-origin <origin>.
-NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'
+# Exact origins that may show Studio in a frame; none by default. Kept across
+# starts; add with nylorun start --studio-embed-origin <origin>.
+NYLORUN_STUDIO_FRAME_ANCESTORS='https://app.example.com http://localhost:1420'
 
 # Studio's anonymous usage analytics; empty when off. Set on every start: turn
 # it off with nylorun telemetry disable or NYLORUN_TELEMETRY_DISABLED=1.
 NYLORUN_STUDIO_ANALYTICS_ID=G-K6RPDFH6Q6
 
 # The Tenant's name, which the Runtime gives the Tenant it creates on the first
-# start, and the derived principals it registers on that Tenant (keys derived
-# from the admin key; \`project\` is the Project link's).
+# start.
 NYLORUN_TENANT_NAME=shop
-NYLORUN_DERIVED_PRINCIPALS='project,babai'
 "
 `;
 
@@ -197,7 +195,6 @@ services:
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
       NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
-      NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
       # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
       # or the vault key.
@@ -278,7 +275,7 @@ services:
       # Browsers share cookies across ports of one host: a cookie per Tenant keeps the
       # sessions of two Studios on localhost apart.
       NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_shop
-      # Exact origins that may frame Studio (Babai Desktop); kept in .env.
+      # Exact origins that may frame Studio (none by default: embedding is opt-in); kept in .env.
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
       # Studio's anonymous usage analytics; empty when telemetry is off.
       NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}

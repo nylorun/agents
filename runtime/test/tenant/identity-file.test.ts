@@ -100,7 +100,8 @@ describe("parseIdentityFile", () => {
     const cases: [Record<string, string | undefined>, string][] = [
       [{ allowedScopes: "[agents:write]" }, "allowedScopes"],
       [{ allowedScopes: "[tenant:settings]" }, "allowedScopes"],
-      [{ scopes: "{ fixed: [vaults:own] }" }, "scopes.fixed"],
+      [{ allowedScopes: "[vaults:own]" }, "allowedScopes"],
+      [{ allowedScopes: "[sessions:own]", scopes: "{ fixed: [agents:read] }" }, "scopes.fixed"],
       [{ scopes: "{ claim: a, fixed: [] }" }, "scopes"],
       [{ jwks: "ftp://sso.acme.dev/certs" }, "jwks"],
       [{ jwks: undefined }, "jwks or keys"],

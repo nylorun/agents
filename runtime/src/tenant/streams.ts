@@ -17,9 +17,8 @@
  * - **Readers.** History and session SSE read the session's stream
  *   (`tenant/session-streams.ts`). This module runs one `tenant/control` reader per Tenant per
  *   process, on the current basin, which calls `ctx.abortLocal` for each `session.cancel`,
- *   passes an Action's outcome to a run held here for each `action.resolved` (F6.2),
- *   checks the session streams for each `sessions.reset`, and ends a subject's streams for
- *   each `subject.revoked`.
+ *   passes an Action's outcome to a run held here for each `action.resolved` (F6.2), and
+ *   checks the session streams for each `sessions.reset`.
  *
  * The caller passes the streams: the Host's S2 streams, or `MemoryStreams` for tests and a
  * local development Host (not durable).
@@ -42,7 +41,6 @@ import type { TenantContext } from "./context.js";
 import {
   checkSessionStreams,
   currentBasin,
-  endSubjectStreams,
   sleep,
 } from "./session-streams.js";
 
@@ -173,12 +171,6 @@ export async function wireStreams(
           );
         else if (signal?.type === "sessions.reset")
           void checkSessionStreams(ctx).catch(report("session stream check failed"));
-        else if (
-          signal?.type === "subject.revoked" &&
-          typeof signal.subject === "string" &&
-          typeof signal.epoch === "number"
-        )
-          endSubjectStreams(ctx.sessionStreams, signal.subject, signal.epoch);
       },
       report("control stream read failed; retrying")
     );

@@ -616,9 +616,6 @@ async function bringUp(
     runtimeVersion: overridden ? undefined : deps.runtimeVersion,
     ports: deps.ports,
     reserved: await reservedPorts(ctx),
-    ...(deps.env.NYLORUN_DERIVED_PRINCIPALS?.trim()
-      ? { derivedPrincipals: deps.env.NYLORUN_DERIVED_PRINCIPALS }
-      : {}),
     ...(options.studioEmbedOrigins ? { studioEmbedOrigins: options.studioEmbedOrigins } : {}),
     ...(analytics ? { studioAnalyticsId: STUDIO_ANALYTICS_ID } : {}),
     ...(options.sandboxes !== undefined ? { sandboxes: options.sandboxes } : {}),

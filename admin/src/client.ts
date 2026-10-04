@@ -19,7 +19,6 @@ import {
   checkCompatibility,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
-import { deriveTenantKey } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export type AdminSource = "options" | "environment" | "local-host";
@@ -497,14 +496,5 @@ export class AdminClient {
   async status(): Promise<AdminStatus> {
     const body = await this.json<unknown>("/v1/admin/status");
     return AdminStatusSchema.parse(body);
-  }
-
-  /**
-   * The key of derived principal `principalId` on `tenantId`, from this client's admin key.
-   * Valid when the Host registered that principal (`NYLORUN_DERIVED_PRINCIPALS`, default
-   * `project`) on its Tenant.
-   */
-  deriveTenantKey(tenantId: string, principalId: string): string {
-    return deriveTenantKey(this.key, tenantId, principalId);
   }
 }

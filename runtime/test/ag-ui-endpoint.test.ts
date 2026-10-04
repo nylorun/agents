@@ -1,10 +1,12 @@
 /**
- * The Runtime's AG-UI endpoint called directly (Host feature `ag-ui-endpoint`): with a subject
- * token, with subject headers, and the thread's session shared between the two. The protocol
- * mapping itself is covered through the SDK handler in `ag-ui.test.ts`.
+ * The Runtime's AG-UI endpoint called directly (Host feature `ag-ui-endpoint`): with a trusted
+ * issuer's token, with subject headers, and the thread's session shared between the two. The
+ * protocol mapping itself is covered through the SDK handler in `ag-ui.test.ts`.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { sessionIdFor } from "../src/api/ag-ui/session-id.js";
+import { createTrustedIssuers } from "../src/tenant/issuers.js";
+import { testIssuer, type TestIssuer } from "./support/issuer.js";
 import { startTestTenant } from "./support/tenant.js";
 import {
   APP,
@@ -14,30 +16,13 @@ import {
 } from "./security/subjects.js";
 
 let tenant: SubjectTenant;
+/** Reaches every agent. */
+let issuer: TestIssuer;
+/** Reaches only the agent `other`. */
+let elsewhere: TestIssuer;
 
-async function mint(t: SubjectTenant, subject: string, role = "user", ttlSeconds?: number) {
-  const reply = await t.call("POST", "/v1/tokens", {
-    body: {
-      requestId: `m-${subject}-${role}-${Math.random()}`,
-      subject,
-      role,
-      ...(ttlSeconds ? { ttlSeconds } : {}),
-    },
-  });
-  expect(reply.status, reply.text).toBe(200);
-  return reply.body.token as string;
-}
-
-const POLICY = {
-  version: 1,
-  roles: {
-    user: { scopes: ["sessions:own", "vaults:own"], agents: "*" },
-    elsewhere: { scopes: ["sessions:own"], agents: ["other"] },
-    once: { scopes: ["sessions:own"], agents: "*", limits: { turnsPerHour: 1 } },
-  },
-  anon: { scopes: [], agents: [] },
-  tokens: { maxTtlSeconds: 600 },
-};
+const mint = (subject: string, ttlSeconds?: number) =>
+  issuer.sign(subject, "sessions:own", ttlSeconds ? { ttlSeconds } : {});
 
 const input = (threadId: string, messageId: string, extra: Record<string, unknown> = {}) => ({
   threadId,
@@ -73,24 +58,24 @@ const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 const asSubject = (subject: string) => ({
   authorization: `Bearer ${APP}`,
   "nylorun-subject": subject,
-  "nylorun-scopes": "sessions:own vaults:own",
+  "nylorun-scopes": "sessions:own",
 });
 
 beforeAll(async () => {
-  tenant = await startSubjectTenant();
-  const put = await tenant.call("PUT", "/v1/access/policy", {
-    body: { requestId: "p", policy: POLICY },
+  issuer = await testIssuer();
+  elsewhere = await testIssuer({ name: "elsewhere", iss: "https://elsewhere.test", agents: ["other"] });
+  tenant = await startSubjectTenant({
+    issuers: createTrustedIssuers([...issuer.configs, ...elsewhere.configs]),
   });
-  expect(put.status).toBe(200);
 });
 afterAll(async () => {
   await tenant.close();
 });
 afterEach(() => vi.useRealTimers());
 
-describe("with a subject token", () => {
+describe("with a trusted issuer's token", () => {
   it("runs a chat and rebuilds the thread's messages", async () => {
-    const token = await mint(tenant, "app:uma");
+    const token = await mint("app:uma");
     const result = await run(tenant.runtime.url, "bot", input("u1", "m1"), bearer(token));
     expect(result.status).toBe(200);
     const types = result.events.map((e) => e.type);
@@ -110,7 +95,7 @@ describe("with a subject token", () => {
   });
 
   it("answers an empty history for a thread that never ran and another person's thread", async () => {
-    const token = await mint(tenant, "app:vic");
+    const token = await mint("app:vic");
     const response = await fetch(
       `${tenant.runtime.url}/v1/ag-ui/agents/bot/threads/u1/messages`,
       { headers: bearer(token) }
@@ -118,17 +103,17 @@ describe("with a subject token", () => {
     expect(await response.json()).toEqual([]);
   });
 
-  it("is limited to the role's agents", async () => {
-    const token = await mint(tenant, "app:wes", "elsewhere");
+  it("is limited to the issuer's agents", async () => {
+    const token = await elsewhere.sign("app:wes", "sessions:own");
     const result = await run(tenant.runtime.url, "bot", input("w1", "m1"), bearer(token));
     expect(result.status).toBe(404);
   });
 
   it("attaches the person's own vaults on the first run, refuses info, and never changes the session", async () => {
-    const token = await mint(tenant, "app:xia");
+    const token = await mint("app:xia");
     const { vaultId } = await createVault(tenant, {
       subject: "app:xia",
-      scopes: ["sessions:own", "vaults:own"],
+      scopes: ["sessions:own"],
     });
     const info = await run(
       tenant.runtime.url,
@@ -152,7 +137,7 @@ describe("with a subject token", () => {
     // Another owner's vault is refused.
     const { vaultId: other } = await createVault(tenant, {
       subject: "app:yan",
-      scopes: ["sessions:own", "vaults:own"],
+      scopes: ["sessions:own"],
     });
     const foreign = await run(
       tenant.runtime.url,
@@ -161,14 +146,6 @@ describe("with a subject token", () => {
       bearer(token)
     );
     expect(foreign.status).toBe(404);
-  });
-
-  it("streams a limit as RUN_ERROR", async () => {
-    const token = await mint(tenant, "app:zed", "once");
-    expect((await run(tenant.runtime.url, "bot", input("z1", "m1"), bearer(token))).status).toBe(200);
-    const second = await run(tenant.runtime.url, "bot", input("z1", "m2"), bearer(token));
-    expect(second.status).toBe(200);
-    expect(second.events.at(-1)).toMatchObject({ type: "RUN_ERROR", code: "limit_exceeded" });
   });
 });
 
@@ -183,7 +160,7 @@ describe("with an application key", () => {
   it("continues a thread an app server started, directly with a token for the same person", async () => {
     const byServer = await run(tenant.runtime.url, "bot", input("p1", "m1"), asSubject("app:pia"));
     expect(byServer.status).toBe(200);
-    const token = await mint(tenant, "app:pia");
+    const token = await mint("app:pia");
     const direct = await run(tenant.runtime.url, "bot", input("p1", "m2"), bearer(token));
     expect(direct.status).toBe(200);
     const messages = await (
@@ -210,6 +187,7 @@ describe("a token that expires during a run", () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const slow = await startTestTenant({
+      issuers: createTrustedIssuers(issuer.configs),
       applicationKey: APP,
       vaultKek: Buffer.alloc(32, 3).toString("base64"),
       modelProvider: async () => {
@@ -230,16 +208,13 @@ describe("a token that expires during a run", () => {
         manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
         implementationVersion: "dev",
       });
-      await call("PUT", "/v1/access/policy", { requestId: "p", policy: POLICY });
-      const minted = await (
-        await call("POST", "/v1/tokens", { requestId: "t", subject: "app:sam", role: "user", ttlSeconds: 60 })
-      ).json();
+      const token = await mint("app:sam", 60);
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(Date.now() + 59_500);
       const response = await fetch(`${slow.url}/v1/ag-ui/agents/bot`, {
         method: "POST",
         headers: {
-          ...slow.headers(minted.token),
+          ...slow.headers(token),
           "content-type": "application/json",
         },
         body: JSON.stringify(input("s1", "m1")),

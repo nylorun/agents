@@ -1,26 +1,27 @@
 /**
  * Sandboxes as a resource (F7.1, blueprint D39; Host feature `sandboxes`): a sandbox has its own
  * id and outlives the sessions attached to it, sessions attached to one share its workspace,
- * turns are serial per sandbox, a subject token reaches only the sandboxes its `sbx` grants, at
+ * turns are serial per sandbox, a token caller reaches only the sandboxes its issuer grants, at
  * every turn start, `sandboxes:write` guards changes, and the Tenant limits how many there are.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
+import { createTrustedIssuers } from "../src/tenant/issuers.js";
+import { testIssuer, type TestIssuer } from "./support/issuer.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "sandbox-resources-app-key-aaaaaaaa";
 const KEK = Buffer.alloc(32, 9).toString("base64");
 
-const POLICY = {
-  version: 1,
-  roles: {
-    member: { scopes: ["sessions:own"], agents: "*" },
-    builder: { scopes: ["sessions:own", "sandboxes:write"], agents: "*" },
-  },
-  anon: { scopes: [], agents: [] },
-  tokens: { maxTtlSeconds: 600 },
-};
+/** What each kind of person may do: a trusted issuer's scopes. */
+const ROLES = {
+  member: "sessions:own",
+  builder: "sessions:own sandboxes:write",
+} as const;
+/** The issuer's grant templates: each claim set renders one grant (absent claims render none). */
+const GRANTS = ["{a1}/{a2}/*", "{b1}/*", "{c1}/{c2}/{c3}"];
+let issuer: TestIssuer;
 
 interface Reply {
   status: number;
@@ -67,15 +68,21 @@ async function call(
 
 const path = (id: string) => `/v1/sandboxes/${encodeURIComponent(id)}`;
 
-async function mint(subject: string, role: string, sandboxes?: string[]): Promise<string> {
-  const reply = await call("POST", "/v1/tokens", {
-    requestId: `mint-${subject}-${role}-${sandboxes?.join(",") ?? ""}`,
-    subject,
-    role,
-    ...(sandboxes ? { sandboxes } : {}),
-  });
-  expect(reply.status, JSON.stringify(reply.body)).toBe(200);
-  return reply.body.token as string;
+/**
+ * An issuer token for `subject` with one grant: `p/q/*` (two segments and `*`), `p/*`, or the
+ * exact `p/q/r`, rendered from the claims of the matching template.
+ */
+async function mint(subject: string, role: keyof typeof ROLES, grant?: string): Promise<string> {
+  const parts = grant?.split("/") ?? [];
+  const claims: Record<string, string> =
+    grant === undefined
+      ? {}
+      : parts.at(-1) === "*" && parts.length === 3
+        ? { a1: parts[0]!, a2: parts[1]! }
+        : parts.at(-1) === "*" && parts.length === 2
+          ? { b1: parts[0]! }
+          : { c1: parts[0]!, c2: parts[1]!, c3: parts[2]! };
+  return issuer.sign(subject, ROLES[role], { claims });
 }
 
 async function open(
@@ -116,7 +123,9 @@ function tool(sessionId: string, name: string, input: Record<string, unknown>) {
 }
 
 beforeAll(async () => {
+  issuer = await testIssuer({ sandboxes: GRANTS });
   runtime = await startTestTenant({
+    issuers: createTrustedIssuers(issuer.configs),
     applicationKey: APP,
     vaultKek: KEK,
     modelProvider: model,
@@ -132,9 +141,6 @@ beforeAll(async () => {
       })
     ).status,
   ).toBe(200);
-  expect((await call("PUT", "/v1/access/policy", { requestId: "policy", policy: POLICY })).status).toBe(
-    200,
-  );
 });
 
 afterAll(async () => {
@@ -277,14 +283,14 @@ describe("sessions attached to a sandbox", { timeout: 60_000 }, () => {
   });
 });
 
-describe("sbx grants", { timeout: 60_000 }, () => {
+describe("sandbox grants", { timeout: 60_000 }, () => {
   it("exact and prefix grants decide which sandboxes a token attaches to", async () => {
     await call("PUT", path("grant/a/one"), {});
     await call("PUT", path("grant/b/two"), {});
-    const prefix = await mint("app:gina", "member", ["grant/a/*"]);
+    const prefix = await mint("app:gina", "member", "grant/a/*");
     expect((await open("g-1", { id: "grant/a/one" }, { owner: "app:gina", key: prefix })).status).toBe(200);
     expect((await open("g-2", { id: "grant/b/two" }, { owner: "app:gina", key: prefix })).status).toBe(404);
-    const exact = await mint("app:gina", "member", ["grant/b/two"]);
+    const exact = await mint("app:gina", "member", "grant/b/two");
     expect((await open("g-3", { id: "grant/b/two" }, { owner: "app:gina", key: exact })).status).toBe(200);
     // A prefix grant does not reach the prefix itself, nor a sibling with the same start.
     await call("PUT", path("grant/a"), {});
@@ -297,12 +303,12 @@ describe("sbx grants", { timeout: 60_000 }, () => {
 
   it("checks the grant at every turn start, not only when the session was opened", async () => {
     await call("PUT", path("turns/a/ws"), {});
-    const granted = await mint("app:tess", "member", ["turns/a/*"]);
+    const granted = await mint("app:tess", "member", "turns/a/*");
     expect((await open("t-1", { id: "turns/a/ws" }, { owner: "app:tess", key: granted })).status).toBe(200);
     expect((await message("t-1", granted)).status).toBe(200);
     expect(await settled("t-1")).toBe("completed");
     // The next token for the same person no longer grants the sandbox.
-    const other = await mint("app:tess", "member", ["turns/b/*"]);
+    const other = await mint("app:tess", "member", "turns/b/*");
     const refused = await message("t-1", other);
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe("sandbox_not_granted");
@@ -316,7 +322,7 @@ describe("sbx grants", { timeout: 60_000 }, () => {
   it("lists and reads only the sandboxes a token reaches", async () => {
     await call("PUT", path("read/a/one"), {});
     await call("PUT", path("read/b/one"), {});
-    const token = await mint("app:rae", "member", ["read/a/*"]);
+    const token = await mint("app:rae", "member", "read/a/*");
     expect((await call("GET", path("read/a/one"), undefined, token)).status).toBe(200);
     expect((await call("GET", path("read/b/one"), undefined, token)).status).toBe(404);
     const listed = await call("GET", "/v1/sandboxes", undefined, token);
@@ -325,13 +331,13 @@ describe("sbx grants", { timeout: 60_000 }, () => {
 });
 
 describe("sandboxes:write", { timeout: 60_000 }, () => {
-  it("guards create and delete through subject tokens, within the token's grants", async () => {
-    const member = await mint("app:will", "member", ["write/*"]);
+  it("guards create and delete through issuer tokens, within the token's grants", async () => {
+    const member = await mint("app:will", "member", "write/*");
     const refused = await call("PUT", path("write/one"), {}, member);
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe("scope_required");
 
-    const builder = await mint("app:will", "builder", ["write/*"]);
+    const builder = await mint("app:will", "builder", "write/*");
     expect((await call("PUT", path("write/one"), {}, builder)).status).toBe(200);
     expect((await call("PUT", path("elsewhere/one"), {}, builder)).status).toBe(404);
     expect((await call("DELETE", path("write/one"), undefined, member)).status).toBe(403);
@@ -339,23 +345,6 @@ describe("sandboxes:write", { timeout: 60_000 }, () => {
       id: "write/one",
       deleted: true,
     });
-  });
-
-  it("mints sbx only as exact ids or /* prefixes", async () => {
-    const bad = await call("POST", "/v1/tokens", {
-      requestId: "bad-grant",
-      subject: "app:x",
-      role: "member",
-      sandboxes: ["team-*"],
-    });
-    expect(bad.status).toBe(400);
-    const good = await call("POST", "/v1/tokens", {
-      requestId: "good-grant",
-      subject: "app:x",
-      role: "member",
-      sandboxes: ["team-a/*", "solo"],
-    });
-    expect(good.body.sandboxes).toEqual(["team-a/*", "solo"]);
   });
 });
 

@@ -82,14 +82,14 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
     "securitySchemes",
     "applicationKey",
     bearer(
-      "An application key of the Tenant, or a key derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes.",
+      "An application key of the Tenant: an operator key (`PUT /v1/admin/keys/{id}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`).",
     ),
   );
   registry.registerComponent(
     "securitySchemes",
-    "subjectToken",
+    "issuerToken",
     bearer(
-      "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes. Or a JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`).",
+      "A JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`): one person, with the issuer's scopes, agents and sandbox grants, until it expires. Accepted from servers and browsers alike; CORS is the operator's proxy's.",
       "JWT",
     ),
   );
@@ -101,13 +101,6 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
       "JWT",
     ),
   );
-  registry.registerComponent("securitySchemes", "publishableKey", {
-    type: "apiKey",
-    in: "header",
-    name: "Nylorun-Key",
-    description:
-      "A publishable key, sent by a browser page on one of its origins. Public by design: it grants the access policy's anonymous scopes.",
-  });
 }
 
 let tenant: OpenApiDocument | undefined;
@@ -127,7 +120,7 @@ export function tenantDocument(): OpenApiDocument {
       title: "Nylorun Runtime: Tenant API",
       version: RUNTIME_VERSION,
       description:
-        "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
+        "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields.",
       "x-nylorun-protocol": PROTOCOL,
     },
     servers: [

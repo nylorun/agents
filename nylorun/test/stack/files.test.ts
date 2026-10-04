@@ -2,7 +2,6 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { renderComposeFile } from "../../src/stack/compose-file.js";
 import {
-  parseDerivedPrincipals,
   parseEnvLines,
   parsePersisted,
   renderEnvFile,
@@ -32,10 +31,9 @@ const env: StackEnv = {
   hostRoot: "/Users/dev/.nylorun/tenants/shop",
   runtimeImage: "ghcr.io/nylorun/runtime:0.10.0-beta",
   studioImage: "ghcr.io/nylorun/studio:0.9.0-beta",
-  studioFrameAncestors: "nylorun://localhost http://nylorun.localhost",
+  studioFrameAncestors: "https://app.example.com http://localhost:1420",
   studioAnalyticsId: "G-K6RPDFH6Q6",
   tenantName: "shop",
-  derivedPrincipals: "project,babai",
 };
 
 /** Fixed vector: Restate 1.7.12 logs `kid: <FIXED_KEY>` when it loads this PEM. */
@@ -62,7 +60,8 @@ describe("compose.yaml", () => {
     expect(compose).toMatch(/^name: nylorun-shop$/m);
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
     expect(runtime).toContain("NYLORUN_TENANT_NAME: ${NYLORUN_TENANT_NAME:?run nylorun start}");
-    expect(runtime).toContain("NYLORUN_DERIVED_PRINCIPALS: ${NYLORUN_DERIVED_PRINCIPALS:-project}");
+    // No key is derived but Studio's (protocol 7).
+    expect(compose).not.toContain("NYLORUN_DERIVED_PRINCIPALS");
     expect(runtime).not.toContain("NYLORUN_TENANT_ID");
   });
 
@@ -315,12 +314,12 @@ describe(".env", () => {
       harnessToken: env.harnessToken,
       harness: "remote",
       objectStoreSecretKey: env.objectStoreSecretKey,
-      studioFrameAncestors: ["nylorun://localhost", "http://nylorun.localhost"],
-      derivedPrincipals: ["project", "babai"],
+      studioFrameAncestors: ["https://app.example.com", "http://localhost:1420"],
     });
     expect(renderEnvFile(env)).toContain(
-      "NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost'",
+      "NYLORUN_STUDIO_FRAME_ANCESTORS='https://app.example.com http://localhost:1420'",
     );
+    expect(renderEnvFile(env)).not.toContain("NYLORUN_DERIVED_PRINCIPALS");
     // Restate's UI is decided on every start; the last choice is read back for status.
     expect(parsePersisted(renderEnvFile({ ...env, restateUi: true })).restateUi).toBe(true);
     expect(parsePersisted('NYLORUN_HARNESS=sideways\n').harness).toBeUndefined();
@@ -340,10 +339,8 @@ describe(".env", () => {
     expect(() => renderEnvFile({ ...env, hostRoot: "/it's" })).toThrow(/single quote/);
   });
 
-  it("keeps `project` first among the derived principals and refuses studio", () => {
-    expect(parseDerivedPrincipals("babai, project ,", "X")).toEqual(["project", "babai"]);
-    expect(() => parseDerivedPrincipals("studio", "X")).toThrow(/X has 'studio'/);
-    expect(() => parseDerivedPrincipals("Bad", "X")).toThrow(/X has 'Bad'/);
+  it("ignores a NYLORUN_DERIVED_PRINCIPALS line an older nylorun wrote", () => {
+    expect(parsePersisted("NYLORUN_DERIVED_PRINCIPALS=project,backend\n")).toEqual({});
   });
 
   it("ignores malformed persisted values", () => {
@@ -385,7 +382,6 @@ describe("prepareStack", () => {
       runtimeImage?: string;
       studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
       reserved?: number[];
-      derivedPrincipals?: string;
     } = {},
   ) =>
     prepareStack({
@@ -393,7 +389,6 @@ describe("prepareStack", () => {
       name: "shop",
       project: "nylorun-shop",
       ...(overrides.reserved ? { reserved: new Set(overrides.reserved) } : {}),
-      ...(overrides.derivedPrincipals ? { derivedPrincipals: overrides.derivedPrincipals } : {}),
       images: { ...images, ...(overrides.runtimeImage ? { runtime: overrides.runtimeImage } : {}) },
       uid: overrides.uid ?? 501,
       gid: 20,
@@ -402,20 +397,18 @@ describe("prepareStack", () => {
       ...(overrides.studioEmbedOrigins ? { studioEmbedOrigins: overrides.studioEmbedOrigins } : {}),
     });
 
-  it("lets Babai's origins embed Studio by default, keeps additions, and resets them", async () => {
+  it("lets no origin embed Studio by default, keeps additions, and resets them", async () => {
     const home = await temporaryHome();
     const first = await prepare(home);
-    expect(first.env.studioFrameAncestors).toBe("nylorun://localhost http://nylorun.localhost");
+    expect(first.env.studioFrameAncestors).toBe("");
     const added = await prepare(home, fakePorts(), {
-      studioEmbedOrigins: { add: ["http://localhost:1420", "nylorun://localhost"] },
+      studioEmbedOrigins: { add: ["http://localhost:1420", "app://localhost", "http://localhost:1420"] },
     });
-    expect(added.env.studioFrameAncestors).toBe(
-      "nylorun://localhost http://nylorun.localhost http://localhost:1420",
-    );
+    expect(added.env.studioFrameAncestors).toBe("http://localhost:1420 app://localhost");
     // Kept across starts without the option.
     expect((await prepare(home)).env.studioFrameAncestors).toBe(added.env.studioFrameAncestors);
     const reset = await prepare(home, fakePorts(), { studioEmbedOrigins: { reset: true } });
-    expect(reset.env.studioFrameAncestors).toBe("nylorun://localhost http://nylorun.localhost");
+    expect(reset.env.studioFrameAncestors).toBe("");
     await expect(
       prepare(home, fakePorts(), { studioEmbedOrigins: { add: ["https://*.example.com"] } }),
     ).rejects.toThrow(/--studio-embed-origin: https:\/\/\*\.example\.com is not an exact origin/);
@@ -462,7 +455,7 @@ describe("prepareStack", () => {
     expect(await mode(paths.tenant)).toBe(0o700);
     const written = parseEnvLines(await readFile(paths.env, "utf8"));
     expect(written.get("NYLORUN_TENANT_NAME")).toBe("shop");
-    expect(written.get("NYLORUN_DERIVED_PRINCIPALS")).toBe("project");
+    expect(written.has("NYLORUN_DERIVED_PRINCIPALS")).toBe(false);
   });
 
   it("points the runtime at identity.yaml only while the Host root has one", async () => {
@@ -480,17 +473,12 @@ describe("prepareStack", () => {
     expect(runtime).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root");
   });
 
-  it("avoids ports other Tenants keep for new ports only, and keeps derived principals", async () => {
+  it("avoids ports other Tenants keep for new ports only", async () => {
     const home = await temporaryHome();
-    const first = await prepare(home, fakePorts(), {
-      reserved: [8787, 4161],
-      derivedPrincipals: "babai",
-    });
+    const first = await prepare(home, fakePorts(), { reserved: [8787, 4161] });
     expect(first.env).toMatchObject({ runtimePort: 50000, adminPort: 8788, studioPort: 50001 });
-    expect(first.env.derivedPrincipals).toBe("project,babai");
     const second = await prepare(home, fakePorts(), { reserved: [50000, 8788] });
     expect(second.env).toMatchObject({ runtimePort: 50000, adminPort: 8788, studioPort: 50001 });
-    expect(second.env.derivedPrincipals).toBe("project,babai");
   });
 
   it("persists ports and the password; refreshes images and UID", async () => {

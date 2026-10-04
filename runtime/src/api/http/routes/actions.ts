@@ -105,7 +105,6 @@ export function actionRoutes(api: OpenAPIHono<TenantEnv>): void {
     {
       credentials: ["application", "subject", "token"],
       scopes: ["sessions:own"],
-      browser: true,
     },
     {
       method: "post",

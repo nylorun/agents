@@ -70,7 +70,7 @@ it("A2: /health advertises admin-status, and runtime-tenants for protocol 4 clie
   expect(body).toMatchObject({
     protocol: {
       min: 4,
-      max: 6,
+      max: 7,
       features: expect.arrayContaining(["admin-status", "runtime-tenants", "artifacts"]),
     },
   });

@@ -169,7 +169,7 @@ describe("createAgUiHandler acting for subjects", () => {
     const handler = createAgUiHandler({
       agents: ["bot"],
       client,
-      scopes: ["sessions:own", "vaults:own"],
+      scopes: ["sessions:own", "agents:read"],
       subject: () => "ada",
       session: () => ({ vaultIds: ["v1"], info: { plan: "pro" } }),
     });
@@ -181,7 +181,7 @@ describe("createAgUiHandler acting for subjects", () => {
         }),
       })
     );
-    expect(sent[0]!.scopes).toBe("sessions:own vaults:own");
+    expect(sent[0]!.scopes).toBe("sessions:own agents:read");
     expect(sent[0]!.body.forwardedProps).toEqual({
       theme: "dark",
       nylorun: { session: { vaultIds: ["v1"], info: { plan: "pro" } } },

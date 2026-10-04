@@ -1,8 +1,8 @@
 /**
  * Sandboxes as a resource (`/v1/sandboxes/**`, Host feature `sandboxes`): create or find one by
  * id, read it, list them by label, read its lifecycle stream, and delete it. Ids may hold `/`,
- * sent percent-encoded as one path segment (`team-a%2Fproj-42`). A subject token reaches only
- * the ids its `sbx` grants match, and changes them only with `sandboxes:write`.
+ * sent percent-encoded as one path segment (`team-a%2Fproj-42`). A token caller reaches only
+ * the ids its sandbox grants match, and changes them only with `sandboxes:write`.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
@@ -33,13 +33,11 @@ import { jsonResponse } from "../respond.js";
 const READ: RouteAccess = {
   credentials: ["application", "subject", "token"],
   scopes: ["sessions:own", "sandboxes:write"],
-  browser: true,
 };
 /** Creating or deleting one. */
 const WRITE: RouteAccess = {
   credentials: ["application", "subject", "token"],
   scopes: ["sandboxes:write"],
-  browser: true,
 };
 
 const json = (schema: z.ZodType, description: string) => ({
@@ -83,7 +81,7 @@ export function sandboxRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sandboxes"],
       summary: "List sandboxes",
       description:
-        "Every sandbox with all the labels asked for. A subject token sees only the sandboxes its grants reach.",
+        "Every sandbox with all the labels asked for. A token caller sees only the sandboxes its grants reach.",
       request: {
         query: z.object({
           label: z

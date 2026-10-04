@@ -874,7 +874,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -883,10 +883,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -935,7 +932,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -944,10 +941,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -996,7 +990,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1005,10 +999,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1057,7 +1048,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1066,10 +1057,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1118,7 +1106,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1127,10 +1115,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1179,7 +1164,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1188,10 +1173,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1240,7 +1222,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1249,10 +1231,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1301,7 +1280,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1310,10 +1289,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1360,7 +1336,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1369,10 +1345,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1419,7 +1392,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1428,10 +1401,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1480,7 +1450,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1489,10 +1459,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1541,7 +1508,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1550,10 +1517,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1628,7 +1592,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1637,10 +1601,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1689,7 +1650,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1698,10 +1659,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1748,7 +1706,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1757,10 +1715,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1809,7 +1764,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1818,10 +1773,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1870,7 +1822,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1879,10 +1831,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1931,7 +1880,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -1940,10 +1889,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",
@@ -1992,7 +1938,7 @@
       "code": "protocol_unsupported",
       "protocol": {
         "min": 4,
-        "max": 6,
+        "max": 7,
         "features": [
           "runtime-tenants",
           "admin-status",
@@ -2001,10 +1947,7 @@
           "artifacts",
           "tenant-fixture-model",
           "transcript-events",
-          "derived-principals",
           "subject-headers",
-          "subject-tokens",
-          "browser-access",
           "ag-ui-endpoint",
           "a2a-endpoint",
           "action-endpoints",

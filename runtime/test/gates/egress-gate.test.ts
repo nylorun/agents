@@ -17,7 +17,7 @@ import {
   type StartEgressGateOptions,
 } from "../../src/gates/egress.js";
 import { mintEgressToken, verifyEgressToken, type EgressTokenKeyCache } from "../../src/sandbox/egress-token.js";
-import { subjectTokenIssuer } from "@nylorun/core/contracts";
+import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
 import { startEgress } from "../../src/host/gates.js";
 import type { TenantVault, TenantVaults } from "../../src/gates/tenant-vaults.js";
@@ -238,7 +238,7 @@ describe("egress-gate", () => {
     const iat = Math.floor(Date.now() / 1000) - 600;
     const expired = await runs.keys.sign({
       typ: "nylorun-egress+jwt",
-      claims: { iss: subjectTokenIssuer(runs.tenantId), aud: "nylorun-egress", sbx: "sbx_1", epc: 2, pod: "p", iat, exp: iat + 60, jti: "j" },
+      claims: { iss: tenantTokenIssuer(runs.tenantId), aud: "nylorun-egress", sbx: "sbx_1", epc: 2, pod: "p", iat, exp: iat + 60, jti: "j" },
     });
     expect((await tunnel(proxy, "allowed.test:443", basic(expired.token))).status).toBe(407);
     // The sandbox's host epoch moved on (a relaunch): the old pod's token is stale.
@@ -269,7 +269,7 @@ describe("egress-gate", () => {
     const iat = Math.floor(Date.now() / 1000);
     const host = await runs.keys.sign({
       typ: "nylorun-host+jwt",
-      claims: { iss: subjectTokenIssuer(runs.tenantId), aud: "nylorun-harness", sbx: "sbx_1", epc: 1, pod: "p", iat, exp: iat + 60, jti: "h" },
+      claims: { iss: tenantTokenIssuer(runs.tenantId), aud: "nylorun-harness", sbx: "sbx_1", epc: 1, pod: "p", iat, exp: iat + 60, jti: "h" },
     });
     for (const raw of [run, host.token]) {
       expect((await tunnel(proxy, "allowed.test:443", basic(raw))).status).toBe(407);

@@ -5,7 +5,7 @@
  * Tenant's public keys, and comes back as the bearer of that Action's callbacks (a background
  * result, heartbeats, sandbox tools).
  *
- * A token lives at most `DELIVERY_TOKEN_MAX_TTL_SECONDS`, the subject-token maximum, and key
+ * A token lives at most `DELIVERY_TOKEN_MAX_TTL_SECONDS` (`TOKEN_TTL_MAX_SECONDS`), and key
  * rotation waits at least that long before it revokes the previous key
  * (`signing-keys.ts`), so a rotation never revokes a live token.
  */
@@ -14,7 +14,7 @@ import { errors, jwtVerify } from "jose";
 import {
   DELIVERY_TOKEN_MAX_TTL_SECONDS,
   DELIVERY_TOKEN_TYPE,
-  subjectTokenIssuer,
+  tenantTokenIssuer,
 } from "@nylorun/core/contracts";
 import type { AuthScope, TenantContext } from "./context.js";
 import { failOpaque, HttpError } from "./http.js";
@@ -65,7 +65,7 @@ export async function mintDeliveryToken(
       agt: delivery.agentId,
       gen: delivery.kind === "action" ? delivery.generation : 0,
       bdy: bodyHash(options.body),
-      iss: subjectTokenIssuer(ctx.config.tenantId),
+      iss: tenantTokenIssuer(ctx.config.tenantId),
       aud: options.audience,
       sub: delivery.kind === "action" ? delivery.actionId : "ping",
       iat,
@@ -95,7 +95,7 @@ export async function verifyDeliveryToken(
   try {
     const verified = await jwtVerify(raw, await ctx.signingKeys.publicKey(row), {
       algorithms: ["ES256"],
-      issuer: subjectTokenIssuer(ctx.config.tenantId),
+      issuer: tenantTokenIssuer(ctx.config.tenantId),
       typ: DELIVERY_TOKEN_TYPE,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,
       requiredClaims: ["sub", "aud", "iat", "exp", "jti"],

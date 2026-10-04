@@ -184,11 +184,14 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 4, 5 and 6 clients; protocol 6 clients require artifacts", () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+  it("serves protocol 4 to 7 clients; protocol 6 and 7 clients require artifacts", () => {
+    expect(PROTOCOL_VERSION).toBe(7);
     expect(PROTOCOL_FEATURES).not.toContain("runtime-tenants");
     expect(PROTOCOL_FEATURES).toContain("artifacts");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 6 });
+    expect(HOST_PROTOCOL).toMatchObject({ min: 4, max: 7 });
+    // Protocol 7 removed these Host features (F9 I3).
+    for (const removed of ["subject-tokens", "browser-access", "derived-principals"])
+      expect(HOST_PROTOCOL.features).not.toContain(removed);
     // The window: a protocol 4 client requires runtime-tenants, and the Host still has it.
     expect(
       checkCompatibility({ version: 4, required: ["runtime-tenants"] }, HOST_PROTOCOL),
@@ -197,6 +200,13 @@ describe("checkCompatibility", () => {
     expect(
       checkCompatibility(
         { version: 5, required: ["admin-status", "studio-principal", "action-endpoints"] },
+        HOST_PROTOCOL,
+      ),
+    ).toEqual({ ok: true });
+    // A protocol 6 client still works.
+    expect(
+      checkCompatibility(
+        { version: 6, required: ["admin-status", "studio-principal", "action-endpoints", "artifacts"] },
         HOST_PROTOCOL,
       ),
     ).toEqual({ ok: true });
@@ -255,15 +265,15 @@ describe("operator keys (F9 I1)", () => {
   });
 
   it("parses the Admin API's key answers, and a put's key is 64 hex", () => {
-    const key = { id: "babai", role: "application", createdAt: "2026-10-04T00:00:00.000Z" };
+    const key = { id: "backend", role: "application", createdAt: "2026-10-04T00:00:00.000Z" };
     expect(ListOperatorKeysResponseSchema.parse({ keys: [key] }).keys).toEqual([key]);
     expect(
       PutOperatorKeyResponseSchema.parse({ ...key, key: "a".repeat(64), rotated: false }).rotated,
     ).toBe(false);
     expect(() => PutOperatorKeyResponseSchema.parse({ ...key, key: "short", rotated: true })).toThrow();
     expect(() => ListOperatorKeysResponseSchema.parse({ keys: [{ ...key, key: "a".repeat(64) }] })).toThrow();
-    expect(DeleteOperatorKeyResponseSchema.parse({ id: "babai", deleted: true })).toEqual({
-      id: "babai",
+    expect(DeleteOperatorKeyResponseSchema.parse({ id: "backend", deleted: true })).toEqual({
+      id: "backend",
       deleted: true,
     });
   });

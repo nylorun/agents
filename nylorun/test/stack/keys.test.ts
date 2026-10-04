@@ -77,36 +77,36 @@ async function running(options: { project?: boolean } = {}) {
 describe("nylorun key", () => {
   it("put prints the key once, list shows ids without keys, rm deletes", async () => {
     const { deps, keys } = await running();
-    expect(await keyCommand(deps, ["put", "babai"])).toBe(0);
-    expect(deps.lines).toEqual([keys.get("babai")!.key]);
+    expect(await keyCommand(deps, ["put", "backend"])).toBe(0);
+    expect(deps.lines).toEqual([keys.get("backend")!.key]);
     expect(deps.errors).toEqual([
-      "Created key babai on Tenant home-root. Store it now: it is not shown again.",
+      "Created key backend on Tenant home-root. Store it now: it is not shown again.",
     ]);
 
     deps.lines.length = 0;
     deps.errors.length = 0;
-    expect(await keyCommand(deps, ["put", "babai"])).toBe(0);
-    expect(deps.errors[0]).toMatch(/^Rotated key babai on Tenant home-root \(the previous key no longer works\)/);
+    expect(await keyCommand(deps, ["put", "backend"])).toBe(0);
+    expect(deps.errors[0]).toMatch(/^Rotated key backend on Tenant home-root \(the previous key no longer works\)/);
 
     deps.lines.length = 0;
     expect(await keyCommand(deps, ["list"])).toBe(0);
     expect(deps.lines).toEqual([
-      "ID     ROLE         CREATED",
-      "babai  application  2026-10-04T00:00:00.000Z",
+      "ID       ROLE         CREATED",
+      "backend  application  2026-10-04T00:00:00.000Z",
     ]);
-    expect(deps.lines.join("\n")).not.toContain(keys.get("babai")!.key);
+    expect(deps.lines.join("\n")).not.toContain(keys.get("backend")!.key);
 
     deps.lines.length = 0;
     expect(await keyCommand(deps, ["list", "--json"])).toBe(0);
     expect(JSON.parse(deps.lines.join("\n"))).toEqual([
-      { id: "babai", role: "application", createdAt: "2026-10-04T00:00:00.000Z" },
+      { id: "backend", role: "application", createdAt: "2026-10-04T00:00:00.000Z" },
     ]);
 
     deps.lines.length = 0;
-    expect(await keyCommand(deps, ["rm", "babai"])).toBe(0);
-    expect(deps.lines).toEqual(["Deleted key babai: it no longer works."]);
-    expect(await keyCommand(deps, ["rm", "babai"])).toBe(1);
-    expect(deps.errors.at(-1)).toBe("No key babai on Tenant home-root.");
+    expect(await keyCommand(deps, ["rm", "backend"])).toBe(0);
+    expect(deps.lines).toEqual(["Deleted key backend: it no longer works."]);
+    expect(await keyCommand(deps, ["rm", "backend"])).toBe(1);
+    expect(deps.errors.at(-1)).toBe("No key backend on Tenant home-root.");
   });
 
   it("reports the Runtime's refusal of studio, and checks its arguments", async () => {

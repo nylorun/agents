@@ -5,9 +5,8 @@
  * "snake_case"`, here, in `db.ts` and in `drizzle.config.ts`).
  *
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables, Action
- *   endpoints, principals, vaults and credentials, signing keys, publishable keys, subject
- *   epochs and usage, settings, the model usage ledger, the model budgets, the Tool Gate's
- *   crossings and file artifacts with their versions.
+ *   endpoints, principals, vaults and credentials, signing keys, settings, the model usage
+ *   ledger, the model budgets, the Tool Gate's crossings and file artifacts with their versions.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -325,7 +324,10 @@ export const tenantSettings = nylorun.table("tenant_settings", {
   value: text().notNull(),
 });
 
-/** The Tenant's signing keys (subject tokens): the private half sealed, the public JWK not. */
+/**
+ * The Tenant's signing keys (delivery tokens, capability links, run and host tokens): the
+ * private half sealed, the public JWK not.
+ */
 export const signingKeys = nylorun.table(
   "signing_keys",
   {
@@ -354,31 +356,6 @@ export const signingKeys = nylorun.table(
     uniqueIndex("signing_keys_one_previous").on(t.state).where(sql`state = 'previous'`),
   ],
 );
-
-/** Each subject's revocation epoch. */
-export const subjectEpochs = nylorun.table("subject_epochs", {
-  subject: textC().primaryKey(),
-  epoch: bigint({ mode: "number" }).notNull(),
-  revokedAt: text().notNull(),
-});
-
-/** Each subject's turn bucket: tokens left and when they were last refilled. */
-export const subjectUsage = nylorun.table("subject_usage", {
-  subject: textC().primaryKey(),
-  turnTokens: doublePrecision().notNull(),
-  refilledAt: text().notNull(),
-});
-
-/** Publishable keys (Host feature `browser-access`): public by design. */
-export const publishableKeys = nylorun.table("publishable_keys", {
-  id: textC().primaryKey(),
-  key: textC().notNull().unique("publishable_keys_key_key"),
-  name: text().notNull().unique("publishable_keys_name_key"),
-  /** JSON array of allowed origins. */
-  originsJson: text().notNull(),
-  createdAt: text().notNull(),
-  revokedAt: text(),
-});
 
 /**
  * Action endpoints: where the Runtime delivers each agent's Actions over HTTP, and the health
@@ -669,8 +646,6 @@ export type VaultAuditRow = Omit<typeof vaultAudit.$inferSelect, "ord">;
 export type VaultIdempotencyRow = typeof vaultIdempotency.$inferSelect;
 export type OAuthPendingRow = typeof oauthPending.$inferSelect;
 export type SigningKeyRow = typeof signingKeys.$inferSelect;
-export type SubjectUsageRow = typeof subjectUsage.$inferSelect;
-export type PublishableKeyRow = typeof publishableKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;

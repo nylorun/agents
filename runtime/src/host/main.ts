@@ -9,8 +9,7 @@
  * Execution and Durable Streams from the endpoints; `createHostExecution`
  * builds the process's execution; the Host serves the one Tenant its Postgres
  * database holds (`NYLORUN_DATABASE_URL`, required), and creates it there on
- * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`,
- * `NYLORUN_DERIVED_PRINCIPALS`; tenancy.md §4), trusting the issuers of the identity file
+ * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`; tenancy.md §4), trusting the issuers of the identity file
  * `NYLORUN_IDENTITY_FILE` names (Host feature `trusted-issuers`); with S2, a process running core
  * runs the stream relay, which feeds the Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
@@ -358,7 +357,7 @@ export async function main(): Promise<void> {
         harnessImage: stack.sandboxes.harnessImage,
       }
     : undefined;
-  const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
+  const tenantSettings = stack.tenant ?? { name: "default" };
   const module = createTenantModule({
     open: createPostgresTenantOpener({
       hostRoot,
@@ -366,10 +365,7 @@ export async function main(): Promise<void> {
       create: {
         ...(tenantSettings.id ? { tenantId: tenantSettings.id } : {}),
         name: tenantSettings.name,
-        principals: hostPrincipals({
-          adminKey: credentials.adminKey,
-          derived: tenantSettings.derivedPrincipals,
-        }),
+        principals: hostPrincipals({ adminKey: credentials.adminKey }),
       },
       configFor,
       logger,
@@ -404,10 +400,6 @@ export async function main(): Promise<void> {
     coreVersion: coreVersion(),
     ...(stack.listen ? { listen: stack.listen } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
-    // Container mode (the local stack) allows browsers unless told not to; a Host started
-    // from host.json only when it says so. Without publishable keys nothing is reachable.
-    browserAccess:
-      stack.browserAccess ?? (stack.listen ? true : config.browserAccess === true),
     // The Admin API on its own listener: from the container environment, or from host.json
     // (loopback, on the same host) when the Host runs outside a container.
     ...(stack.operator

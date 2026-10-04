@@ -1,5 +1,6 @@
 /**
- * Owner enforcement: two subjects on one Tenant never reach each other's sessions or vaults.
+ * Owner enforcement: two subjects on one Tenant never reach each other's sessions, nor attach
+ * each other's vaults (vault routes take no subject, protocol 7).
  * Another owner's resource answers exactly what a missing one does, so a subject cannot learn
  * which ids exist. Requests without `Nylorun-Subject` keep today's answers.
  */
@@ -12,8 +13,8 @@ import {
   type SubjectTenant,
 } from "./subjects.js";
 
-const ada = { subject: "app:ada", scopes: ["sessions:own", "vaults:own"] } as const;
-const bao = { subject: "app:bao", scopes: ["sessions:own", "vaults:own"] } as const;
+const ada = { subject: "app:ada", scopes: ["sessions:own"] } as const;
+const bao = { subject: "app:bao", scopes: ["sessions:own"] } as const;
 
 let tenant: SubjectTenant;
 let adaVault: { vaultId: string; credentialId: string };
@@ -123,58 +124,20 @@ it("answers PUT on another owner's session id with 404, not 409", async () => {
   expect(mismatch.status).toBe(409);
 });
 
-it("keeps vaults and their credentials to their owner", async () => {
+it("refuses vault routes to a subject, its own vaults included (protocol 7)", async () => {
   const { vaultId, credentialId } = adaVault;
-  const pairs: [string, string, string, unknown?][] = [
-    ["GET", `/v1/vaults/${vaultId}`, "/v1/vaults/vlt_missing"],
-    ["DELETE", `/v1/vaults/${vaultId}`, "/v1/vaults/vlt_missing"],
-    ["GET", `/v1/vaults/${vaultId}/credentials`, "/v1/vaults/vlt_missing/credentials"],
-    [
-      "POST",
-      `/v1/vaults/${vaultId}/credentials`,
-      "/v1/vaults/vlt_missing/credentials",
-      {
-        requestId: "steal",
-        idempotencyKey: "steal",
-        name: "t",
-        auth: { type: "bearer", url: "https://mcp.example.com/tools", token: "x" },
-      },
-    ],
-    [
-      "GET",
-      `/v1/vaults/${vaultId}/credentials/${credentialId}`,
-      `/v1/vaults/vlt_missing/credentials/${credentialId}`,
-    ],
-    [
-      "DELETE",
-      `/v1/vaults/${vaultId}/credentials/${credentialId}`,
-      `/v1/vaults/vlt_missing/credentials/${credentialId}`,
-    ],
-  ];
-  for (const [method, path, missingPath, body] of pairs) {
-    const other = await tenant.call(method, path, { as: bao, body });
-    const missing = await tenant.call(method, missingPath, { as: bao, body });
-    expect(other.status, `${method} ${path}`).toBe(404);
-    expect(other.text, `${method} ${path}`).toBe(missing.text);
-  }
-  const own = await tenant.call("GET", `/v1/vaults/${vaultId}/credentials`, { as: ada });
-  expect(own.status).toBe(200);
-  expect(own.body.credentials.map((c: { id: string }) => c.id)).toEqual([credentialId]);
-
-  const listed = await tenant.call("GET", "/v1/vaults", { as: bao });
-  expect(listed.body.vaults.map((v: { id: string }) => v.id)).toEqual([baoVault.vaultId]);
-  const peek = await tenant.call("GET", `/v1/vaults?ownerUserId=${ada.subject}`, { as: bao });
-  expect(peek.status).toBe(403);
-  const forged = await tenant.call("POST", "/v1/vaults", {
-    as: bao,
-    body: {
-      requestId: "forged-vault",
-      idempotencyKey: "forged-vault",
-      name: "x",
-      ownerUserId: ada.subject,
-    },
-  });
-  expect(forged.status).toBe(403);
+  for (const [method, path] of [
+    ["GET", "/v1/vaults"],
+    ["GET", `/v1/vaults/${vaultId}`],
+    ["GET", `/v1/vaults/${vaultId}/credentials`],
+    ["GET", `/v1/vaults/${vaultId}/credentials/${credentialId}`],
+    ["DELETE", `/v1/vaults/${vaultId}`],
+  ] as const)
+    for (const as of [ada, bao]) {
+      const reply = await tenant.call(method, path, { as });
+      expect(reply.status, `${method} ${path}`).toBe(403);
+      expect(reply.body.code).toBe("scope_required");
+    }
   expect(
     (await tenant.call("GET", `/v1/vaults?ownerUserId=${ada.subject}`)).body.vaults
   ).toHaveLength(1);

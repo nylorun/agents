@@ -36,9 +36,9 @@
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
  * `infra/*` builds the clients from them. So is the Object store (`NYLORUN_OBJECT_STORE_*`),
  * which every service may read; `host/main.ts` builds the `BlobStore` from it. So is who the Host's Tenant is when its database
- * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
+ * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`).
  */
-import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
+import { isTenantId } from "@nylorun/core/compatibility";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 
 /** A Runtime service this release has. */
@@ -262,11 +262,6 @@ export interface StackConfig {
    */
   publicUrl?: string;
   /**
-   * `NYLORUN_BROWSER_ACCESS` (`on` or `off`): whether browser requests may reach Tenant
-   * routes. Absent means the Host's default (on in container mode).
-   */
-  browserAccess?: boolean;
-  /**
    * The operator listener in container mode (`NYLORUN_ADMIN_LISTEN_PORT`, `…_HOST`,
    * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
    */
@@ -314,11 +309,6 @@ export interface TenantSettings {
   id?: string;
   /** `NYLORUN_TENANT_NAME`. Default `default`. */
   name: string;
-  /**
-   * `NYLORUN_DERIVED_PRINCIPALS`: comma-separated application principals whose keys the admin
-   * key derives (`deriveTenantKey`). Default `project`.
-   */
-  derivedPrincipals: readonly string[];
   /**
    * `NYLORUN_IDENTITY_FILE`: the identity file listing the trusted issuers (Host feature
    * `trusted-issuers`), read once at boot (`host/main.ts`). Absent: no issuer is trusted.
@@ -605,11 +595,6 @@ export function parseStackConfig(
   const restateIdentityKeys = parseIdentityKeys(env);
   if (restateIdentityKeys) endpoints.restateIdentityKeys = restateIdentityKeys;
   const publicUrl = parseUrl(env, "NYLORUN_PUBLIC_URL", http)?.replace(/\/+$/, "");
-  const rawBrowser = read(env, "NYLORUN_BROWSER_ACCESS");
-  if (rawBrowser !== undefined && rawBrowser !== "on" && rawBrowser !== "off")
-    throw new StackConfigError(
-      `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
-    );
   const harnessMode = servesApi ? parseHarnessMode(env) : undefined;
   const sandboxes = servesApi ? parseSandboxes(env) : undefined;
   // Pods connect to the Harness API listener even when the Tenant runs its own harness.
@@ -638,7 +623,6 @@ export function parseStackConfig(
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
-    ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
     ...(harnessMode ? { harnessMode } : {}),
     ...(harnessListener ? { harnessListener } : {}),
     ...(sandboxes ? { sandboxes } : {}),
@@ -685,18 +669,10 @@ function parseTenant(env: EnvSnapshot): TenantSettings {
     throw new StackConfigError(
       `NYLORUN_TENANT_ID must be a Tenant id (tn_ and 26 Crockford characters), not ${id}`,
     );
-  const raw = read(env, "NYLORUN_DERIVED_PRINCIPALS");
-  const derivedPrincipals = raw === undefined ? ["project"] : raw.split(",").map((entry) => entry.trim());
-  for (const principal of derivedPrincipals)
-    if (!DERIVED_PRINCIPAL_ID_PATTERN.test(principal) || principal === "studio")
-      throw new StackConfigError(
-        `NYLORUN_DERIVED_PRINCIPALS has '${principal}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio`,
-      );
   const identityFile = read(env, "NYLORUN_IDENTITY_FILE");
   return {
     ...(id ? { id } : {}),
     name: read(env, "NYLORUN_TENANT_NAME") ?? "default",
-    derivedPrincipals: [...new Set(derivedPrincipals)],
     ...(identityFile ? { identityFile } : {}),
   };
 }

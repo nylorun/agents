@@ -53,7 +53,7 @@ it("rejects missing, empty or unknown scopes and invalid subjects with 400", asy
     { "Nylorun-Subject": "app:42", "Nylorun-Scopes": "" },
     { "Nylorun-Subject": "app:42", "Nylorun-Scopes": "sessions:all" },
     { "Nylorun-Subject": "app:42", "Nylorun-Scopes": "sessions:own admin" },
-    { "Nylorun-Subject": "host", "Nylorun-Scopes": "vaults:own" },
+    { "Nylorun-Subject": "host", "Nylorun-Scopes": "sessions:own" },
     { "Nylorun-Subject": "x".repeat(201), "Nylorun-Scopes": "agents:read" },
     { "Nylorun-Subject": "ünïcode", "Nylorun-Scopes": "agents:read" },
     { "Nylorun-Scopes": "agents:read" },

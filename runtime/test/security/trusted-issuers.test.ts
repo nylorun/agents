@@ -151,7 +151,6 @@ ${edPem
   runtime = await startEphemeralRuntime({
     database: testPool(),
     hostRoot: root,
-    browserAccess: true,
     issuers: createTrustedIssuers(parseIdentityFile(file, "identity.yaml"), {
       now: () => Date.now() + skew,
     }),
@@ -279,11 +278,6 @@ describe("verification", () => {
     });
     expect(reply.status).toBe(403);
   });
-
-  it("is not reached by subject revocation", async () => {
-    expect((await app("POST", "/v1/access/revocations", { requestId: "revoke", subject: "u:alice" })).status).toBe(200);
-    expect((await call("GET", "/v1/me", await token(rsa))).status).toBe(200);
-  });
 });
 
 describe("JWKS outage", () => {
@@ -348,7 +342,7 @@ describe("what an issuer token reaches", () => {
     expect((await call("GET", "/v1/me", sneaky)).body.sandboxes).toEqual(["shared"]);
   });
 
-  it("is accepted from a browser without a publishable key", async () => {
+  it("is accepted from a browser, with no toggle (protocol 7)", async () => {
     const reply = await call("GET", "/v1/me", await as("alice"), { headers: { origin: ORIGIN } });
     expect(reply.status, JSON.stringify(reply.body)).toBe(200);
     expect(reply.body.via).toBe("issuer:idp");
@@ -379,29 +373,9 @@ describe("GET /v1/me", () => {
     });
   });
 
-  it("reports a subject token", async () => {
-    expect(
-      (
-        await app("PUT", "/v1/access/policy", {
-          requestId: "policy",
-          policy: {
-            version: 1,
-            roles: { user: { scopes: ["sessions:own"], agents: ["bot"] } },
-            anon: { scopes: [], agents: [] },
-            tokens: { maxTtlSeconds: 600 },
-          },
-        })
-      ).status,
-    ).toBe(200);
-    const minted = await app("POST", "/v1/tokens", { requestId: "mint", subject: "app:dan", role: "user" });
-    expect(minted.status).toBe(200);
-    const reply = await call("GET", "/v1/me", minted.body.token);
-    expect(reply.body).toEqual({
-      subject: "app:dan",
-      scopes: ["sessions:own"],
-      agents: ["bot"],
-      sandboxes: [],
-      via: "token",
-    });
+  it("refuses a JWT no issuer of the identity file signed: subject tokens are gone (protocol 7)", async () => {
+    const reply = await call("GET", "/v1/me", await token(stranger, {}, { iss: "urn:nylorun:tenant:tn_x" }));
+    expect(reply.status).toBe(404);
+    expect((await app("POST", "/v1/tokens", { requestId: "mint", subject: "app:dan", role: "user" })).status).toBe(404);
   });
 });

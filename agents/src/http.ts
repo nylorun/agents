@@ -2,16 +2,16 @@ import {
   PROTOCOL_FEATURES,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
-  PUBLISHABLE_KEY_HEADER,
   checkCompatibility,
   type Compatibility,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
 
 /**
- * Subject tokens for a client that holds no Tenant key (a browser or an app; Host feature
- * `subject-tokens`). `get` returns a current token and may fetch a new one; `invalidate`
- * drops the cached one after the Runtime answered `401 token_expired`.
+ * Bearer tokens for a client that holds no Tenant key: a trusted issuer's tokens (Host feature
+ * `trusted-issuers`), from the operator's identity provider. `get` returns a current token and
+ * may fetch a new one; `invalidate` drops the cached one after the Runtime answered
+ * `401 token_expired`.
  */
 export interface TokenSource {
   get(signal?: AbortSignal): Promise<string>;
@@ -26,10 +26,8 @@ export interface Destination {
   url?: string;
   key?: string;
   fetch?: typeof fetch;
-  /** Instead of `key`: subject tokens. The client then skips the `/health` check. */
+  /** Instead of `key`: a trusted issuer's tokens. The client then skips the `/health` check. */
   token?: TokenSource;
-  /** A publishable key (Host feature `browser-access`): names the app and its origins. */
-  publishableKey?: string;
 }
 
 export function env(name: string): string | undefined {
@@ -106,10 +104,9 @@ interface HostCheck {
 
 export class Transport {
   readonly url: string;
-  /** The Tenant key; empty for a client that uses subject tokens. */
+  /** The Tenant key; empty for a client that uses issuer tokens. */
   readonly key: string;
   readonly token: TokenSource | undefined;
-  readonly publishableKey: string | undefined;
   readonly fetcher: typeof fetch;
   /** Sent on every request, e.g. `Nylorun-Subject` and `Nylorun-Scopes` (`withHeaders`). */
   readonly headers: Readonly<Record<string, string>> = {};
@@ -124,14 +121,13 @@ export class Transport {
         "Set Runtime url and server key explicitly or via NYLORUN_RUNTIME_URL / NYLORUN_SERVER_KEY",
       );
     if (token && options.key)
-      throw new Error("Use a Tenant key or subject tokens, not both");
+      throw new Error("Use a Tenant key or issuer tokens, not both");
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol))
       throw new Error("Runtime requires an HTTP(S) URL");
     this.url = url.replace(/\/$/, "");
     this.key = key!;
     this.token = token;
-    this.publishableKey = options.publishableKey;
     // Browsers may not call `/health` (it refuses `Origin`); token clients rely on `426`.
     if (token) this.check.compatible = true;
     // Called as a method on a page's window would otherwise lose `this`.
@@ -228,8 +224,6 @@ export class Transport {
       ? await this.token.get(init.signal ?? undefined)
       : this.key;
     headers.set("Authorization", `Bearer ${bearer}`);
-    if (this.publishableKey)
-      headers.set(PUBLISHABLE_KEY_HEADER, this.publishableKey);
     headers.set(PROTOCOL_HEADER, String(PROTOCOL_VERSION));
     // JSON unless the caller says otherwise (an artifact upload sends the file's type).
     if (init.body && !headers.has("content-type")) headers.set("Content-Type", "application/json");
@@ -249,7 +243,7 @@ export class Transport {
       headers: await this.authHeaders(init),
       redirect: "error",
     });
-    // An expired or revoked subject token: get a new one and try once more.
+    // An expired token: get a new one and try once more.
     if (response.status === 401 && this.token && !options.retried401) {
       const body = (await response.clone().json().catch(() => undefined)) as
         | { code?: unknown }

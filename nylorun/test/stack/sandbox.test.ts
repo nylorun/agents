@@ -92,7 +92,7 @@ describe("nylorun sandbox", () => {
     expect(new URL(request.url).searchParams.getAll("label")).toEqual(["project=acme"]);
     const headers = new Headers(request.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${CLI_KEY}`);
-    expect(headers.get("nylorun-protocol")).toBe("6");
+    expect(headers.get("nylorun-protocol")).toBe("7");
     const file = stackPaths(home).cliCredentials;
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
       format: 1,

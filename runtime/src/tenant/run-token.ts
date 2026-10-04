@@ -17,7 +17,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { errors, importJWK, jwtVerify } from "jose";
-import { subjectTokenIssuer } from "@nylorun/core/contracts";
+import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import type { Keys } from "../keys/keys.js";
 import type { SessionStore } from "../store/types.js";
 import type { Lease } from "./context.js";
@@ -75,7 +75,7 @@ export async function mintRunToken(
   const { token } = await signer.keys.sign({
     typ: RUN_TOKEN_TYP,
     claims: {
-      iss: subjectTokenIssuer(tenantId),
+      iss: tenantTokenIssuer(tenantId),
       aud: RUN_TOKEN_AUD,
       sub: lease.sessionId,
       trn: turnId,
@@ -139,7 +139,7 @@ export async function verifyRunToken(
   try {
     const verified = await jwtVerify(raw, key, {
       algorithms: ["ES256"],
-      issuer: subjectTokenIssuer(tenantId),
+      issuer: tenantTokenIssuer(tenantId),
       audience: RUN_TOKEN_AUD,
       typ: RUN_TOKEN_TYP,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,

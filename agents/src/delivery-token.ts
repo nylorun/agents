@@ -5,10 +5,10 @@
  * WebCrypto's ECDSA verifies.
  */
 import { PROTOCOL_HEADER, PROTOCOL_VERSION, isTenantId } from "@nylorun/core/compatibility";
-import { DELIVERY_TOKEN_TYPE, subjectTokenIssuer } from "@nylorun/core/contracts";
+import { DELIVERY_TOKEN_TYPE, tenantTokenIssuer } from "@nylorun/core/contracts";
 
 /** The issuer prefix of a Tenant's tokens: `urn:nylorun:tenant:<tenantId>`. */
-const ISSUER_PREFIX = subjectTokenIssuer("");
+const ISSUER_PREFIX = tenantTokenIssuer("");
 
 /** The claims of a verified delivery token. */
 export interface DeliveryClaims {
@@ -104,7 +104,7 @@ export async function verifyDeliveryToken(
     !isTenantId(claims.iss.slice(ISSUER_PREFIX.length))
   )
     throw invalid("The token was not issued by a Tenant");
-  if (options.tenantId !== undefined && claims.iss !== subjectTokenIssuer(options.tenantId))
+  if (options.tenantId !== undefined && claims.iss !== tenantTokenIssuer(options.tenantId))
     throw invalid("The token is for another Tenant");
   if (options.audience !== undefined && claims.aud !== options.audience)
     throw invalid(`The token is for ${claims.aud}, not ${options.audience}`);

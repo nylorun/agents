@@ -13,9 +13,7 @@ import {
   ERROR_CODES,
   AcceptedResponseSchema,
   ActionResultReceiptSchema,
-  AccessPolicyResponseSchema,
   AdminStatusSchema,
-  CreateTokenResponseSchema,
   CredentialInfoSchema,
   DeleteEndpointResponseSchema,
   DeliveryHeartbeatResponseSchema,
@@ -30,14 +28,11 @@ import {
   ListCredentialsResponseSchema,
   ListProvidersResponseSchema,
   ListPublicAgentsResponseSchema,
-  ListPublishableKeysResponseSchema,
   ListSessionsResponseSchema,
   ListVaultsResponseSchema,
-  PublishableKeySchema,
   PutAgentResponseSchema,
   ReadyResponseSchema,
   ResetTenantResponseSchema,
-  RevokeSubjectResponseSchema,
   SandboxToolOutcomeSchema,
   SessionItemsResponseSchema,
   SessionViewSchema,
@@ -55,8 +50,9 @@ import {
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
 import { startEndpoint, type TestEndpoint } from "../support/endpoint.js";
+import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
-const ORIGIN = "https://app.example.com";
+let issuer: TestIssuer;
 let root: string;
 let rt: EphemeralRuntime;
 let endpoint: TestEndpoint | undefined;
@@ -100,7 +96,7 @@ beforeAll(async () => {
     database: testPool(),
     hostRoot: root,
     operatorListener: true,
-    browserAccess: true,
+    issuers: (issuer = await testIssuer()).configs,
     model: { kind: "fixture" },
   });
 });
@@ -261,43 +257,15 @@ it("vaults and credentials", async () => {
   await answer(DeletedResponseSchema, "DELETE", `/v1/vaults/${vault.id}`);
 });
 
-it("access: policy, tokens, signing keys, publishable keys and revocations", async () => {
-  await answer(AccessPolicyResponseSchema, "GET", "/v1/access/policy");
-  await answer(AccessPolicyResponseSchema, "PUT", "/v1/access/policy", {
-    body: {
-      requestId: "policy",
-      policy: {
-        version: 1,
-        roles: { user: { scopes: ["sessions:own", "agents:read"], agents: "*" } },
-        anon: { scopes: ["agents:read"], agents: "*" },
-        tokens: { maxTtlSeconds: 600 },
-      },
-    },
-  });
-  const token = await answer(CreateTokenResponseSchema, "POST", "/v1/tokens", {
-    body: { requestId: "token", subject: "app:ann", role: "user" },
-  });
+it("access: signing keys, public keys, and the agent list for an issuer token", async () => {
+  const token = await issuer.sign("app:ann", "sessions:own agents:read");
   await answer(ListPublicAgentsResponseSchema, "GET", "/v1/agents", {
-    headers: app({ authorization: `Bearer ${token.token}` }),
+    headers: app({ authorization: `Bearer ${token}` }),
   });
   await answer(JwksSchema, "GET", "/v1/access/jwks");
   await answer(SigningKeyListSchema, "GET", "/v1/access/signing-keys");
   await answer(SigningKeyListSchema, "POST", "/v1/access/signing-keys/rotate", {
     body: { requestId: "rotate" },
-  });
-  const key = await answer(PublishableKeySchema, "POST", "/v1/access/publishable-keys", {
-    body: { requestId: "key", name: "web", origins: [ORIGIN] },
-  });
-  await answer(ListPublicAgentsResponseSchema, "GET", "/v1/agents", {
-    headers: { "nylorun-protocol": "4", "nylorun-key": key.key, origin: ORIGIN },
-  });
-  await answer(ListPublishableKeysResponseSchema, "GET", "/v1/access/publishable-keys");
-  await answer(PublishableKeySchema, "PUT", `/v1/access/publishable-keys/${key.id}`, {
-    body: { requestId: "origins", origins: [ORIGIN, "http://localhost:*"] },
-  });
-  await answer(PublishableKeySchema, "DELETE", `/v1/access/publishable-keys/${key.id}`);
-  await answer(RevokeSubjectResponseSchema, "POST", "/v1/access/revocations", {
-    body: { requestId: "revoke", subject: "app:ann" },
   });
 });
 

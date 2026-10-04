@@ -7,20 +7,10 @@
 import { z } from "zod";
 import {
   JwksSchema,
-  CreateTokenRequestSchema,
-  CreateTokenResponseSchema,
-  AccessPolicyResponseSchema,
-  PutAccessPolicyRequestSchema,
   SigningKeyListSchema,
   SigningKeyViewSchema,
   RotateSigningKeysRequestSchema,
   RevokeSigningKeyRequestSchema,
-  ListPublishableKeysResponseSchema,
-  PublishableKeySchema,
-  CreatePublishableKeyRequestSchema,
-  UpdatePublishableKeyRequestSchema,
-  RevokeSubjectRequestSchema,
-  RevokeSubjectResponseSchema,
   MeResponseSchema,
   TenantStatusSchema,
   ResetTenantRequestSchema,
@@ -217,18 +207,8 @@ export const StartOAuthResponse = named("StartOAuthResponse", StartOAuthResponse
 export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
 
 export const Jwks = named("Jwks", JwksSchema);
-export const CreateTokenRequest = named("CreateTokenRequest", CreateTokenRequestSchema);
-export const CreateTokenResponse = named("CreateTokenResponse", CreateTokenResponseSchema);
-export const AccessPolicyResponse = named("AccessPolicyResponse", AccessPolicyResponseSchema);
-export const PutAccessPolicyRequest = named("PutAccessPolicyRequest", PutAccessPolicyRequestSchema);
 export const SigningKeyList = named("SigningKeyList", SigningKeyListSchema);
 export const SigningKeyView = named("SigningKeyView", SigningKeyViewSchema);
 export const RotateSigningKeysRequest = named("RotateSigningKeysRequest", RotateSigningKeysRequestSchema);
 export const RevokeSigningKeyRequest = named("RevokeSigningKeyRequest", RevokeSigningKeyRequestSchema);
-export const ListPublishableKeysResponse = named("ListPublishableKeysResponse", ListPublishableKeysResponseSchema);
-export const PublishableKey = named("PublishableKey", PublishableKeySchema);
-export const CreatePublishableKeyRequest = named("CreatePublishableKeyRequest", CreatePublishableKeyRequestSchema);
-export const UpdatePublishableKeyRequest = named("UpdatePublishableKeyRequest", UpdatePublishableKeyRequestSchema);
-export const RevokeSubjectRequest = named("RevokeSubjectRequest", RevokeSubjectRequestSchema);
-export const RevokeSubjectResponse = named("RevokeSubjectResponse", RevokeSubjectResponseSchema);
 export const MeResponse = named("MeResponse", MeResponseSchema);

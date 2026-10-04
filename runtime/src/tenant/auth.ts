@@ -1,9 +1,12 @@
 /**
  * Tenant request authentication and authorization: a bearer token resolves to an application
- * principal, a subject token, a trusted issuer's token or a delivery token; anything else is
- * the opaque 404 (D5). An application principal may act for a subject (`Nylorun-Subject`,
- * `Nylorun-Scopes`); a subject token or an issuer token names its subject itself.
- * `requireScopes` limits them to the routes their scopes allow, decided from the route alone.
+ * principal, a trusted issuer's token or a delivery token; anything else is the opaque 404
+ * (D5). An application principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`);
+ * an issuer token names its subject itself. `requireScopes` limits them to the routes their
+ * scopes allow, decided from the route alone.
+ *
+ * Browsers: a request with `Origin` may carry an issuer token (CORS is the operator's proxy's),
+ * never an application key or a delivery token, which are server secrets.
  */
 import type { IncomingMessage } from "node:http";
 import {
@@ -19,12 +22,9 @@ import {
 import { hashToken } from "../core/bearer.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
-import { looksLikeToken, verifySubjectToken } from "./tokens.js";
 import { verifyDeliveryToken } from "./delivery-token.js";
 import { verifyIssuerToken } from "./issuers.js";
-import { tokenType } from "./jwt.js";
-import { readPolicy } from "./access-policy.js";
-import type { BrowserClient } from "./browser.js";
+import { looksLikeToken, tokenType } from "./jwt.js";
 
 const SUBJECT_INVALID = { code: "subject_invalid" } as const;
 
@@ -41,22 +41,11 @@ function singleHeader(request: IncomingMessage, name: string): string | undefine
 
 export async function authenticate(
   ctx: TenantContext,
-  request: IncomingMessage,
-  client?: BrowserClient
+  request: IncomingMessage
 ): Promise<AuthScope> {
   const header = request.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token || !header?.startsWith("Bearer ")) {
-    // A publishable key alone: what the policy grants `anon` (nothing by default).
-    if (client && header === undefined) {
-      const { anon } = await ctx.store.tx((t) => readPolicy(t));
-      return {
-        kind: "publishable",
-        keyId: client.keyId,
-        scopes: new Set(anon.scopes),
-        agents: anon.agents === "*" ? "*" : new Set(anon.agents),
-      };
-    }
     ctx.config.logger.warn("credential rejected", {
       reason: "missing_bearer",
     });
@@ -86,25 +75,16 @@ export async function authenticate(
       fail(403, "An issuer token cannot act for another subject");
     return scope;
   }
+  // Any other JWT: no issuer of this Host signed it (subject tokens are gone, protocol 7).
   if (looksLikeToken(token)) {
-    const scope = await verifySubjectToken(ctx, token);
-    // Read only after verification, so an unknown token still sees the opaque 404.
-    if (
-      singleHeader(request, SUBJECT_HEADER) !== undefined ||
-      singleHeader(request, SCOPES_HEADER) !== undefined
-    )
-      fail(403, "A subject token cannot act for another subject");
-    return scope;
+    ctx.config.logger.warn("credential rejected", { reason: "token_unknown_issuer" });
+    return failOpaque();
   }
   // Application keys never come from a browser or a shipped app: refused before they are even
   // looked up.
   if (request.headers.origin !== undefined)
     fail(403, "Application keys are not accepted from browsers", {
       code: "origin_rejected",
-    });
-  if (client)
-    fail(400, "Nylorun-Key is for browser and mobile clients, not with a Tenant key", {
-      code: "invalid_request",
     });
   const tokenHash = hashToken(token);
   const principal = await ctx.store.tx((t) => t.principalByTokenHash(tokenHash));
@@ -140,23 +120,19 @@ export async function authenticate(
 export type SubjectAccess = readonly SubjectScope[] | "never" | "any";
 
 /**
- * A subject, subject token or publishable key reaches a route only with one of the scopes it
- * declares: `403 scope_required`, decided from the route alone before anything is read.
+ * A subject or a token caller reaches a route only with one of the scopes it declares:
+ * `403 scope_required`, decided from the route alone before anything is read.
  */
 export function requireScopes(scope: AuthScope, access: SubjectAccess): void {
-  if (
-    scope.kind !== "subject" &&
-    scope.kind !== "token" &&
-    scope.kind !== "publishable"
-  )
-    return;
+  if (scope.kind !== "subject" && scope.kind !== "token") return;
   if (access === "any") return;
   if (access === "never")
     fail(403, "This route is not available when acting for a subject", {
       code: "scope_required",
       details: { scopes: [] },
     });
-  if (!(access as readonly SubjectScope[]).some((name) => scope.scopes.has(name)))
+  const held = scope.scopes as ReadonlySet<string>;
+  if (!(access as readonly SubjectScope[]).some((name) => held.has(name)))
     fail(403, `Scope ${(access as readonly string[]).join(" or ")} required`, {
       code: "scope_required",
       details: { scopes: access },
@@ -174,9 +150,7 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
         owner: scope.subject,
         ...(scope.agents === "*" ? {} : { agents: scope.agents }),
       };
-    // A publishable key alone owns nothing: no session or vault is ever reachable.
-    case "publishable":
-    // Nor does a request with no credential, on a route that serves public data.
+    // A request with no credential, on a route that serves public data, owns nothing.
     case "anonymous":
       return fail(404, "Not found");
     // A delivery token reaches its Action's callbacks, never a session or vault.
@@ -189,7 +163,7 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
   }
 }
 
-/** The subject whose sessions and vaults the request is limited to, if it acts for one. */
+/** The subject whose sessions the request is limited to, if it acts for one. */
 export function ownerOf(scope: AuthScope): string | undefined {
   return accessOf(scope)?.owner;
 }
@@ -213,6 +187,11 @@ export function scoped(scope: AuthScope, action: Action): void {
   )
     return;
   fail(403, "This delivery token is for another Action");
+}
+
+/** True when a token caller may reach `agentId` (its issuer's allowlist). Other callers always may. */
+export function mayUseAgent(scope: AuthScope, agentId: string): boolean {
+  return scope.kind !== "token" || scope.agents === "*" || scope.agents.has(agentId);
 }
 
 export function requireApplication(scope: AuthScope): string {

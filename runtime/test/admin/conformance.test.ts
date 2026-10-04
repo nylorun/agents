@@ -5,11 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, tool } from "@nylorun/agents";
-import {
-  createAdmin,
-  deriveStudioToken,
-  deriveTenantKey,
-} from "@nylorun/admin";
+import { createAdmin, deriveStudioToken } from "@nylorun/admin";
 import {
   ERROR_CODES,
   PROTOCOL_HEADER,
@@ -64,7 +60,7 @@ async function getJson(
 }
 
 async function startHost(
-  options: { model?: { kind: "fixture" }; derivedPrincipals?: readonly string[] } = {},
+  options: { model?: { kind: "fixture" } } = {},
 ) {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
@@ -75,7 +71,6 @@ async function startHost(
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
     ...(options.model ? { model: options.model } : {}),
-    ...(options.derivedPrincipals ? { derivedPrincipals: options.derivedPrincipals } : {}),
     database: database.sql,
   });
   closers.push(runtime, { close: database.drop });
@@ -194,24 +189,21 @@ it("A7: Admin API conformance — status names the Host's Tenant and its work; n
   expect(inFlight).toBe(1);
 });
 
-it("the Studio key and the project key the admin key derives reach the Tenant; nothing else derived does", async () => {
-  const runtime = await startHost({ derivedPrincipals: ["project"] });
+it("the Studio key the admin key derives reaches the Tenant; nothing else derived does", async () => {
+  const runtime = await startHost();
   const { url, adminKey, tenantId, applicationKey } = runtime;
   const admin = createAdmin({ url, key: adminKey });
   const agents = (key: string, tenant?: string) =>
     getJson(`${url}/v1/agents`, { headers: tenantApiHeaders(key, tenant) });
 
   expect((await agents(deriveStudioToken(adminKey, tenantId))).status).toBe(200);
-  expect((await agents(deriveTenantKey(adminKey, tenantId, "project"))).status).toBe(200);
-  expect((await agents(admin.deriveTenantKey(tenantId, "project"))).status).toBe(200);
   expect((await agents(applicationKey)).status).toBe(200);
   // Protocol 4 clients name the Tenant; this Host's id is served, another is the opaque 404.
   expect((await agents(applicationKey, tenantId)).status).toBe(200);
   expect((await agents(applicationKey, newTenantId())).status).toBe(404);
-  // Principals the Host was not configured with, other admin keys and the admin key itself
-  // reach nothing.
-  expect((await agents(deriveTenantKey(adminKey, tenantId, "other"))).status).toBe(404);
-  expect((await agents(deriveTenantKey("f".repeat(64), tenantId, "project"))).status).toBe(404);
+  // Other admin keys and the admin key itself reach nothing; the admin client derives no
+  // Tenant key (protocol 7).
+  expect("deriveTenantKey" in admin).toBe(false);
   expect((await agents(deriveStudioToken("f".repeat(64), tenantId))).status).toBe(404);
   expect((await agents(adminKey)).status).toBe(404);
 });

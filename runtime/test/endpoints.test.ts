@@ -107,7 +107,7 @@ it("refuses bad registrations with the reason", async () => {
   expect(listed).toEqual({ endpoints: [] });
 });
 
-// Subjects and subject tokens are refused by the route declaration (`scopes: "never"`): see the
+// Subjects and issuer tokens are refused by the route declaration (`scopes: "never"`): see the
 // route matrix and `security/subject-scopes.test.ts`.
 it("is for the application key only", async () => {
   const runtime = await host();

@@ -71,6 +71,13 @@
       "when": 1791102046691,
       "tag": "0009_oauth_pending",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791107553412,
+      "tag": "0010_oss_auth_removals",
+      "breakpoints": true
     }
   ]
 }

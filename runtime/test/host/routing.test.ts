@@ -1,9 +1,5 @@
 import { expect, it, vi } from "vitest";
-import {
-  PUBLISHABLE_KEY_HEADER,
-  TENANT_HEADER,
-  newPublishableKey,
-} from "@nylorun/core/compatibility";
+import { TENANT_HEADER } from "@nylorun/core/compatibility";
 import {
   FAKE_TENANT_ID,
   createFakeModule,
@@ -60,22 +56,14 @@ it("a Nylorun-Tenant naming another Tenant, or a malformed one, is the opaque 40
   expect(fetchSpy).not.toHaveBeenCalled();
 });
 
-it("a publishable key of another Tenant is the opaque 404; a malformed one is 400", async () => {
+it("ignores a Nylorun-Key header, which no longer names a Tenant (protocol 7)", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  const other = await getJson(`${url}/v1/agents`, {
-    headers: protocolHeaders({ [PUBLISHABLE_KEY_HEADER]: newPublishableKey(newTenantId()) }),
-  });
-  expect(other.status).toBe(404);
-  expect(other.body).toEqual(OPAQUE_NOT_FOUND);
-  const malformed = await getJson(`${url}/v1/agents`, {
-    headers: protocolHeaders({ [PUBLISHABLE_KEY_HEADER]: "nr_pub_nope" }),
-  });
-  expect(malformed.status).toBe(400);
-  expect(malformed.body).toMatchObject({ status: "rejected", code: "invalid_request" });
-  const own = await getJson(`${url}/v1/agents`, {
-    headers: protocolHeaders({ [PUBLISHABLE_KEY_HEADER]: newPublishableKey(FAKE_TENANT_ID) }),
-  });
-  expect(own.status).toBe(200);
+  for (const key of [`nr_pub_${newTenantId()}_${"0".repeat(32)}`, "nr_pub_nope"]) {
+    const { status } = await getJson(`${url}/v1/agents`, {
+      headers: protocolHeaders({ "Nylorun-Key": key }),
+    });
+    expect(status).toBe(200);
+  }
 });
 
 it("C3: tenant id in query or body is ignored for selection", async () => {

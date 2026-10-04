@@ -1,15 +1,11 @@
-import { DERIVED_PRINCIPAL_ID_PATTERN } from "@nylorun/core/compatibility";
 import { parseFrameAncestors } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
 
 /**
- * Origins that may embed Studio by default: Babai Desktop's `nylorun` scheme on
- * macOS and Linux, and its WebView2 origin on Windows (Studio §8.9).
+ * Origins that may embed Studio by default: none. Embedding is opt-in: the operator lists
+ * the exact origins of the app that frames Studio (`--studio-embed-origin`, Studio §8.9).
  */
-export const DEFAULT_STUDIO_FRAME_ANCESTORS = [
-  "nylorun://localhost",
-  "http://nylorun.localhost",
-] as const;
+export const DEFAULT_STUDIO_FRAME_ANCESTORS: readonly string[] = [];
 
 /**
  * Settings in `docker/.env` (mode 0600). Ports, the password and the gates token
@@ -65,11 +61,6 @@ export interface StackEnv {
   studioAnalyticsId: string;
   /** The Tenant's name, which the Runtime gives the Tenant it creates. */
   tenantName: string;
-  /**
-   * Derived principals the Runtime registers on its Tenant, comma-separated (persists);
-   * always includes `project`, the Project link's principal.
-   */
-  derivedPrincipals: string;
   /** Present once `nylorun sandbox enable` ran for the Tenant (F7.2). */
   sandboxes?: SandboxStackEnv;
 }
@@ -124,7 +115,6 @@ const KEYS = {
   studioFrameAncestors: "NYLORUN_STUDIO_FRAME_ANCESTORS",
   studioAnalyticsId: "NYLORUN_STUDIO_ANALYTICS_ID",
   tenantName: "NYLORUN_TENANT_NAME",
-  derivedPrincipals: "NYLORUN_DERIVED_PRINCIPALS",
 } as const satisfies Record<Exclude<keyof StackEnv, "sandboxes">, string>;
 
 /** Compose .env values: single quotes keep a value literal (no interpolation). */
@@ -196,8 +186,8 @@ export function renderEnvFile(env: StackEnv): string {
     line("runtimeImage"),
     line("studioImage"),
     "",
-    "# Exact origins that may show Studio in a frame (Babai Desktop). Kept across",
-    "# starts; change with nylorun start --studio-embed-origin <origin>.",
+    "# Exact origins that may show Studio in a frame; none by default. Kept across",
+    "# starts; add with nylorun start --studio-embed-origin <origin>.",
     line("studioFrameAncestors"),
     "",
     "# Studio's anonymous usage analytics; empty when off. Set on every start: turn",
@@ -205,10 +195,8 @@ export function renderEnvFile(env: StackEnv): string {
     line("studioAnalyticsId"),
     "",
     "# The Tenant's name, which the Runtime gives the Tenant it creates on the first",
-    "# start, and the derived principals it registers on that Tenant (keys derived",
-    "# from the admin key; `project` is the Project link's).",
+    "# start.",
     line("tenantName"),
-    line("derivedPrincipals"),
     "",
     ...(sandboxes
       ? [
@@ -225,24 +213,6 @@ export function renderEnvFile(env: StackEnv): string {
         ]
       : []),
   ].join("\n");
-}
-
-/**
- * `NYLORUN_DERIVED_PRINCIPALS`: comma-separated principal ids, as the Runtime accepts them
- * (not `studio`), with `project` first so the Project link's key always works.
- */
-export function parseDerivedPrincipals(raw: string, source: string): string[] {
-  const ids = raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "");
-  for (const id of ids)
-    if (!DERIVED_PRINCIPAL_ID_PATTERN.test(id) || id === "studio")
-      throw new CliError(
-        `${source} has '${id}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio.`,
-        2,
-      );
-  return [...new Set(["project", ...ids])];
 }
 
 /** Parse KEY=value lines; comments and blank lines are skipped. */
@@ -279,7 +249,6 @@ export interface PersistedStackEnv {
   objectStoreSecretKey?: string;
   /** Validated origins; absent when the line is missing (an older .env). */
   studioFrameAncestors?: string[];
-  derivedPrincipals?: string[];
   sandboxes?: SandboxStackEnv;
 }
 
@@ -324,14 +293,6 @@ export function parsePersisted(text: string): PersistedStackEnv {
   const objectStoreSecretKey = values.get(KEYS.objectStoreSecretKey);
   if (objectStoreSecretKey && /^[0-9a-f]{64}$/i.test(objectStoreSecretKey))
     out.objectStoreSecretKey = objectStoreSecretKey;
-  const principals = values.get(KEYS.derivedPrincipals);
-  if (principals !== undefined) {
-    try {
-      out.derivedPrincipals = parseDerivedPrincipals(principals, `${KEYS.derivedPrincipals} in docker/.env`);
-    } catch {
-      /* rewritten from the default on the next start */
-    }
-  }
   const sandboxes = parseSandboxes(values);
   if (sandboxes) out.sandboxes = sandboxes;
   const ancestors = values.get(KEYS.studioFrameAncestors);

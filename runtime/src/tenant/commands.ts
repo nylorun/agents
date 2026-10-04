@@ -51,7 +51,6 @@ import {
 } from "./context.js";
 import { fail } from "./http.js";
 import { accessOf } from "./auth.js";
-import { chargeTurn } from "./subject-limits.js";
 import { checkSandboxTurn } from "./sandboxes.js";
 import {
   actionTarget,
@@ -144,7 +143,7 @@ export async function command(
       command.type === "message" &&
       command.manifest !== undefined
     )
-      fail(403, "A subject token cannot send message.manifest", {
+      fail(403, "A token caller cannot send message.manifest", {
         code: "scope_required",
       });
     const key = commandKey(id, command.idempotencyKey);
@@ -229,12 +228,9 @@ export async function command(
       if (command.type === "message") {
         if (!["idle", "completed", "failed", "cancelled"].includes(s.status))
           fail(409, "Session has active or unresolved work");
-        // Every turn start on a sandbox: it exists, the token's `sbx` reaches it, and no other
-        // session's turn holds it. Before the charge, so a refused turn costs nothing.
+        // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
+        // session's turn holds it.
         await checkSandboxTurn(t, s, scope, ctx);
-        // After the replay check above, so a retried message is never charged twice.
-        if (scope.kind === "token" && scope.limits)
-          await chargeTurn(t, scope.subject, scope.limits);
         s.turnStartState = s.state;
         // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };

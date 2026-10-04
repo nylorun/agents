@@ -1,5 +1,6 @@
 /**
- * Tenant signing keys for subject tokens. Each key is an ES256 pair: the public JWK is stored
+ * Tenant signing keys for the tokens the Runtime signs itself (delivery tokens, capability
+ * links, run and host tokens). Each key is an ES256 pair: the public JWK is stored
  * as is, the PKCS#8 private key is sealed with the vault KEK (AAD bound to the Tenant and key
  * id), like a credential.
  *
@@ -164,7 +165,6 @@ export class SigningKeys {
     const [previous] = await t.signingKeys(["previous"]);
     if (previous && !force) {
       const retired = Date.parse(previous.retiredAt ?? previous.createdAt);
-      // Delivery tokens may outlive the policy's subject tokens.
       const longest = Math.max(maxTtlSeconds, DELIVERY_TOKEN_MAX_TTL_SECONDS);
       const until = retired + longest * 1000 + ROTATION_GRACE_MS;
       if (until > now.getTime())
