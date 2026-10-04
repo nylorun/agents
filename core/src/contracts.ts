@@ -2993,6 +2993,25 @@ export const ListCredentialsResponseSchema = z
   .object({ credentials: z.array(CredentialInfoSchema) })
   .strict();
 export type ListCredentialsResponse = z.infer<typeof ListCredentialsResponseSchema>;
+/**
+ * `POST /v1/vaults/{vaultId}/oauth/start` (F9 C2): sign the installation in to the remote MCP
+ * server at `url`, declared as `server`, and store its OAuth credential in the installation vault.
+ * `clientId` names a client registered with the authorization server; without one the Runtime
+ * registers itself (RFC 7591) when the server allows it.
+ */
+export const StartOAuthRequestSchema = z
+  .object({
+    url: z.string().min(1).max(2048),
+    server: z.string().min(1).max(128),
+    clientId: z.string().min(1).max(512).optional(),
+  })
+  .strict();
+export type StartOAuthRequest = z.infer<typeof StartOAuthRequestSchema>;
+/** Where to send the browser, and until when the sign-in can finish. */
+export const StartOAuthResponseSchema = z
+  .object({ authorizeUrl: z.string(), expiresAt: z.string() })
+  .strict();
+export type StartOAuthResponse = z.infer<typeof StartOAuthResponseSchema>;
 /** A deleted vault or credential. */
 export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
 export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;

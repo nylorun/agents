@@ -214,6 +214,12 @@
     "status": 204,
     "allowOrigin": "https://app.example.com"
   },
+  "POST /v1/vaults/<vault>/oauth/start": {
+    "status": 403
+  },
+  "GET /v1/oauth/callback?state=matrix-state&code=matrix-code": {
+    "status": 403
+  },
   "GET /v1/access/jwks": {
     "status": 204,
     "allowOrigin": "https://app.example.com"

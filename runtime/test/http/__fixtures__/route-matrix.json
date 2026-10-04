@@ -3287,6 +3287,103 @@
       }
     }
   },
+  "POST /v1/vaults/<vault>/oauth/start": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    }
+  },
+  "GET /v1/oauth/callback?state=matrix-state&code=matrix-code": {
+    "none": {
+      "status": 400,
+      "contentType": "text/html; charset=utf-8",
+      "message": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Sign-in failed · Nylorun</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>\n</head><body><h1>Sign-in failed</h1><p>This sign-in is unknown, already used or expired: start the connect again</p></body></html>\n"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "text/html; charset=utf-8",
+      "message": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Sign-in failed · Nylorun</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>\n</head><body><h1>Sign-in failed</h1><p>This sign-in is unknown, already used or expired: start the connect again</p></body></html>\n"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "text/html; charset=utf-8",
+      "message": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Sign-in failed · Nylorun</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>\n</head><body><h1>Sign-in failed</h1><p>This sign-in is unknown, already used or expired: start the connect again</p></body></html>\n"
+    },
+    "subject-read": {
+      "status": 400,
+      "contentType": "text/html; charset=utf-8",
+      "message": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Sign-in failed · Nylorun</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>\n</head><body><h1>Sign-in failed</h1><p>This sign-in is unknown, already used or expired: start the connect again</p></body></html>\n"
+    },
+    "token": {
+      "status": 400,
+      "contentType": "text/html; charset=utf-8",
+      "message": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Sign-in failed · Nylorun</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>\n</head><body><h1>Sign-in failed</h1><p>This sign-in is unknown, already used or expired: start the connect again</p></body></html>\n"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "A publishable key alone reaches only the agent list"
+    }
+  },
   "GET /v1/access/jwks": {
     "none": {
       "status": 200,

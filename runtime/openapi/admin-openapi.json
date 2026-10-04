@@ -343,6 +343,9 @@
               "sandbox_lost",
               "sandbox_expired",
               "issuer_unavailable",
+              "oauth_client_required",
+              "oauth_state_invalid",
+              "oauth_failed",
               "internal_error"
             ]
           },

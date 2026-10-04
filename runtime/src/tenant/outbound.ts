@@ -77,22 +77,15 @@ export function refusal(url: URL, policy: OutboundPolicy): string | undefined {
   return undefined;
 }
 
-/** POSTs `body` to `url` under `policy`. Never throws; `signal` aborts the request. */
-export async function post(
-  target: string,
-  body: string,
-  headers: Record<string, string>,
-  options: { policy: OutboundPolicy; signal: AbortSignal; maxResponseBytes?: number },
-): Promise<OutboundResult> {
-  const { policy, signal } = options;
-  const limit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
-  const url = new URL(target);
-  const refused = refusal(url, policy);
-  if (refused) return { kind: "not_sent", code: "ENDPOINT_ADDRESS_REFUSED", message: refused };
-  const originalHost = url.host;
+/** `localhost` means the machine that runs Docker (`OutboundPolicy.loopback`). */
+function dockerHost(url: URL, policy: OutboundPolicy): void {
   if (policy.loopback === "docker-host" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
     url.hostname = "host.docker.internal";
-  const lookup = (
+}
+
+/** A DNS lookup that drops private answers when `policy` refuses them: checked on what is connected to. */
+function guardedLookup(policy: OutboundPolicy) {
+  return (
     hostname: string,
     lookupOptions: object,
     callback: (error: Error | null, address: string | LookupAddress[], family?: number) => void,
@@ -113,6 +106,23 @@ export async function post(
       if ((lookupOptions as { all?: boolean }).all) return callback(null, allowed);
       return callback(null, allowed[0]!.address, allowed[0]!.family);
     });
+}
+
+/** POSTs `body` to `url` under `policy`. Never throws; `signal` aborts the request. */
+export async function post(
+  target: string,
+  body: string,
+  headers: Record<string, string>,
+  options: { policy: OutboundPolicy; signal: AbortSignal; maxResponseBytes?: number },
+): Promise<OutboundResult> {
+  const { policy, signal } = options;
+  const limit = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+  const url = new URL(target);
+  const refused = refusal(url, policy);
+  if (refused) return { kind: "not_sent", code: "ENDPOINT_ADDRESS_REFUSED", message: refused };
+  const originalHost = url.host;
+  dockerHost(url, policy);
+  const lookup = guardedLookup(policy);
   return new Promise<OutboundResult>((resolve) => {
     let sent = false;
     let settled = false;
@@ -167,4 +177,147 @@ export async function post(
     request.on("error", failed);
     request.end(body);
   });
+}
+
+/**
+ * A refusal of `guardedFetch`: the Host's policy forbids the URL or every address it resolves
+ * to. Not a `TypeError`, so callers that read a `TypeError` as a CORS failure (the MCP SDK's
+ * discovery) see the refusal instead of trying again.
+ */
+export class OutboundRefused extends Error {
+  readonly code = "ENDPOINT_ADDRESS_REFUSED";
+  constructor(message: string) {
+    super(message);
+    this.name = "OutboundRefused";
+  }
+}
+
+/** A request `guardedFetch` sent that failed: refused connection, reset, timeout, redirect. */
+export class OutboundFailed extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "OutboundFailed";
+  }
+}
+
+/** The largest answer `guardedFetch` reads. OAuth metadata and tokens are small. */
+export const MAX_FETCH_RESPONSE_BYTES = 1024 * 1024;
+/** How long a `guardedFetch` request may take without a signal of its own. */
+export const FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * A `fetch` under the Host's address policy (F9 C2): the literal-IP and DNS checks of `post`
+ * on the address actually connected to, `localhost` rewritten for the local stack, no
+ * redirects (`redirect: "error"`; a 3xx answer rejects), a bounded answer and a 30 s timeout
+ * unless the caller passes a signal. The gateway calls OAuth discovery, registration, the code
+ * exchange and refresh with it. A refused URL or address rejects with `OutboundRefused`, any
+ * other failure with `OutboundFailed`.
+ */
+export function guardedFetch(
+  policy: OutboundPolicy,
+  options: { maxResponseBytes?: number; timeoutMs?: number } = {},
+): typeof fetch {
+  const limit = options.maxResponseBytes ?? MAX_FETCH_RESPONSE_BYTES;
+  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const lookup = guardedLookup(policy);
+  const guarded = async (input: string | URL | Request, init: RequestInit = {}): Promise<Response> => {
+    const request = input instanceof Request ? input : undefined;
+    const url = new URL(request ? request.url : String(input));
+    const refused = refusal(url, policy);
+    if (refused) throw new OutboundRefused(refused);
+    const method = (init.method ?? request?.method ?? "GET").toUpperCase();
+    const headers = new Headers(request?.headers);
+    for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
+    let body: Buffer | undefined;
+    const source = init.body ?? (request && method !== "GET" && method !== "HEAD" ? await request.arrayBuffer() : undefined);
+    if (source !== undefined && source !== null) {
+      if (typeof source === "string") body = Buffer.from(source, "utf8");
+      else if (source instanceof URLSearchParams) {
+        body = Buffer.from(source.toString(), "utf8");
+        if (!headers.has("content-type"))
+          headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+      } else if (source instanceof ArrayBuffer) body = Buffer.from(source);
+      else if (ArrayBuffer.isView(source))
+        body = Buffer.from(source.buffer, source.byteOffset, source.byteLength);
+      else throw new OutboundFailed("guardedFetch sends only string, form or byte bodies", "UNSUPPORTED_BODY");
+    }
+    const originalHost = url.host;
+    dockerHost(url, policy);
+    const signal = init.signal ?? request?.signal ?? AbortSignal.timeout(timeoutMs);
+    const outgoing: Record<string, string> = { host: originalHost };
+    for (const [name, value] of headers) outgoing[name] = value;
+    if (body) outgoing["content-length"] = String(body.byteLength);
+    return await new Promise<Response>((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+      const failed = (error: NodeJS.ErrnoException) =>
+        settle(() =>
+          reject(
+            error instanceof RefusedAddress
+              ? new OutboundRefused(error.message)
+              : new OutboundFailed(
+                  signal.aborted ? `The request to ${originalHost} was aborted or timed out` : error.message,
+                  signal.aborted ? "ABORTED" : (error.code ?? error.name),
+                ),
+          ),
+        );
+      const sent = (url.protocol === "https:" ? httpsRequest : httpRequest)(
+        url,
+        { method, headers: outgoing, lookup: lookup as never, signal },
+        (response) => {
+          const status = response.statusCode ?? 0;
+          if (status >= 300 && status < 400 && response.headers.location !== undefined) {
+            response.resume();
+            return settle(() =>
+              reject(new OutboundFailed(`${originalHost} answered a redirect, which this Runtime does not follow`, "REDIRECT")),
+            );
+          }
+          const chunks: Buffer[] = [];
+          let size = 0;
+          response.on("data", (chunk: Buffer) => {
+            size += chunk.length;
+            if (size > limit) {
+              settle(() =>
+                reject(new OutboundFailed(`The answer from ${originalHost} is larger than ${limit} bytes`, "TOO_LARGE")),
+              );
+              response.destroy();
+              return;
+            }
+            chunks.push(chunk);
+          });
+          response.on("end", () =>
+            settle(() => {
+              const answer = new Headers();
+              for (const [name, value] of Object.entries(response.headers)) {
+                if (value === undefined) continue;
+                for (const item of Array.isArray(value) ? value : [value]) answer.append(name, item);
+              }
+              const noBody = status === 204 || status === 304 || method === "HEAD";
+              resolve(
+                new Response(noBody ? null : Buffer.concat(chunks), {
+                  status,
+                  statusText: response.statusMessage ?? "",
+                  headers: answer,
+                }),
+              );
+            }),
+          );
+          response.on("error", failed);
+          response.on("aborted", () =>
+            failed(Object.assign(new Error("The answer was cut off"), { code: "ECONNRESET" })),
+          );
+        },
+      );
+      sent.on("error", failed);
+      sent.end(body);
+    });
+  };
+  return guarded as typeof fetch;
 }

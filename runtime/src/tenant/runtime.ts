@@ -74,6 +74,7 @@ import {
 } from "./worker.js";
 import { authorize } from "./effects.js";
 import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
+import { guardedFetch } from "./outbound.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import type { RunGrants } from "./run-grants.js";
 import { tenantApi } from "../api/http/app.js";
@@ -272,7 +273,8 @@ export class TenantRuntime implements TenantHandle {
       const vault = new VaultService({
         store: opened,
         kek: ensureKek,
-        fetch: config.vaultFetch ?? globalThis.fetch,
+        // OAuth refresh and connect follow the Host's address policy (F9 C2).
+        fetch: config.vaultFetch ?? guardedFetch(config.delivery ?? {}),
       });
       const credentials = new CredentialSources({
         vault,

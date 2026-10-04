@@ -30,6 +30,10 @@
  * // (`vault/sources.ts`) wraps it with the operator's credential resolver.
  * authorize(input: { sessionId; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
  *
+ * // MCP OAuth connect (F9 C2, installation vaults only): network calls outside any transaction.
+ * startOAuth(input: { vaultId; server; url; clientId?; redirectUri }): Promise<{ authorizeUrl; expiresAt }>
+ * finishOAuth(input: { state; code?; error? }): Promise<{ vaultId; credentialId }>
+ *
  * // Host model credential: each opens its own transaction.
  * getHostModel(): Promise<HostModelView>
  * listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }>
@@ -67,7 +71,7 @@
  *   has an audit row. Unreadable ciphertext and refresh failures are audited
  *   in their own transaction before the refusal is returned.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { INSTALLATION_OWNER } from "@nylorun/core/contracts";
 import type {
   CreateCredentialRequest,
@@ -92,14 +96,28 @@ import type {
 import {
   decryptSecret,
   encryptSecret,
+  kekId as kekIdOf,
+  openBytes,
+  sealBytes,
   VaultCryptoError,
 } from "./crypto.js";
+import { HttpError } from "../tenant/http.js";
+import type { OAuthPendingRow } from "../store/types.js";
+import {
+  authorizationUrl,
+  discoverOAuthServer,
+  exchangeCode,
+  oauthClient,
+  type OAuthClient,
+} from "./oauth.js";
 import { VaultError } from "./error.js";
 import { hostModelCatalog } from "../model/catalog.js";
 import { normalizeVaultUrl } from "./url.js";
 
 const REFRESH_SKEW_MS = 60_000;
 const REFRESH_TIMEOUT_MS = 30_000;
+/** How long an MCP OAuth connect may take between its start and its callback (F9 C2). */
+export const OAUTH_PENDING_MS = 10 * 60_000;
 export const HOST_VAULT_ID = "host";
 const HOST_MODEL_ID = "host-model";
 
@@ -164,11 +182,33 @@ type AuditEntry = {
   target?: string;
 };
 
+/** `startOAuth`'s input: the route's body, the installation vault and the callback URL. */
+export interface StartOAuthInput {
+  vaultId: string;
+  /** The MCP server's name, the credential's name. */
+  server: string;
+  url: string;
+  clientId?: string;
+  /** `<public URL>/v1/oauth/callback`. */
+  redirectUri: string;
+}
+
+/** The callback's query: `code`, or the authorization server's `error`. */
+export interface FinishOAuthInput {
+  state: string;
+  code?: string;
+  error?: string;
+}
+
 export interface VaultServiceOptions {
   store: SessionStore;
   /** The Tenant key-encryption key. May read or create the key file. */
   kek: () => Buffer;
-  /** Used only for OAuth refresh, always outside a transaction. */
+  /**
+   * OAuth refresh and MCP OAuth connect (discovery, registration, the code exchange), always
+   * outside a transaction: the Host's `guardedFetch` (`tenant/outbound.ts`) unless a test or
+   * an embedder injects one.
+   */
   fetch: typeof fetch;
   /** How long a token endpoint may take to answer a refresh. Default 30 s. */
   refreshTimeoutMs?: number;
@@ -566,6 +606,214 @@ export class VaultService {
       url,
       headers: { authorization: `Bearer ${token}` },
     };
+  }
+
+  // --- MCP OAuth connect (F9 C2) ---------------------------------------------
+
+  /**
+   * Starts signing the installation in to the MCP server at `url`: discovery, a client (the
+   * given id, or one registered now), an S256 PKCE verifier and a `state`, kept for ten minutes
+   * in a pending row (verifier and secret sealed, state hashed). Returns where to send the
+   * browser. Installation vaults only.
+   */
+  async startOAuth(input: StartOAuthInput): Promise<{ authorizeUrl: string; expiresAt: string }> {
+    const url = normalizeVaultUrl(input.url);
+    const redirectUri = callbackUrl(input.redirectUri);
+    await this.store.tx(async (t) => {
+      await this.installationVault(t, input.vaultId);
+      await t.deleteExpiredOAuthPending(new Date().toISOString());
+    });
+    const kek = this.kek();
+    const server = await discoverOAuthServer(url, this.fetchImpl);
+    const client = await oauthClient(server, {
+      ...(input.clientId === undefined ? {} : { clientId: input.clientId }),
+      redirectUri,
+      fetchFn: this.fetchImpl,
+    });
+    const state = randomBytes(32).toString("base64url");
+    const { authorizeUrl, codeVerifier } = await authorizationUrl(server, client, { redirectUri, state });
+    const stateHash = hashState(state);
+    const now = Date.now();
+    const expiresAt = new Date(now + OAUTH_PENDING_MS).toISOString();
+    const row: OAuthPendingRow = {
+      stateHash,
+      vaultId: input.vaultId,
+      server: input.server,
+      url,
+      tokenEndpoint: server.metadata.token_endpoint,
+      clientId: client.clientId,
+      tokenEndpointAuth: client.tokenEndpointAuth,
+      resource: server.resource ?? null,
+      kekId: "",
+      clientSecret: null,
+      codeVerifier: new Uint8Array(),
+      redirectUri,
+      expiresAt,
+      createdAt: new Date(now).toISOString(),
+    };
+    const verifier = sealBytes(kek, pendingAad(row, "codeVerifier"), Buffer.from(codeVerifier, "utf8"));
+    const secret = client.clientSecret
+      ? sealBytes(kek, pendingAad(row, "clientSecret"), Buffer.from(client.clientSecret, "utf8"))
+      : null;
+    await this.store.tx(async (t) => {
+      await this.installationVault(t, input.vaultId);
+      await t.insertOAuthPending({
+        ...row,
+        kekId: kekIdOf(kek),
+        codeVerifier: verifier,
+        clientSecret: secret,
+      });
+      await this.audit(t, {
+        actor: "application",
+        action: "oauth_start",
+        vaultId: input.vaultId,
+        target: url,
+        outcome: "started",
+      });
+    });
+    return { authorizeUrl, expiresAt };
+  }
+
+  /**
+   * Finishes a connect from its callback: takes the pending row of `state` (deleted whatever
+   * happens next), exchanges the code, and seals an `oauth` credential bound to the server's
+   * URL in the installation vault, rotating the vault's OAuth credential for that URL when it
+   * has one.
+   */
+  async finishOAuth(input: FinishOAuthInput): Promise<{ vaultId: string; credentialId: string }> {
+    const row = await this.store.tx((t) => t.takeOAuthPending(hashState(input.state)));
+    if (!row || Date.parse(row.expiresAt) <= Date.now())
+      throw new HttpError(
+        400,
+        "This sign-in is unknown, already used or expired: start the connect again",
+        { code: "oauth_state_invalid" },
+      );
+    const failed = async (error: HttpError): Promise<never> => {
+      await this.store.tx((t) =>
+        this.audit(t, {
+          actor: "application",
+          action: "oauth_connect",
+          vaultId: row.vaultId,
+          target: row.url,
+          outcome: "failed",
+        }),
+      );
+      throw error;
+    };
+    if (input.error !== undefined || !input.code)
+      return failed(
+        new HttpError(
+          400,
+          `The authorization server did not grant access (${oauthErrorName(input.error)})`,
+          { code: "oauth_failed" },
+        ),
+      );
+    const kek = this.kek();
+    let client: OAuthClient;
+    let codeVerifier: string;
+    try {
+      codeVerifier = openSealed(kek, row, "codeVerifier", row.codeVerifier);
+      client = {
+        clientId: row.clientId,
+        tokenEndpointAuth: row.tokenEndpointAuth,
+        ...(row.clientSecret ? { clientSecret: openSealed(kek, row, "clientSecret", row.clientSecret) } : {}),
+      };
+    } catch (error) {
+      if (!(error instanceof VaultCryptoError)) throw error;
+      return failed(new HttpError(500, "The sign-in could not be read with this vault key", { code: "oauth_failed" }));
+    }
+    let tokens: Awaited<ReturnType<typeof exchangeCode>>;
+    try {
+      tokens = await exchangeCode({
+        tokenEndpoint: row.tokenEndpoint,
+        client,
+        code: input.code,
+        codeVerifier,
+        redirectUri: row.redirectUri,
+        ...(row.resource === null ? {} : { resource: row.resource }),
+        fetchFn: this.fetchImpl,
+      });
+    } catch (error) {
+      return failed(error instanceof HttpError ? error : new HttpError(502, "The OAuth code exchange failed", { code: "oauth_failed" }));
+    }
+    if (tokens.token_type.toLowerCase() !== "bearer")
+      return failed(
+        new HttpError(502, `The authorization server issued a ${tokens.token_type} token; MCP needs a bearer token`, {
+          code: "oauth_failed",
+        }),
+      );
+    const payload: SecretPayload = {
+      accessToken: tokens.access_token,
+      ...(tokens.refresh_token
+        ? {
+            refreshToken: tokens.refresh_token,
+            tokenEndpoint: row.tokenEndpoint,
+            clientId: client.clientId,
+            tokenEndpointAuth: client.tokenEndpointAuth,
+            ...(client.clientSecret ? { clientSecret: client.clientSecret } : {}),
+          }
+        : {}),
+    };
+    const now = new Date();
+    const expiresAt =
+      typeof tokens.expires_in === "number" && Number.isFinite(tokens.expires_in)
+        ? new Date(now.getTime() + tokens.expires_in * 1000).toISOString()
+        : null;
+    return this.store.tx(async (t) => {
+      await this.installationVault(t, row.vaultId);
+      const existing = (await t.credentialsForVault(row.vaultId, { type: "oauth" })).find(
+        (item) => bindingUrl(item) === row.url,
+      ) as UserCredentialRow | undefined;
+      if (existing) {
+        await this.writePayload(t, kek, existing, payload, expiresAt, now.toISOString());
+        await this.audit(t, {
+          actor: "application",
+          action: "oauth_connect",
+          vaultId: row.vaultId,
+          credentialId: existing.id,
+          target: row.url,
+          outcome: "rotated",
+        });
+        return { vaultId: row.vaultId, credentialId: existing.id };
+      }
+      const id = randomUUID();
+      const sealed = encryptSecret(
+        kek,
+        credentialAad(row.vaultId, id, "oauth", row.url),
+        Buffer.from(JSON.stringify(payload), "utf8"),
+      );
+      await t.insertCredential({
+        id,
+        vaultId: row.vaultId,
+        name: row.server,
+        type: "oauth",
+        bindingJson: JSON.stringify({ url: row.url }),
+        expiresAt,
+        createdAt: now.toISOString(),
+        rotatedAt: null,
+        ...sealed,
+      });
+      await this.audit(t, {
+        actor: "application",
+        action: "oauth_connect",
+        vaultId: row.vaultId,
+        credentialId: id,
+        target: row.url,
+        outcome: "created",
+      });
+      return { vaultId: row.vaultId, credentialId: id };
+    });
+  }
+
+  /** An installation vault, else the 404 of a missing one (a user vault is a 400). */
+  private async installationVault(t: Tx, id: string): Promise<VaultRow> {
+    const row = await t.getVault(id);
+    if (!row || row.scope === "host") throw new VaultError(404, "Vault not found");
+    if (row.scope !== "installation")
+      throw new HttpError(400, "MCP OAuth connect stores its credential in an installation vault only", {
+        code: "request_rejected",
+      });
+    return row;
   }
 
   // --- host model ----------------------------------------------------------------
@@ -1034,6 +1282,45 @@ export class VaultService {
       outcome: entry.outcome,
     });
   }
+}
+
+function hashState(state: string): string {
+  return createHash("sha256").update(state, "utf8").digest("hex");
+}
+
+function pendingAad(row: Pick<OAuthPendingRow, "stateHash" | "vaultId">, field: string): Buffer {
+  return Buffer.from(
+    canonical({ table: "oauth_pending", stateHash: row.stateHash, vaultId: row.vaultId, field }),
+    "utf8",
+  );
+}
+
+function openSealed(kek: Buffer, row: OAuthPendingRow, field: string, sealed: Uint8Array): string {
+  const plaintext = openBytes(kek, pendingAad(row, field), Buffer.from(sealed), row.kekId);
+  try {
+    return plaintext.toString("utf8");
+  } finally {
+    plaintext.fill(0);
+  }
+}
+
+/** The callback URL the authorization server sends the browser back to. */
+function callbackUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new VaultError(400, "The OAuth redirect URI is invalid");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:")
+    throw new VaultError(400, "The OAuth redirect URI must be http or https");
+  return url.href;
+}
+
+/** An authorization server's `error`, safe to show: an OAuth error code, or a stand-in. */
+function oauthErrorName(error: string | undefined): string {
+  if (error === undefined) return "no code";
+  return /^[A-Za-z0-9_.-]{1,64}$/.test(error) ? error : "error";
 }
 
 function isUserCredential(row: VaultCredentialRow): row is UserCredentialRow {

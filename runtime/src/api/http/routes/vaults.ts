@@ -3,6 +3,10 @@
  * person, or by the installation (`scope: "installation"`, any session may attach one). Acting
  * for a subject reaches only the subject's own vaults, and never on another's behalf; only an
  * application key acting for no one creates, lists or changes installation vaults.
+ *
+ * MCP OAuth connect (F9 C2): an application key starts one into an installation vault
+ * (`/oauth/start`); the authorization server sends the browser back to the anonymous, unversioned
+ * `GET /v1/oauth/callback`. Both only route: the gateway's keys module does the OAuth (F9-D14).
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
@@ -11,6 +15,7 @@ import {
   CreateCredentialRequestSchema,
   CreateVaultRequestSchema,
   RotateCredentialRequestSchema,
+  StartOAuthRequestSchema,
 } from "@nylorun/core/contracts";
 import {
   CreateCredentialRequest,
@@ -20,10 +25,13 @@ import {
   ListCredentialsResponse,
   ListVaultsResponse,
   RotateCredentialRequest,
+  StartOAuthRequest,
+  StartOAuthResponse,
   VaultInfo,
 } from "../../components.js";
 import { ownerOf } from "../../../tenant/auth.js";
-import { fail } from "../../../tenant/http.js";
+import { fail, HttpError } from "../../../tenant/http.js";
+import { VaultError } from "../../../vault/error.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
@@ -34,6 +42,22 @@ const OWN_VAULTS: RouteAccess = {
   scopes: ["vaults:own"],
   browser: true,
 };
+
+/** Starting an MCP OAuth connect: an application key acting for no one. */
+const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
+/**
+ * The OAuth callback: a browser sent back by the authorization server, with no credential and no
+ * protocol header. The `state` it carries is the grant.
+ */
+const CALLBACK: RouteAccess = {
+  credentials: ["application", "subject", "token"],
+  scopes: "any",
+  anonymous: true,
+  unversioned: true,
+};
+
+/** Where the authorization server sends the browser back. */
+export const OAUTH_CALLBACK_PATH = "/v1/oauth/callback";
 
 const json = (schema: z.ZodType, description: string) => ({
   description,
@@ -273,4 +297,107 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       );
     },
   );
+
+  tenantRoute(
+    api,
+    APPLICATION,
+    {
+      method: "post",
+      path: "/v1/vaults/{vaultId}/oauth/start",
+      tags: ["Vaults"],
+      summary: "Start an MCP OAuth connect",
+      description:
+        "Signs the installation in to the remote MCP server at `url` (declared as `server`) and stores its OAuth credential, bound to `url`, in this installation vault. The Runtime discovers the server's authorization server (RFC 9728, RFC 8414), registers itself (RFC 7591) unless `clientId` names a registered client, and answers the URL to open in a browser; the sign-in returns to `GET /v1/oauth/callback` within `expiresAt`. The callback URL is `NYLORUN_PUBLIC_URL` + `/v1/oauth/callback`, or this request's own origin when the Host has no public URL. Application keys acting for no one only. `oauth_client_required` when the server offers no registration and no `clientId` was given.",
+      request: { params: vaultId, body: body(StartOAuthRequest) },
+      responses: {
+        200: json(StartOAuthResponse, "Where to send the browser"),
+        502: {
+          description: "The authorization server, or its discovery, failed or refused (`oauth_failed`)",
+        },
+      },
+    },
+    async (c) => {
+      const request = StartOAuthRequestSchema.parse(await readJson(c.req.raw));
+      const tenant = c.env.tenant;
+      const base = tenant.config.publicUrl ?? new URL(c.req.url).origin;
+      return jsonResponse(
+        200,
+        await tenant.keys.startOAuth({
+          vaultId: c.req.param("vaultId")!,
+          server: request.server,
+          url: request.url,
+          ...(request.clientId === undefined ? {} : { clientId: request.clientId }),
+          redirectUri: `${base}${OAUTH_CALLBACK_PATH}`,
+        }),
+      );
+    },
+  );
+
+  tenantRoute(
+    api,
+    CALLBACK,
+    {
+      method: "get",
+      path: OAUTH_CALLBACK_PATH,
+      tags: ["Vaults"],
+      summary: "Finish an MCP OAuth connect",
+      description:
+        "Where the authorization server sends the browser back with `code` and `state` (or `error`). Exchanges the code once and stores the credential; answers a small HTML page. Needs no credential and no `Nylorun-Protocol`. A `state` is used once, for ten minutes (`oauth_state_invalid`).",
+      request: {
+        query: z.object({
+          code: z.string().optional(),
+          state: z.string().optional(),
+          error: z.string().optional(),
+        }),
+      },
+      responses: {
+        200: { description: "Connected", content: { "text/html": { schema: z.string() } } },
+        502: { description: "The authorization server refused the code (`oauth_failed`)" },
+      },
+    },
+    async (c) => {
+      const state = c.req.query("state");
+      const code = c.req.query("code");
+      const error = c.req.query("error");
+      if (!state) return page(400, "Sign-in failed", "The authorization server sent no state. Start the connect again.");
+      try {
+        await c.env.tenant.keys.finishOAuth({
+          state,
+          ...(code === undefined ? {} : { code }),
+          ...(error === undefined ? {} : { error }),
+        });
+      } catch (failure) {
+        if (failure instanceof HttpError || failure instanceof VaultError)
+          return page(failure.status, "Sign-in failed", failure.message);
+        c.env.tenant.config.logger.error("oauth_callback_failed", {
+          error: failure instanceof Error ? failure.name : "unknown",
+        });
+        return page(500, "Sign-in failed", "The connect failed. Start it again.");
+      }
+      return page(200, "Connected", "Connected. You can close this tab.");
+    },
+  );
+}
+
+const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const escape = (text: string) => text.replace(/[&<>"']/g, (char) => ESCAPES[char]!);
+
+/** The callback's answer: a small page that loads nothing, is never cached and leaks no referrer. */
+function page(status: number, title: string, message: string): Response {
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escape(title)} · Nylorun</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>
+</head><body><h1>${escape(title)}</h1><p>${escape(message)}</p></body></html>
+`;
+  return new Response(html, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+      "x-content-type-options": "nosniff",
+    },
+  });
 }

@@ -98,6 +98,12 @@ export interface TenantConfig {
    * the ephemeral Runtime, tests); the gateway takes `NYLORUN_RESOLVER_*` instead.
    */
   resolver?: ResolverConfig;
+  /**
+   * The URL browsers reach this Tenant API at (`NYLORUN_PUBLIC_URL`, no trailing slash): the
+   * base of the MCP OAuth callback, `<publicUrl>/v1/oauth/callback` (F9 C2). Absent (embedding,
+   * tests): the origin the start request was sent to.
+   */
+  publicUrl?: string;
   logger: Logger;
 }
 

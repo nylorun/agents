@@ -217,6 +217,9 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: `${vault}/credentials/crd-missing` },
     { method: "POST", path: `${vault}/credentials/crd-missing`, body: INVALID },
     { method: "DELETE", path: `${vault}/credentials/crd-missing` },
+    // MCP OAuth connect (F9 C2): an invalid body, and a state that was never issued.
+    { method: "POST", path: `${vault}/oauth/start`, body: INVALID },
+    { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
     { method: "GET", path: "/v1/access/jwks" },
     { method: "GET", path: "/v1/me" },
     { method: "POST", path: "/v1/tokens", body: INVALID },

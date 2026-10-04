@@ -49,6 +49,7 @@ nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
 nylorun key put <id> [--tenant <name>]      # create or rotate the Tenant's operator key <id>; prints it once
 nylorun key list [--tenant <name>] [--json] # the Tenant's keys: id, role, when issued
 nylorun key rm <id> [--tenant <name>]       # delete a key: it stops working at once
+nylorun mcp connect <url> --server <name> [--vault <id>] [--client-id <id>] [--tenant <name>] [--no-open]   # sign the Tenant in to a remote MCP server with OAuth
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
@@ -173,9 +174,17 @@ the previous key stops working at once) and prints it once on stdout.
 `nylorun key list [--json]` shows each key's id, role and when it was issued,
 never the keys; `nylorun key rm <id>` deletes one. Ids match
 `^[a-z][a-z0-9-]{0,31}$`; `studio` belongs to Studio and is refused. Give each
-app server its own key. `nylorun sandbox` uses the linked project's key, or the
-key `cli` it puts once and keeps in `<Host root>/cli-credentials.json` (mode
-0600).
+app server its own key. `nylorun sandbox` and `nylorun mcp` use the linked
+project's key, or the key `cli` they put once and keep in
+`<Host root>/cli-credentials.json` (mode 0600).
+
+`nylorun mcp connect <url> --server <name>` signs the running Tenant in to a
+remote MCP server that uses OAuth: it opens the server's sign-in page in the
+browser and waits until the Runtime has stored the credential in the
+installation vault `mcp` (created if needed; `--vault <id>` picks another),
+which sessions attach with `vaultIds`. Pass `--client-id` when the server does
+not let clients register themselves. See
+[Connecting a remote MCP server with OAuth](../DEPLOYMENT.md#connecting-a-remote-mcp-server-with-oauth).
 
 ## The containers
 

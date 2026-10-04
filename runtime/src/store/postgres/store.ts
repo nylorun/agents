@@ -126,6 +126,7 @@ import type {
   VaultCredentialRow,
   VaultIdempotencyRow,
   VaultRow,
+  OAuthPendingRow,
 } from "../types.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
@@ -162,6 +163,7 @@ import {
   vaultCredentials,
   vaultIdempotency,
   vaults,
+  oauthPending,
 } from "./schema.js";
 
 export interface PostgresSessionStoreOptions extends SessionStoreOptions {
@@ -1272,6 +1274,26 @@ class PostgresTx implements Tx {
   async insertVaultIdempotency(row: VaultIdempotencyRow): Promise<void> {
     this.check();
     await this.db.insert(vaultIdempotency).values(row);
+  }
+
+  async insertOAuthPending(row: OAuthPendingRow): Promise<void> {
+    this.check();
+    await this.db.insert(oauthPending).values(row);
+  }
+
+  async takeOAuthPending(stateHash: string): Promise<OAuthPendingRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .delete(oauthPending)
+      .where(eq(oauthPending.stateHash, stateHash))
+      .returning();
+    return row;
+  }
+
+  async deleteExpiredOAuthPending(now: string): Promise<number> {
+    this.check();
+    const result = await this.db.delete(oauthPending).where(lt(oauthPending.expiresAt, now));
+    return result.count;
   }
 
   // --- subject tokens ------------------------------------------------------

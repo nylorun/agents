@@ -289,6 +289,7 @@ export async function main(): Promise<void> {
     baseline,
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
     ...(issuers ? { issuers } : {}),
+    ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
   });
 
   // The process's Durable Session Execution: Restate when its endpoints are set, else the

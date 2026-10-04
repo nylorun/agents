@@ -89,6 +89,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       sql: database,
       hostRoot: options.hostRoot,
       ...(gates.resolver ? { resolver: gates.resolver } : {}),
+      ...(options.delivery ? { delivery: options.delivery } : {}),
     });
   }
   const blobs =

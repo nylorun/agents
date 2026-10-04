@@ -142,6 +142,18 @@ select its credentials. A request acting for a subject never sees one (the opaqu
 is never listed or attached.
 _Avoid_: "shared vault", "org vault".
 
+**MCP OAuth connect**: Signing the installation in to a remote MCP server with OAuth
+(F9 C2, `vault/oauth.ts`, `VaultService.startOAuth`/`finishOAuth`, `nylorun mcp
+connect`): discovery (RFC 9728, RFC 8414), a client (the given `clientId`, else dynamic
+registration, else `oauth_client_required`), S256 PKCE and a `state` kept hashed for ten
+minutes in `oauth_pending` (verifier and client secret sealed), then the callback
+exchanges the code once and seals an `oauth` credential bound to the URL in the
+installation vault. All of it runs in the keys module (F9-D14) over `guardedFetch`
+(`tenant/outbound.ts`, the Host's address policy, no redirects), which OAuth refresh
+uses too. Core only routes `POST /v1/vaults/{id}/oauth/start` and the anonymous
+`GET /v1/oauth/callback`.
+_Avoid_: "OAuth login" (nobody signs in to Nylorun), "per-person connect" (Cloud's broker).
+
 **Credential resolver**: The operator's HTTP service that holds people's own MCP
 credentials, which OSS never stores (`vault/sources.ts`, `NYLORUN_RESOLVER_URL` and
 `NYLORUN_RESOLVER_TOKEN` on the gateway, `TenantConfig.resolver` in process).
