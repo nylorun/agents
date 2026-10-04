@@ -65,7 +65,8 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   machine reaches it through a reverse proxy:
   [Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine).
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
-  Studio for operators (loopback or an SSH tunnel). Restate's UI is not
+  Studio for operators (loopback, an SSH tunnel, or
+  [a sign-in proxy](#studio-behind-a-sign-in-proxy)). Restate's UI is not
   published at all unless you ask for it (`nylorun start --restate-ui`). Leave
   `NYLORUN_STUDIO_FRAME_ANCESTORS` unset on servers: no page may frame Studio.
 - The app server drops every `Nylorun-*` header its own clients send, never
@@ -144,6 +145,45 @@ issuers:
   does not reach issuer tokens; keep them short-lived.
 - `GET /v1/me` shows what a token renders to (`via: issuer:<name>`), for any
   credential.
+
+## Studio behind a sign-in proxy
+
+Studio serves operators on loopback. To open it to a team, put a sign-in proxy
+such as [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) in front
+of it, signed in against an issuer from the identity file
+([Trusted issuers](#trusted-issuers)).
+
+1. Give the people who may use Studio the `studio` scope: list `studio` in the
+   issuer's `allowedScopes`, and put it in their tokens' scope claim (or in
+   `fixed`). Studio admits only tokens that carry it.
+2. Run the proxy on the Studio machine, with Studio's published port as its
+   upstream (`NYLORUN_STUDIO_PORT` in the Tenant's `docker/.env`) and the
+   access token passed on:
+
+   ```sh
+   oauth2-proxy --provider=keycloak-oidc --oidc-issuer-url=https://sso.acme.dev/realms/eng \
+     --upstream=http://127.0.0.1:<studio port> --pass-access-token=true \
+     --pass-host-header=true --http-address=0.0.0.0:4180 …
+   ```
+
+   `--pass-access-token` sends the token as `X-Forwarded-Access-Token`; the
+   token must be a JWT whose `iss` and `aud` match the identity file. When your
+   provider's access tokens are opaque, pass the ID token with
+   `--pass-authorization-header` instead and set the issuer's `audience` to the
+   client id.
+3. Start the Tenant with the proxy's host name, comma-separated if there are
+   several: `NYLORUN_STUDIO_ALLOWED_HOSTS=studio.acme.dev nylorun start`. Studio
+   then accepts that `Host` beside `localhost` and `127.0.0.1`; the proxy must
+   pass the browser's `Host` through. Set it on every start: it is read from
+   the environment, not kept.
+
+Studio sends each forwarded token to the Runtime's `GET /v1/me` before it trusts
+it. A token with the `studio` scope gets Studio's usual session cookie, which
+names the person for Studio's log of state changes and ends no later than the
+token; nothing else is kept. Without the scope Studio answers `403`; a token
+the Runtime refuses gets `401`. Admitted people see the whole Tenant, as an
+operator does. The cookie is `Secure` when the proxy sends
+`X-Forwarded-Proto: https`; serve the proxy over HTTPS.
 
 ## Reaching the Runtime from another machine
 

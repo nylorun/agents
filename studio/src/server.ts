@@ -14,9 +14,15 @@
  * - Every `/_studio/*` request needs a session, cookie or bearer, except the
  *   two that create one. The dashboard's static files carry no data and are
  *   served without one; only `frameAncestors` may frame them.
+ * - Behind a sign-in proxy (oauth2-proxy), a request with no Studio session
+ *   that carries a JWT (`X-Forwarded-Access-Token`, or an `Authorization`
+ *   bearer that is not a Studio session) signs in when the Runtime's
+ *   `GET /v1/me` verifies it and reports the `studio` scope: Studio sets its
+ *   usual cookie, recording the subject for the write log and ending no later
+ *   than the token. Studio never trusts a header it has not verified.
  * - `Host` must be the published loopback address, `localhost` or
- *   `127.0.0.1` (DNS rebinding); requests that change state must carry the
- *   request's own `Origin`; no CORS headers.
+ *   `127.0.0.1`, or one of `allowedHosts` (DNS rebinding); requests that
+ *   change state must carry the request's own `Origin`; no CORS headers.
  * - Studio serves its installation's one Tenant, which it learns from the
  *   Admin API (`admin.status().tenant`): `/` redirects to `/tenants/<id>`, and
  *   a route or login token naming another Tenant is refused. Tenant API calls
@@ -44,6 +50,7 @@ import {
   type StudioLoginTokenResponse,
   type StudioSessionResponse,
 } from "@nylorun/agents/studio-embed";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 import { packagedWebRoot, serveDashboard } from "./static.js";
 import { proxyRuntime } from "./proxy.js";
 import {
@@ -68,6 +75,15 @@ const SESSION_SKEW_MS = 60 * 1000;
 export const EMBED_SESSION_TTL_MS = 60 * 60 * 1000;
 const EMBED_SESSION_VERSION = "v2";
 const EMBED_AUDIENCE = "studio";
+/** A cookie session that names its subject and expiry: forwarded sign-in. */
+const SUBJECT_SESSION_VERSION = "v3";
+const SUBJECT_SESSION_AUDIENCE = "studio-cookie";
+/** The scope a forwarded token must carry, as `GET /v1/me` reports it. */
+export const STUDIO_SCOPE = "studio";
+/** Issuer tokens are at most 16 KiB (the Runtime's cap). */
+const MAX_FORWARDED_TOKEN = 16 * 1024;
+const FORWARDED_TOKEN_HEADER = "x-forwarded-access-token";
+const ME_TIMEOUT_MS = 10_000;
 
 export type StudioServerOptions = Readonly<{
   /** Runtime base URL, e.g. `http://runtime:4000`. Non-loopback is allowed. */
@@ -80,6 +96,12 @@ export type StudioServerOptions = Readonly<{
   host?: string;
   /** Port the browser uses (Docker's published port). Default: the bound port. */
   publicPort?: number;
+  /**
+   * Extra `Host` values Studio serves, such as `studio.acme.dev` behind a
+   * sign-in proxy (`NYLORUN_STUDIO_ALLOWED_HOSTS`, validated with
+   * `parseAllowedHosts`). Default: none, only the published loopback address.
+   */
+  allowedHosts?: readonly string[];
   /**
    * The session cookie's name (`NYLORUN_STUDIO_SESSION_COOKIE`, validated with
    * `parseSessionCookieName`). Default `DEFAULT_SESSION_COOKIE`.
@@ -143,6 +165,32 @@ export function parseAnalyticsId(value: string): string | undefined {
   if (!ANALYTICS_ID.test(id))
     throw new Error(`${id} is not a Google Analytics measurement id (G-XXXXXXXXXX).`);
   return id;
+}
+
+const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+const ALLOWED_HOST = new RegExp(
+  `^(?:${LABEL}(?:\\.${LABEL})*|\\[[0-9a-f:.]+\\])(?::[0-9]{1,5})?$`,
+  "u",
+);
+
+/**
+ * Validates `NYLORUN_STUDIO_ALLOWED_HOSTS`: empty (none) or `Host` values
+ * separated by commas, each a host name or address with an optional port
+ * (`studio.acme.dev`, `studio.acme.dev:8443`). No scheme, path or wildcard.
+ */
+export function parseAllowedHosts(value: string): string[] {
+  const hosts: string[] = [];
+  for (const part of value.split(",")) {
+    const host = part.trim().toLowerCase();
+    if (host === "") continue;
+    const port = /:([0-9]+)$/u.exec(host)?.[1];
+    if (!ALLOWED_HOST.test(host) || (port !== undefined && Number(port) > 65535))
+      throw new Error(
+        `${host} is not a Host value: use a host name with an optional port, such as studio.acme.dev or studio.acme.dev:8443.`,
+      );
+    if (!hosts.includes(host)) hosts.push(host);
+  }
+  return hosts;
 }
 
 const COOKIE_NAME = /^[A-Za-z0-9_-]+$/;
@@ -290,6 +338,84 @@ function validSession(key: Buffer, value: string, at: number): boolean {
   if (!/^\d{1,16}$/u.test(parts[1]!)) return false;
   const issuedAt = Number(parts[1]);
   return issuedAt <= at + SESSION_SKEW_MS && at - issuedAt < SESSION_TTL_MS;
+}
+
+type SubjectClaims = Readonly<{ aud: string; sub: string | null; iat: number; exp: number }>;
+
+/** A cookie session from forwarded sign-in: `v3.<base64url(claims)>.<signature>`. */
+function issueSubjectSession(key: Buffer, claims: SubjectClaims): string {
+  const payload = `${SUBJECT_SESSION_VERSION}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
+  return `${payload}.${sign(key, payload)}`;
+}
+
+function subjectSession(key: Buffer, value: string, at: number): SubjectClaims | undefined {
+  const parts = value.split(".");
+  if (parts.length !== 3 || parts[0] !== SUBJECT_SESSION_VERSION) return undefined;
+  const expected = Buffer.from(sign(key, `${parts[0]}.${parts[1]}`));
+  const provided = Buffer.from(parts[2]!);
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected))
+    return undefined;
+  let claims: unknown;
+  try {
+    claims = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!claims || typeof claims !== "object") return undefined;
+  const { aud, sub, iat, exp } = claims as Record<string, unknown>;
+  if (aud !== SUBJECT_SESSION_AUDIENCE) return undefined;
+  if (sub !== null && typeof sub !== "string") return undefined;
+  if (typeof iat !== "number" || typeof exp !== "number") return undefined;
+  if (iat > at + SESSION_SKEW_MS || exp <= at || exp - iat > SESSION_TTL_MS) return undefined;
+  return { aud, sub, iat, exp };
+}
+
+function base64urlJson(segment: string): unknown {
+  try {
+    return JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a value has a JWT's shape: three base64url segments and a JSON
+ * header naming an `alg`. Shape only; the Runtime verifies it.
+ */
+function looksLikeJwt(value: string): boolean {
+  if (value.length > MAX_FORWARDED_TOKEN) return false;
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(value)) return false;
+  const header = base64urlJson(value.slice(0, value.indexOf(".")));
+  return (
+    header !== null &&
+    typeof header === "object" &&
+    typeof (header as { alg?: unknown }).alg === "string"
+  );
+}
+
+/** A verified JWT's `exp` in ms, read after the Runtime accepted it; undefined when absent. */
+function jwtExpiry(token: string): number | undefined {
+  const payload = base64urlJson(token.split(".")[1] ?? "");
+  const exp =
+    payload !== null && typeof payload === "object"
+      ? (payload as { exp?: unknown }).exp
+      : undefined;
+  return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : undefined;
+}
+
+/** A response body's `message`, when it is JSON that has one. */
+async function runtimeMessage(reply: Response): Promise<string | undefined> {
+  try {
+    const body = (await reply.json()) as { message?: unknown };
+    return typeof body?.message === "string" ? body.message : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function forwardedHeader(request: IncomingMessage): string | undefined {
+  const value = request.headers[FORWARDED_TOKEN_HEADER];
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 }
 
 function bearer(request: IncomingMessage): string | undefined {
@@ -448,6 +574,9 @@ export async function startStudioServer(
   const frameAncestors = [...(options.frameAncestors ?? [])];
   const analyticsId = parseAnalyticsId(options.analyticsId ?? "");
   const sessionCookie = parseSessionCookieName(options.sessionCookie ?? "");
+  const allowedHosts: ReadonlySet<string> = new Set(
+    parseAllowedHosts((options.allowedHosts ?? []).join(",")),
+  );
   const dashboard = {
     frameAncestors: frameAncestorSources(frameAncestors),
     transformIndex: (html: string) => injectIndexMeta(html, frameAncestors, analyticsId),
@@ -549,24 +678,114 @@ export async function startStudioServer(
   };
 
   /**
-   * The request's session. A bearer is checked first and never falls back to
-   * the cookie: a framed Studio with a bad token must not act Host-wide.
+   * The request's session, `refused` for a bearer Studio must not look past.
+   * A bearer is checked first and never falls back to the cookie: a framed
+   * Studio with a bad token must not act Host-wide. The exception is a JWT,
+   * which is not a Studio credential but a sign-in proxy's forwarded token: the
+   * cookie it signed in serves, or forwarded sign-in verifies the token.
+   * Another `Authorization` scheme (oauth2-proxy's Basic) is not Studio's and
+   * is ignored.
    */
-  const sessionOf = (request: IncomingMessage): StudioSession | undefined => {
+  const sessionOf = (request: IncomingMessage): StudioSession | "refused" | undefined => {
     const at = now();
-    if (request.headers.authorization !== undefined) {
-      const token = bearer(request);
-      const claims = token === undefined ? undefined : embedSession(signingKey, token, at);
-      return claims
-        ? { kind: "bearer", tenant: claims.tenant, subject: claims.sub }
-        : undefined;
+    const token = bearer(request);
+    if (token !== undefined) {
+      const claims = embedSession(signingKey, token, at);
+      if (claims) return { kind: "bearer", tenant: claims.tenant, subject: claims.sub };
+      if (!looksLikeJwt(token)) return "refused";
     }
-    return cookieValues(request, sessionCookie).some((value) =>
-      validSession(signingKey, value, at),
-    )
-      ? { kind: "cookie", tenant: null, subject: null }
-      : undefined;
+    let session: StudioSession | undefined;
+    for (const value of cookieValues(request, sessionCookie)) {
+      const claims = subjectSession(signingKey, value, at);
+      if (claims) return { kind: "cookie", tenant: null, subject: claims.sub };
+      if (validSession(signingKey, value, at))
+        session = { kind: "cookie", tenant: null, subject: null };
+    }
+    return session;
   };
+
+  /**
+   * Forwarded sign-in: the Runtime's `GET /v1/me` verifies the token (Studio
+   * never trusts it unverified), and a token with the `studio` scope becomes a
+   * cookie session for its subject, ending no later than the token. Nothing
+   * else is kept. Undefined when the token is refused; the reply is sent.
+   */
+  const forwardedSignIn = async (
+    token: string,
+    response: ServerResponse,
+    secure: boolean,
+  ): Promise<StudioSession | undefined> => {
+    if (!looksLikeJwt(token)) {
+      fail(
+        response,
+        401,
+        "The forwarded access token is not a JWT. Studio admits only tokens from an issuer in the Runtime's identity file.",
+      );
+      return undefined;
+    }
+    let reply: Response;
+    try {
+      reply = await fetch(`${runtimeUrl}/v1/me`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(ME_TIMEOUT_MS),
+        headers: {
+          authorization: `Bearer ${token}`,
+          [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          accept: "application/json",
+        },
+      });
+    } catch {
+      fail(response, 502, "Studio cannot reach the Runtime to check the forwarded token.");
+      return undefined;
+    }
+    if (reply.status === 401 || reply.status === 403 || reply.status === 404) {
+      const detail = await runtimeMessage(reply);
+      const status = reply.status === 403 ? 403 : 401;
+      if (status === 401) response.setHeader("www-authenticate", 'Bearer error="invalid_token"');
+      fail(
+        response,
+        status,
+        `The Runtime refused the forwarded token${detail ? `: ${detail}` : ""}. Studio admits only valid tokens from an issuer in the Runtime's identity file.`,
+      );
+      return undefined;
+    }
+    let me: unknown;
+    try {
+      me = reply.ok ? await reply.json() : undefined;
+    } catch {
+      me = undefined;
+    }
+    if (me === null || typeof me !== "object") {
+      fail(response, 502, `The Runtime could not check the forwarded token (HTTP ${reply.status}).`);
+      return undefined;
+    }
+    const { scopes, subject } = me as { scopes?: unknown; subject?: unknown };
+    if (!Array.isArray(scopes) || !scopes.includes(STUDIO_SCOPE)) {
+      fail(
+        response,
+        403,
+        `This token does not carry the ${STUDIO_SCOPE} scope. Studio admits people whose token has it: add ${STUDIO_SCOPE} to the issuer's allowedScopes in the Runtime's identity file, and to the token's scopes.`,
+      );
+      return undefined;
+    }
+    const at = now();
+    const sub = typeof subject === "string" ? subject : null;
+    // The token's own expiry, read once the Runtime has verified its signature;
+    // without one, the usual cookie lifetime.
+    const exp = Math.min(at + SESSION_TTL_MS, jwtExpiry(token) ?? Infinity);
+    const value = issueSubjectSession(signingKey, {
+      aud: SUBJECT_SESSION_AUDIENCE,
+      sub,
+      iat: at,
+      exp,
+    });
+    const maxAge = Math.max(1, Math.ceil((exp - at) / 1000));
+    response.setHeader("set-cookie", sessionCookieHeader(value, maxAge, secure));
+    return { kind: "cookie", tenant: null, subject: sub };
+  };
+
+  const sessionCookieHeader = (value: string, maxAge: number, secure: boolean): string =>
+    `${sessionCookie}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
 
   /** Takes a login token out of the map: single use, even when it has expired. */
   const takeLoginToken = (token: string) => {
@@ -671,7 +890,7 @@ export async function startStudioServer(
     json(response, 201, reply);
   };
 
-  const login = (url: URL, response: ServerResponse): void => {
+  const login = (url: URL, response: ServerResponse, secure: boolean): void => {
     const entry = takeLoginToken(url.searchParams.get("token") ?? "");
     const at = now();
     // A token limited to a Tenant never becomes a Host-wide cookie.
@@ -687,7 +906,7 @@ export async function startStudioServer(
     const session = issueSession(signingKey, at);
     response.writeHead(303, {
       location: safeNextPath(url.searchParams.get("next")),
-      "set-cookie": `${sessionCookie}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`,
+      "set-cookie": sessionCookieHeader(session, SESSION_TTL_MS / 1000, secure),
       "cache-control": "no-store",
     });
     response.end();
@@ -724,15 +943,25 @@ export async function startStudioServer(
       return fail(
         response,
         421,
-        `Studio only serves http://localhost:${publicPort} and http://127.0.0.1:${publicPort}.`,
+        allowedHosts.size === 0
+          ? `Studio only serves http://localhost:${publicPort} and http://127.0.0.1:${publicPort}.`
+          : `Studio only serves http://localhost:${publicPort}, http://127.0.0.1:${publicPort} and the hosts in NYLORUN_STUDIO_ALLOWED_HOSTS.`,
       );
     }
-    // `localhost` or `127.0.0.1`, as the request named it: the login URL opens there.
-    const origin = `http://${host}`;
+    // The request's own origin: the login URL opens there. Loopback is plain
+    // http; an allowed host sits behind a proxy that may end TLS, so both of
+    // its schemes are this origin, and the proxy's X-Forwarded-Proto picks the
+    // one the login URL and cookie use.
+    const proxied = allowedHosts.has(host);
+    const secure = proxied && request.headers["x-forwarded-proto"] === "https";
+    const origin = `${secure ? "https" : "http"}://${host}`;
+    const sameOrigins: ReadonlySet<string> = proxied
+      ? new Set([`https://${host}`, `http://${host}`])
+      : new Set([origin]);
 
     if (!SAFE_METHODS.has(method)) {
       const requestOrigin = request.headers.origin;
-      if (requestOrigin !== undefined && requestOrigin !== origin) {
+      if (requestOrigin !== undefined && !sameOrigins.has(requestOrigin)) {
         request.resume();
         return fail(response, 403, "Cross-origin requests are not allowed.");
       }
@@ -752,7 +981,7 @@ export async function startStudioServer(
     if (pathname === "/login") {
       request.resume();
       if (method !== "GET") return fail(response, 405, "Method not allowed");
-      return login(url, response);
+      return login(url, response, secure);
     }
     if (pathname === "/_studio/login-tokens") {
       request.resume();
@@ -792,8 +1021,17 @@ export async function startStudioServer(
       );
     }
 
-    const session = sessionOf(request);
+    let session = sessionOf(request);
     if (session === undefined) {
+      // No Studio session: a sign-in proxy's forwarded token may sign in.
+      const authorization = bearer(request);
+      const forwarded = forwardedHeader(request) ?? authorization;
+      if (forwarded !== undefined) {
+        session = await forwardedSignIn(forwarded, response, secure);
+        if (session === undefined) return void request.resume();
+      }
+    }
+    if (session === undefined || session === "refused") {
       request.resume();
       if (request.headers.authorization !== undefined)
         response.setHeader("www-authenticate", 'Bearer error="invalid_token"');
@@ -843,7 +1081,12 @@ export async function startStudioServer(
         request.resume();
         return fail(response, 404, "Unknown Tenant");
       }
-      if (session.kind === "bearer" && !SAFE_METHODS.has(method)) {
+      // Logged with the subject: an embedded session, and a person admitted by
+      // forwarded sign-in.
+      if (
+        (session.kind === "bearer" || session.subject !== null) &&
+        !SAFE_METHODS.has(method)
+      ) {
         const path = pathname.slice(`/_studio/tenants/${segment}/runtime`.length);
         response.once("finish", () =>
           log({
@@ -861,7 +1104,7 @@ export async function startStudioServer(
         runtimeUrl,
         serverKey: studioKey(tenantId),
         prefix: `/_studio/tenants/${segment}/runtime`,
-        allowedOrigins: new Set([origin]),
+        allowedOrigins: sameOrigins,
       });
     }
 
@@ -889,7 +1132,11 @@ export async function startStudioServer(
   }
   boundPort = address.port;
   publicPort = options.publicPort ?? boundPort;
-  publicHosts = new Set([`localhost:${publicPort}`, `127.0.0.1:${publicPort}`]);
+  publicHosts = new Set([
+    `localhost:${publicPort}`,
+    `127.0.0.1:${publicPort}`,
+    ...allowedHosts,
+  ]);
 
   return Object.freeze({
     port: boundPort,

@@ -4,6 +4,7 @@
  */
 export {
   DEFAULT_SESSION_COOKIE,
+  parseAllowedHosts,
   parseAnalyticsId,
   parseRuntimeUrl,
   parseSessionCookieName,

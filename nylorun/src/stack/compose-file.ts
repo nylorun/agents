@@ -309,6 +309,9 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
       # Studio's anonymous usage analytics; empty when telemetry is off.
       NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}
+      # Extra Host values Studio serves behind a sign-in proxy (studio.acme.dev),
+      # comma-separated; from the environment of nylorun start.
+      NYLORUN_STUDIO_ALLOWED_HOSTS: \${NYLORUN_STUDIO_ALLOWED_HOSTS:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
     networks: [default]

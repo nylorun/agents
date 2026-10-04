@@ -1,0 +1,6 @@
+---
+"@nylorun/studio": minor
+"nylorun": minor
+---
+
+**Studio for a team (F9 S1).** Studio can sit behind a sign-in proxy such as oauth2-proxy. A request with no Studio session that carries a JWT, in `X-Forwarded-Access-Token` or as an `Authorization` bearer that is not a Studio session, signs in when the Runtime's `GET /v1/me` verifies it and reports the `studio` scope: Studio sets its usual signed session cookie, which records the subject for its write log and ends no later than the token (at most the usual 30 days), and serves the request. Studio never trusts the header unverified and keeps nothing else. A token without the scope gets `403` naming `studio`; a token the Runtime refuses, or one that is not a JWT, gets `401`. Admitted people get Studio's Tenant-wide view; the CLI sign-in and embedding are unchanged, and a valid embed bearer session still wins. New `NYLORUN_STUDIO_ALLOWED_HOSTS`: extra `Host` values Studio serves, comma-separated (`studio.acme.dev`); its state changes accept that host's `https` and `http` origins, and the cookie is `Secure` when the proxy sends `X-Forwarded-Proto: https`. The default is unchanged: only `localhost` and `127.0.0.1` on the published port. `nylorun start` passes `NYLORUN_STUDIO_ALLOWED_HOSTS` from its environment to the Studio container.
