@@ -23,7 +23,8 @@
         "a2a-endpoint",
         "action-endpoints",
         "sandboxes",
-        "sandbox-pods"
+        "sandbox-pods",
+        "trusted-issuers"
       ]
     }
   },
@@ -340,6 +341,7 @@
               "placement_refused",
               "sandbox_lost",
               "sandbox_expired",
+              "issuer_unavailable",
               "internal_error"
             ]
           },

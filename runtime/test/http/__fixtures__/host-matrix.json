@@ -663,7 +663,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -722,7 +723,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -781,7 +783,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -840,7 +843,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -899,7 +903,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -958,7 +963,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1017,7 +1023,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1076,7 +1083,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1133,7 +1141,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1190,7 +1199,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1249,7 +1259,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1308,7 +1319,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },
@@ -1393,7 +1405,8 @@
           "a2a-endpoint",
           "action-endpoints",
           "sandboxes",
-          "sandbox-pods"
+          "sandbox-pods",
+          "trusted-issuers"
         ]
       }
     },

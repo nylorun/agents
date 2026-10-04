@@ -3320,6 +3320,43 @@
       "allowOrigin": "https://app.example.com"
     }
   },
+  "GET /v1/me": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "publishable": {
+      "status": 403,
+      "contentType": "application/json",
+      "allowOrigin": "https://app.example.com",
+      "code": "scope_required",
+      "message": "A publishable key alone reaches only the agent list"
+    }
+  },
   "POST /v1/tokens": {
     "none": {
       "status": 404,

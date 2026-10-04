@@ -70,13 +70,22 @@ import { PINNED_IMAGES } from "./images.js";
  * `default` carries egress and the published ports (runtime, gateway, Studio, sandboxes).
  * Restate's admin port (its UI, unauthenticated) is published, and Restate joins `default`,
  * only with `restateUi` (`nylorun start --restate-ui`).
+ *
+ * With `identity` (when `<Host root>/identity.yaml` exists) the runtime reads its trusted issuers
+ * from it, through the Host root mount (NYLORUN_IDENTITY_FILE=/nylorun/identity.yaml).
  */
 export function renderComposeFile(
   project: string,
   name: string,
-  options: { sandboxes?: true; harness?: "remote" | "in-process"; restateUi?: true } = {},
+  options: {
+    sandboxes?: true;
+    harness?: "remote" | "in-process";
+    restateUi?: true;
+    identity?: true;
+  } = {},
 ): string {
   const sandboxes = options.sandboxes === true;
+  const identity = options.identity === true;
   const remote = (options.harness ?? "remote") === "remote";
   const restateUi = options.restateUi === true;
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -247,7 +256,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_HARNESS: \${NYLORUN_HARNESS:-remote}
       NYLORUN_HARNESS_LISTEN_PORT: "4200"
       NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200${sandboxes ? SANDBOXES_HARNESS_HOST : ""}
-      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
@@ -382,6 +391,11 @@ function harnessService(project: string): string {
  * The runtime reaches the sandboxes service on the Compose network with its token, and serves
  * the Harness API to sandbox pods (F7.2) on the Docker host's address.
  */
+/** The identity file (`<Host root>/identity.yaml`): the trusted issuers, read at boot. */
+const IDENTITY_RUNTIME_ENV = `
+      # Trusted issuers (<Host root>/identity.yaml): JWTs from the operator's identity provider.
+      NYLORUN_IDENTITY_FILE: /nylorun/identity.yaml`;
+
 const SANDBOXES_RUNTIME_ENV = `
       # The sandboxes service (nylorun sandbox enable): pods on the Tenant's cluster.
       NYLORUN_SANDBOXES_URL: http://sandboxes:4300

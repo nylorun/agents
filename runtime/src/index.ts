@@ -7,6 +7,16 @@ export {
   type StartEphemeralRuntimeOptions,
   type EphemeralRuntime,
 } from "./tenant/ephemeral.js";
+export {
+  parseIdentityFile,
+  IdentityFileError,
+  type TrustedIssuerConfig,
+} from "./tenant/identity-file.js";
+export {
+  createTrustedIssuers,
+  type TrustedIssuers,
+  type TrustedIssuersOptions,
+} from "./tenant/issuers.js";
 export type {
   TenantConfig,
   TenantHandle,

@@ -21,6 +21,7 @@ import {
   UpdatePublishableKeyRequestSchema,
   RevokeSubjectRequestSchema,
   RevokeSubjectResponseSchema,
+  MeResponseSchema,
   TenantStatusSchema,
   ResetTenantRequestSchema,
   ResetTenantResponseSchema,
@@ -212,3 +213,4 @@ export const CreatePublishableKeyRequest = named("CreatePublishableKeyRequest", 
 export const UpdatePublishableKeyRequest = named("UpdatePublishableKeyRequest", UpdatePublishableKeyRequestSchema);
 export const RevokeSubjectRequest = named("RevokeSubjectRequest", RevokeSubjectRequestSchema);
 export const RevokeSubjectResponse = named("RevokeSubjectResponse", RevokeSubjectResponseSchema);
+export const MeResponse = named("MeResponse", MeResponseSchema);

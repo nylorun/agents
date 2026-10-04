@@ -218,6 +218,10 @@
     "status": 204,
     "allowOrigin": "https://app.example.com"
   },
+  "GET /v1/me": {
+    "status": 204,
+    "allowOrigin": "https://app.example.com"
+  },
   "POST /v1/tokens": {
     "status": 403
   },
