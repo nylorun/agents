@@ -161,8 +161,9 @@ it("creates its Tenant once, as a Host does, and serves it again on the same dat
   const own = await status(runtime.applicationKey);
   expect(own.status).toBe(200);
   expect(await own.json()).toMatchObject({ tenant: { id: tenantId, name: "first" } });
-  // The project principal, derived from the admin key of the run that created the Tenant.
-  expect((await status(deriveTenantKey(first.adminKey, tenantId, "project"))).status).toBe(200);
+  // The first run's application key is still the Tenant's; no derived principal was registered.
+  expect((await status(first.applicationKey)).status).toBe(200);
+  expect((await status(deriveTenantKey(first.adminKey, tenantId, "project"))).status).toBe(404);
   // No Admin Tenant routes.
   const admin = await fetch(`${runtime.url}/v1/admin/tenants`, {
     headers: {

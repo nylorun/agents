@@ -12,6 +12,7 @@ import type { HostAuthority } from "../sandbox/join.js";
 import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantCause } from "./cause.js";
+import type { OperatorKeys } from "./operator-keys.js";
 import type { OutboundPolicy } from "./outbound.js";
 import type { TenantWorker } from "./worker.js";
 
@@ -138,6 +139,8 @@ export interface TenantHandle {
   attachHarness?(channel: HarnessChannel, peer: HarnessPeer): () => void;
   /** The Tenant's side of a sandbox pod's join (F7.2); absent without sandbox pods. */
   hostAuthority?(): HostAuthority | undefined;
+  /** The Tenant's operator keys, for the Admin API (`/v1/admin/keys`, F9 I1). */
+  operatorKeys?(): OperatorKeys;
 }
 
 /**

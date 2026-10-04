@@ -4,6 +4,8 @@ import { baselineEnv } from "./baseline.js";
 import { CliError } from "./errors.js";
 import {
   isStackCommand,
+  keyCommand,
+  keyUsage,
   sandboxCommand,
   sandboxUsage,
   stackCommand,
@@ -11,11 +13,12 @@ import {
   studioCommand,
 } from "./stack/index.js";
 
-const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|sandbox|doctor|telemetry>
+const usage = `nylorun <up|down|start|stop|status|logs|studio|reset|ls|delete|sandbox|key|doctor|telemetry>
 
 Local Tenants (Docker Compose), one per project:
 ${stackUsage}
 ${sandboxUsage}
+${keyUsage}
   doctor [--json]                     check Node, Docker and Compose v2, and the Tenant's health
   telemetry [status|enable|disable]   Studio's anonymous usage analytics (on unless disabled,
                                       NYLORUN_TELEMETRY_DISABLED=1, DO_NOT_TRACK=1 or CI)
@@ -65,6 +68,10 @@ async function main() {
   }
   if (command === "sandbox") {
     process.exitCode = await sandboxCommand(args, baselineEnv());
+    return;
+  }
+  if (command === "key") {
+    process.exitCode = await keyCommand(args, baselineEnv());
     return;
   }
   if (isStackCommand(command)) {

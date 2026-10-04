@@ -1105,6 +1105,33 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.tokenHash);
   }
 
+  async listPrincipals(): Promise<PrincipalRow[]> {
+    this.check();
+    return await this.db.select().from(principals).orderBy(principals.id);
+  }
+
+  async putPrincipal(id: string, tokenHash: string, createdAt: string): Promise<PrincipalRow> {
+    this.check();
+    const [row] = await this.db
+      .insert(principals)
+      .values({ id, role: "application", tokenHash, idempotencyKey: null, createdAt })
+      .onConflictDoUpdate({
+        target: principals.id,
+        set: { tokenHash, createdAt, idempotencyKey: null },
+      })
+      .returning();
+    return row!;
+  }
+
+  async deletePrincipal(id: string): Promise<boolean> {
+    this.check();
+    const rows = await this.db
+      .delete(principals)
+      .where(eq(principals.id, id))
+      .returning({ id: principals.id });
+    return rows.length > 0;
+  }
+
   // --- vault ---------------------------------------------------------------
 
   async insertVault(row: VaultRow): Promise<void> {

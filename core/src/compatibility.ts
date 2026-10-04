@@ -48,6 +48,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
  * issuer's subject, scopes (and the issuer-only `studio`), agents and sandbox grants; `GET
  * /v1/me` reports who any credential is.
+ * `operator-keys`: the Admin API creates, rotates, lists and deletes the Tenant's application
+ * keys by name (`PUT`/`GET`/`DELETE /v1/admin/keys`); a deleted or rotated key stops
+ * authenticating at once. `studio` is not managed there.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -62,6 +65,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "sandboxes",
   "sandbox-pods",
   "trusted-issuers",
+  "operator-keys",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

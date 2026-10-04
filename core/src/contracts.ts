@@ -2051,6 +2051,36 @@ export const AdminStatusSchema = z
 export type AdminStatus = z.infer<typeof AdminStatusSchema>;
 
 /**
+ * An operator key (Host feature `operator-keys`): a revocable application key of the Tenant,
+ * named by its id (`DERIVED_PRINCIPAL_ID_PATTERN`). The Runtime keeps only its hash.
+ */
+export const OperatorKeySchema = z
+  .object({
+    id: z.string().min(1),
+    role: z.string().min(1),
+    /** When the current key was issued: created, or last rotated. */
+    createdAt: z.string().min(1),
+  })
+  .strict();
+export type OperatorKey = z.infer<typeof OperatorKeySchema>;
+/** `GET /v1/admin/keys`: every key of the Tenant (Studio's and derived ones too), by id. */
+export const ListOperatorKeysResponseSchema = z
+  .object({ keys: z.array(OperatorKeySchema) })
+  .strict();
+export type ListOperatorKeysResponse = z.infer<typeof ListOperatorKeysResponseSchema>;
+/** `PUT /v1/admin/keys/{id}`: the new key, shown this once; `rotated` when it replaced one. */
+export const PutOperatorKeyResponseSchema = OperatorKeySchema.extend({
+  key: z.string().regex(/^[0-9a-f]{64}$/),
+  rotated: z.boolean(),
+}).strict();
+export type PutOperatorKeyResponse = z.infer<typeof PutOperatorKeyResponseSchema>;
+/** `DELETE /v1/admin/keys/{id}`: the key no longer authenticates. */
+export const DeleteOperatorKeyResponseSchema = z
+  .object({ id: z.string().min(1), deleted: z.literal(true) })
+  .strict();
+export type DeleteOperatorKeyResponse = z.infer<typeof DeleteOperatorKeyResponseSchema>;
+
+/**
  * `.nylorun/link.json`: the installation a Project uses. Format 3 names the local `tenant`
  * that `nylorun start` created or attached; `tenantId` is information only, since nothing in a
  * request selects a Tenant. Formats 0–2 are from older releases; they parse so readers can say

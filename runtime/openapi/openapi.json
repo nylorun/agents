@@ -24,7 +24,8 @@
         "action-endpoints",
         "sandboxes",
         "sandbox-pods",
-        "trusted-issuers"
+        "trusted-issuers",
+        "operator-keys"
       ]
     }
   },

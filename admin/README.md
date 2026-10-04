@@ -1,7 +1,8 @@
 # @nylorun/admin
 
 Admin API client for a Runtime installation: its status, with the one Tenant it
-serves, and the keys the admin key derives. Depends only on `@nylorun/core`.
+serves, its operator keys, and the keys the admin key derives. Depends only on
+`@nylorun/core`.
 Requires Node 24+. Vocabulary: [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
 ```ts
@@ -21,7 +22,21 @@ are no Tenant routes: `createTenant`, `listTenants`, `getTenant` and
 When the Tenant cannot be opened, `status.tenant.state` is `unavailable` and
 `cause` names why (`schema-too-new`, `kek-missing`, `database-layout-old`, …).
 
-Whoever holds the admin key can derive the keys of the Tenant's derived
+Operator keys (Host feature `operator-keys`) are the Tenant's revocable
+application keys, managed by name. `put` creates a key or rotates it and returns
+it once; a rotated or deleted key stops authenticating on its next request.
+Ids match `^[a-z][a-z0-9-]{0,31}$`; `studio` is refused:
+
+```ts
+const { key } = await admin.keys.put("babai"); // { id, role, createdAt, key, rotated }
+await admin.keys.list(); // [{ id, role, createdAt }], never the keys
+await admin.keys.delete("babai"); // true when it existed
+```
+
+`nylorun start` links a Project with the operator key `project`, and
+`nylorun key put|list|rm` does the same from a terminal.
+
+Whoever holds the admin key can also derive the keys of the Tenant's derived
 principals and of its Studio principal, so those clients store no key:
 
 ```ts
@@ -34,8 +49,8 @@ The Host registers the derived principals it is configured with
 (`NYLORUN_DERIVED_PRINCIPALS`, default `project`; Babai uses `project,babai`)
 when it creates its Tenant, and `studio` always. Ids match
 `^[a-z][a-z0-9-]{0,31}$`; `studio` is reserved. Only each key's hash is stored,
-so rotating the admin key rotates every derived key. `nylorun start` writes the
-`project` key into a Project's `.nylorun/credentials.json`.
+so rotating the admin key rotates every derived key. Derived principals other
+than `studio` are on their way out: prefer operator keys.
 
 Local Host resolution reads `host.json` and `host-credentials.json` from the
 Host root: `options.home`, else `NYLORUN_HOME`, else the Tenant's Host root
@@ -53,7 +68,7 @@ Tenant.
 Errors are `AdminError` with a registry `code` from `@nylorun/core`
 (`ERROR_CODES`). Re-exports: `PROTOCOL_FEATURES`, `ERROR_CODES`,
 `compareVersions`, `deriveStudioToken`, `deriveTenantKey`, `tenantHostRoot`,
-`PROJECT_PRINCIPAL_ID`.
+`PROJECT_PRINCIPAL_ID`, `OPERATOR_KEYS_FEATURE`.
 
 Developer applications do **not** depend on this package — only managing
 clients (CLI, desktop Runtime panel, CI) do.

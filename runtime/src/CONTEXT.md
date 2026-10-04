@@ -110,7 +110,8 @@ at `/nylorun`.
 `{ format: 3, tenant, tenantId, hostUrl, hostId }` (`tenant` is the local Tenant's
 name, absent for an installation that is not local; `tenantId` is information:
 nothing selects a Tenant), plus `.nylorun/credentials.json` (mode 0600) holding the
-key of the derived principal `project` and its id. `nylorun start` writes both. A
+operator key `project` and its id. `nylorun start` writes both, and keeps the
+credentials while their key still authenticates. A
 link below format 3 is from an older nylorun; clients refuse it and `nylorun start`
 replaces it. A fresh clone or second worktree does not attach until `nylorun start`
 creates its Tenant, or `nylorun start --tenant <name>` attaches it to an existing one.
@@ -317,8 +318,8 @@ sandbox capability to a session with a sandbox): it saves a sandbox file (`path`
 `admin-status`, `studio-principal`, `action-endpoints` and `artifacts`, and the Host still
 advertises `runtime-tenants` for protocol 4 clients; optional Host features
 `tenant-fixture-model`, `transcript-events`, `derived-principals`,
-`subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint` and
-`a2a-endpoint`).
+`subject-headers`, `subject-tokens`, `browser-access`, `ag-ui-endpoint`,
+`a2a-endpoint`, `action-endpoints`, `sandboxes`, `sandbox-pods` and `operator-keys`).
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
@@ -335,10 +336,17 @@ whose key is derived from the admin key, the principal id and the Tenant id
 it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default `project`) by hash when
 it creates its Tenant, and adds one configured later on its next start (feature
 `derived-principals`), so the client stores no key. The Studio principal is the first
-of these, with its own derivation. `project` (`PROJECT_PRINCIPAL_ID`) is the one a
-Project on the same machine derives.
-_Avoid_: storing an application key on a machine that already holds the admin
-key.
+of these, with its own derivation. `project` (`PROJECT_PRINCIPAL_ID`) was the one a
+Project on the same machine derived; Projects now hold the operator key `project`.
+Derived principals other than `studio` leave in F9 I3.
+
+**Operator key** (F9 I1, Host feature `operator-keys`): a revocable application key of
+the Tenant, named by its principal id (`^[a-z][a-z0-9-]{0,31}$`) and managed with the
+admin key: `PUT /v1/admin/keys/{id}` creates or rotates it and returns it once, `GET`
+lists ids, `DELETE` removes the principal (`tenant/operator-keys.ts`). It is a row of the
+principals table; only its hash is kept, and a rotated or deleted key stops
+authenticating on its next request. `studio` is not managed this way.
+_Avoid_: deriving a key a client could hold as an operator key.
 
 **Transcript event**: A session event a chat UI renders (feature
 `transcript-events`): `message.assistant` for each completed model step (text

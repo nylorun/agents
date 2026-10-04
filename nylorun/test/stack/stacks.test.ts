@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { deriveTenantKey } from "../../src/project/derived-key.js";
+import { randomBytes } from "node:crypto";
 import { runStackCommand, type StackDeps } from "../../src/stack/commands.js";
 import { parseEnvLines } from "../../src/stack/env-file.js";
 import { stackPaths } from "../../src/stack/paths.js";
@@ -28,10 +28,19 @@ const readJson = (path: string) => JSON.parse(readFileSync(path, "utf8")) as Rec
 
 /**
  * A fetch that answers for every Tenant under `base`: the Host on each Tenant's Runtime port, the
- * Tenant (one id per name) on its operator port, and the Tenant API.
+ * Tenant (one id per name) and its operator keys on its operator port, and the Tenant API, which
+ * authenticates the keys put there.
  */
 function machineFetch(base: string, options: { modelConfigured?: boolean } = {}) {
   const tenants = new Map<string, string>();
+  /** Operator keys per Tenant name: id → key. */
+  const keys = new Map<string, Map<string, string>>();
+  const keysOf = (name: string) => {
+    if (!keys.has(name)) keys.set(name, new Map());
+    return keys.get(name)!;
+  };
+  const bearer = (init?: RequestInit) =>
+    new Headers(init?.headers).get("authorization")?.replace(/^Bearer /, "");
   const tenantOn = (url: string, field: "port" | "adminPort") => {
     const port = Number(new URL(url).port);
     const tenants = join(base, "tenants");
@@ -46,7 +55,7 @@ function machineFetch(base: string, options: { modelConfigured?: boolean } = {})
     if (!tenants.has(name)) tenants.set(name, newTenantId());
     return tenants.get(name)!;
   };
-  const fetch = fakeFetch((url) => {
+  const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health")) {
       const tenant = tenantOn(url, "port");
       return tenant ? json({ status: "ok", version: "0.10.0-beta", hostId: tenant.hostId }) : undefined;
@@ -57,12 +66,29 @@ function machineFetch(base: string, options: { modelConfigured?: boolean } = {})
         ? json({ tenant: { id: tenantOf(tenant.name), name: tenant.name, state: "open", envelope: null } })
         : undefined;
     }
+    const put = /\/v1\/admin\/keys\/([a-z0-9-]+)$/.exec(url);
+    if (put && init?.method === "PUT") {
+      const tenant = tenantOn(url, "adminPort");
+      if (!tenant) return undefined;
+      const key = randomBytes(32).toString("hex");
+      const rotated = keysOf(tenant.name).has(put[1]!);
+      keysOf(tenant.name).set(put[1]!, key);
+      return json({ id: put[1], role: "application", createdAt: new Date().toISOString(), key, rotated });
+    }
+    if (url.endsWith("/v1/tenant")) {
+      const tenant = tenantOn(url, "port");
+      if (!tenant) return undefined;
+      const key = bearer(init);
+      return [...keysOf(tenant.name).values()].includes(key ?? "")
+        ? json({ tenant: { id: tenantOf(tenant.name) } })
+        : json({ status: "rejected", code: "not_found", message: "Not found" }, 404);
+    }
     if (url.endsWith("/v1/tenant/config/seed")) return json({ applied: ["sandbox"], kept: [] });
     if (url.endsWith("/v1/tenant/model"))
       return json(options.modelConfigured ? { configured: true, provider: "p", model: "m", authType: "api_key" } : { configured: false });
     return undefined;
   });
-  return Object.assign(fetch, { tenantOf });
+  return Object.assign(fetch, { tenantOf, keysOf });
 }
 
 /** Dependencies for `~/.nylorun` = `base`, run in `cwd`, with no NYLORUN_HOME. */
@@ -110,12 +136,19 @@ describe("start in a project", () => {
       hostId: host.hostId,
       tenantId,
     });
-    const { adminKey } = readJson(paths.credentials) as { adminKey: string };
+    // The operator key `project`, put through the Admin API; the Host root keeps a copy (0600).
+    const key = fetch.keysOf("my-shop").get("project");
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
     expect(readJson(join(dir, ".nylorun", "credentials.json"))).toEqual({
       format: 1,
-      applicationKey: deriveTenantKey(adminKey, tenantId, "project"),
+      applicationKey: key,
       principalId: "project",
     });
+    expect(readJson(paths.projectCredentials)).toEqual(readJson(join(dir, ".nylorun", "credentials.json")));
+    expect(statSync(paths.projectCredentials).mode & 0o777).toBe(0o600);
+    expect(
+      fetch.requests.filter((r) => r.url.includes("/v1/admin/keys")).map((r) => `${r.init?.method} ${r.url}`),
+    ).toEqual(["PUT http://localhost:8788/v1/admin/keys/project"]);
     expect(deps.lines.slice(0, 2)).toEqual([`Tenant    my-shop  (${tenantId})`, "Runtime   http://localhost:8787"]);
     expect(deps.errors).toContain(
       `Created Tenant my-shop under ${root} (Runtime port 8787, Studio port 4161).`,
@@ -162,13 +195,62 @@ describe("start in a project", () => {
     expect(readdirSync(join(base, "tenants"))).toEqual(["shop"]);
   });
 
+  it("keeps the project's key on a later start, and replaces one that no longer authenticates", async () => {
+    const { tmp, base } = await machine();
+    const dir = await project(join(tmp, "shop"));
+    const fetch = machineFetch(base);
+    expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, dir, { fetch }))).toBe(0);
+    const credentials = join(dir, ".nylorun", "credentials.json");
+    const first = readFileSync(credentials, "utf8");
+
+    // Re-running start: one authenticated read, the same file, no key put.
+    fetch.requests.length = 0;
+    expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, dir, { fetch }))).toBe(0);
+    expect(readFileSync(credentials, "utf8")).toBe(first);
+    expect(fetch.requests.filter((r) => r.url.includes("/v1/admin/keys"))).toEqual([]);
+    expect(fetch.requests.filter((r) => r.url.endsWith("/v1/tenant"))).toHaveLength(1);
+
+    // A key the Tenant no longer knows (rotated elsewhere) is replaced with the project key.
+    await writeFile(credentials, JSON.stringify({ format: 1, applicationKey: "f".repeat(64), principalId: "project" }));
+    fetch.keysOf("shop").set("project", "e".repeat(64));
+    const again = machineDeps(base, dir, { fetch });
+    expect(await runStackCommand("start", ["--no-studio"], again)).toBe(0);
+    const replaced = readJson(credentials);
+    expect(replaced).toEqual({ format: 1, applicationKey: fetch.keysOf("shop").get("project"), principalId: "project" });
+    expect(replaced.applicationKey).not.toBe("e".repeat(64));
+    expect(statSync(credentials).mode & 0o777).toBe(0o600);
+    expect(again.errors).toContain(
+      "Replaced the project's key, which no longer reaches Tenant shop (.nylorun/credentials.json).",
+    );
+  });
+
+  it("keeps a project key from before operator keys while it authenticates, for every checkout", async () => {
+    const { tmp, base } = await machine();
+    const fetch = machineFetch(base);
+    const main = await project(join(tmp, "app"));
+    expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, main, { fetch }))).toBe(0);
+    // As an older nylorun left it: the derived key in the project, none in the Host root.
+    const derived = "d".repeat(64);
+    fetch.keysOf("app").set("project", derived);
+    await writeFile(join(main, ".nylorun", "credentials.json"), JSON.stringify({ format: 1, applicationKey: derived, principalId: "project" }));
+    await rm(stackPaths(join(base, "tenants", "app")).projectCredentials);
+    fetch.requests.length = 0;
+    expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, main, { fetch }))).toBe(0);
+    expect(readJson(join(main, ".nylorun", "credentials.json")).applicationKey).toBe(derived);
+    // A second checkout gets the same key, so the first keeps working.
+    const worktree = await project(join(tmp, "app-feature"));
+    expect(await runStackCommand("start", ["--no-studio", "--tenant", "app"], machineDeps(base, worktree, { fetch }))).toBe(0);
+    expect(readJson(join(worktree, ".nylorun", "credentials.json")).applicationKey).toBe(derived);
+    expect(fetch.requests.filter((r) => r.url.includes("/v1/admin/keys"))).toEqual([]);
+  });
+
   it("keeps a configured model, and stores none for the fixture model", async () => {
     const { tmp, base } = await machine();
     const env = "MODEL_PROVIDER=anthropic\nMODEL=claude-x\nMODEL_PROVIDER_API_KEY=sk-test\n";
     const configured = machineFetch(base, { modelConfigured: true });
     const one = await project(join(tmp, "one"), env);
     expect(await runStackCommand("start", ["--no-studio"], machineDeps(base, one, { fetch: configured }))).toBe(0);
-    expect(configured.requests.filter((r) => r.init?.method === "PUT")).toEqual([]);
+    expect(configured.requests.filter((r) => r.init?.method === "PUT" && r.url.includes("/v1/tenant/"))).toEqual([]);
 
     const fixture = machineFetch(base);
     const two = await project(join(tmp, "two"), `${env}NYLORUN_DEV_MODEL=fixture\n`);
@@ -200,6 +282,11 @@ describe("start in a project", () => {
     expect(readJson(join(worktree, ".nylorun", "link.json"))).toEqual(
       readJson(join(main, ".nylorun", "link.json")),
     );
+    // Both checkouts hold the one project key: attaching the second rotated nothing.
+    expect(readJson(join(worktree, ".nylorun", "credentials.json"))).toEqual(
+      readJson(join(main, ".nylorun", "credentials.json")),
+    );
+    expect(fetch.requests.filter((r) => r.url.includes("/v1/admin/keys"))).toHaveLength(1);
     expect(readdirSync(join(base, "tenants"))).toEqual(["app"]);
     // The linked worktree then selects that Tenant on its own.
     const status = machineDeps(base, worktree);
@@ -426,8 +513,9 @@ describe("reset", () => {
     const after = readJson(join(dir, ".nylorun", "link.json")).tenantId;
     expect(after).not.toBe(before);
     expect(after).toBe(fresh.tenantOf("app"));
-    expect(await readFile(join(dir, ".nylorun", "credentials.json"), "utf8")).toContain(
-      deriveTenantKey((readJson(join(base, "tenants", "app", "host-credentials.json")) as { adminKey: string }).adminKey, after as string, "project"),
+    // The old Tenant's key no longer authenticates: the project gets the new Tenant's.
+    expect(readJson(join(dir, ".nylorun", "credentials.json")).applicationKey).toBe(
+      fresh.keysOf("app").get("project"),
     );
   });
 });

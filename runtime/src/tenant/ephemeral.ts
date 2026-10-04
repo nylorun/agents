@@ -65,6 +65,12 @@ export interface StartEphemeralRuntimeOptions {
    * admin key derives (`deriveStudioToken` in `@nylorun/admin`).
    */
   studioCredentialHash?: string;
+  /**
+   * Derived principals to register, whose keys the admin key derives (`deriveTenantKey` in
+   * `@nylorun/admin`). Default none: clients use the application key, or operator keys
+   * (`/v1/admin/keys`).
+   */
+  derivedPrincipals?: readonly string[];
   /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
   baseline?: Readonly<Record<string, string>>;
   model?: TenantModelConfig;
@@ -191,6 +197,7 @@ export async function startEphemeralRuntime(
         name: options.name ?? "ephemeral",
         principals: hostPrincipals({
           adminKey,
+          derived: options.derivedPrincipals ?? [],
           application: { principalId, key: applicationKey },
           ...(options.studioCredentialHash
             ? { studioCredentialHash: options.studioCredentialHash }

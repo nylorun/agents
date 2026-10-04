@@ -5,7 +5,7 @@ import {
   deriveStudioToken,
   deriveTenantKey,
 } from "../src/index.js";
-import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import {
   ADMIN_KEY,
   healthBody,
@@ -96,6 +96,87 @@ describe("B5 derived keys", () => {
       deriveStudioToken(ADMIN_KEY, tenantId),
     );
     expect(admin.deriveTenantKey(tenantId, "project")).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("B7 operator keys", () => {
+  const KEY = "c".repeat(64);
+  const withKeys = () =>
+    healthBody({
+      protocol: { min: 4, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES, "operator-keys"] },
+    });
+
+  it("puts, lists and deletes keys on /v1/admin/keys with the admin key", async () => {
+    const server = await startStubServer((request, response) => {
+      if (request.url === "/health") return sendJson(response, 200, withKeys());
+      expect(request.headers.authorization).toBe(`Bearer ${ADMIN_KEY}`);
+      expect(request.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
+      const route = `${request.method} ${request.url}`;
+      if (route === "PUT /v1/admin/keys/babai")
+        return sendJson(response, 200, {
+          id: "babai",
+          role: "application",
+          createdAt: "2026-10-04T00:00:00.000Z",
+          key: KEY,
+          rotated: false,
+        });
+      if (route === "GET /v1/admin/keys")
+        return sendJson(response, 200, {
+          keys: [
+            { id: "babai", role: "application", createdAt: "2026-10-04T00:00:00.000Z" },
+            { id: "studio", role: "application", createdAt: "2026-10-01T00:00:00.000Z" },
+          ],
+        });
+      if (route === "DELETE /v1/admin/keys/babai")
+        return sendJson(response, 200, { id: "babai", deleted: true });
+      if (route === "DELETE /v1/admin/keys/ghost")
+        return sendJson(response, 404, { status: "rejected", code: "not_found", message: "No key ghost" });
+      if (route === "PUT /v1/admin/keys/studio")
+        return sendJson(response, 400, {
+          status: "rejected",
+          code: "request_rejected",
+          message: "The studio key is derived from the admin key: it is not put or deleted here",
+        });
+      sendJson(response, 404, { status: "rejected", code: "not_found", message: "Not found" });
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
+      await expect(admin.keys.put("babai")).resolves.toEqual({
+        id: "babai",
+        role: "application",
+        createdAt: "2026-10-04T00:00:00.000Z",
+        key: KEY,
+        rotated: false,
+      });
+      expect((await admin.keys.list()).map((key) => key.id)).toEqual(["babai", "studio"]);
+      await expect(admin.keys.delete("babai")).resolves.toBe(true);
+      await expect(admin.keys.delete("ghost")).resolves.toBe(false);
+      await expect(admin.keys.put("studio")).rejects.toMatchObject({
+        name: "AdminError",
+        code: "request_rejected",
+        status: 400,
+      });
+      // The opaque 404 (a wrong admin key) is an error, not a missing key.
+      await expect(admin.keys.delete("other")).rejects.toMatchObject({ code: "not_found", status: 404 });
+      expect(server.recorded.map((r) => `${r.method} ${r.url}`)).toContain("PUT /v1/admin/keys/babai");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("refuses with incompatible_host when the Host does not serve operator keys", async () => {
+    const server = await startStubServer((request, response) => {
+      if (request.url === "/health") return sendJson(response, 200, healthBody());
+      sendJson(response, 500, { status: "rejected", code: "internal_error", message: "unexpected" });
+    });
+    try {
+      const admin = createAdmin({ url: server.url, key: ADMIN_KEY });
+      await expect(admin.keys.put("babai")).rejects.toMatchObject({ code: "incompatible_host" });
+      await expect(admin.keys.list()).rejects.toMatchObject({ code: "incompatible_host" });
+      expect(server.recorded.map((r) => r.url)).not.toContain("/v1/admin/keys/babai");
+    } finally {
+      await server.close();
+    }
   });
 });
 
