@@ -19,7 +19,7 @@ let vaultId: string;
 let credentialId: string;
 beforeAll(async () => {
   tenant = await startSubjectTenant();
-  const owner = { subject: "app:owner", scopes: ["sessions:own", "vaults:own"] } as const;
+  const owner = { subject: "app:owner", scopes: ["sessions:own"] } as const;
   await tenant.call("PUT", "/v1/sessions/owned", {
     as: owner,
     body: { requestId: "owned", agentId: "bot", ownerUserId: "app:owner" },
@@ -69,7 +69,7 @@ const routes = (): Route[] => [
   {
     method: "POST",
     path: "/v1/vaults",
-    needs: ["vaults:own"],
+    needs: "never",
     body: (subject) => ({
       requestId: "v",
       idempotencyKey: `v-${subject}`,
@@ -77,25 +77,25 @@ const routes = (): Route[] => [
       ownerUserId: subject,
     }),
   },
-  { method: "GET", path: "/v1/vaults", needs: ["vaults:own"] },
-  { method: "GET", path: `/v1/vaults/${vaultId}`, needs: ["vaults:own"] },
-  { method: "DELETE", path: `/v1/vaults/${vaultId}`, needs: ["vaults:own"] },
-  { method: "GET", path: `/v1/vaults/${vaultId}/credentials`, needs: ["vaults:own"] },
-  { method: "POST", path: `/v1/vaults/${vaultId}/credentials`, needs: ["vaults:own"] },
+  { method: "GET", path: "/v1/vaults", needs: "never" },
+  { method: "GET", path: `/v1/vaults/${vaultId}`, needs: "never" },
+  { method: "DELETE", path: `/v1/vaults/${vaultId}`, needs: "never" },
+  { method: "GET", path: `/v1/vaults/${vaultId}/credentials`, needs: "never" },
+  { method: "POST", path: `/v1/vaults/${vaultId}/credentials`, needs: "never" },
   {
     method: "GET",
     path: `/v1/vaults/${vaultId}/credentials/${credentialId}`,
-    needs: ["vaults:own"],
+    needs: "never",
   },
   {
     method: "POST",
     path: `/v1/vaults/${vaultId}/credentials/${credentialId}`,
-    needs: ["vaults:own"],
+    needs: "never",
   },
   {
     method: "DELETE",
     path: `/v1/vaults/${vaultId}/credentials/${credentialId}`,
-    needs: ["vaults:own"],
+    needs: "never",
   },
   { method: "GET", path: "/v1/tenant", needs: ["tenant:settings"] },
   { method: "GET", path: "/v1/tenant/models", needs: ["tenant:settings", "agents:write"] },

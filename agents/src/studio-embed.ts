@@ -1,6 +1,6 @@
 /**
  * `@nylorun/agents/studio-embed`: the contract between Studio and an app that embeds it in an
- * iframe (Studio design §8). Studio's web app and embedders such as Babai import it from here,
+ * iframe (Studio design §8). Studio's web app and the apps that embed it import it from here,
  * because Studio may not depend on `@nylorun/core` directly.
  *
  * No Node-only module is imported here or below.

@@ -124,15 +124,7 @@ export type {
   SessionSandboxHandle,
 } from "./client.js";
 export { SandboxesClient } from "./client.js";
-export {
-  AccessClient,
-  PublishableKeysClient,
-  SigningKeysClient,
-  TokensClient,
-} from "./access.js";
-export type { CreateTokenOptions } from "./access.js";
-export { createTokenEndpoint } from "./token-endpoint.js";
-export type { TokenEndpointOptions } from "./token-endpoint.js";
+export { AccessClient, SigningKeysClient } from "./access.js";
 export { createActionHandler } from "./action-handler.js";
 export type {
   ActionHandler,

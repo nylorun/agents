@@ -64,7 +64,7 @@ async function startFakeRuntime() {
           protocol: {
             min: PROTOCOL_VERSION,
             max: PROTOCOL_VERSION,
-            features: [...PROTOCOL_FEATURES, "derived-principals"],
+            features: [...PROTOCOL_FEATURES],
           },
         }),
       );

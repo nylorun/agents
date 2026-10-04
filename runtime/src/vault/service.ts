@@ -14,7 +14,6 @@
  * createVault(body: CreateVaultRequest): Promise<VaultInfo>
  * listVaults(ownerUserId: string | undefined, options?: { installation?: boolean }): Promise<VaultInfo[]>
  * getVault(id: string): Promise<VaultInfo>
- * assertOwner(id: string, ownerUserId: string): Promise<void>
  * deleteVault(id: string): Promise<{ id: string }>
  * createCredential(vaultId: string, body: CreateCredentialRequest): Promise<CredentialInfo>
  * listCredentials(vaultId: string): Promise<CredentialInfo[]>
@@ -260,8 +259,8 @@ export class VaultService {
   }
 
   /**
-   * One person's vaults, then (with `installation`, for an application caller) the
-   * installation vaults. No owner lists the installation vaults only.
+   * One person's vaults, then (with `installation`) the installation vaults. No owner lists
+   * the installation vaults only.
    */
   async listVaults(
     ownerUserId: string | undefined,
@@ -276,18 +275,6 @@ export class VaultService {
 
   async getVault(id: string): Promise<VaultInfo> {
     return this.store.tx((t) => this.vaultInfo(t, id));
-  }
-
-  /**
-   * Another owner's vault, an installation vault, or the host vault, is the same 404 as a
-   * missing one: a request acting for a subject reaches only that subject's own vaults.
-   */
-  async assertOwner(id: string, ownerUserId: string): Promise<void> {
-    await this.store.tx(async (t) => {
-      const row = await t.getVault(id);
-      if (!row || row.scope !== "user" || row.ownerUserId !== ownerUserId)
-        throw new VaultError(404, "Vault not found");
-    });
   }
 
   async deleteVault(id: string): Promise<{ id: string }> {

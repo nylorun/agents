@@ -70,7 +70,7 @@ export async function* observeSSE(
   const signal = options.signal ?? controller.signal;
   let cursor = options.cursor;
   let retry = 250;
-  // The Runtime ended the stream because its subject token expired or was revoked: reconnect
+  // The Runtime ended the stream because its token expired: reconnect
   // at once (the transport fetches a new token), but only once in a row.
   let closedByRuntime = 0;
   while (!signal.aborted) {

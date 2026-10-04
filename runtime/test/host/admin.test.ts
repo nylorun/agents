@@ -121,8 +121,8 @@ it("F9 I1: the key routes answer 503 while the Tenant is not open, and need the 
   });
   for (const [method, path] of [
     ["GET", "/v1/admin/keys"],
-    ["PUT", "/v1/admin/keys/babai"],
-    ["DELETE", "/v1/admin/keys/babai"],
+    ["PUT", "/v1/admin/keys/backend"],
+    ["DELETE", "/v1/admin/keys/backend"],
   ] as const) {
     const unopened = await getJson(`${url}${path}`, {
       method,

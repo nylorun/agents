@@ -14,7 +14,6 @@ import {
   newTenantId,
 } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
-import { deriveTenantKey } from "@nylorun/admin";
 import { openTenantDatabase } from "../../src/store/postgres/tenant.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { until } from "../host/execution-support.js";
@@ -161,9 +160,8 @@ it("creates its Tenant once, as a Host does, and serves it again on the same dat
   const own = await status(runtime.applicationKey);
   expect(own.status).toBe(200);
   expect(await own.json()).toMatchObject({ tenant: { id: tenantId, name: "first" } });
-  // The first run's application key is still the Tenant's; no derived principal was registered.
+  // The first run's application key is still the Tenant's.
   expect((await status(first.applicationKey)).status).toBe(200);
-  expect((await status(deriveTenantKey(first.adminKey, tenantId, "project"))).status).toBe(404);
   // No Admin Tenant routes.
   const admin = await fetch(`${runtime.url}/v1/admin/tenants`, {
     headers: {

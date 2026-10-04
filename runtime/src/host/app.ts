@@ -1,10 +1,17 @@
 /**
  * The Host's request pipeline as a Hono app, in the order clients depend on: the request log
- * around everything, then Origin (and browser preflights), Content-Type, `/health`, `/ready`,
- * the Admin API, and Tenant routes, which go to the Host's one Tenant once the request's
- * headers and protocol check out. Nothing in a request selects the Tenant (protocol 5); a
- * protocol 4 client's `Nylorun-Tenant`, or a publishable key, naming another Tenant gets the
- * opaque 404, so a client pointed at the wrong installation fails loudly.
+ * around everything, then Origin and `OPTIONS`, Content-Type, `/health`, `/ready`, the Admin
+ * API, and Tenant routes, which go to the Host's one Tenant once the request's headers and
+ * protocol check out. Nothing in a request selects the Tenant (protocol 5); a protocol 4
+ * client's `Nylorun-Tenant` naming another Tenant gets the opaque 404, so a client pointed at
+ * the wrong installation fails loudly.
+ *
+ * Browsers (protocol 7): the Runtime sends no CORS headers; the operator's proxy answers
+ * preflights and adds them. A request with `Origin` reaches the Tenant routes of the public
+ * listener, where only a trusted issuer's token is accepted from a browser (`tenant/auth.ts`).
+ * The Admin API, `/health`, `/ready` and the operator listener refuse `Origin`. An `OPTIONS`
+ * request (a preflight that passed the proxy, or none) is `204` with `Allow` and no CORS
+ * header, so a browser that reaches the Runtime directly fails its preflight.
  *
  * The `Host` header is checked before this, in the Node listener (`create-host.ts`):
  * `@hono/node-server` builds the request URL from it, and refuses a malformed one itself.
@@ -17,16 +24,13 @@ import {
   checkCompatibility,
   HOST_PROTOCOL,
   PROTOCOL_HEADER,
-  PUBLISHABLE_KEY_HEADER,
   TENANT_HEADER,
-  tenantOfPublishableKey,
   type ErrorCode,
 } from "@nylorun/core/compatibility";
 import type { Logger, NodeBindings, TenantModule } from "../tenant/types.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { findTenantRoute } from "../api/http/app.js";
 import { tenantDocument } from "../api/openapi.js";
-import { answerPreflight } from "./cors.js";
 import {
   adminKeyMatches,
   headerValue,
@@ -60,7 +64,6 @@ export interface HostAppOptions {
   adminKey: string;
   coreVersion: string;
   pid: number;
-  browserAccess: boolean;
   readiness?: () => Promise<{ ok: boolean; checks: Record<string, boolean> }>;
   /** Every listener is listening. */
   listening(): boolean;
@@ -91,24 +94,22 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   });
 
   app.use(async (c, next) => {
-    const { incoming, outgoing, role } = c.env;
+    const { incoming, role } = c.env;
     if (headerValue(incoming, "origin") !== undefined) {
       const route = pathnameOf(incoming).split("/").filter(Boolean);
-      // Only Tenant routes, and only when the operator allows browsers; the Tenant then
-      // checks the publishable key and its origins before adding any CORS header.
+      // Only Tenant routes of the public listener; the Tenant then accepts only a trusted
+      // issuer's token from a browser. The operator listener never serves browsers.
       const tenantRoute = route[0] === "v1" && route[1] !== "admin";
-      // The operator listener never serves browsers.
-      if (!options.browserAccess || role === "operator" || !tenantRoute)
+      if (role === "operator" || !tenantRoute)
         return rejectedResponse(
           403,
           "origin_rejected",
           "Browser Origin headers are not accepted",
         );
-      if (incoming.method === "OPTIONS") {
-        c.set("status", answerPreflight(incoming, outgoing, route, browserRoute));
-        return RESPONSE_ALREADY_SENT;
-      }
     }
+    // CORS is the operator's proxy's: an OPTIONS request gets no CORS header.
+    if (incoming.method === "OPTIONS")
+      return new Response(null, { status: 204, headers: { allow: ALLOWED_METHODS } });
     await next();
   });
 
@@ -175,16 +176,7 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
       return await options.admin(c.req.raw, { incoming, outgoing });
     }
 
-    // Tenant routes: key pattern → protocol → the Tenant → selection → the Tenant's routes.
-    const keyHeader = headerValue(incoming, PUBLISHABLE_KEY_HEADER);
-    const keyTenant =
-      keyHeader === undefined ? undefined : tenantOfPublishableKey(keyHeader);
-    if (keyHeader !== undefined && keyTenant === undefined)
-      return rejectedResponse(
-        400,
-        "invalid_request",
-        `${PUBLISHABLE_KEY_HEADER} header is malformed`,
-      );
+    // Tenant routes: protocol → the Tenant → selection → the Tenant's routes.
     const tenantHeader = headerValue(incoming, TENANT_HEADER);
     const named =
       tenantHeader === undefined || tenantHeader.trim() === "" ? undefined : tenantHeader.trim();
@@ -208,10 +200,8 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
     }
     const { handle } = resolution;
     const tenantId = handle.envelope.id;
-    // A protocol 4 client names the Tenant; a publishable key carries one. Either naming
-    // another Tenant (or a malformed header) reached the wrong installation.
-    if ((named !== undefined && named !== tenantId) || (keyTenant !== undefined && keyTenant !== tenantId))
-      return opaqueNotFoundResponse();
+    // A protocol 4 client names the Tenant: naming another reached the wrong installation.
+    if (named !== undefined && named !== tenantId) return opaqueNotFoundResponse();
     c.set("tenantId", tenantId);
     return await handle.fetch(c.req.raw, { incoming, outgoing });
   });
@@ -244,10 +234,8 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
   return app;
 }
 
-/** A route a browser page may call, decided from the route alone (`api/http/define.ts`). */
-function browserRoute(method: string, segments: readonly string[]): boolean {
-  return findTenantRoute(method, segments)?.browser === true;
-}
+/** The methods the Runtime serves, for an `OPTIONS` answer's `Allow`. */
+const ALLOWED_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
 
 /** The Tenant route a request names, if any; a malformed path names none. */
 function tenantRouteOf(incoming: IncomingMessage) {

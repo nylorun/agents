@@ -56,7 +56,9 @@ key, and calls the Runtime for each person with
 ([agents/README.md](./agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
 [examples](./examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
-enforces the scopes and each subject's ownership of sessions and vaults itself.
+enforces the scopes and each subject's ownership of sessions itself. Vaults
+are the installation's: only an application key acting for no one manages them
+([Credentials](#credentials)).
 
 - Keep the Runtime off the network. An app server on the same machine calls
   `http://localhost:<port>` (the URL `nylorun up` prints). An app server
@@ -68,44 +70,39 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   Studio for operators (loopback, an SSH tunnel, or
   [a sign-in proxy](#studio-behind-a-sign-in-proxy)). Restate's UI is not
   published at all unless you ask for it (`nylorun start --restate-ui`). Leave
-  `NYLORUN_STUDIO_FRAME_ANCESTORS` unset on servers: no page may frame Studio.
+  `NYLORUN_STUDIO_FRAME_ANCESTORS` empty on servers (the default): no page may
+  frame Studio. Embedding is opt-in: `nylorun start --studio-embed-origin
+  <origin>` lists the exact origins of the app that frames it.
 - The app server drops every `Nylorun-*` header its own clients send, never
   forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
   terminates TLS for its clients.
 - The admin key and any application keys stay on the server; clients get
   nothing. Give each server its own operator key (`npx nylorun key put <name>`,
   or `admin.keys.put(name)` in `@nylorun/admin`), so you can rotate or delete
-  one without touching the others; the Runtime keeps only its hash.
+  one without touching the others; the Runtime keeps only its hash. No key is
+  derived from the admin key but Studio's: an earlier Host's derived keys are no
+  longer registered, and those already in a database keep working as ordinary
+  keys until you replace them with operator keys.
 - Removing a person is the app server's decision: it stops acting for them and
-  closes their open streams. If it also minted subject tokens for them, it
-  revokes them too (`app.access.revokeSubject`).
+  closes their open streams.
 
 ## Calling the Runtime from browsers and apps
 
 A browser or a mobile app can call the Runtime itself, without carrying its
-requests through your app server (optional features `subject-tokens` and
-`browser-access`). Your app server keeps signing people in and mints a
-short-lived subject token for each; the page ships a publishable key.
+requests through your app server: it presents the JWT your identity provider
+gave the person, and the Runtime trusts that provider through the identity
+file ([Trusted issuers](#trusted-issuers)). There is no toggle and no browser
+key: a request with an `Origin` and a trusted issuer's token is served like a
+server's. Application keys and delivery tokens are server secrets, refused with
+an `Origin` (`403 origin_rejected`).
 
-1. Write the access policy once: which roles exist, which agents each may use,
-   and their limits (`npx @nylorun/cli access policy init`, then
-   `access policy set <file>`).
-2. Create a publishable key per app, listing the origins that serve it:
-   `npx @nylorun/cli access keys create --name web --origin https://app.example.com`.
-   Use `--origin http://localhost:*` for development; an app with no web
-   origin gets none.
-3. Add a token route to your app server (`createTokenEndpoint` from
-   `@nylorun/agents`): same-origin `POST`, behind your sign-in, no CORS.
-4. In the page, `createBrowserClient` from `@nylorun/agents/browser` takes the
-   Runtime URL, the publishable key and a function that calls the token route.
-
-A local Tenant allows browser requests (`NYLORUN_BROWSER_ACCESS`, on by
-default there; `off` refuses every `Origin`). A Host started from
-`host.json` allows them only with `"browserAccess": true`. With no publishable
-key, every request with an `Origin` is still refused. CORS headers come from the
-Runtime after it checks the key and its origins; a reverse proxy passes
-`OPTIONS`, `Origin` and `Nylorun-Key` through and never adds its own. A page
-served over HTTPS can only call a Runtime served over HTTPS.
+The Runtime sends no CORS headers. Put it behind a reverse proxy that answers
+preflights and adds `Access-Control-Allow-Origin` for your app's origins only
+([Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine));
+an `OPTIONS` request that reaches the Runtime gets `204` with no CORS header,
+so a page talking to it directly fails its preflight. A page served over HTTPS
+can only call a Runtime served over HTTPS. Turn and rate limits per person
+belong at the proxy too.
 
 ## Trusted issuers
 
@@ -131,8 +128,9 @@ issuers:
 ```
 
 - Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp` and `iat`.
-  Their scopes are the claim's, limited to `allowedScopes` (the subject token
-  scopes, plus `studio`, an operator scope for Studio). A sandbox grant whose
+  Their scopes are the claim's, limited to `allowedScopes` (`agents:read`,
+  `sessions:own`, `sandboxes:write`, and `studio`, an operator scope for
+  Studio). A sandbox grant whose
   claim is missing, or is not one id segment, reaches nothing.
 - A malformed file stops the runtime, naming the issuer and the field; a
   subject template must reference a claim, or everyone would be one person.
@@ -140,9 +138,9 @@ issuers:
   redirects, and caches the keys. While a JWKS is unreachable, cached keys keep
   working and a token with a new `kid` gets `401 issuer_unavailable`; an
   unreachable JWKS never stops the boot.
-- An issuer token needs no publishable key from a browser, but the Runtime adds
-  no CORS headers for it: your reverse proxy answers CORS. Subject revocation
-  does not reach issuer tokens; keep them short-lived.
+- From a browser, the Runtime adds no CORS headers: your reverse proxy answers
+  CORS. Only a token's expiry ends it (an open event stream ends then too);
+  keep them short-lived, and revoke people at your identity provider.
 - `GET /v1/me` shows what a token renders to (`via: issuer:<name>`), for any
   credential.
 
@@ -200,7 +198,8 @@ way in. Nothing in the Runtime changes.
 | Forward to the Runtime port only (`NYLORUN_PORT`); never the operator port (`NYLORUN_ADMIN_PORT`), Studio or Restate | The Admin API is on its own port and stays on the machine |
 | Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
 | Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
-| Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
+| Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses application keys sent with an `Origin` |
+| Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 
@@ -399,9 +398,11 @@ A session's MCP credential comes from two places, in this order:
 1. **The session's attached vaults.** An installation vault (`POST /v1/vaults`
    with `scope: "installation"`, application keys only; Studio's Connections
    page creates these) holds the installation's own credentials: shared tool
-   keys and the operator's MCP connections. Any session may attach one, and a
-   request acting for a person never sees one. A person's vault (owner
-   `ownerUserId`) still attaches only to that person's sessions.
+   keys and the operator's MCP connections. Any session may attach one. Vault
+   routes take only an application key acting for no one (protocol 7): a
+   request acting for a person, or a trusted issuer's token, gets
+   `403 scope_required`. A person's vault (owner `ownerUserId`) still attaches
+   only to that person's sessions.
 2. **Your credential resolver**, for a person's own credentials, which Nylorun
    never stores. Set `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the
    gateway (a local Tenant passes them from the shell that runs `nylorun
@@ -463,7 +464,7 @@ a discovery document cannot point it at a private address.
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
 credential, setting and selecting the host model, MCP OAuth connect) and signs every token
-(subject tokens, Action deliveries, signing-key rotation). The runtime reaches
+(Action deliveries, capability links, run and host tokens, signing-key rotation). The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
 never reads the key: Compose covers `keys/` and `docker/` in the runtime
 container with empty read-only mounts. While the gateway is down, those

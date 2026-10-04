@@ -8,11 +8,20 @@ import { CreateVaultRequestSchema, SUBJECT_SCOPES, parseSubjectHeaders } from ".
 
 describe("parseSubjectHeaders", () => {
   it("returns the subject and its scopes, collapsing duplicates", () => {
-    const parsed = parseSubjectHeaders("app:42", "sessions:own  vaults:own sessions:own");
+    const parsed = parseSubjectHeaders("app:42", "sessions:own  agents:read sessions:own");
     expect(parsed).toEqual({
       ok: true,
       subject: "app:42",
-      scopes: new Set(["sessions:own", "vaults:own"]),
+      scopes: new Set(["sessions:own", "agents:read"]),
+    });
+  });
+
+  it("accepts the retired vaults:own and grants nothing for it (protocol 6 clients send it)", () => {
+    expect(SUBJECT_SCOPES).not.toContain("vaults:own");
+    expect(parseSubjectHeaders("app:42", "sessions:own vaults:own")).toEqual({
+      ok: true,
+      subject: "app:42",
+      scopes: new Set(["sessions:own"]),
     });
   });
 

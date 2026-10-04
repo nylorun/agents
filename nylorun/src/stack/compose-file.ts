@@ -15,8 +15,7 @@ import { PINNED_IMAGES } from "./images.js";
  * database with C collation (`--locale=C`) and runs with `wal_level=logical`: the stream
  * relay feeds s2-lite from the record over logical replication (Durable Streams), and
  * `max_slot_wal_keep_size` caps the WAL a stuck relay can hold. The Runtime creates the
- * Tenant on its first start, with its name (`NYLORUN_TENANT_NAME`) and the derived
- * principals of `NYLORUN_DERIVED_PRINCIPALS` (`project` for the Project link).
+ * Tenant on its first start, with its name (`NYLORUN_TENANT_NAME`).
  *
  * Restate signs requests to the Worker endpoint with the private key in
  * `docker/restate-identity.pem`, mounted read-only; the Runtime gets the public
@@ -224,7 +223,6 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
       NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
-      NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
       # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
       # or the vault key.
@@ -305,7 +303,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       # Browsers share cookies across ports of one host: a cookie per Tenant keeps the
       # sessions of two Studios on localhost apart.
       NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_${name}
-      # Exact origins that may frame Studio (Babai Desktop); kept in .env.
+      # Exact origins that may frame Studio (none by default: embedding is opt-in); kept in .env.
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
       # Studio's anonymous usage analytics; empty when telemetry is off.
       NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}

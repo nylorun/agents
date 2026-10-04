@@ -9,7 +9,7 @@
  * session's sandbox as a version of its `outputs` folder. Read one as a tree, one file by path,
  * a diff between versions or a zip.
  *
- * Acting for a person (`client.as`, a subject token), only the artifacts of their own sessions.
+ * Acting for a person (`client.as`, or a trusted issuer's token), only the artifacts of their own sessions.
  */
 import type {
   ArtifactDiff,

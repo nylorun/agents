@@ -1,15 +1,15 @@
 /**
  * A Host and its Tenant (tenancy.md §4–§5, plan P9): the Host creates its Tenant in its
- * database on first start and serves it again after a restart; the derived principals it is
- * configured with reach it without naming it; a database it may not open leaves it not ready,
+ * database on first start and serves it again after a restart; the Studio key the admin key
+ * derives reaches it without naming it, and no other key is derived (protocol 7); a database it may not open leaves it not ready,
  * with the cause in `/v1/admin/status`, and every Tenant request gets the opaque 404.
  */
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { deriveStudioToken, deriveTenantKey } from "@nylorun/admin";
+import { deriveStudioToken } from "@nylorun/admin";
 import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
@@ -17,6 +17,7 @@ import {
   newTenantId,
 } from "@nylorun/core/compatibility";
 import { AdminStatusSchema } from "@nylorun/core/contracts";
+import { hashToken } from "../../src/core/bearer.js";
 import { createHost } from "../../src/host/create-host.js";
 import { createHostLogger } from "../../src/host/logger.js";
 import { OPAQUE_NOT_FOUND } from "../../src/host/http.js";
@@ -37,7 +38,7 @@ afterEach(async () => {
 /** A Host wired as `host/main.ts` wires it, on `sql`, with the Tenant settings given. */
 async function startHost(
   sql: PostgresClient,
-  options: { adminKey?: string; tenantId?: string; name?: string; derived?: readonly string[] } = {},
+  options: { adminKey?: string; tenantId?: string; name?: string } = {},
 ) {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-bootstrap-"));
   const adminKey = options.adminKey ?? randomBytes(32).toString("hex");
@@ -51,7 +52,7 @@ async function startHost(
       create: {
         ...(options.tenantId ? { tenantId: options.tenantId } : {}),
         name: options.name ?? "default",
-        principals: hostPrincipals({ adminKey, derived: options.derived ?? ["project"] }),
+        principals: hostPrincipals({ adminKey }),
       },
       configFor: (id) => ({ ...configForRoot(hostRoot)(id), model: { kind: "scripted", output: "ok" } }),
       logger,
@@ -114,37 +115,44 @@ it("creates its Tenant on first start, and serves the same one after a restart",
   const again = await startHost(sql, { adminKey: first.adminKey, tenantId: newTenantId(), name: "other" });
   expect((await again.status()).tenant).toMatchObject({ id: tenantId, name: "my-app", state: "open" });
   expect(again.lines.join("\n")).not.toContain("tenant created");
-  const project = deriveTenantKey(first.adminKey, tenantId, "project");
-  expect((await again.tenant(project)).status).toBe(200);
+  const studio = deriveStudioToken(first.adminKey, tenantId);
+  expect((await again.tenant(studio)).status).toBe(200);
 });
 
-it("registers the Studio and derived principals; their keys reach the Tenant without naming it", async () => {
+it("registers the Studio principal; its key reaches the Tenant without naming it, and nothing else derived does", async () => {
   const { sql } = await tenantTestDatabase();
-  const host = await startHost(sql, { derived: ["project", "babai"] });
+  const host = await startHost(sql);
   const { tenant } = await host.status();
   const id = tenant.id!;
-  for (const key of [
-    deriveTenantKey(host.adminKey, id, "project"),
-    deriveTenantKey(host.adminKey, id, "babai"),
-    deriveStudioToken(host.adminKey, id),
-  ]) {
-    const response = await host.tenant(key);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ tenant: { id } });
-  }
+  const studio = deriveStudioToken(host.adminKey, id);
+  const response = await host.tenant(studio);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ tenant: { id } });
   // A protocol 4 client naming the Tenant is served; naming another is the opaque 404.
-  const project = deriveTenantKey(host.adminKey, id, "project");
-  expect((await host.tenant(project, { [TENANT_HEADER]: id })).status).toBe(200);
-  const other = await host.tenant(project, { [TENANT_HEADER]: newTenantId() });
+  expect((await host.tenant(studio, { [TENANT_HEADER]: id })).status).toBe(200);
+  const other = await host.tenant(studio, { [TENANT_HEADER]: newTenantId() });
   expect(other.status).toBe(404);
   expect(await other.json()).toEqual(OPAQUE_NOT_FOUND);
-  // Principals it was not configured with reach nothing.
-  expect((await host.tenant(deriveTenantKey(host.adminKey, id, "smoke"))).status).toBe(404);
+  // Protocol 6's derived project key is no longer registered.
+  const derived = createHmac("sha256", host.adminKey)
+    .update(Buffer.from(`nylorun/principal/v1\u0000project\u0000${id}`, "utf8"))
+    .digest("hex");
+  expect((await host.tenant(derived)).status).toBe(404);
+});
 
-  // Configured later, a derived principal is added on the next start.
+it("keeps a principal an earlier Runtime registered as an ordinary key", async () => {
+  const { sql } = await tenantTestDatabase();
+  const host = await startHost(sql);
+  const id = (await host.status()).tenant.id!;
   await host.close();
-  const restarted = await startHost(sql, { adminKey: host.adminKey, derived: ["project", "smoke"] });
-  expect((await restarted.tenant(deriveTenantKey(host.adminKey, id, "smoke"))).status).toBe(200);
+  // A derived principal registered by a protocol 6 Host stays in the principals table.
+  const key = "b".repeat(64);
+  await sql`INSERT INTO nylorun.principals (id, role, token_hash, created_at)
+    VALUES ('legacy', 'application', ${hashToken(key)}, ${new Date().toISOString()})`;
+  const restarted = await startHost(sql, { adminKey: host.adminKey });
+  const response = await restarted.tenant(key);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ tenant: { id } });
 });
 
 it("refuses a database of the old layout: not ready, the cause in the status, the opaque 404", async () => {
@@ -180,5 +188,5 @@ it("refuses a database migrated by a newer Runtime, naming its Tenant", async ()
     state: "unavailable",
     cause: { code: "schema-too-new", repair: expect.stringContaining("newer") },
   });
-  expect((await host.tenant(deriveTenantKey(first.adminKey, tenantId, "project"))).status).toBe(404);
+  expect((await host.tenant(deriveStudioToken(first.adminKey, tenantId))).status).toBe(404);
 });

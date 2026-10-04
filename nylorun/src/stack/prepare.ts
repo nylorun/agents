@@ -6,7 +6,6 @@ import { parseFrameAncestors } from "@nylorun/core/contracts";
 import { CliError } from "../errors.js";
 import {
   DEFAULT_STUDIO_FRAME_ANCESTORS,
-  parseDerivedPrincipals,
   parsePersisted,
   renderEnvFile,
   type SandboxStackEnv,
@@ -74,11 +73,9 @@ export async function prepareStack(input: {
   ports: PortProbe;
   /** Ports other Tenants keep in their `.env`: never chosen for a port not chosen yet. */
   reserved?: ReadonlySet<number>;
-  /** `NYLORUN_DERIVED_PRINCIPALS` from the environment of `nylorun start`; else kept. */
-  derivedPrincipals?: string;
   /**
-   * Changes to the origins that may embed Studio: `reset` goes back to the
-   * defaults, `add` appends (for example a desktop app's dev server).
+   * Changes to the origins that may embed Studio: `reset` empties the list (the
+   * default), `add` appends (for example a desktop app's dev server).
    */
   studioEmbedOrigins?: { add?: readonly string[]; reset?: boolean };
   /** The measurement id Studio reports page views to; absent when telemetry is off. */
@@ -149,10 +146,6 @@ export async function prepareStack(input: {
     studioFrameAncestors,
     studioAnalyticsId: input.studioAnalyticsId ?? "",
     tenantName: input.name,
-    derivedPrincipals: (input.derivedPrincipals?.trim()
-      ? parseDerivedPrincipals(input.derivedPrincipals, "NYLORUN_DERIVED_PRINCIPALS")
-      : (persisted.derivedPrincipals ?? ["project"])
-    ).join(","),
   };
 
   const sandboxes =

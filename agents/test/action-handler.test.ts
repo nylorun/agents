@@ -8,7 +8,7 @@ import {
   SIGNATURE_HEADER,
   TENANT_HEADER,
 } from "@nylorun/core/compatibility";
-import { DELIVERY_TOKEN_TYPE, subjectTokenIssuer } from "@nylorun/core/contracts";
+import { DELIVERY_TOKEN_TYPE, tenantTokenIssuer } from "@nylorun/core/contracts";
 import { createActionHandler } from "../src/action-handler.js";
 import { AgentsClient } from "../src/client.js";
 import { bodyHash, verifyDeliveryToken } from "../src/delivery-token.js";
@@ -102,7 +102,7 @@ async function delivery(
     options.signature === undefined
       ? await sign(
           {
-            iss: subjectTokenIssuer(TENANT),
+            iss: tenantTokenIssuer(TENANT),
             aud: ENDPOINT,
             sub: parsed.type === "ping" ? "ping" : parsed.action?.actionId,
             agt: parsed.type === "ping" ? parsed.agentId : parsed.action?.agentId,
@@ -230,9 +230,9 @@ describe("createActionHandler: deliveries", () => {
     const cases: [string, Promise<Request>, string][] = [
       ["no token", delivery(body, { signature: null }), "signature_missing"],
       ["another key", delivery(body, { key: other.privateKey }), "signature_invalid"],
-      ["another type", delivery(body, { header: { typ: "nylorun-subject+jwt" } }), "signature_invalid"],
+      ["another type", delivery(body, { header: { typ: "nylorun-artifact+jwt" } }), "signature_invalid"],
       ["embedded key", delivery(body, { header: { jwk } }), "signature_invalid"],
-      ["an issuer that is not a Tenant", delivery(body, { claims: { iss: subjectTokenIssuer("tn_x") } }), "signature_invalid"],
+      ["an issuer that is not a Tenant", delivery(body, { claims: { iss: tenantTokenIssuer("tn_x") } }), "signature_invalid"],
       ["another issuer", delivery(body, { claims: { iss: "https://evil.example" } }), "signature_invalid"],
       ["another URL", delivery(body, { claims: { aud: "https://evil.example/actions" } }), "signature_invalid"],
       ["another Action", delivery(body, { claims: { sub: "a2" } }), "signature_invalid"],
@@ -561,11 +561,11 @@ describe("verifyDeliveryToken", () => {
     const token = request.headers.get(SIGNATURE_HEADER);
     const bytes = new TextEncoder().encode(JSON.stringify(body));
     await expect(verifyDeliveryToken(token, { keys, body: bytes })).resolves.toMatchObject({
-      iss: subjectTokenIssuer(TENANT),
+      iss: tenantTokenIssuer(TENANT),
     });
     await expect(
       verifyDeliveryToken(token, { keys, body: bytes, tenantId: TENANT }),
-    ).resolves.toMatchObject({ iss: subjectTokenIssuer(TENANT) });
+    ).resolves.toMatchObject({ iss: tenantTokenIssuer(TENANT) });
     await expect(
       verifyDeliveryToken(token, { keys, body: bytes, tenantId: "tn_00000000000000000000000002" }),
     ).rejects.toMatchObject({ code: "signature_invalid" });

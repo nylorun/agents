@@ -111,37 +111,27 @@ describe("the Tenant API through the keys service", () => {
     expect(selected.body).toMatchObject({ model: "second" });
   });
 
-  it("signs subject tokens that verify against the published JWKS", async () => {
+  it("signs capability links that verify against the published JWKS", async () => {
     const runtime = await boot();
     // A fresh Tenant has no keys: the anonymous JWKS asks the keys service to create them.
     const jwks = await call(runtime, "GET", "/v1/access/jwks");
     expect(jwks.status).toBe(200);
     expect(jwks.body.keys).toHaveLength(2);
-    expect(
-      (await call(runtime, "PUT", "/v1/access/policy", {
-        requestId: "p1",
-        policy: {
-          version: 1,
-          roles: { user: { scopes: ["sessions:own"], agents: "*" } },
-          anon: { scopes: [], agents: [] },
-          tokens: { maxTtlSeconds: 600 },
-        },
-      })).status,
-    ).toBe(200);
-    const minted = await call(runtime, "POST", "/v1/tokens", {
-      requestId: "t1",
-      subject: "app:ada",
-      role: "user",
-      ttlSeconds: 300,
+    const uploaded = await fetch(`${runtime.url}/v1/artifacts?name=notes.txt`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "text/plain" },
+      body: "hello",
+    });
+    expect(uploaded.status, await uploaded.clone().text()).toBe(201);
+    const { artifact } = (await uploaded.json()) as { artifact: { artifactId: string } };
+    const minted = await call(runtime, "POST", `/v1/artifacts/${artifact.artifactId}/links`, {
+      expiresIn: 60,
     });
     expect(minted.status).toBe(200);
-    expect(decodeProtectedHeader(minted.body.token)).toMatchObject({
-      alg: "ES256",
-      typ: "nylorun-subject+jwt",
-      kid: minted.body.keyId,
-    });
-    const verified = await jwtVerify(minted.body.token, createLocalJWKSet({ keys: jwks.body.keys }));
-    expect(verified.payload).toMatchObject({ sub: "app:ada", aud: "nylorun", role: "user" });
+    const token = (minted.body.path as string).split("/").at(-1)!;
+    expect(decodeProtectedHeader(token)).toMatchObject({ alg: "ES256", typ: "nylorun-artifact+jwt" });
+    const verified = await jwtVerify(token, createLocalJWKSet({ keys: jwks.body.keys }));
+    expect(verified.payload).toMatchObject({ sub: artifact.artifactId, aud: "nylorun-artifact" });
   });
 
   it("rotates signing keys, and keeps a refusal's code and details", async () => {

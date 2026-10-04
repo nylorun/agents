@@ -7,9 +7,9 @@
  *   sandbox's id, kind, spec and labels, and the session body names the sandbox it is attached
  *   to (`Session.sandboxId`); deleting a session (a sessions reset) only detaches it.
  * - **Access.** An application key reaches every sandbox, and so does an application key acting
- *   for a subject (`Nylorun-Subject`), which needs `sandboxes:write` to change one. A subject
- *   token reaches only the ids its `sbx` grants match, and changes them only with
- *   `sandboxes:write`; any other id is the 404 of a missing one.
+ *   for a subject (`Nylorun-Subject`), which needs `sandboxes:write` to change one. A token
+ *   caller (a trusted issuer's token) reaches only the ids its grants match, and changes them
+ *   only with `sandboxes:write`; any other id is the 404 of a missing one.
  * - **Serial turns.** One turn at a time per sandbox: a session whose sandbox another attached
  *   session's turn holds is refused (`409 sandbox_busy`), as the session sandbox route is
  *   refused while its session's turn runs. Commands within the workspace keep queueing in the
@@ -50,7 +50,7 @@ import { parseSandboxDuration } from "@nylorun/core/define";
 import type { AuthScope, Session, TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
-/** The `sbx` grants that limit `scope`, or undefined when it reaches every sandbox. */
+/** The sandbox grants that limit `scope`, or undefined when it reaches every sandbox. */
 export function sandboxGrantsOf(scope: AuthScope): readonly string[] | undefined {
   return scope.kind === "token" ? (scope.sandboxes ?? []) : undefined;
 }
@@ -514,7 +514,7 @@ export async function recordAttachment(t: Tx, sessionId: string, sandboxId: stri
 
 /**
  * Checks a turn start on a session attached to a sandbox, in the command's transaction after
- * the session row lock: the sandbox still exists, a subject token's `sbx` grants reach it, and
+ * the session row lock: the sandbox still exists, a token caller's grants reach it, and
  * no other session attached to it has a turn running. Holds the sandbox row's lock until the
  * transaction ends, so two turn starts on one sandbox are decided one after the other.
  *

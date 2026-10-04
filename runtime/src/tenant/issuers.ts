@@ -15,10 +15,9 @@
  *   with the 30 s clock tolerance of every Runtime token;
  * - a subject the template renders from scalar claims, valid and not reserved.
  *
- * The result is the `token` AuthScope (F9-D12) with `issuer`, the role `issuer:<name>`, no
- * limits and no epoch: subject revocation (`/v1/access/revocations`) does not reach issuer
- * tokens; their expiry does. An expired token is `401 token_expired`; every other refusal is
- * the opaque 404, its reason logged.
+ * The result is the `token` AuthScope (F9-D12) with `issuer`: only its expiry ends it. An
+ * expired token is `401 token_expired`; every other refusal is the opaque 404, its reason
+ * logged.
  */
 import { createHash, createPublicKey } from "node:crypto";
 import { decodeJwt, decodeProtectedHeader, errors, jwtVerify, type JWTPayload } from "jose";
@@ -260,12 +259,6 @@ export function createTrustedIssuers(
   };
 }
 
-/** The issuer a request's bearer claims, if the Tenant trusts one by that `iss`. */
-export function claimedIssuer(ctx: TenantContext, authorization: string | undefined): TrustedIssuer | undefined {
-  if (!ctx.config.issuers || !authorization?.startsWith("Bearer ")) return undefined;
-  return ctx.config.issuers.claimed(authorization.slice(7));
-}
-
 /** A claim's value as template text: strings and finite numbers only (scalar claims). */
 function scalarClaim(payload: JWTPayload, claim: string): string | undefined {
   if (!Object.hasOwn(payload, claim)) return undefined;
@@ -345,7 +338,6 @@ export async function verifyIssuerToken(
     subject,
     scopes: scopesOf(config, payload),
     agents: config.agents ? new Set(config.agents) : "*",
-    role: `issuer:${config.name}`,
     sandboxes: [...new Set(sandboxes ?? [])],
     expiresAt: payload.exp! * 1000,
     tokenId: jti,

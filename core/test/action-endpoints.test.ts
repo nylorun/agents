@@ -159,7 +159,7 @@ describe("deliveries", () => {
 });
 
 describe("delivery tokens", () => {
-  it("live no longer than subject tokens, and inline timeouts fit inside them", () => {
+  it("live no longer than any Runtime token, and inline timeouts fit inside them", () => {
     expect(DELIVERY_TOKEN_TYPE).toBe("nylorun-delivery+jwt");
     expect(DELIVERY_TOKEN_MAX_TTL_SECONDS).toBe(TOKEN_TTL_MAX_SECONDS);
     expect(ENDPOINT_TIMEOUT_MAX_MS).toBe(840_000);

@@ -7,7 +7,7 @@
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
  * | `sessions/<sessionId>` | every event of the session, in sequence | the stream relay, from the record | history and session SSE |
- * | `tenant/control` | `session.cancel`, `sessions.reset` and `subject.revoked` signals | API nodes | every process with the Tenant open |
+ * | `tenant/control` | `session.cancel`, `sessions.reset` and `action.resolved` signals | API nodes | every process with the Tenant open |
  *
  * **Basin generations.** A session id is unique within its Tenant's basin generation. A
  * Tenant reset, the only path that frees ids, moves the Tenant to the next generation, so
@@ -165,16 +165,6 @@ export interface SessionsResetSignal {
 }
 
 /**
- * A subject's tokens older than `epoch` were revoked: each process ends that subject's
- * streams opened with them.
- */
-export interface SubjectRevokedSignal {
-  type: "subject.revoked";
-  subject: string;
-  epoch: number;
-}
-
-/**
  * An Action of `sessionId` has its outcome (F6.2): the process whose harness holds the
  * session's run while the Action is pending passes it on (`effect.resolved`).
  */
@@ -187,5 +177,4 @@ export interface ActionResolvedSignal {
 export type ControlSignal =
   | SessionCancelSignal
   | SessionsResetSignal
-  | SubjectRevokedSignal
   | ActionResolvedSignal;

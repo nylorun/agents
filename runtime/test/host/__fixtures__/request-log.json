@@ -9,6 +9,7 @@
     "method": "GET",
     "path": "/v1/agents",
     "status": 403,
+    "tenantId": "<tenant>",
     "durationMs": "number"
   },
   {

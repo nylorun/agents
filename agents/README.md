@@ -171,7 +171,7 @@ await client.sandboxes.ensure("team-a/proj-42", { labels: { project: "acme" } })
 await client.createSession({ agentId: "analyst", ownerUserId, sandbox: { id: "team-a/proj-42" } });
 ```
 
-Sessions attached to one sandbox share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 sandbox_busy` until the first ends. Deleting a session only detaches it. A spec is fixed once the sandbox exists; `labels` can change. `client.sandboxes.list({ labels })`, `get(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. A subject token reaches only the sandboxes it is minted for, checked at every turn start: `client.tokens.create({ subject, role, sandboxes: ["team-a/*", "user-42"] })` takes exact ids or prefixes ending in `/*`. Creating and deleting through a subject token needs a role with `sandboxes:write`. The Tenant holds at most `limits.sandboxes` of them (`PUT /v1/tenant/sandbox`, default 100).
+Sessions attached to one sandbox share its `/workspace`, and one turn runs in it at a time: a second session's turn is refused with `409 sandbox_busy` until the first ends. Deleting a session only detaches it. A spec is fixed once the sandbox exists; `labels` can change. `client.sandboxes.list({ labels })`, `get(id)` and `delete(id)` manage them, and `npx nylorun sandbox ls | rm` does the same on a local Tenant. A trusted issuer's token reaches only the sandboxes its issuer grants (the identity file's `sandboxes` templates, exact ids or prefixes ending in `/*`), checked at every turn start; creating and deleting through one needs `sandboxes:write`. The Tenant holds at most `limits.sandboxes` of them (`PUT /v1/tenant/sandbox`, default 100).
 
 Add an agent with `.subagents()` to let the model delegate to it:
 
@@ -313,9 +313,10 @@ thread is one session per person, agent and thread. There are two ways in:
 - **From your own server**, with `@nylorun/agents/ag-ui` (below): your server
   signs people in and the handler forwards each request to the Runtime acting
   for that person. The browser never sees the Runtime.
-- **From the page itself**, with `@nylorun/agents/browser`'s `agUi()` and a
-  subject token ([In the browser](#in-the-browser)). No chat traffic passes
-  through your server.
+- **From the page itself**, with `@ag-ui/client`'s `HttpAgent` and a `fetch`
+  that sends your identity provider's token
+  ([In the browser](#in-the-browser)). No chat traffic passes through your
+  server.
 
 Both reach the same threads: one started through the handler continues from
 the page.
@@ -362,8 +363,7 @@ created, on its first run; later runs keep them. Whatever the browser sends in
 - A busy or paused thread ends the run with `RUN_ERROR` code `session_busy`.
 - The handler calls the Runtime as each person (`client.as(subject, { scopes })`,
   below), so the Runtime itself keeps one person out of another's threads.
-  `scopes` defaults to `["sessions:own"]`; add `"vaults:own"` when `session()`
-  attaches the person's vaults. A `subject` the Runtime cannot name (see below)
+  `scopes` defaults to `["sessions:own"]`. A `subject` the Runtime cannot name (see below)
   answers `500` (`subject_invalid`).
 - The handler needs a Runtime with the optional feature `ag-ui-endpoint` and
   answers `502` (`runtime_feature_missing`) without it. It loads no AG-UI
@@ -376,8 +376,8 @@ Limitations: assistant text arrives once per model step (no token streaming);
 no reasoning, state, activity or subagent events, and an agent used as a tool
 shows only its result; frontend tools in `RunAgentInput.tools` are rejected
 (`400`); one text part per user message; earlier messages cannot be edited or
-regenerated. A browser reaches the Runtime only with a subject token and a
-publishable key, never with a Tenant key.
+regenerated. A browser reaches the Runtime only with a trusted issuer's token,
+never with a Tenant key.
 
 ## A2A
 
@@ -467,7 +467,7 @@ made as an artifact of the session; each new artifact or version appears in the
 session's events as `artifact.created` or `artifact.version.created`. The Tenant's
 limits (`PUT /v1/tenant/artifacts`: 100 MiB per file and 10 GiB in all by default)
 refuse a larger upload with `413 limit_exceeded`, and nothing is stored. Acting for
-a person (`as()`, a subject token), a client reaches only the artifacts of that
+a person (`as()`, or a trusted issuer's token), a client reaches only the artifacts of that
 person's sessions, and an upload names one of them.
 
 ### Outputs: folder artifacts
@@ -503,147 +503,58 @@ import { createClient } from "@nylorun/agents";
 const app = createClient(); // the Tenant key, on the server only
 
 // Per request, after your own sign-in:
-const person = app.as(`app:${user.id}`, { scopes: ["sessions:own", "vaults:own"] });
+const person = app.as(`app:${user.id}`, { scopes: ["sessions:own"] });
 await person.createSession({ agentId: "support", ownerUserId: `app:${user.id}` });
 await person.listSessions(); // only this person's sessions
 ```
 
 `as()` sends `Nylorun-Subject` and `Nylorun-Scopes` on every call, event
 streams included, and the Runtime (optional feature `subject-headers`)
-enforces both: another person's sessions and vaults answer the same `404` as
-missing ones, and a route outside the scopes answers `403` (`scope_required`).
+enforces both: another person's sessions answer the same `404` as missing
+ones, and a route outside the scopes answers `403` (`scope_required`).
 Nothing is minted, cached or refreshed, and the copy shares the client's
 compatibility check, so calling `as()` per request is cheap.
 
 | Scope | Allows |
 | --- | --- |
 | `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel; and their artifacts |
-| `vaults:own` | The person's own vaults and credentials |
 | `agents:read` | Listing the Tenant's agents |
 | `agents:write` | Saving agents; listing agents, models and providers |
 | `tenant:settings` | The Tenant's status, model provider and sandbox settings |
 
-No scope reaches Tenant reset, config seed, Action endpoints, actions or the sandbox
-tool routes; call those without `as()`. A subject is 1–200 visible ASCII
+No scope reaches Tenant reset, config seed, Action endpoints, actions, vaults or
+the sandbox tool routes; call those without `as()`. Vaults are the
+installation's (`createVault({ scope: "installation", … })`); a person's own
+credentials come from your credential resolver
+([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
 for a subject.
 
-## Minting subject tokens (app servers)
-
-To let a person's browser or app call the Runtime directly, your server mints a
-short-lived **subject token** for them instead of carrying their requests
-(optional feature `subject-tokens`). What a token may do comes from the Tenant's
-access policy, not from the caller:
-
-```ts
-import { createClient } from "@nylorun/agents";
-
-const app = createClient(); // the Tenant key, on the server only
-
-// Once: roles, their agents and limits (or `nylo access policy init`).
-await app.access.putPolicy({
-  version: 1,
-  roles: {
-    user: {
-      scopes: ["sessions:own", "agents:read"],
-      agents: ["support"],
-      limits: { turnsPerHour: 60, concurrentTurns: 2 },
-    },
-  },
-  anon: { scopes: [], agents: [] },
-  tokens: { maxTtlSeconds: 600 },
-});
-
-// Per signed-in person, from a same-origin POST route:
-const { token, expiresAt } = await app.tokens.create({
-  subject: `app:${user.id}`,
-  role: "user",
-});
-```
-
-The client sends it as `Authorization: Bearer <token>`.
-Tokens carry only `sessions:own`, `vaults:own` and `agents:read`, live at most
-15 minutes, and see only `{ agentId, name, description }` of their role's
-agents. A token that expired or was revoked answers `401` with
-`code: "token_expired"`: fetch a new one and retry. Starting more turns than the
-role allows answers `429` with `code: "limit_exceeded"` and `Retry-After`.
-
-| Call | Does |
-| --- | --- |
-| `app.access.revokeSubject(subject)` | Ends every token minted so far for the person and their open event streams |
-| `app.access.signingKeys.rotate()` | Rotates the Tenant's signing keys without signing anyone out (`{ force: true }` for incidents) |
-| `app.access.signingKeys.list()`, `.revoke(kid)`, `app.access.jwks()` | Inspect and retire keys; the public keys |
-
-Keep tokens in memory on the client, never in `localStorage`, and serve the
-minting route without CORS. `nylo access …` does the same from the terminal.
-
-`createTokenEndpoint` is that route, ready to mount (Next.js, Hono or any
-`Request` → `Response` handler):
-
-```ts
-import { createTokenEndpoint } from "@nylorun/agents";
-
-export const POST = createTokenEndpoint({
-  client: app,
-  role: "user",
-  subject: (request) => userFromCookie(request)?.id,
-});
-```
+The Tenant's signing keys sign delivery tokens and capability links:
+`app.access.signingKeys.list()`, `.rotate()` (`{ force: true }` for incidents),
+`.revoke(kid)` and `app.access.jwks()`, or `nylo access signing-keys …` from the
+terminal.
 
 ## In the browser
 
-`@nylorun/agents/browser` calls the Runtime from a web page or an app with a
-publishable key and the token route above (optional feature `browser-access`).
-It loads no Node module.
+A web page or an app calls the Runtime directly with the JWT your identity
+provider gave the person: list the provider in the Runtime's identity file
+([Trusted issuers](../DEPLOYMENT.md#trusted-issuers)), and the Runtime takes the
+token's subject, scopes, agents and sandbox grants from it. Nylorun mints no
+token and ships no browser client: use your provider's SDK for sign-in and send
+the token as `Authorization: Bearer <token>` with `Nylorun-Protocol`, through a
+reverse proxy that answers CORS (the Runtime sends no CORS headers). An expired
+token answers `401` with `code: "token_expired"`; `GET /v1/me` shows what a token
+renders to. For a chat UI, give `@ag-ui/client`'s `HttpAgent` a `fetch` that adds
+those headers.
 
-```ts
-import { createBrowserClient } from "@nylorun/agents/browser";
-
-const nylo = createBrowserClient({
-  url: "https://runtime.example.com",
-  publishableKey: "nr_pub_tn_…", // app.access.publishableKeys.create({ name, origins })
-  token: () => fetch("/api/nylorun/token", { method: "POST" }).then((r) => r.json()),
-});
-
-const session = await nylo.createSession({ agentId: "support" }); // owned by the token's subject
-await session.input("Where is my order?", { idempotencyKey: crypto.randomUUID() });
-for await (const event of session.observe()) console.log(event.type);
-```
-
-For a chat UI, `agUi()` gives `@ag-ui/client`'s `HttpAgent` a `fetch` with the
-key and a current token:
-
-```ts
-import { HttpAgent } from "@ag-ui/client";
-
-const { url, fetch } = nylo.agUi("support");
-const agent = new HttpAgent({
-  url,
-  fetch,
-  threadId,
-  initialMessages: await nylo.agUiHistory("support", threadId),
-});
-```
-
-When the Runtime ends a run's stream because the token expired or was revoked,
-that `fetch` reattaches from the last event with a new token, so the agent sees
-one run. A person's token may attach their own vaults to a new thread
-(`forwardedProps: { nylorun: { session: { vaultIds } } }`) but not set `info`.
-
-The client keeps the token in memory, fetches a new one a minute before it
-expires or when the Runtime answers `401 token_expired`, and never asks for two
-at once. Event streams that the Runtime ends at token expiry or revocation
-reconnect from their last event with a new token. Create a publishable key per
-app with the origins that serve it (`http://localhost:*` for development);
-requests from other origins get the opaque `404`.
-
-The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI or A2A package. Use `/define`, `/client`, `/ag-ui`, `/a2a` or `/browser` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
+The SDK depends only on core within the Nylorun packages; installing it does not install harness or any AG-UI or A2A package. Use `/define`, `/client`, `/ag-ui` or `/a2a` for focused imports, or the root for convenience. Studio uses `/client`. See [the adopted host contract](../harness/HOST_CONTRACT.md).
 
 ## Embedding Studio (desktop apps)
 
 `@nylorun/agents/studio-embed` is the contract between Studio and an app that
-shows it in an iframe, such as Babai. It exports the message schema
+shows it in an iframe. It exports the message schema
 (`StudioEmbedMessageSchema`, envelope `{ type: "nylorun.studio", protocol, kind }`),
 the login-token and session schemas, `STUDIO_EMBED_PROTOCOLS` and
 `parseFrameAncestors`.
@@ -662,4 +573,6 @@ window.addEventListener("message", (event) => {
 The embedder's backend mints the login token with the admin key
 (`mintStudioLoginToken` in `@nylorun/admin`) and the page passes it to Studio in
 `init`. No key reaches the page. Studio's origin allowlist is
-`NYLORUN_STUDIO_FRAME_ANCESTORS`.
+`NYLORUN_STUDIO_FRAME_ANCESTORS`, empty by default: list your app's origins with
+`nylorun start --studio-embed-origin <origin>`. The message `open.session`
+(`{ sessionId }`) asks the embedding app to open that session in its own UI.

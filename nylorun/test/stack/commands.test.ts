@@ -222,7 +222,7 @@ describe("start", () => {
     expect(deps.lines).toEqual(startLines(home, false));
     const admin = fetch.requests.find((r) => r.url.endsWith("/v1/admin/status"))!;
     expect(admin.url).toBe("http://localhost:8788/v1/admin/status");
-    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe("6");
+    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe("7");
     expect(fetch.requests.filter((request) => request.init?.method === "POST")).toEqual([]);
   });
 
@@ -388,9 +388,8 @@ describe("start never runs a Runtime older than the Tenant's database", () => {
       ),
     ).toBe(0);
     const env = readFileSync(stackPaths(home).env, "utf8");
-    expect(env).toContain(
-      "NYLORUN_STUDIO_FRAME_ANCESTORS='nylorun://localhost http://nylorun.localhost http://localhost:1420'",
-    );
+    // No origin frames Studio by default: the one added is the only one.
+    expect(env).toContain("NYLORUN_STUDIO_FRAME_ANCESTORS=http://localhost:1420\n");
     await expect(
       runStackCommand("start", ["--no-studio", "--studio-embed-origin", "*"], deps),
     ).rejects.toThrow(/not an exact origin/);

@@ -107,7 +107,7 @@ describe("nylorun mcp connect", () => {
     const startRequest = fetch.requests.find((item) => item.url.endsWith("/oauth/start"))!;
     const headers = new Headers(startRequest.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${CLI_KEY}`);
-    expect(headers.get("nylorun-protocol")).toBe("6");
+    expect(headers.get("nylorun-protocol")).toBe("7");
   });
 
   it("reuses the vault mcp, passes --client-id, and sees a reconnect rotate the credential", async () => {

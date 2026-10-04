@@ -1,12 +1,15 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 7: open-source auth (F9 I3). Subject tokens (`POST /v1/tokens`), the access policy,
+ * revocations, browser keys (`Nylorun-Key`), the Runtime's own CORS and derived principals are gone; their
+ * routes answer 404. Browsers and apps present a trusted issuer's token, servers an operator key.
  * Protocol 6: file artifacts (`/v1/artifacts/**`, Runtime-signed capability links) and user
- * messages with `parts`, whose file parts name an artifact the model reads. Protocol 5: a Host
- * serves one Tenant, and nothing in a request selects it. Clients send no `Nylorun-Tenant`; the
- * Host still accepts protocol 4 (and the header) and protocol 5 clients.
+ * messages with `parts`. Protocol 5: a Host serves one Tenant, and nothing in a request selects
+ * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
+ * that remains.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "admin-status",
@@ -20,26 +23,20 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
  * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
  * `transcript-events`: the log carries `message.assistant` and `tool.completed`, and
- * tool `action.*` events carry `callId` and `invocationId`. `derived-principals`: the Host
- * registers the derived principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`,
- * default `project`) on its Tenant, whose keys the admin key derives. `subject-headers`: an application
+ * tool `action.*` events carry `callId` and `invocationId`. `subject-headers`: an application
  * principal may act for a subject with `Nylorun-Subject` and `Nylorun-Scopes`, and the Runtime
- * enforces the scopes and the subject's ownership of sessions and vaults.
- * `subject-tokens`: `POST /v1/tokens` mints ES256 subject tokens for the roles of the Tenant's
- * access policy, and the Tenant API accepts them as bearers (`/v1/access/**` manages the
- * policy, signing keys and revocations). `browser-access`: publishable keys
- * (`Nylorun-Key`, `/v1/access/publishable-keys`) name the Tenant and an origin allowlist, and
- * browser requests from listed origins reach the Tenant routes with CORS. `ag-ui-endpoint`:
- * the Runtime serves AG-UI at `/v1/ag-ui/agents/:agent` for a person named by a subject token
- * or by subject headers. `a2a-endpoint`:
+ * enforces the scopes and the subject's ownership of sessions. `ag-ui-endpoint`: the Runtime
+ * serves AG-UI at `/v1/ag-ui/agents/:agent` for a person named by a trusted issuer's token or
+ * by subject headers. `a2a-endpoint`:
  * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
  * `action-endpoints`: `PUT`/`GET`/`DELETE /v1/endpoints` register the URL that runs each agent's
  * Actions, and the Runtime delivers them there, signed with a delivery token
  * (`Nylorun-Signature`), instead of offering them to executors. `sandboxes`: sandboxes are a
  * resource (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, kind `virtual`), a session attaches to one
- * with `sandbox: { id }`, subject tokens carry `sbx` grants checked at every turn start, and
- * `sandboxes:write` lets a subject create and delete the sandboxes it is granted.
+ * with `sandbox: { id }`, a token caller (a trusted issuer's token) carries sandbox grants
+ * checked at every turn start, and `sandboxes:write` lets a subject create and delete the
+ * sandboxes it is granted.
  * `sandbox-pods`: kind `pod` runs as an agent-sandbox pod on the Tenant's cluster (`nylorun
  * sandbox enable`), with `POST /v1/sandboxes/{id}/stop` and `/reset`, a TTL
  * (`lifecycle.ttl`), lifecycle events (`sandbox.running`, `.suspended`, `.expired`,
@@ -55,10 +52,7 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
   "transcript-events",
-  "derived-principals",
   "subject-headers",
-  "subject-tokens",
-  "browser-access",
   "ag-ui-endpoint",
   "a2a-endpoint",
   "action-endpoints",
@@ -75,12 +69,13 @@ export interface ProtocolRange {
 }
 /**
  * What this Host serves. `runtime-tenants` (protocol 4 clients require it) is still advertised
- * for the compatibility window; protocol 5 and 6 clients no longer require it. `artifacts`
- * (protocol 6, required by its clients): file artifacts, capability links and message `parts`.
+ * for the compatibility window; protocol 5 and later clients no longer require it. `artifacts`
+ * (protocol 6 and 7, required by their clients): file artifacts, capability links and message
+ * `parts`.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 4,
-  max: 6,
+  max: 7,
   features: ["runtime-tenants", ...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -95,8 +90,6 @@ export const PROTOCOL_HEADER = "Nylorun-Protocol";
 export const SUBJECT_HEADER = "Nylorun-Subject";
 /** The space-separated scopes of that subject; required with `Nylorun-Subject`. */
 export const SCOPES_HEADER = "Nylorun-Scopes";
-/** A publishable key: names the client app, and its Tenant (Host feature `browser-access`). */
-export const PUBLISHABLE_KEY_HEADER = "Nylorun-Key";
 /** The delivery token on a request the Runtime sends to an Action endpoint. */
 export const SIGNATURE_HEADER = "Nylorun-Signature";
 /** Set to `1` on an Action endpoint's response whose body is a tagged `ActionOutcome`. */
@@ -120,7 +113,7 @@ export const ERROR_CODES = [
   "invalid_request",
   /** A route that acts for a person was called without one (`Nylorun-Subject`). */
   "subject_required",
-  /** A subject token's `sbx` grants do not reach the sandbox (Host feature `sandboxes`). */
+  /** A token caller's sandbox grants do not reach the sandbox (Host feature `sandboxes`). */
   "sandbox_not_granted",
   /** Another session's turn holds the sandbox: turns are serial per sandbox. */
   "sandbox_busy",
@@ -154,23 +147,15 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 const CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz";
 export const TENANT_ID_PATTERN = /^tn_[0-9a-hjkmnp-tv-z]{26}$/;
 export const PRINCIPAL_ID_PATTERN = /^pr_[0-9a-hjkmnp-tv-z]{26}$/;
-/** A Tenant signing key's id, the `kid` of the subject tokens it signs. */
+/** A Tenant signing key's id, the `kid` of the tokens it signs (delivery tokens, capability links). */
 export const SIGNING_KEY_ID_PATTERN = /^sk_[0-9a-hjkmnp-tv-z]{26}$/;
-/** A publishable key's id (not the key). */
-export const PUBLISHABLE_KEY_ID_PATTERN = /^pk_[0-9a-hjkmnp-tv-z]{26}$/;
 /** A file artifact's id (protocol 6). */
 export const ARTIFACT_ID_PATTERN = /^af_[0-9a-hjkmnp-tv-z]{26}$/;
-/** A publishable key: `nr_pub_<tenantId>_<32 Crockford characters>`. */
-export const PUBLISHABLE_KEY_PATTERN =
-  /^nr_pub_(tn_[0-9a-hjkmnp-tv-z]{26})_([0-9a-hjkmnp-tv-z]{32})$/;
-
-/** The Tenant a publishable key names, or undefined when it is not one. */
-export function tenantOfPublishableKey(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  return PUBLISHABLE_KEY_PATTERN.exec(value)?.[1];
-}
-/** A derived principal's id names its client, e.g. `babai`; `studio` is reserved. */
-export const DERIVED_PRINCIPAL_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+/**
+ * An application key's id: an operator key's name, which names its client (e.g. `backend`).
+ * `studio` is reserved for the key Studio derives from the admin key.
+ */
+export const APPLICATION_KEY_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
 export function isTenantId(value: unknown): value is string {
   return typeof value === "string" && TENANT_ID_PATTERN.test(value);
@@ -215,7 +200,7 @@ let lastTime = -1;
 let lastRandom = "";
 
 function newPrefixedId(
-  prefix: "tn_" | "pr_" | "sk_" | "pk_" | "af_",
+  prefix: "tn_" | "pr_" | "sk_" | "af_",
   now?: number,
 ): string {
   const ms = now ?? Date.now();
@@ -248,11 +233,6 @@ export function newSigningKeyId(now?: number): string {
   return newPrefixedId("sk_", now);
 }
 
-/** Publishable key id: `pk_` + lowercase Crockford ULID. */
-export function newPublishableKeyId(now?: number): string {
-  return newPrefixedId("pk_", now);
-}
-
 /** Artifact id: `af_` + lowercase Crockford ULID. */
 export function newArtifactId(now?: number): string {
   return newPrefixedId("af_", now);
@@ -260,14 +240,6 @@ export function newArtifactId(now?: number): string {
 
 export function isArtifactId(value: unknown): value is string {
   return typeof value === "string" && ARTIFACT_ID_PATTERN.test(value);
-}
-
-/** A new publishable key for `tenantId`: 160 random bits after the Tenant id. */
-export function newPublishableKey(tenantId: string): string {
-  if (!isTenantId(tenantId)) throw new Error(`Invalid Tenant id ${tenantId}`);
-  let random = "";
-  while (random.length < 32) random += encodeRandom();
-  return `nr_pub_${tenantId}_${random.slice(0, 32)}`;
 }
 
 type SemVerParts = {

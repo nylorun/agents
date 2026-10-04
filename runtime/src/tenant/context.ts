@@ -16,7 +16,6 @@
 import type { SessionHistory } from "./history.js";
 import type {
   IssuerScope,
-  RoleLimits,
   SubjectScope,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
@@ -105,29 +104,24 @@ export interface Session {
 export type AuthScope =
   | { kind: "application"; principalId: string }
   /**
-   * A subject token (Host feature `subject-tokens`): one subject, the role's scopes and agents
-   * narrowed by the token, until `expiresAt` (ms) or the subject's epoch moves past `epoch`.
-   * Or a trusted issuer's token (Host feature `trusted-issuers`, F9-D12): `issuer` names it,
-   * its role is `issuer:<name>`, and it has no limits and no epoch, so only its expiry ends it.
+   * A trusted issuer's token (Host feature `trusted-issuers`, F9-D12): one subject, with the
+   * issuer's scopes, agents and sandbox grants, until `expiresAt` (ms). Only its expiry ends it.
    */
   | {
       kind: "token";
+      /** The identity file's issuer that signed it. */
+      issuer: string;
       subject: string;
-      /** A subject token's scopes, or an issuer token's, which may add `studio`. */
-      scopes: ReadonlySet<SubjectScope | IssuerScope>;
+      /** The issuer's scopes the token holds, which may add `studio`. */
+      scopes: ReadonlySet<IssuerScope>;
       agents: ReadonlySet<string> | "*";
-      role: string;
-      limits?: RoleLimits;
-      /** The token's `sbx` grants: the sandboxes it reaches. Absent reaches none. */
+      /** The sandboxes it reaches: exact ids or `p/*` prefixes. Absent or empty reaches none. */
       sandboxes?: readonly string[];
-      /** The subject's revocation epoch the token was minted at; absent for an issuer token. */
-      epoch?: number;
       expiresAt: number;
+      /** The token's `jti`, or a hash of it. */
       tokenId: string;
-      /** The signing key's id; an issuer token's `kid`, when it has one. */
+      /** The issuer key's `kid`, when it has one. */
       keyId?: string;
-      /** The identity file's issuer that signed it; absent for a subject token. */
-      issuer?: string;
     }
   /** An application principal acting for `subject` (`Nylorun-Subject`), narrowed to `scopes`. */
   | {
@@ -150,16 +144,6 @@ export type AuthScope =
       expiresAt: number;
       tokenId: string;
       keyId: string;
-    }
-  /**
-   * A publishable key with no bearer (Host feature `browser-access`): what the policy grants
-   * `anon`, at most `agents:read`. It owns no session or vault.
-   */
-  | {
-      kind: "publishable";
-      keyId: string;
-      scopes: ReadonlySet<SubjectScope>;
-      agents: ReadonlySet<string> | "*";
     };
 
 export interface TenantContext {
@@ -229,7 +213,7 @@ export interface TenantContext {
   readonly work: WorkState;
   /** Live delivery over Durable Streams: one `SessionStream` per observed session, and the streams wiring. */
   readonly sessionStreams: SessionStreams;
-  /** The Tenant's signing keys for subject tokens. */
+  /** The Tenant's signing keys: delivery tokens, capability links, run and host tokens. */
   readonly signingKeys: SigningKeys;
   /** The Worker id this process writes as session `owner` (§10.6). */
   readonly workerId: string;
@@ -270,8 +254,8 @@ export interface TenantContext {
 }
 
 /**
- * What a request acting for a person may reach: that person's sessions and vaults, and, for a
- * subject token, only sessions of the agents its role allows. Undefined means the whole Tenant.
+ * What a request acting for a person may reach: that person's sessions, and, for a token
+ * caller, only sessions of the agents its issuer allows. Undefined means the whole Tenant.
  */
 export interface SessionAccess {
   readonly owner: string;

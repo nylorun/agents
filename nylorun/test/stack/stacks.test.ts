@@ -124,7 +124,7 @@ describe("start in a project", () => {
     expect(readFileSync(paths.compose, "utf8")).toMatch(/^name: nylorun-my-shop$/m);
     const env = parseEnvLines(readFileSync(paths.env, "utf8"));
     expect(env.get("NYLORUN_TENANT_NAME")).toBe("my-shop");
-    expect(env.get("NYLORUN_DERIVED_PRINCIPALS")).toBe("project");
+    expect(env.has("NYLORUN_DERIVED_PRINCIPALS")).toBe(false);
     expect(existsSync(paths.tenant)).toBe(true);
 
     const tenantId = fetch.tenantOf("my-shop");
@@ -175,7 +175,7 @@ describe("start in a project", () => {
     for (const request of tenantApi) {
       const headers = request.init?.headers as Record<string, string>;
       expect(headers.authorization).toBe(`Bearer ${key}`);
-      expect(headers["Nylorun-Protocol"]).toBe("6");
+      expect(headers["Nylorun-Protocol"]).toBe("7");
       expect(Object.keys(headers).map((name) => name.toLowerCase())).not.toContain("nylorun-tenant");
     }
     expect(JSON.parse(tenantApi[0]!.init!.body as string)).toMatchObject({ sandbox: { backend: "virtual" } });

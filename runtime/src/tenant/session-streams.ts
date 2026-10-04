@@ -32,7 +32,7 @@ import { fail } from "./http.js";
 import type { StreamsWiring } from "./streams.js";
 
 /** Why the Runtime ended a stream a token opened. */
-export type StreamEndReason = "token_expired" | "revoked";
+export type StreamEndReason = "token_expired";
 
 /** Where an observer's events go: an SSE response, or an in-process reader. */
 export interface ObserverSink {
@@ -41,13 +41,9 @@ export interface ObserverSink {
   end(reason?: StreamEndReason): void;
 }
 
-/**
- * The token a stream was opened with: it ends at expiry, and a subject token's also at
- * revocation. An issuer token has no epoch: subject revocation does not reach it.
- */
+/** The token a stream was opened with (a trusted issuer's): the stream ends at its expiry. */
 export interface StreamHolder {
   readonly subject: string;
-  readonly epoch?: number;
   /** Epoch ms when the token expires. */
   readonly expiresAt: number;
 }
@@ -55,11 +51,7 @@ export interface StreamHolder {
 /** The holder a stream opened with `scope` records: token callers only. */
 export function streamHolderOf(scope: AuthScope): StreamHolder | undefined {
   if (scope.kind !== "token") return undefined;
-  return {
-    subject: scope.subject,
-    expiresAt: scope.expiresAt,
-    ...(scope.epoch !== undefined ? { epoch: scope.epoch } : {}),
-  };
+  return { subject: scope.subject, expiresAt: scope.expiresAt };
 }
 
 /** One client of a session: the next sequence it needs. */
@@ -391,7 +383,7 @@ async function join(
   return feed;
 }
 
-/** Ends one observer early (its token expired or was revoked). */
+/** Ends one observer early (its token expired). */
 function endObserver(
   hub: SessionStreams,
   feed: SessionStream,
@@ -485,23 +477,11 @@ async function stillCurrent(ctx: TenantContext, feed: SessionStream): Promise<bo
  */
 export async function checkSessionStreams(ctx: TenantContext): Promise<void> {
   const feeds = [...ctx.sessionStreams.sessions.values()];
-  // Also a backstop for lost `subject.revoked` signals: the holders' current epochs.
-  const subjects = new Set<string>();
-  for (const feed of feeds)
-    for (const observer of feed.observers)
-      if (observer.holder?.epoch !== undefined) subjects.add(observer.holder.subject);
-  const { exists, epochs, generation } = await ctx.store.tx(async (t) => {
+  const { exists, generation } = await ctx.store.tx(async (t) => {
     const exists = new Set<string>();
     for (const feed of feeds)
       if (await t.get("sessions", feed.sessionId)) exists.add(feed.sessionId);
-    return {
-      exists,
-      generation: (await t.basinGenerations()).current,
-      epochs:
-        subjects.size === 0
-          ? new Map<string, number>()
-          : await t.subjectEpochs([...subjects]),
-    };
+    return { exists, generation: (await t.basinGenerations()).current };
   });
   if (generation !== ctx.sessionStreams.generation)
     ctx.sessionStreams.wiring?.moveTo(generation);
@@ -516,27 +496,6 @@ export async function checkSessionStreams(ctx: TenantContext): Promise<void> {
       )
     )
       endFeed(ctx.sessionStreams, feed);
-  for (const [subject, epoch] of epochs)
-    endSubjectStreams(ctx.sessionStreams, subject, epoch);
-}
-
-/**
- * Ends the streams of `subject` opened with a token older than `epoch` (a revocation), on
- * this process. Other processes do the same on the `subject.revoked` signal.
- */
-export function endSubjectStreams(
-  hub: SessionStreams,
-  subject: string,
-  epoch: number
-): void {
-  for (const feed of [...hub.sessions.values()])
-    for (const observer of [...feed.observers])
-      if (
-        observer.holder?.subject === subject &&
-        observer.holder.epoch !== undefined &&
-        observer.holder.epoch < epoch
-      )
-        endObserver(hub, feed, observer, "revoked");
 }
 
 function endFeed(hub: SessionStreams, feed: SessionStream): void {

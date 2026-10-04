@@ -66,20 +66,12 @@ export interface StartEphemeralRuntimeOptions {
    * admin key derives (`deriveStudioToken` in `@nylorun/admin`).
    */
   studioCredentialHash?: string;
-  /**
-   * Derived principals to register, whose keys the admin key derives (`deriveTenantKey` in
-   * `@nylorun/admin`). Default none: clients use the application key, or operator keys
-   * (`/v1/admin/keys`).
-   */
-  derivedPrincipals?: readonly string[];
   /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
   baseline?: Readonly<Record<string, string>>;
   model?: TenantModelConfig;
   sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
-  /** Allow browser requests (an `Origin` with a publishable key). Default off. */
-  browserAccess?: boolean;
   /** Serve the Admin API on its own loopback listener (`adminUrl`). Default off. */
   operatorListener?: boolean;
   /**
@@ -204,7 +196,6 @@ export async function startEphemeralRuntime(
         name: options.name ?? "ephemeral",
         principals: hostPrincipals({
           adminKey,
-          derived: options.derivedPrincipals ?? [],
           application: { principalId, key: applicationKey },
           ...(options.studioCredentialHash
             ? { studioCredentialHash: options.studioCredentialHash }
@@ -246,7 +237,6 @@ export async function startEphemeralRuntime(
       credentials,
       logger,
       coreVersion: coreVersion(),
-      browserAccess: options.browserAccess === true,
       ...(options.operatorListener
         ? { operator: { host: "127.0.0.1", port: 0 } }
         : {}),

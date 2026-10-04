@@ -588,14 +588,14 @@ export function isSandboxId(value: unknown): value is string {
   );
 }
 
-/** An `sbx` entry: an exact sandbox id, or a prefix ending in `/*` (`team-a/*`). */
+/** A sandbox grant: an exact sandbox id, or a prefix ending in `/*` (`team-a/*`). */
 export function isSandboxGrant(value: unknown): value is string {
   if (typeof value !== "string") return false;
   return value.endsWith("/*") ? isSandboxId(value.slice(0, -2)) : isSandboxId(value);
 }
 
 /**
- * Whether `grants` (a subject token's `sbx`) reach sandbox `id`: an exact entry, or a prefix
+ * Whether `grants` (a token caller's sandbox grants) reach sandbox `id`: an exact entry, or a prefix
  * entry `p/*` for any id below `p/`. No grants reach no sandbox.
  */
 export function sandboxGranted(grants: readonly string[] | undefined, id: string): boolean {
@@ -2070,7 +2070,7 @@ export type AdminStatus = z.infer<typeof AdminStatusSchema>;
 
 /**
  * An operator key (Host feature `operator-keys`): a revocable application key of the Tenant,
- * named by its id (`DERIVED_PRINCIPAL_ID_PATTERN`). The Runtime keeps only its hash.
+ * named by its id (`APPLICATION_KEY_ID_PATTERN`). The Runtime keeps only its hash.
  */
 export const OperatorKeySchema = z
   .object({
@@ -2283,19 +2283,24 @@ export type ResetTenantRequest = z.infer<typeof ResetTenantRequestSchema>;
 
 /**
  * Acting for a subject (Host feature `subject-headers`): what an application principal may
- * narrow a request to. `sessions:own` and `vaults:own` reach only the subject's own sessions
- * and vaults; the others reach Tenant-wide resources. `sandboxes:write` creates and deletes
- * sandboxes (Host feature `sandboxes`); a subject token's reach only the ids its `sbx` grants.
+ * narrow a request to. `sessions:own` reaches only the subject's own sessions; the others reach
+ * Tenant-wide resources. `sandboxes:write` creates and deletes sandboxes (Host feature
+ * `sandboxes`); a token caller's reach only the ids its sandbox grants name. Vaults are the
+ * installation's, managed by application keys acting for no one (protocol 7).
  */
 export const SUBJECT_SCOPES = [
   "agents:read",
   "agents:write",
   "sessions:own",
-  "vaults:own",
   "tenant:settings",
   "sandboxes:write",
 ] as const;
 export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
+/**
+ * Scopes protocol 7 retired: `Nylorun-Scopes` may still name them (protocol 6 clients do), and
+ * they grant nothing.
+ */
+const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own"];
 
 /** 1–200 visible ASCII characters; spaces only inside. */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
@@ -2331,12 +2336,13 @@ export function parseSubjectHeaders(
     };
   if (RESERVED_SUBJECTS.has(subject))
     return { ok: false, message: `Subject ${subject} is reserved` };
-  const names = (scopes ?? "").split(" ").filter(Boolean);
-  if (names.length === 0)
+  const named = (scopes ?? "").split(" ").filter(Boolean);
+  if (named.length === 0)
     return {
       ok: false,
       message: "Nylorun-Scopes is required with Nylorun-Subject",
     };
+  const names = named.filter((name) => !RETIRED_SUBJECT_SCOPES.includes(name));
   const unknown = names.filter(
     (name) => !(SUBJECT_SCOPES as readonly string[]).includes(name)
   );
@@ -2349,144 +2355,38 @@ export function parseSubjectHeaders(
   };
 }
 
-// --- subject tokens and the access policy (Host feature `subject-tokens`) ------------------
+// --- token callers (Host feature `trusted-issuers`) ------------------------------------------
 
-/** Scopes a subject token may carry: never `agents:write` or `tenant:settings`. */
+/**
+ * Scopes a token caller (a trusted issuer's token) may carry: never `agents:write` or
+ * `tenant:settings`.
+ */
 export const TOKEN_SCOPES = [
   "agents:read",
   "sessions:own",
-  "vaults:own",
   "sandboxes:write",
 ] as const;
-/** The most `sandboxes` grants one subject token carries (it is capped at 4 KiB). */
+/** The most sandbox grants one token caller carries. */
 export const TOKEN_SANDBOX_GRANTS_MAX = 16;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
-const TokenScopeSchema = z.enum(TOKEN_SCOPES);
-
-/** The JWT `typ` of a subject token (RFC 8725 explicit typing). */
-export const SUBJECT_TOKEN_TYPE = "nylorun-subject+jwt";
-/** The `aud` of every subject token. */
-export const SUBJECT_TOKEN_AUDIENCE = "nylorun";
-/** The `iss` of a Tenant's subject tokens. */
-export function subjectTokenIssuer(tenantId: string): string {
+/**
+ * The longest a token the Runtime signs itself lives, in seconds (delivery tokens, capability
+ * links): rotating signing keys revokes the previous key once the longest token it may have
+ * signed has expired.
+ */
+export const TOKEN_TTL_MAX_SECONDS = 900;
+/**
+ * The `iss` of every token a Tenant's Runtime signs itself: delivery tokens, capability links,
+ * run, host and egress tokens.
+ */
+export function tenantTokenIssuer(tenantId: string): string {
   return `urn:nylorun:tenant:${tenantId}`;
 }
-/** Token lifetimes, in seconds. */
-export const TOKEN_TTL_MIN_SECONDS = 60;
-export const TOKEN_TTL_MAX_SECONDS = 900;
-export const TOKEN_TTL_DEFAULT_SECONDS = 600;
 
-/** A role's name in the access policy; `anon` is reserved for publishable keys. */
-export const ROLE_NAME_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 const AgentAllowlistSchema = z.union([
   z.literal("*"),
   z.array(z.string().min(1)),
 ]);
-
-export const RoleLimitsSchema = z
-  .object({
-    turnsPerHour: z.number().int().min(1).max(100_000).optional(),
-    concurrentTurns: z.number().int().min(1).max(1000).optional(),
-  })
-  .strict();
-export type RoleLimits = z.infer<typeof RoleLimitsSchema>;
-
-export const AccessRoleSchema = z
-  .object({
-    scopes: z.array(TokenScopeSchema).min(1),
-    agents: AgentAllowlistSchema,
-    limits: RoleLimitsSchema.optional(),
-  })
-  .strict();
-export type AccessRole = z.infer<typeof AccessRoleSchema>;
-
-/**
- * The Tenant's access policy: what each role may do with a subject token, what a publishable
- * key grants alone (`anon`), and how long tokens live. Without roles nothing can be minted.
- */
-export const AccessPolicySchema = z
-  .object({
-    version: z.literal(1),
-    roles: z
-      .record(z.string(), AccessRoleSchema)
-      .superRefine((roles, issue) => {
-        for (const name of Object.keys(roles))
-          if (!ROLE_NAME_PATTERN.test(name) || name === "anon")
-            issue.addIssue({
-              code: "custom",
-              message: `Role name ${name} is invalid or reserved`,
-              path: [name],
-            });
-      }),
-    anon: z
-      .object({
-        scopes: z.array(z.literal("agents:read")),
-        agents: AgentAllowlistSchema,
-      })
-      .strict(),
-    tokens: z
-      .object({
-        maxTtlSeconds: z
-          .number()
-          .int()
-          .min(TOKEN_TTL_MIN_SECONDS)
-          .max(TOKEN_TTL_MAX_SECONDS),
-      })
-      .strict(),
-  })
-  .strict();
-export type AccessPolicy = z.infer<typeof AccessPolicySchema>;
-
-/** The policy of a Tenant that never set one: no roles, nothing for `anon`. */
-export const DEFAULT_ACCESS_POLICY: AccessPolicy = Object.freeze({
-  version: 1,
-  roles: {},
-  anon: { scopes: [], agents: [] },
-  tokens: { maxTtlSeconds: TOKEN_TTL_DEFAULT_SECONDS },
-}) as AccessPolicy;
-
-export const PutAccessPolicyRequestSchema = z
-  .object({ requestId: RequestIdSchema, policy: AccessPolicySchema })
-  .strict();
-export type PutAccessPolicyRequest = z.infer<typeof PutAccessPolicyRequestSchema>;
-
-export const CreateTokenRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    subject: z.string().refine(isSubject, "subject must be 1-200 visible ASCII characters and not reserved"),
-    role: z.string().regex(ROLE_NAME_PATTERN),
-    scopes: z.array(TokenScopeSchema).min(1).optional(),
-    agents: z.array(z.string().min(1)).optional(),
-    /**
-     * The sandboxes the token reaches (its `sbx` claim): exact ids, or prefixes ending in `/*`.
-     * Absent or empty: none (Host feature `sandboxes`).
-     */
-    sandboxes: z.array(SandboxGrantSchema).max(TOKEN_SANDBOX_GRANTS_MAX).optional(),
-    ttlSeconds: z
-      .number()
-      .int()
-      .min(TOKEN_TTL_MIN_SECONDS)
-      .max(TOKEN_TTL_MAX_SECONDS)
-      .optional(),
-  })
-  .strict();
-export type CreateTokenRequest = z.infer<typeof CreateTokenRequestSchema>;
-
-export const CreateTokenResponseSchema = z
-  .object({
-    token: z.string().min(1),
-    /** ISO time the token stops being accepted. */
-    expiresAt: z.string().min(1),
-    subject: z.string(),
-    role: z.string(),
-    scopes: z.array(TokenScopeSchema),
-    agents: AgentAllowlistSchema,
-    /** The token's `sbx` grants, when it has any. */
-    sandboxes: z.array(z.string()).optional(),
-    keyId: z.string(),
-  })
-  .strict();
-export type CreateTokenResponse = z.infer<typeof CreateTokenResponseSchema>;
 
 export const SIGNING_KEY_STATES = ["standby", "current", "previous", "revoked"] as const;
 export type SigningKeyState = (typeof SIGNING_KEY_STATES)[number];
@@ -2532,22 +2432,11 @@ export const RevokeSigningKeyRequestSchema = z
   .object({ requestId: RequestIdSchema })
   .strict();
 
-export const RevokeSubjectRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    subject: z.string().refine(isSubject, "subject must be 1-200 visible ASCII characters and not reserved"),
-  })
-  .strict();
-export type RevokeSubjectRequest = z.infer<typeof RevokeSubjectRequestSchema>;
-export const RevokeSubjectResponseSchema = z
-  .object({ subject: z.string(), epoch: z.number().int().nonnegative() })
-  .strict();
-
 // --- trusted issuers (Host feature `trusted-issuers`) --------------------------------------
 
 /**
  * Scopes a trusted issuer's tokens may carry (`allowedScopes` in the identity file): the
- * subject token scopes, and `studio`, an operator scope no Runtime route requires (Studio
+ * token scopes, and `studio`, an operator scope no Runtime route requires (Studio
  * admits a person who holds it, Tenant-wide).
  */
 export const ISSUER_SCOPES = [...TOKEN_SCOPES, "studio"] as const;
@@ -2560,8 +2449,8 @@ export type CallerScope = (typeof CALLER_SCOPES)[number];
  * `GET /v1/me`: who the Runtime takes the caller to be, for any credential.
  *
  * - `via` is how the caller authenticated: `application:<principalId>` (an application key,
- *   acting as itself), `subject` (an application key acting for `Nylorun-Subject`), `token`
- *   (a subject token) or `issuer:<name>` (a token from the identity file's issuer `name`).
+ *   acting as itself), `subject` (an application key acting for `Nylorun-Subject`) or
+ *   `issuer:<name>` (a token from the identity file's issuer `name`).
  * - `subject` is the person the request acts for; absent for an application key alone.
  * - `scopes`: what the caller holds. An application key alone holds every subject scope.
  * - `agents`: the agents it may reach, `*` for all.
@@ -2585,37 +2474,13 @@ export const MeResponseSchema = z
       }),
     via: z.string().meta({
       description:
-        "How the caller authenticated: `application:<principalId>`, `subject`, `token` or `issuer:<name>`",
+        "How the caller authenticated: `application:<principalId>`, `subject` or `issuer:<name>`",
     }),
   })
   .strict();
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 
-/** The claims of a subject token, as the Runtime writes them. */
-export interface SubjectTokenClaims {
-  iss: string;
-  aud: string;
-  /** Tenant id. */
-  tnt: string;
-  sub: string;
-  role: string;
-  /** Space-separated token scopes. */
-  scp: string;
-  /** The agents the mint narrowed the role to; absent when not narrowed. */
-  agt?: string[];
-  /** The sandboxes the token reaches: exact ids, or prefixes ending in `/*`. */
-  sbx?: string[];
-  /** The subject's revocation epoch when minted. */
-  epc: number;
-  iat: number;
-  exp: number;
-  jti: string;
-}
-
-// --- publishable keys (Host feature `browser-access`) --------------------------------------
-
-/** Loopback origins with any port, for development: `http://localhost:*`, `http://127.0.0.1:*`. */
-export const LOOPBACK_ORIGIN_WILDCARDS = ["http://localhost:*", "http://127.0.0.1:*"] as const;
+// --- origins ---------------------------------------------------------------------------------
 
 /** True for a serialized web origin: `scheme://host[:port]`, lowercase, no path. */
 export function isSerializedOrigin(value: string): boolean {
@@ -2632,59 +2497,6 @@ export function isSerializedOrigin(value: string): boolean {
     /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])$/.test(url.hostname)
   );
 }
-
-/** An origin allowlist entry: an exact origin or a loopback wildcard. */
-export const OriginEntrySchema = z
-  .string()
-  .refine(
-    (value) =>
-      (LOOPBACK_ORIGIN_WILDCARDS as readonly string[]).includes(value) ||
-      isSerializedOrigin(value),
-    "must be an origin such as https://app.example.com, or http://localhost:*"
-  );
-
-/** True when `origin` (a request's `Origin`) is allowed by `origins`. */
-export function originAllowed(origins: readonly string[], origin: string): boolean {
-  if (!isSerializedOrigin(origin)) return false;
-  for (const entry of origins) {
-    if (entry === origin) return true;
-    if (entry.endsWith(":*")) {
-      const prefix = entry.slice(0, -1);
-      if (origin.startsWith(prefix) && /^\d{1,5}$/.test(origin.slice(prefix.length)))
-        return true;
-    }
-  }
-  return false;
-}
-
-export const PublishableKeySchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    key: z.string(),
-    origins: z.array(z.string()),
-    createdAt: z.string(),
-    revokedAt: z.string().nullable(),
-  })
-  .strict();
-export type PublishableKey = z.infer<typeof PublishableKeySchema>;
-
-export const CreatePublishableKeyRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    name: z.string().min(1).max(100),
-    /** `[]` allows native apps only (no `Origin`). */
-    origins: z.array(OriginEntrySchema).max(100),
-  })
-  .strict();
-export type CreatePublishableKeyRequest = z.infer<typeof CreatePublishableKeyRequestSchema>;
-
-export const UpdatePublishableKeyRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    origins: z.array(OriginEntrySchema).max(100),
-  })
-  .strict();
 
 // Successful answers of the Tenant and Admin APIs that had no schema of their own. With the
 // request schemas above they describe every body the Runtime sends (its OpenAPI document).
@@ -2703,7 +2515,7 @@ export const ListAgentsResponseSchema = z
   .object({ agents: z.array(AgentDefinitionViewSchema) })
   .strict();
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponseSchema>;
-/** `GET /v1/agents` with a subject token or publishable key: the allowed agents' names only. */
+/** `GET /v1/agents` with a token caller's credential: the allowed agents' names only. */
 export const PublicAgentSchema = z
   .object({
     agentId: z.string(),
@@ -3016,20 +2828,16 @@ export type StartOAuthResponse = z.infer<typeof StartOAuthResponseSchema>;
 export const DeletedResponseSchema = z.object({ id: z.string() }).strict();
 export type DeletedResponse = z.infer<typeof DeletedResponseSchema>;
 
-export const AccessPolicyResponseSchema = z.object({ policy: AccessPolicySchema }).strict();
-export type AccessPolicyResponse = z.infer<typeof AccessPolicyResponseSchema>;
-export const ListPublishableKeysResponseSchema = z
-  .object({ keys: z.array(PublishableKeySchema) })
-  .strict();
-export type ListPublishableKeysResponse = z.infer<typeof ListPublishableKeysResponseSchema>;
-
 export const HostShutdownResponseSchema = z
   .object({ status: z.literal("shutting_down") })
   .strict();
 
-/** The last frame of a session stream the Runtime ends: `event: nylorun.closed`. */
+/**
+ * The last frame of a session stream the Runtime ends: `event: nylorun.closed`, when the
+ * token caller's token expires.
+ */
 export const StreamClosedFrameSchema = z
-  .object({ reason: z.enum(["token_expired", "revoked"]) })
+  .object({ reason: z.enum(["token_expired"]) })
   .strict();
 export type StreamClosedFrame = z.infer<typeof StreamClosedFrameSchema>;
 /**
@@ -3047,10 +2855,7 @@ export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;
 
 /** The JWT `typ` of a delivery token (RFC 8725 explicit typing). */
 export const DELIVERY_TOKEN_TYPE = "nylorun-delivery+jwt";
-/**
- * A delivery token lives no longer than a subject token: rotating signing keys revokes the
- * previous key once the longest token it may have signed has expired.
- */
+/** A delivery token lives no longer than any token the Runtime signs (`TOKEN_TTL_MAX_SECONDS`). */
 export const DELIVERY_TOKEN_MAX_TTL_SECONDS = TOKEN_TTL_MAX_SECONDS;
 /** Inline delivery timeouts, in milliseconds. The maximum keeps a token within its lifetime. */
 export const ENDPOINT_TIMEOUT_DEFAULT_MS = 60_000;
@@ -3292,7 +3097,8 @@ export const StudioEmbedMessageSchema = z.discriminatedUnion("kind", [
   embed("token.expiring", { expiresAt: z.string().nullable() }),
   embed("route.changed", { route: z.string() }),
   embed("open.external", { url: EXTERNAL_URL }),
-  embed("open.babai", { sessionId: z.string().min(1) }),
+  /** Asks the embedding app to open this session in its own UI. */
+  embed("open.session", { sessionId: z.string().min(1) }),
   embed("error", { code: z.string().min(1), message: z.string() }),
 ]);
 export type StudioEmbedMessage = z.infer<typeof StudioEmbedMessageSchema>;
@@ -3340,10 +3146,7 @@ export function parseFrameAncestors(value: string): string[] {
 
 /** The JWT `typ` of a capability link's token (RFC 8725 explicit typing). */
 export const ARTIFACT_LINK_TOKEN_TYPE = "nylorun-artifact+jwt";
-/**
- * A capability link lives no longer than a subject token: rotating signing keys revokes the
- * previous key once the longest token it may have signed has expired.
- */
+/** A capability link lives no longer than any token the Runtime signs (`TOKEN_TTL_MAX_SECONDS`). */
 export const ARTIFACT_LINK_MAX_TTL_SECONDS = TOKEN_TTL_MAX_SECONDS;
 export const ARTIFACT_LINK_DEFAULT_TTL_SECONDS = 300;
 /** A Tenant's limits when it sets none: 100 MiB per file, 10 GiB in all. */

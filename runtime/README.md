@@ -3,7 +3,7 @@
 The independent OSS **Runtime Host** consumes `@nylorun/harness/run` and
 `@nylorun/core/contracts`. Cloud installs published `@nylorun/harness` from npm
 and does not import this package. Client authoring and sessions belong to
-`@nylorun/agents`; the Host's status and derived keys belong to `@nylorun/admin`.
+`@nylorun/agents`; the Host's status and operator keys belong to `@nylorun/admin`.
 Vocabulary: [src/CONTEXT.md](./src/CONTEXT.md).
 
 Requires Node 24+. Build from the repository root:
@@ -34,9 +34,8 @@ database, in the fixed schemas `nylorun` (its state: the Session Store) and
 transaction under an advisory lock, records them in `nylorun.__drizzle_migrations`, and
 refuses a database holding a migration it does not ship (`schema-too-new`); then, on
 first start, it creates the Tenant there: its id (`NYLORUN_TENANT_ID`, default a
-new one), its name (`NYLORUN_TENANT_NAME`, default `default`), its Studio principal and
-the derived principals (`NYLORUN_DERIVED_PRINCIPALS`, default `project`) whose keys the
-admin key derives. Operator keys (`/v1/admin/keys`) add, rotate and delete the Tenant's
+new one), its name (`NYLORUN_TENANT_NAME`, default `default`) and its Studio principal,
+whose key the admin key derives (the only derived key). Operator keys (`/v1/admin/keys`) add, rotate and delete the Tenant's
 application keys after that; a rotated or deleted key stops authenticating at once. A database written by a Runtime that kept several Tenants in one
 database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per database
 (`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time and holds the Tenant's sweep
@@ -69,7 +68,7 @@ sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_RESTATE_IDENTITY_KEY` (Restate), `NYLORUN_S2_ENDPOINT` and
 `NYLORUN_S2_TOKEN`, and in container mode `NYLORUN_LISTEN_HOST`,
 `NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`, plus
-`NYLORUN_BROWSER_ACCESS` (`on` or `off`) and the operator listener
+the operator listener
 (`NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`,
 `NYLORUN_ADMIN_ALLOWED_HOSTS`). `NYLORUN_IDENTITY_FILE` names the identity
 file, a YAML list of the trusted issuers whose JWTs the Tenant API accepts
@@ -97,8 +96,8 @@ tunnels only to the hosts its sandbox spec allows, on 443 or 80, never to a
 private address. `NYLORUN_PACKING` (`combined` or `split`) is logged at startup.
 
 With an operator listener (a local Tenant's default: container port 4001), the Host
-serves two ports. The public one serves the Tenant API, to browsers too when
-browser access is on, and answers admin routes with the opaque `404`. The
+serves two ports. The public one serves the Tenant API, to browsers too (with a
+trusted issuer's token), and answers admin routes with the opaque `404`. The
 operator one serves the Admin API, Host shutdown and the Tenant API, never to
 browsers; keep it on loopback or a private network and never proxy it. Outside
 a container, `adminPort` in `host.json` does the same on loopback.
@@ -130,7 +129,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `GET /v1/admin/keys` | admin key | Every key of the Tenant: id, role, when issued (`ListOperatorKeysResponse`), never the keys |
 | `DELETE /v1/admin/keys/{id}` | admin key | The key stops authenticating at once; `404` when there is none |
 | `GET /v1/admin/openapi.json` | admin key | The Admin API's OpenAPI 3.2 document |
-| `/v1/*` Tenant routes | application key, subject token or delivery token | Require `Nylorun-Protocol`; nothing names the Tenant |
+| `/v1/*` Tenant routes | application key, trusted issuer's token or delivery token | Require `Nylorun-Protocol`; nothing names the Tenant |
 | `POST /v1/vaults/{vaultId}/oauth/start` | application key | MCP OAuth connect into an installation vault (F9 C2): `{url, server, clientId?}` → `{authorizeUrl, expiresAt}`; the gateway's keys module does discovery, registration and the exchange. `oauth_client_required` without DCR or a `clientId` |
 | `GET /v1/oauth/callback` | the `state` itself | Where the authorization server sends the browser back: no credential, no `Nylorun-Protocol`; finishes the connect once (`oauth_state_invalid` after) and answers a small HTML page. Its base is `NYLORUN_PUBLIC_URL`, else the start request's origin |
 | `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported; a folder's link opens its zip, or one of its files |
@@ -138,18 +137,18 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies
 with `415 unsupported_media_type`, except an artifact upload (`POST /v1/artifacts`,
 `POST /v1/artifacts/{id}/versions`), whose body is the file in any media type. An `Origin` is `403 origin_rejected` on
-`/health`, `/ready`, admin routes, and everywhere when browser access is off.
-With browser access on (feature `browser-access`: a local Tenant's default, or
-`browserAccess` in `host.json`), the Host answers preflights for browser routes
-from the route alone, and the Tenant admits an `Origin` only with a publishable
-key (`Nylorun-Key`) that lists it, adding CORS headers only then; Tenant keys
-and delivery tokens are refused from browsers before they are looked up. Missing or
-unsupported protocol → `426` before authentication (the Host serves protocols 4, 5 and 6;
-protocol 6 adds file and folder artifacts and message `parts`; at each turn's end the
+`/health`, `/ready`, admin routes and the operator listener. On Tenant routes a browser
+presents a trusted issuer's token; application keys and delivery tokens are refused
+from browsers before they are looked up. The Runtime sends no CORS headers, and answers
+`OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
+([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
+unsupported protocol → `426` before authentication (the Host serves protocols 4 to 7;
+protocol 7 removes subject tokens, the access policy, revocations, browser keys and
+derived principals, whose routes answer `404`; protocol 6 adds file and folder artifacts and message `parts`; at each turn's end the
 Runtime exports `/workspace/outputs` of the session's sandbox as a version of its
 `outputs` folder, read at `/v1/artifacts/{id}/versions/{n|latest}/tree`, `/files/{path}`,
-`/diff?from=` and `/zip`). Protocol 5 and 6 clients name no Tenant. A protocol 4 client's `Nylorun-Tenant` naming
-another Tenant (or malformed), a publishable key of another Tenant, a Tenant that
+`/diff?from=` and `/zip`). Protocol 5 and later clients name no Tenant. A protocol 4 client's `Nylorun-Tenant` naming
+another Tenant (or malformed), a Tenant that
 could not be opened and rejected credentials → opaque `404` with identical body. A path or method no route serves is `404 Route not found`
 once the caller is known.
 
@@ -170,18 +169,17 @@ tool at one of them; for [Scalar](https://scalar.com), the package file of a ver
 https://cdn.jsdelivr.net/npm/@nylorun/runtime@<version>/dist/openapi.json
 ```
 
-Each operation's `security` says which credentials it takes (application key, subject token,
-publishable key, delivery token, admin key), and its `x-nylorun-credentials`,
-`x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields say who
-may call it. Event streams are `text/event-stream` with an `itemSchema`. `runtime/openapi/` holds the committed snapshots: a change to a route changes
+Each operation's `security` says which credentials it takes (application key, trusted
+issuer's token, delivery token, admin key), and its `x-nylorun-credentials` and
+`x-nylorun-scopes` (the subject scopes that reach it) fields say who may call it. Event streams are `text/event-stream` with an `itemSchema`. `runtime/openapi/` holds the committed snapshots: a change to a route changes
 them (`node scripts/build-openapi.mjs --write`), and `check-package` fails until they are
 updated.
 
 ## HTTP layer
 
 Routes are Hono routes (`@hono/zod-openapi`), each declared once with who may call it
-(`api/http/define.ts`): that declaration serves the route, checks subject scopes, answers
-browser preflights and makes the OpenAPI document. `host/` holds the listeners, the `Host`
+(`api/http/define.ts`): that declaration serves the route, checks subject scopes and makes
+the OpenAPI document. `host/` holds the listeners, the `Host`
 check (in Node, before Hono) and the Host pipeline (`host/app.ts`); `api/` the Tenant and
 Admin routes (`api/http/routes/`, `api/ag-ui/`, `api/a2a/`, `host/admin-api.ts`). Only `host/`
 and `api/` import Hono.
@@ -253,7 +251,7 @@ the Project link (outside a project it runs the Tenant `default`); the project's
 | `schema-too-new` | Run a Runtime at least as new as the one that migrated the database |
 | `database-layout-old` | The database holds `tenant_<id>` schemas of an older Runtime, or the `schema_version` tables of a pre-release one: point the Runtime at a new database (locally, a new Tenant: `nylorun start --tenant <new name>`); the old one is left as it is |
 | `426 protocol_unsupported` | Upgrade clients or Host to a compatible set |
-| `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, use a subject token and a publishable key that lists the page's origin, never a Tenant key |
+| `421 host_rejected` / `403 origin_rejected` | In a container, list the `Host` in `NYLORUN_ALLOWED_HOSTS`. From a browser, send a trusted issuer's token, never a Tenant key |
 | `503` for a Tenant | Postgres or Restate is unreachable; `GET /ready` names which |
 | Port in use | Change `NYLORUN_PORT` in `~/.nylorun/tenants/<name>/docker/.env` and run `nylorun start` |
 | Logs | `nylorun logs runtime` |

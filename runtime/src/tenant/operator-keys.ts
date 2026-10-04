@@ -1,14 +1,14 @@
 /**
  * Operator keys (F9 I1, Host feature `operator-keys`): the Tenant's application keys, managed
  * by name through the Admin API. A key is a principal (F9-D11): its id is the key's name
- * (`DERIVED_PRINCIPAL_ID_PATTERN`), the key is 64 hex characters (`mintBearerToken`), and the
+ * (`APPLICATION_KEY_ID_PATTERN`), the key is 64 hex characters (`mintBearerToken`), and the
  * Tenant keeps only its SHA-256. Putting a key creates the principal or rotates its key;
  * deleting it removes the row. Either way the old key stops authenticating on its next request,
  * since authentication reads the principal on every request (`auth.ts`).
  *
  * `studio` is derived from the admin key (F9-D9): it is never put or deleted here.
  */
-import { DERIVED_PRINCIPAL_ID_PATTERN } from "@nylorun/core/compatibility";
+import { APPLICATION_KEY_ID_PATTERN } from "@nylorun/core/compatibility";
 import type { OperatorKey, PutOperatorKeyResponse } from "@nylorun/core/contracts";
 import { hashToken, mintBearerToken } from "../core/bearer.js";
 import type { SessionStore } from "../store/types.js";
@@ -19,10 +19,10 @@ export type OperatorKeyRefusal = { reason: "invalid" | "reserved"; message: stri
 
 /** The refusal for `id`, or undefined when operator keys may use it. */
 export function refuseOperatorKeyId(id: string): OperatorKeyRefusal | undefined {
-  if (!DERIVED_PRINCIPAL_ID_PATTERN.test(id))
+  if (!APPLICATION_KEY_ID_PATTERN.test(id))
     return {
       reason: "invalid",
-      message: `A key id must match ${DERIVED_PRINCIPAL_ID_PATTERN.source}`,
+      message: `A key id must match ${APPLICATION_KEY_ID_PATTERN.source}`,
     };
   if (id === STUDIO_PRINCIPAL_ID)
     return {

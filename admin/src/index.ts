@@ -19,17 +19,13 @@ import {
   type AdminConnectionOptions,
   type AdminKeys,
 } from "./client.js";
-import {
-  PROJECT_PRINCIPAL_ID,
-  deriveStudioToken,
-  deriveTenantKey,
-} from "./derived-credentials.js";
+import { deriveStudioToken } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
-export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey, tenantHostRoot };
+export { deriveStudioToken, tenantHostRoot };
 export { mintStudioLoginToken } from "./studio-login.js";
 export { OPERATOR_KEYS_FEATURE };
 
@@ -43,15 +39,9 @@ export interface Admin {
   status(): Promise<AdminStatus>;
   /**
    * The Tenant's operator keys (Host feature `operator-keys`): revocable application keys by
-   * name. `keys.put("babai")` creates or rotates a key and returns it once.
+   * name. `keys.put("backend")` creates or rotates a key and returns it once.
    */
   readonly keys: AdminKeys;
-  /**
-   * The key of a derived principal on the Host's Tenant, from this client's admin key. The
-   * Host registers the principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default
-   * `project`) when it creates its Tenant.
-   */
-  deriveTenantKey(tenantId: string, principalId: string): string;
 }
 
 /**

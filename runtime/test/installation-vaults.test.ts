@@ -12,6 +12,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
+import { createTrustedIssuers } from "../src/tenant/issuers.js";
+import { testIssuer } from "./support/issuer.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "installation-vaults-app-key-aaaaaaa";
@@ -23,7 +25,7 @@ const server = { authorization: `Bearer ${APP}`, "content-type": "application/js
 const actingFor = (subject: string) => ({
   ...server,
   "nylorun-subject": subject,
-  "nylorun-scopes": "vaults:own sessions:own",
+  "nylorun-scopes": "sessions:own",
 });
 
 type Started = Awaited<ReturnType<typeof startTestTenant>>;
@@ -51,6 +53,23 @@ async function call(
     /* empty */
   }
   return { status: response.status, body };
+}
+
+/** Every vault route, for a vault and credential that exist. */
+function vaultRoutes(vaultId: string, credentialId: string): [string, string, unknown?][] {
+  const write = { requestId: "x", idempotencyKey: "x" };
+  return [
+    ["POST", "/v1/vaults", { ...write, name: "Mine", scope: "installation" }],
+    ["POST", "/v1/vaults", { ...write, name: "Mine", ownerUserId: "cleo" }],
+    ["GET", "/v1/vaults"],
+    ["GET", `/v1/vaults/${vaultId}`],
+    ["DELETE", `/v1/vaults/${vaultId}`],
+    ["POST", `/v1/vaults/${vaultId}/credentials`, { ...write, name: "c", auth: { type: "bearer", url: "https://x.test/", token: "t" } }],
+    ["GET", `/v1/vaults/${vaultId}/credentials`],
+    ["GET", `/v1/vaults/${vaultId}/credentials/${credentialId}`],
+    ["POST", `/v1/vaults/${vaultId}/credentials/${credentialId}`, { ...write, auth: { type: "bearer", token: "t2" } }],
+    ["DELETE", `/v1/vaults/${vaultId}/credentials/${credentialId}`],
+  ];
 }
 
 /** A remote MCP server with one `echo` tool, recording each request's Authorization. */
@@ -119,12 +138,19 @@ const model: ModelProvider = async (effect: { input: unknown }) => {
   return { output: [{ type: "tool-call", id: "call-1", name: "remote__echo", args: { value: 7 } }] };
 };
 
-async function boot(options: { resolver?: { url: string; token: string }; mcpUrl?: string } = {}) {
+async function boot(
+  options: {
+    resolver?: { url: string; token: string };
+    mcpUrl?: string;
+    issuers?: ReturnType<typeof createTrustedIssuers>;
+  } = {},
+) {
   const runtime = await startTestTenant({
     applicationKey: APP,
     vaultKek: KEK,
     modelProvider: model,
     ...(options.resolver ? { resolver: options.resolver } : {}),
+    ...(options.issuers ? { issuers: options.issuers } : {}),
   });
   open.push(() => runtime.close());
   const agent = (
@@ -208,78 +234,33 @@ describe("installation vaults over the Tenant API", () => {
       ).toBe(400);
   });
 
-  it("never shows one to a request acting for a subject, nor lets it create one", async () => {
+  it("refuses every vault route to a request acting for a subject (protocol 7)", async () => {
     const runtime = await boot();
     const vault = await installationVault(runtime);
     const credential = await bearer(runtime, vault.id, "https://mcp.example.com/a", SHARED_TOKEN);
-    const bao = actingFor("bao");
-
-    const created = await call(runtime, "POST", "/v1/vaults", {
-      headers: bao,
-      body: { requestId: "x", idempotencyKey: "x", name: "Mine", scope: "installation" },
-    });
-    expect(created.status).toBe(403);
-    expect((await call(runtime, "GET", "/v1/vaults", { headers: bao })).body).toEqual({ vaults: [] });
-    for (const [method, path] of [
-      ["GET", `/v1/vaults/${vault.id}`],
-      ["DELETE", `/v1/vaults/${vault.id}`],
-      ["GET", `/v1/vaults/${vault.id}/credentials`],
-      ["GET", `/v1/vaults/${vault.id}/credentials/${credential.id}`],
-      ["DELETE", `/v1/vaults/${vault.id}/credentials/${credential.id}`],
-    ] as const)
-      expect((await call(runtime, method, path, { headers: bao })).status, `${method} ${path}`).toBe(404);
-    expect(
-      (
-        await call(runtime, "POST", `/v1/vaults/${vault.id}/credentials`, {
-          headers: bao,
-          body: { requestId: "c", idempotencyKey: "c", name: "c", auth: { type: "bearer", url: "https://x.test/", token: "t" } },
-        })
-      ).status,
-    ).toBe(404);
-    // The subject may still not act as `installation`.
-    expect((await call(runtime, "GET", "/v1/vaults", { headers: actingFor("installation") })).status).toBe(400);
+    for (const headers of [actingFor("bao"), { ...actingFor("bao"), "nylorun-scopes": "vaults:own" }])
+      for (const [method, path, body] of vaultRoutes(vault.id, credential.id)) {
+        const reply = await call(runtime, method, path, { headers, ...(body ? { body } : {}) });
+        expect(reply.status, `${method} ${path}`).toBe(403);
+        expect(reply.body.code).toBe("scope_required");
+      }
     expect((await call(runtime, "GET", `/v1/vaults/${vault.id}`)).status).toBe(200);
   });
 
-  it("never shows one to a subject token, nor lets it create one", async () => {
-    const runtime = await boot();
+  it("refuses every vault route to a trusted issuer's token (protocol 7)", async () => {
+    const issuer = await testIssuer();
+    const runtime = await boot({ issuers: createTrustedIssuers(issuer.configs) });
     const vault = await installationVault(runtime);
-    const policy = await call(runtime, "PUT", "/v1/access/policy", {
-      body: {
-        requestId: "policy",
-        policy: {
-          version: 1,
-          roles: { user: { scopes: ["sessions:own", "vaults:own", "agents:read"], agents: "*" } },
-          anon: { scopes: [], agents: [] },
-          tokens: { maxTtlSeconds: 600 },
-        },
-      },
-    });
-    expect(policy.status, JSON.stringify(policy.body)).toBe(200);
-    const minted = await call(runtime, "POST", "/v1/tokens", {
-      body: { requestId: "mint", subject: "cleo", role: "user" },
-    });
-    expect(minted.status, JSON.stringify(minted.body)).toBe(200);
-    const token = { authorization: `Bearer ${minted.body.token}`, "content-type": "application/json" };
-
-    expect(
-      (
-        await call(runtime, "POST", "/v1/vaults", {
-          headers: token,
-          body: { requestId: "x", idempotencyKey: "x", name: "Mine", scope: "installation" },
-        })
-      ).status,
-    ).toBe(403);
-    expect((await call(runtime, "GET", "/v1/vaults", { headers: token })).body).toEqual({ vaults: [] });
-    expect((await call(runtime, "GET", `/v1/vaults/${vault.id}`, { headers: token })).status).toBe(404);
-    expect((await call(runtime, "GET", `/v1/vaults/${vault.id}/credentials`, { headers: token })).status).toBe(404);
-    // Its own user vault still works as before.
-    const own = await call(runtime, "POST", "/v1/vaults", {
-      headers: token,
-      body: { requestId: "own", idempotencyKey: "own", name: "Mine", ownerUserId: "cleo" },
-    });
-    expect(own.status).toBe(200);
-    expect((await call(runtime, "GET", "/v1/vaults", { headers: token })).body.vaults).toHaveLength(1);
+    const credential = await bearer(runtime, vault.id, "https://mcp.example.com/a", SHARED_TOKEN);
+    const token = {
+      authorization: `Bearer ${await issuer.sign("cleo", "sessions:own agents:read")}`,
+      "content-type": "application/json",
+    };
+    for (const [method, path, body] of vaultRoutes(vault.id, credential.id)) {
+      const reply = await call(runtime, method, path, { headers: token, ...(body ? { body } : {}) });
+      expect(reply.status, `${method} ${path}`).toBe(403);
+      expect(reply.body.code).toBe("scope_required");
+    }
   });
 
   it("keeps the host model vault hidden and unattachable", async () => {

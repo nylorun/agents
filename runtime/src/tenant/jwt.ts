@@ -1,7 +1,7 @@
 /**
- * What subject tokens and delivery tokens share: the Tenant's ES256 JWTs, recognised by shape,
- * told apart by their `typ`, and refused before any key is read when the header is not one the
- * Runtime issues.
+ * What the Runtime's own tokens share (delivery tokens, capability links, run and host tokens):
+ * the Tenant's ES256 JWTs, recognised by shape, told apart by their `typ`, and refused before
+ * any key is read when the header is not one the Runtime issues.
  */
 import { decodeProtectedHeader } from "jose";
 import { SIGNING_KEY_ID_PATTERN } from "@nylorun/core/compatibility";

@@ -1,8 +1,10 @@
 /**
- * Vaults and their credentials (`/v1/vaults/**`): secrets a session's tools use, owned by one
- * person, or by the installation (`scope: "installation"`, any session may attach one). Acting
- * for a subject reaches only the subject's own vaults, and never on another's behalf; only an
- * application key acting for no one creates, lists or changes installation vaults.
+ * Vaults and their credentials (`/v1/vaults/**`): secrets a session's tools use. Only an
+ * application key acting for no one (an operator key, Studio) reaches these routes (protocol 7):
+ * a request acting for a subject, or a trusted issuer's token, is `403 scope_required`. The
+ * installation's own vaults (`scope: "installation"`) attach to any session; a vault of one
+ * person (`ownerUserId`) attaches only to that person's sessions. A person's own credentials
+ * come from the operator's credential resolver (`vault/sources.ts`), not from these routes.
  *
  * MCP OAuth connect (F9 C2): an application key starts one into an installation vault
  * (`/oauth/start`); the authorization server sends the browser back to the anonymous, unversioned
@@ -29,21 +31,14 @@ import {
   StartOAuthResponse,
   VaultInfo,
 } from "../../components.js";
-import { ownerOf } from "../../../tenant/auth.js";
-import { fail, HttpError } from "../../../tenant/http.js";
+import { HttpError } from "../../../tenant/http.js";
 import { VaultError } from "../../../vault/error.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
-import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
+import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 
-const OWN_VAULTS: RouteAccess = {
-  credentials: ["application", "subject", "token"],
-  scopes: ["vaults:own"],
-  browser: true,
-};
-
-/** Starting an MCP OAuth connect: an application key acting for no one. */
+/** Every vault route, and starting an MCP OAuth connect: an application key acting for no one. */
 const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
 /**
  * The OAuth callback: a browser sent back by the authorization server, with no credential and no
@@ -70,29 +65,17 @@ const body = (schema: z.ZodType) => ({
 const vaultId = z.object({ vaultId: z.string() });
 const credentialId = vaultId.extend({ credentialId: z.string() });
 
-/**
- * Who a vault route acts for: the subject, or no one in particular (an application key). Below
- * a vault, the vault must be the subject's before anything else.
- */
-async function ownerFor(c: Context<TenantEnv>): Promise<string | undefined> {
-  const { vault } = c.env.tenant;
-  const owner = ownerOf(c.get("scope"));
-  const id = c.req.param("vaultId");
-  if (id !== undefined && owner !== undefined) await vault.assertOwner(id, owner);
-  return owner;
-}
-
 export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "post",
       path: "/v1/vaults",
       tags: ["Vaults"],
       summary: "Create a vault",
       description:
-        "A person's vault (`ownerUserId`), or with `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach. Only an application key acting for no one creates an installation vault.",
+        "With `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach; or a vault of one person (`ownerUserId`), which only that person's sessions attach.",
       request: { body: body(CreateVaultRequest) },
       responses: {
         200: json(VaultInfo, "The vault"),
@@ -100,54 +83,43 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const owner = await ownerFor(c);
       const request = CreateVaultRequestSchema.parse(await readJson(c.req.raw));
-      if (request.scope === "installation" && c.get("scope").kind !== "application")
-        fail(403, "Only an application key acting for no one creates an installation vault", {
-          code: "scope_required",
-        });
-      if (owner !== undefined && request.ownerUserId !== owner)
-        fail(403, "ownerUserId must be the subject");
       return jsonResponse(200, await c.env.tenant.vault.createVault(request));
     },
   );
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "get",
       path: "/v1/vaults",
       tags: ["Vaults"],
-      summary: "List a person's vaults",
+      summary: "List vaults",
       description:
-        "A person's vaults. An application key acting for no one also gets the installation vaults, after the person's, and gets only those without `ownerUserId`.",
+        "The installation vaults, after the vaults of `ownerUserId` when it names a person.",
       request: {
         query: z.object({
           ownerUserId: z
             .string()
             .optional()
-            .meta({ description: "Whose vaults; an application key acting for no one may leave it out" }),
+            .meta({ description: "Also list this person's vaults" }),
         }),
       },
       responses: { 200: json(ListVaultsResponse, "The vaults") },
     },
     async (c) => {
-      const owner = await ownerFor(c);
-      const application = c.get("scope").kind === "application";
-      const ownerUserId = c.req.query("ownerUserId") ?? owner;
-      if (ownerUserId === undefined && !application) fail(400, "ownerUserId is required");
-      if (owner !== undefined && ownerUserId !== owner)
-        fail(403, "ownerUserId must be the subject");
       return jsonResponse(200, {
-        vaults: await c.env.tenant.vault.listVaults(ownerUserId, { installation: application }),
+        vaults: await c.env.tenant.vault.listVaults(c.req.query("ownerUserId"), {
+          installation: true,
+        }),
       });
     },
   );
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "get",
       path: "/v1/vaults/{vaultId}",
@@ -157,14 +129,13 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(VaultInfo, "The vault") },
     },
     async (c) => {
-      await ownerFor(c);
       return jsonResponse(200, await c.env.tenant.vault.getVault(c.req.param("vaultId")!));
     },
   );
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "delete",
       path: "/v1/vaults/{vaultId}",
@@ -174,36 +145,25 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(DeletedResponse, "Deleted") },
     },
     async (c) => {
-      await ownerFor(c);
       return jsonResponse(200, await c.env.tenant.vault.deleteVault(c.req.param("vaultId")!));
     },
   );
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "post",
       path: "/v1/vaults/{vaultId}/credentials",
       tags: ["Vaults"],
       summary: "Add a credential",
       description:
-        "A bearer token or OAuth tokens, bound to the URLs a tool may send them to. A subject token cannot store OAuth refresh credentials.",
+        "A bearer token or OAuth tokens, bound to the URLs a tool may send them to.",
       request: { params: vaultId, body: body(CreateCredentialRequest) },
       responses: { 200: json(CredentialInfo, "The credential, without its secret") },
     },
     async (c) => {
-      await ownerFor(c);
       const request = CreateCredentialRequestSchema.parse(await readJson(c.req.raw));
-      // The Runtime calls a refresh credential's token endpoint itself: never for a browser.
-      if (
-        c.get("scope").kind === "token" &&
-        request.auth.type === "oauth" &&
-        request.auth.refresh
-      )
-        fail(403, "A subject token cannot store OAuth refresh credentials", {
-          code: "scope_required",
-        });
       return jsonResponse(
         200,
         await c.env.tenant.keys.createCredential(c.req.param("vaultId")!, request),
@@ -213,7 +173,7 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "get",
       path: "/v1/vaults/{vaultId}/credentials",
@@ -223,7 +183,6 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(ListCredentialsResponse, "The credentials, without their secrets") },
     },
     async (c) => {
-      await ownerFor(c);
       return jsonResponse(200, {
         credentials: await c.env.tenant.vault.listCredentials(c.req.param("vaultId")!),
       });
@@ -232,7 +191,7 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "get",
       path: "/v1/vaults/{vaultId}/credentials/{credentialId}",
@@ -242,7 +201,6 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(CredentialInfo, "The credential, without its secret") },
     },
     async (c) => {
-      await ownerFor(c);
       return jsonResponse(
         200,
         await c.env.tenant.vault.getCredential(c.req.param("vaultId")!, c.req.param("credentialId")!),
@@ -252,7 +210,7 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "post",
       path: "/v1/vaults/{vaultId}/credentials/{credentialId}",
@@ -265,7 +223,6 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      await ownerFor(c);
       const request = RotateCredentialRequestSchema.parse(await readJson(c.req.raw));
       return jsonResponse(
         200,
@@ -280,7 +237,7 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    OWN_VAULTS,
+    APPLICATION,
     {
       method: "delete",
       path: "/v1/vaults/{vaultId}/credentials/{credentialId}",
@@ -290,7 +247,6 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       responses: { 200: json(DeletedResponse, "Deleted") },
     },
     async (c) => {
-      await ownerFor(c);
       return jsonResponse(
         200,
         await c.env.tenant.vault.deleteCredential(c.req.param("vaultId")!, c.req.param("credentialId")!),

@@ -115,11 +115,3 @@ describe("client.sandboxes", () => {
     ]);
   });
 });
-
-describe("client.tokens with sandboxes", () => {
-  it("mints the sbx grants it is given", async () => {
-    const { client, sent } = fake(undefined, () => Response.json({ token: "t" }));
-    await client.tokens.create({ subject: "app:42", role: "user", sandboxes: ["team-a/*"] });
-    expect(sent[0]!.body).toMatchObject({ sandboxes: ["team-a/*"] });
-  });
-});

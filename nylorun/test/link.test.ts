@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { deriveTenantKey } from "../src/project/derived-key.js";
 import {
   readProjectCredentials,
   readProjectLink,
@@ -96,21 +95,5 @@ describe("the Project link", () => {
     expect(await mode(dir)).toBe(0o700);
     expect(await mode(join(dir, "link.json"))).toBe(0o600);
     expect(await mode(join(dir, "credentials.json"))).toBe(0o600);
-  });
-});
-
-describe("deriveTenantKey (a copy of @nylorun/admin's)", () => {
-  const ADMIN_KEY = "a".repeat(64);
-  const TENANT = "tn_00000000000000000000000001";
-
-  it("matches the fixed vectors computed independently (Python hmac)", () => {
-    // hmac.new(b"a"*64, b"nylorun/principal/v1\x00babai\x00" + tenant, sha256).hexdigest()
-    expect(deriveTenantKey(ADMIN_KEY, TENANT, "babai")).toBe(
-      "e75e386ac70503370967006bf76ba46b6c9603ca52e282bcfac2f8f972ea771c",
-    );
-    // hmac.new(b"a"*64, b"nylorun/principal/v1\x00project\x00" + tenant, sha256).hexdigest()
-    expect(deriveTenantKey(ADMIN_KEY, TENANT, "project")).toBe(
-      "8fc08b225d4a5809f65c8d0f5e4052404b00b8137fda7ed792ba1148f4216d4f",
-    );
   });
 });

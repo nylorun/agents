@@ -162,10 +162,9 @@ both share it. `--no-link` starts a Tenant without linking the working
 directory (scripts). A link of an older nylorun (format 0 to 2) counts as no
 link: `start` replaces it.
 
-The Runtime registers the derived principals of `NYLORUN_DERIVED_PRINCIPALS`
-(comma-separated, from the environment of `nylorun start`, kept in the Tenant's
-`.env`) when it creates the Tenant; `project` is always among them. Projects no
-longer use the derived `project` key: an operator key of that name replaces it.
+No key is derived from the admin key but Studio's. A project holds the operator
+key `project`; a key an older nylorun derived for it keeps working while it
+authenticates and is replaced by the operator key otherwise.
 
 ## Operator keys
 
@@ -240,14 +239,16 @@ out of another.
 
 ### Embedding Studio in a desktop app
 
-A desktop app such as Babai Desktop can show Studio inside its own window, in
-an iframe loaded from Studio's URL (`studio.url` in `nylorun status --json`).
-Only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
-`~/.nylorun/tenants/<name>/docker/.env`) may frame it. The default is Babai's
-`nylorun://localhost http://nylorun.localhost`; `nylorun status` lists them
-under `Embeds`. While building such an app, add its dev server once with
-`nylorun start --studio-embed-origin http://localhost:1420`; the list is kept
-across starts until `--studio-embed-origin-reset`. Wildcards are refused.
+A desktop or web app can show Studio inside its own window, in an iframe loaded
+from Studio's URL (`studio.url` in `nylorun status --json`). Embedding is
+opt-in: only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
+`~/.nylorun/tenants/<name>/docker/.env`) may frame it, and the list is empty by
+default. Add the app's origins once with `nylorun start --studio-embed-origin
+<origin>` (for example `app://localhost`, or a dev server's
+`http://localhost:1420`); the list is kept across starts until
+`--studio-embed-origin-reset`, and `nylorun status` shows it under `Embeds`.
+Wildcards are refused. A Tenant started by an older nylorun keeps the origins it
+had.
 
 The app's backend mints a single-use login token for the Tenant with
 `mintStudioLoginToken` from `@nylorun/admin` (it needs the admin key), and its

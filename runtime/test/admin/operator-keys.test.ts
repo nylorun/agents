@@ -63,10 +63,10 @@ describe("operator keys", () => {
     };
     expect(health.protocol.features).toContain("operator-keys");
 
-    const created = await host.admin("PUT", "/v1/admin/keys/babai");
+    const created = await host.admin("PUT", "/v1/admin/keys/backend");
     expect(created.status).toBe(200);
     const put = PutOperatorKeyResponseSchema.parse(created.body);
-    expect(put).toMatchObject({ id: "babai", role: "application", rotated: false });
+    expect(put).toMatchObject({ id: "backend", role: "application", rotated: false });
     expect(put.key).toMatch(/^[0-9a-f]{64}$/);
     expect(await host.reads(put.key)).toBe(200);
 
@@ -76,9 +76,9 @@ describe("operator keys", () => {
     expect(keys.map((key) => key.id)).toEqual(
       [...keys.map((key) => key.id)].sort(),
     );
-    expect(keys).toContainEqual({ id: "babai", role: "application", createdAt: put.createdAt });
+    expect(keys).toContainEqual({ id: "backend", role: "application", createdAt: put.createdAt });
     expect(keys.map((key) => key.id)).toEqual(
-      expect.arrayContaining(["babai", "studio", host.principalId]),
+      expect.arrayContaining(["backend", "studio", host.principalId]),
     );
     expect(JSON.stringify(listed.body)).not.toContain(put.key);
     // The ephemeral Runtime registers no derived `project` principal any more.

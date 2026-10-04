@@ -84,24 +84,12 @@ platform too; register the deployed Action endpoint URL once from a deploy step.
 
 ## Pages that call the Runtime directly
 
-[`src/browser-direct/`](./src/browser-direct/) serves the same support agent
-without carrying the chat: the page talks to the Runtime itself. The backend
-([`app.ts`](./src/browser-direct/app.ts)) signs people in, mints a subject token
-for each at `POST /api/nylorun/token`, tells the page the Runtime's URL and
-publishable key at `GET /api/nylorun/config`, and runs the agent's tools.
-[`setup.ts`](./src/browser-direct/setup.ts) writes the access policy and creates
-the publishable key once. The page's side is
-[`chat.ts`](./src/browser-direct/chat.ts): `createBrowserClient` from
-`@nylorun/agents/browser` and `HttpAgent`, with no DOM code, for any bundler.
-
-```sh
-npm run browser-direct
-```
-
-The local Tenant allows browser requests from `http://localhost:*` with that key.
-[`test/browser-direct.test.ts`](./test/browser-direct.test.ts) runs a chat with
-an approval from the page against an in-process Runtime, reloads it, and checks
-that the page never receives the application key.
+A page can also call the Runtime itself, with the JWT your identity provider
+gave the person, when the Runtime trusts that provider in its identity file
+([Trusted issuers](../DEPLOYMENT.md#trusted-issuers)). Nylorun mints no token and
+ships no browser client: send the token as `Authorization: Bearer <token>`
+through a reverse proxy that answers CORS
+([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)).
 
 Rules for a web backend:
 
@@ -114,16 +102,16 @@ Rules for a web backend:
   AG-UI events and nothing else; the handler calls the Runtime as each person
   (`client.as`), so people only reach their own threads, and any `Nylorun-*`
   header a browser sends is ignored.
-- Per-user credentials (a user's GitHub, their Drive): run the provider's OAuth
-  yourself, store the grant in the user's vault with
-  `app.as(subject, { scopes: ["vaults:own"] })`, and attach it with the
-  handler's `session` option, adding `"vaults:own"` to its `scopes`.
+- Per-user credentials (a user's GitHub, their Drive) stay in your own store:
+  the Runtime asks your credential resolver for them when a session's vaults
+  hold none ([Credentials](../DEPLOYMENT.md#credentials)). Shared tool keys go
+  in an installation vault.
 - The Runtime stays off the network: see
   [Serving people through an app server](../DEPLOYMENT.md#serving-people-through-an-app-server).
 
 ## Tests
 
-`npm test` runs the examples' tests. The AG-UI and browser-direct tests start an
+`npm test` runs the examples' tests. The AG-UI test starts an
 in-process Runtime (`startEphemeralRuntime`) whose Tenant lives in a database of its own
 on the runtime test stack's Postgres ([`test/database.ts`](./test/database.ts)). Start that
 stack first, from the repository root (it needs Docker; the runtime's `npm test` starts it

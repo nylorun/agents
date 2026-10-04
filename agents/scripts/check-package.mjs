@@ -11,16 +11,6 @@ try {
     "../../scripts/check-boundaries.mjs"
   );
   checkBoundaries("agents");
-  // First, before anything else is cached: the browser entry loads no Node-only module.
-  const start = loaded.length;
-  const browser = await import("@nylorun/agents/browser");
-  if (typeof browser.createBrowserClient !== "function")
-    throw new Error("Missing @nylorun/agents/browser exports");
-  const nodeOnly = loaded.slice(start).filter(
-    (url) => url.startsWith("node:") || /[/\\]connection\.js$/.test(url)
-  );
-  if (nodeOnly.length)
-    throw new Error(`Browser entry loaded Node-only modules: ${nodeOnly.join(", ")}`);
   // Studio's web app imports the embed contract: it loads no Node-only module either.
   const embedStart = loaded.length;
   const embed = await import("@nylorun/agents/studio-embed");
@@ -33,9 +23,23 @@ try {
   for (const name of ["Agent", "createClient", "createActionHandler"])
     if (typeof sdk[name] !== "function")
       throw new Error(`Missing SDK export ${name}`);
-  // Executors were removed in protocol 3: no pull-model export or subpath remains.
-  for (const name of ["connectAgents", "deriveExecutorToken"])
+  // Executors were removed in protocol 3, subject tokens and the browser client in protocol 7:
+  // no such export or subpath remains.
+  for (const name of [
+    "connectAgents",
+    "deriveExecutorToken",
+    "createTokenEndpoint",
+    "createBrowserClient",
+    "TokensClient",
+    "PublishableKeysClient",
+  ])
     if (name in sdk) throw new Error(`Removed SDK export ${name} is still exported`);
+  const browserEntry = await import("@nylorun/agents/browser").then(
+    () => true,
+    () => false
+  );
+  if (browserEntry)
+    throw new Error("Removed subpath @nylorun/agents/browser still resolves");
   const executorEntry = await import("@nylorun/agents/executor").then(
     () => true,
     () => false
@@ -70,7 +74,7 @@ try {
   )
     throw new Error("Missing @nylorun/agents/ag-ui exports");
   console.log(
-    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the browser and Studio embed entries load no Node-only module."
+    "SDK entry point imports; no engine, host or AG-UI modules loaded; the A2A entry loads no protocol package; the Studio embed entry loads no Node-only module."
   );
 } finally {
   hooks.deregister();

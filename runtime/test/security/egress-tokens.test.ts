@@ -7,7 +7,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { decodeProtectedHeader } from "jose";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { DELIVERY_TOKEN_TYPE, SUBJECT_TOKEN_AUDIENCE, SUBJECT_TOKEN_TYPE, subjectTokenIssuer } from "@nylorun/core/contracts";
+import { ARTIFACT_LINK_TOKEN_TYPE, DELIVERY_TOKEN_TYPE, tenantTokenIssuer } from "@nylorun/core/contracts";
 import {
   EGRESS_TOKEN_AUD,
   EGRESS_TOKEN_MAX_TTL_SECONDS,
@@ -36,7 +36,7 @@ async function signed(overrides: Record<string, unknown> = {}, typ = EGRESS_TOKE
   const { token } = await runs.keys.sign({
     typ,
     claims: {
-      iss: subjectTokenIssuer(runs.tenantId),
+      iss: tenantTokenIssuer(runs.tenantId),
       aud: EGRESS_TOKEN_AUD,
       sbx: "sbx_1",
       epc: 1,
@@ -79,20 +79,20 @@ describe("egress tokens", () => {
   it("refuses a wrong typ, aud or iss", async () => {
     expect(await verify(await signed({}, "JWT"))).toEqual({ ok: false, reason: "egress_token_header" });
     expect(await verify(await signed({ aud: RUN_TOKEN_AUD }))).toEqual({ ok: false, reason: "egress_token_invalid" });
-    expect(await verify(await signed({ iss: subjectTokenIssuer(newTenantId()) }))).toEqual({
+    expect(await verify(await signed({ iss: tenantTokenIssuer(newTenantId()) }))).toEqual({
       ok: false,
       reason: "egress_token_invalid",
     });
     expect(await verifyEgressToken(runs.store, newTenantId(), await signed())).toMatchObject({ ok: false });
   });
 
-  it("refuses a run, host, subject or delivery token presented as an egress token", async () => {
+  it("refuses a run, host, capability link or delivery token presented as an egress token", async () => {
     const run = (await runs.run("egress-run")).token;
     const host = await signed({ aud: "nylorun-harness" }, "nylorun-host+jwt");
     const runShaped = await signed({ aud: RUN_TOKEN_AUD, sub: "s", trn: "t", agt: "a" }, RUN_TOKEN_TYP);
-    const subject = await signed({ aud: SUBJECT_TOKEN_AUDIENCE, tnt: runs.tenantId, role: "user", scp: "", epc: 0 }, SUBJECT_TOKEN_TYPE);
+    const link = await signed({ aud: "nylorun-artifact", ver: 1 }, ARTIFACT_LINK_TOKEN_TYPE);
     const delivery = await signed({ aud: "http://endpoint.invalid", gen: 1, bdy: "x" }, DELIVERY_TOKEN_TYPE);
-    for (const token of [run, host, runShaped, subject, delivery])
+    for (const token of [run, host, runShaped, link, delivery])
       expect(await verify(token)).toEqual({ ok: false, reason: "egress_token_header" });
   });
 

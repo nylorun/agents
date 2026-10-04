@@ -14,8 +14,8 @@
  * 3. When `nylorun.tenant` is empty, create the Tenant: its row (id, name, created time) and
  *    its first principals. A database whose row is gone but that holds a Tenant's data
  *    (principals, sessions, agents, vaults, keys) is `envelope-invalid`, never given a new
- *    Tenant. Principals given later that the Tenant does not have yet are added (a derived
- *    principal configured after the first start); existing ones are kept.
+ *    Tenant. Principals given later that the Tenant does not have yet are added (the
+ *    ephemeral Runtime's application key); existing ones are kept, as ordinary keys.
  * 4. Read the envelope back (`envelope-invalid` when it does not parse), and open the store.
  *
  * A lost connection or an unavailable server says nothing about the Tenant: it is thrown as
@@ -64,7 +64,7 @@ export interface TenantCreation {
   /** Ignored when the Tenant exists. */
   name: string;
   /**
-   * The principals the Tenant must have, given its id (derived keys depend on it). Created
+   * The principals the Tenant must have, given its id (Studio's derived key depends on it). Created
    * with the Tenant; on later opens, the missing ones are added.
    */
   principals?(tenantId: string): readonly InitialPrincipal[];

@@ -8,7 +8,7 @@ import { SignJWT } from "jose";
 import {
   DELIVERY_TOKEN_MAX_TTL_SECONDS,
   DELIVERY_TOKEN_TYPE,
-  subjectTokenIssuer,
+  tenantTokenIssuer,
 } from "@nylorun/core/contracts";
 import type { TenantContext } from "../../src/tenant/context.js";
 import {
@@ -77,7 +77,7 @@ describe("minting and verifying", () => {
     const [, payload] = minted.token.split(".");
     const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
     expect(claims).toMatchObject({
-      iss: subjectTokenIssuer(ctx.config.tenantId),
+      iss: tenantTokenIssuer(ctx.config.tenantId),
       aud: "http://localhost:3000/actions",
       sub: "a1",
       agt: "support",
@@ -87,7 +87,7 @@ describe("minting and verifying", () => {
     expect(claims.exp - claims.iat).toBe(120);
   });
 
-  it("caps the lifetime at the subject-token maximum", async () => {
+  it("caps the lifetime at the longest a Runtime token lives", async () => {
     const { ctx } = await tenant();
     const minted = await mint(ctx, { ttlSeconds: 86_400 });
     expect(minted.expiresAt - Date.now()).toBeLessThanOrEqual(DELIVERY_TOKEN_MAX_TTL_SECONDS * 1000);
@@ -109,7 +109,7 @@ describe("minting and verifying", () => {
     const { privateKey } = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
     const forged = await new SignJWT({ agt: "support", gen: 2, bdy: "x" })
       .setProtectedHeader({ alg: "ES256", typ: DELIVERY_TOKEN_TYPE, kid: JSON.parse(Buffer.from(h!, "base64url").toString()).kid })
-      .setIssuer(subjectTokenIssuer(ctx.config.tenantId))
+      .setIssuer(tenantTokenIssuer(ctx.config.tenantId))
       .setAudience("x")
       .setSubject("a1")
       .setIssuedAt()
@@ -127,7 +127,7 @@ describe("minting and verifying", () => {
     const { token: stale } = await ctx.keys.sign({
       typ: DELIVERY_TOKEN_TYPE,
       claims: {
-        iss: subjectTokenIssuer(ctx.config.tenantId),
+        iss: tenantTokenIssuer(ctx.config.tenantId),
         aud: "x",
         sub: "a1",
         agt: "support",
@@ -200,7 +200,7 @@ describe("as a bearer", () => {
 });
 
 describe("signing key rotation", () => {
-  it("waits for the longest delivery token even when subject tokens live less", async () => {
+  it("waits for the longest delivery token even when asked for a shorter lifetime", async () => {
     const { ctx } = await tenant();
     await ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
     const refused = await refusal(ctx.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: false }));

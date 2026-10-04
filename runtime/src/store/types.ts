@@ -77,9 +77,7 @@ import type {
   ModelUsageRow,
   PrincipalRow,
   ToolCrossingRow,
-  PublishableKeyRow,
   SigningKeyRow,
-  SubjectUsageRow,
   VaultAuditRow,
   VaultCredentialRow,
   VaultIdempotencyRow,
@@ -332,8 +330,7 @@ export type EndpointHealthUpdate =
  * The rows of the typed tables, inferred from the tables Drizzle defines
  * (`store/postgres/schema.ts`): a principal, a vault and its credentials (secrets sealed in
  * `bytea` columns, never inside a JSON body), the vault's audit and idempotency records, the
- * Tenant's signing keys, a subject's turn bucket, a publishable key, a model call in the usage
- * ledger and a model budget.
+ * Tenant's signing keys, a model call in the usage ledger and a model budget.
  */
 export type {
   ArtifactRow,
@@ -342,9 +339,7 @@ export type {
   ModelUsageRow,
   ToolCrossingRow,
   PrincipalRow,
-  PublishableKeyRow,
   SigningKeyRow,
-  SubjectUsageRow,
   VaultAuditRow,
   VaultCredentialRow,
   VaultIdempotencyRow,
@@ -740,7 +735,7 @@ export interface Tx {
   /** Deletes the pending connects that expired before `now` (ISO); returns how many. */
   deleteExpiredOAuthPending(now: string): Promise<number>;
 
-  // --- subject tokens ------------------------------------------------------
+  // --- signing keys --------------------------------------------------------
 
   /**
    * Serializes signing key changes: held until the transaction ends. Take it before reading
@@ -766,38 +761,6 @@ export interface Tx {
     at: string,
   ): Promise<boolean>;
   countSigningKeys(): Promise<number>;
-  /** The subject's revocation epoch; 0 when it was never revoked. */
-  subjectEpoch(subject: string): Promise<number>;
-  /** The epochs of several subjects; subjects never revoked are absent. */
-  subjectEpochs(subjects: readonly string[]): Promise<Map<string, number>>;
-  /** Adds one to the subject's epoch and returns the new value. */
-  bumpSubjectEpoch(subject: string, at: string): Promise<number>;
-  /**
-   * The subject's turn bucket, created from `initial` when missing, locked until the
-   * transaction ends so concurrent commands of one subject serialize.
-   */
-  lockSubjectUsage(initial: SubjectUsageRow): Promise<SubjectUsageRow>;
-  putSubjectUsage(row: SubjectUsageRow): Promise<void>;
-  /** How many sessions of `ownerUserId` are in one of `statuses`. */
-  countOwnerSessions(
-    ownerUserId: string,
-    statuses: readonly string[],
-  ): Promise<number>;
-
-  // --- publishable keys ----------------------------------------------------
-
-  /** Rejects on a duplicate id, key or name. */
-  insertPublishableKey(row: PublishableKeyRow): Promise<void>;
-  publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined>;
-  publishableKey(id: string): Promise<PublishableKeyRow | undefined>;
-  /** All keys, revoked ones included, ordered by `createdAt`, then id. */
-  publishableKeys(): Promise<PublishableKeyRow[]>;
-  /** Returns false when the key does not exist. */
-  updatePublishableKey(
-    id: string,
-    patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
-  ): Promise<boolean>;
-
   // --- model usage ---------------------------------------------------------
 
   /** Appends a row, setting `duplicate` when one with the same `effectKey` exists; returns it. */
@@ -874,15 +837,14 @@ export interface Tx {
 
   /**
    * Deletes Tenant state by scope, in this transaction:
-   * - `sessions`: sessions, commands, effects, actions, links, subject turn
-   *   buckets, the artifacts of sessions (their blobs are the caller's to delete) and the
+   * - `sessions`: sessions, commands, effects, actions, links, the artifacts of sessions (their blobs are the caller's to delete) and the
    *   Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
    * - `sandboxes`: sandbox records, sandbox resources and their lifecycle streams;
    * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials,
-   *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys, subject epochs,
-   *   publishable keys, settings, audit and vault idempotency rows stay.
+   *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys,
+   *   settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;
 }

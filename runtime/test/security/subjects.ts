@@ -6,7 +6,7 @@
 import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import { SUBJECT_SCOPES, type SubjectScope } from "@nylorun/core/contracts";
 import { Agent } from "@nylorun/core/define";
-import { startTestTenant } from "../support/tenant.js";
+import { startTestTenant, type StartTestTenantOptions } from "../support/tenant.js";
 
 export const APP = "subject-suite-app-token-aaaaaaaa";
 const KEK = Buffer.alloc(32, 7).toString("base64");
@@ -39,8 +39,11 @@ export function subjectHeaders(as: As): Record<string, string> {
   };
 }
 
-export async function startSubjectTenant() {
+export async function startSubjectTenant(
+  options: { issuers?: StartTestTenantOptions["issuers"] } = {}
+) {
   const runtime = await startTestTenant({
+    ...(options.issuers ? { issuers: options.issuers } : {}),
     applicationKey: APP,
     vaultKek: KEK,
     modelProvider: async () => ({ output: [{ type: "text", text: "ok" }] }),
@@ -102,13 +105,15 @@ export async function createSession(
   });
 }
 
-/** A vault owned by `as.subject`, with one bearer credential. */
+/**
+ * A vault owned by `as.subject`, with one bearer credential, created with the application key
+ * acting for no one: vault routes take no subject (protocol 7).
+ */
 export async function createVault(
   tenant: SubjectTenant,
   as: As
 ): Promise<{ vaultId: string; credentialId: string }> {
   const vault = await tenant.call("POST", "/v1/vaults", {
-    as,
     body: {
       requestId: `vault-${as.subject}`,
       idempotencyKey: `vault-${as.subject}`,
@@ -122,7 +127,6 @@ export async function createVault(
     "POST",
     `/v1/vaults/${vault.body.id}/credentials`,
     {
-      as,
       body: {
         requestId: `cred-${as.subject}`,
         idempotencyKey: `cred-${as.subject}`,
