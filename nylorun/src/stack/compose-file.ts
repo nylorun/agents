@@ -49,10 +49,12 @@ import { PINNED_IMAGES } from "./images.js";
  * (`<Host root>/sandboxes`, read-only), not published, reached by the runtime alone with
  * NYLORUN_SANDBOXES_TOKEN. The runtime gets an empty read-only mount over that directory.
  * Sandbox pods reach the stack only on the Docker host's address (NYLORUN_SANDBOX_HOST_ADDRESS),
- * where two ports are published on NYLORUN_SANDBOX_BIND: the runtime's Harness API listener
- * (NYLORUN_SANDBOX_HARNESS_PORT → 4200: pods join and connect with host tokens) and the
- * gateway's gates (NYLORUN_SANDBOX_GATES_PORT → 4100: model and MCP calls with run tokens).
- * Each listener accepts that address as a Host.
+ * where three ports are published on NYLORUN_SANDBOX_BIND: the runtime's Harness API listener
+ * (NYLORUN_SANDBOX_HARNESS_PORT → 4200: pods join and connect with host tokens), the
+ * gateway's gates (NYLORUN_SANDBOX_GATES_PORT → 4100: model and MCP calls with run tokens) and
+ * egress-gate (NYLORUN_SANDBOX_EGRESS_PORT → 4200 in the gateway, `--service gates,keys,egress`:
+ * CONNECT with the egress token, to the hosts the sandbox spec allows). The two HTTP listeners
+ * accept that address as a Host.
  *
  * The harness (F6.2, `harness: "remote"`, the default) runs every agent turn, MCP stdio server
  * and workspace in its own container: the runtime image with `--service harness`, connected to
@@ -157,11 +159,11 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       retries: 30
     restart: unless-stopped
 
-  gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published
+  gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published${sandboxes ? ", but for sandbox pods" : ""}
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     container_name: ${project}-gateway
     labels: *tenant
-    command: ["--service", "gates,keys"]
+    command: ["--service", "gates,keys${sandboxes ? ",egress" : ""}"]
     user: "\${NYLORUN_UID:?run nylorun start}:\${NYLORUN_GID:?run nylorun start}"
     depends_on:
       postgres: { condition: service_healthy }
@@ -177,7 +179,7 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
-      NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
@@ -398,10 +400,16 @@ const SANDBOXES_RUNTIME_PORT = `
 const SANDBOXES_GATES_HOST =
   ",\${NYLORUN_SANDBOX_HOST_ADDRESS:?run nylorun sandbox enable}:\${NYLORUN_SANDBOX_GATES_PORT:?run nylorun sandbox enable}";
 
-/** The gates, published for sandbox pods. */
+/** The gates and egress-gate, published for sandbox pods. */
 const SANDBOXES_GATES_PORT = `    ports:
       - "\${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:\${NYLORUN_SANDBOX_GATES_PORT:?run nylorun sandbox enable}:4100" # gates, for sandbox pods (run tokens)
+      - "\${NYLORUN_SANDBOX_BIND:?run nylorun sandbox enable}:\${NYLORUN_SANDBOX_EGRESS_PORT:?run nylorun sandbox enable}:4200" # egress-gate, for sandbox pods (egress tokens)
 `;
+
+/** egress-gate (F7.2): pods' CONNECT proxy in the gateway. */
+const SANDBOXES_GATEWAY_ENV = `
+      # egress-gate: the only way out of a sandbox pod, to the hosts its spec allows.
+      NYLORUN_EGRESS_LISTEN_PORT: "4200"`;
 
 /** Empty and read-only over the cluster credentials: only the sandboxes service reads them. */
 const SANDBOXES_RUNTIME_MOUNT = `
@@ -411,9 +419,9 @@ const SANDBOXES_RUNTIME_MOUNT = `
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user`;
 
 /**
- * The sandboxes service. Of the pod-facing ports `nylorun sandbox enable` records
- * (NYLORUN_SANDBOX_*_PORT in .env), the Harness API's and the gates' are published (above);
- * egress-gate's is not yet.
+ * The sandboxes service. The pod-facing ports `nylorun sandbox enable` records
+ * (NYLORUN_SANDBOX_*_PORT in .env), the Harness API's, the gates' and egress-gate's, are
+ * published by the runtime and the gateway (above).
  */
 function sandboxesService(project: string): string {
   return `

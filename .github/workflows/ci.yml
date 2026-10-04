@@ -283,7 +283,7 @@ jobs:
   # service restarted mid-operation, delete, and no docker.sock anywhere.
   sandboxes:
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 100
     env:
       NYLORUN_RUNTIME_IMAGE: nylorun-runtime:ci
       NYLORUN_SANDBOXES_IMAGE: nylorun-sandboxes:ci
@@ -351,6 +351,14 @@ jobs:
       - name: Pod sandboxes suite
         timeout-minutes: 35
         run: npm run test:sandboxes -- --context kind-nylorun --host-address 172.17.0.1
+      # F7.2 8c: the network invariant and the red-team from inside the sandbox namespace
+      # (scripts/sandbox/pod-stack.mjs), each on a Tenant of its own with a joined pod sandbox.
+      - name: Sandbox network invariant
+        timeout-minutes: 15
+        run: npm run test:sandboxes:network -- --context kind-nylorun --host-address 172.17.0.1
+      - name: Sandbox red-team
+        timeout-minutes: 15
+        run: npm run test:sandboxes:redteam -- --context kind-nylorun --host-address 172.17.0.1
       - name: Cluster diagnostics
         if: failure()
         run: |
