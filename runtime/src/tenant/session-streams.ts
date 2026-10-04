@@ -18,6 +18,8 @@
  * Business code never writes here: events reach streams only through the stream relay, from
  * the record, after commit.
  */
+
+import { historyCursor, historyResume } from "../reads/cursor.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../record/index.js";
@@ -198,24 +200,37 @@ export async function readHistory(
   ctx: TenantContext,
   sessionId: string,
   cursor: string | undefined,
-  agent: string | undefined
-): Promise<{ items: LiveEvent[]; cursor: string | null }> {
-  const from = startSeq(sessionId, cursor);
+  agent: string | undefined,
+  limit?: number,
+): Promise<{ items: LiveEvent[]; cursor: string | null; tail?: boolean }> {
+  const codec = limit === undefined ? undefined : historyCursor(ctx.config.tenantId, sessionId, agent);
+  const from = startSeq(
+    sessionId,
+    codec ? codec.decode(cursor) : historyResume(ctx.config.tenantId, sessionId, cursor),
+  );
   const streams = streamsOf(ctx);
   const ref =
     (await currentStream(ctx, sessionId)) ?? fail(404, "Session not found");
   const items: LiveEvent[] = [];
   let last: number | undefined;
+  let atTail = true;
+  let examined = 0;
   try {
+    const tail = limit === undefined ? undefined : await streams.tail(ref.basin, ref.stream);
     for await (const record of streams.read<LiveEvent>(
       ref.basin,
       ref.stream,
       from,
       { follow: false }
     )) {
+      if (tail !== undefined && record.seq >= tail) break;
       last = record.seq;
       if (served(record.body) && (agent === undefined || belongsTo(record.body, agent)))
         items.push(record.body);
+      if (limit !== undefined && ++examined >= limit) {
+        atTail = last >= tail! - 1;
+        break;
+      }
     }
   } catch (error) {
     ctx.config.logger.warn("session history read failed", {
@@ -226,8 +241,11 @@ export async function readHistory(
   }
   return {
     items,
+    ...(limit === undefined ? {} : { tail: atTail }),
     cursor:
-      last !== undefined ? encodeCursor(sessionId, last) : cursor ?? null,
+      last !== undefined
+        ? (codec ? codec.encode(encodeCursor(sessionId, last)) : encodeCursor(sessionId, last))
+        : cursor ?? null,
   };
 }
 
@@ -245,7 +263,7 @@ export async function streamSessionEvents(
 ): Promise<void> {
   const observer: Observer = {
     sink: sseSink(response),
-    next: startSeq(sessionId, cursor),
+    next: startSeq(sessionId, historyResume(ctx.config.tenantId, sessionId, cursor)),
     ...(holder ? { holder } : {}),
   };
   const joined = await join(ctx, sessionId, observer);
@@ -295,7 +313,7 @@ export async function* observeSession(
         notify();
       },
     },
-    next: startSeq(sessionId, cursor),
+    next: startSeq(sessionId, historyResume(ctx.config.tenantId, sessionId, cursor)),
     ...(options.holder ? { holder: options.holder } : {}),
   };
   const joined = await join(ctx, sessionId, observer);

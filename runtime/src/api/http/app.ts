@@ -19,6 +19,7 @@ import { endpointRoutes } from "./routes/endpoints.js";
 import { actionRoutes } from "./routes/actions.js";
 import { sandboxRoutes } from "./routes/sandboxes.js";
 import { artifactRoutes } from "./routes/artifacts.js";
+import { readRoutes } from "./routes/reads.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { vaultRoutes } from "./routes/vaults.js";
@@ -84,5 +85,6 @@ function build(): OpenAPIHono<TenantEnv> {
     const rejection = rejectionOf(error);
     return jsonResponse(rejection.status, rejection.body, rejection.headers);
   });
+  readRoutes(api);
   return api;
 }

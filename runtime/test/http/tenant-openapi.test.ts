@@ -16,6 +16,19 @@ const document = new OpenApiGeneratorV32(tenantApi().openAPIRegistry.definitions
 const operation = (method: string, path: string) =>
   (document.paths?.[path] as Record<string, any> | undefined)?.[method];
 
+it("documents the session reads with the same privileged credentials as serving", () => {
+  for (const path of ["/v1/sessions/{sessionId}/manifest", "/v1/sessions/{sessionId}/usage", "/v1/sessions/{sessionId}/calls/model", "/v1/tenant/calls/model"]) {
+    const op = operation("get", path);
+    expect(op.security).toEqual([{ applicationKey: [] }]);
+    expect(op["x-nylorun-credentials"]).toEqual(["application", "subject"]);
+    expect(op["x-nylorun-browser"]).toBe(false);
+    expect(op["x-nylorun-scopes"]).toEqual(path.endsWith("manifest") ? ["agents:read", "agents:write"] : ["tenant:settings"]);
+  }
+  for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/sandboxes"]) {
+    expect(operation("get", path).parameters.find((p: {name: string}) => p.name === "limit").required).toBe(false);
+  }
+});
+
 it("documents no executor routes: Action endpoints replaced them", () => {
   for (const [method, path] of [
     ["get", "/v1/executors/connect"],

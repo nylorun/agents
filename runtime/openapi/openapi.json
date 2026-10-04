@@ -23,7 +23,9 @@
         "a2a-endpoint",
         "action-endpoints",
         "sandboxes",
-        "sandbox-pods"
+        "sandbox-pods",
+        "session-reads",
+        "calls-export"
       ]
     }
   },
@@ -9901,6 +9903,98 @@
         ],
         "additionalProperties": false
       },
+      "SessionPage": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionListItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sessions",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "SessionListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "ownerUserId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "runnable",
+              "running",
+              "waiting",
+              "paused",
+              "uncertain",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "activeTurnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastTurnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sandboxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastEventAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "agentId",
+          "ownerUserId",
+          "status",
+          "activeTurnId",
+          "lastTurnId",
+          "sandboxId",
+          "createdAt",
+          "lastEventAt"
+        ],
+        "additionalProperties": false
+      },
       "SessionView": {
         "type": "object",
         "properties": {
@@ -17197,6 +17291,31 @@
           "payload"
         ]
       },
+      "HistoryPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionEvent"
+            }
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tail": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "cursor",
+          "tail"
+        ]
+      },
       "StreamClosedFrame": {
         "type": "object",
         "properties": {
@@ -17341,6 +17460,28 @@
         },
         "required": [
           "sandboxes"
+        ],
+        "additionalProperties": false
+      },
+      "SandboxPage": {
+        "type": "object",
+        "properties": {
+          "sandboxes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SandboxView"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sandboxes",
+          "nextCursor"
         ],
         "additionalProperties": false
       },
@@ -21421,6 +21562,289 @@
           "method"
         ],
         "additionalProperties": {}
+      },
+      "SessionManifestView": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "manifestHash": {
+            "type": "string"
+          },
+          "implementationVersion": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "sessionId",
+          "agentId",
+          "manifestHash",
+          "implementationVersion",
+          "manifest"
+        ],
+        "additionalProperties": false
+      },
+      "SessionUsageTotals": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cachedTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheWriteTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reasoningTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicates": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unpricedCalls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unreportedCalls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknownQualityCalls": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "sessionId",
+          "turnId",
+          "asOf",
+          "inputTokens",
+          "outputTokens",
+          "totalTokens",
+          "cachedTokens",
+          "cacheWriteTokens",
+          "reasoningTokens",
+          "costUsd",
+          "calls",
+          "duplicates",
+          "unpricedCalls",
+          "unreportedCalls",
+          "unknownQualityCalls"
+        ],
+        "additionalProperties": false
+      },
+      "ModelCallsPage": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelCall"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls",
+          "nextCursor",
+          "asOf"
+        ],
+        "additionalProperties": false
+      },
+      "ModelCall": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed"
+            ]
+          },
+          "usage": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "totalTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cachedTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reasoningTokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "costUsd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "duplicate": {
+                "type": "boolean"
+              },
+              "tokensReported": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "costKnown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "inputTokens",
+              "outputTokens",
+              "totalTokens",
+              "cachedTokens",
+              "cacheWriteTokens",
+              "reasoningTokens",
+              "costUsd",
+              "duplicate",
+              "tokensReported",
+              "costKnown"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "turnId",
+          "agentId",
+          "provider",
+          "model",
+          "at",
+          "outcome",
+          "usage"
+        ],
+        "additionalProperties": false
+      },
+      "ModelCallExportPage": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelCall"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caughtUp": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls",
+          "next",
+          "caughtUp",
+          "asOf"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {}
@@ -22703,10 +23127,63 @@
         "parameters": [
           {
             "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "string"
             },
             "required": false,
             "name": "agentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "runnable",
+                "running",
+                "waiting",
+                "paused",
+                "uncertain",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "sandboxId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "ownerUserId",
             "in": "query"
           },
           {
@@ -22742,11 +23219,18 @@
         ],
         "responses": {
           "200": {
-            "description": "The sessions",
+            "description": "The sessions; limit opts into pagination",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListSessionsResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ListSessionsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionPage"
+                    }
+                  ]
                 }
               }
             }
@@ -23174,6 +23658,16 @@
           },
           {
             "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "string",
               "description": "Only the events of this agent (the root agent, or one it uses as a tool)"
             },
@@ -23215,11 +23709,18 @@
         ],
         "responses": {
           "200": {
-            "description": "Events up to now, and the cursor to continue",
+            "description": "Events up to now; limit returns a bounded page and tail",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionItemsResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionItemsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoryPage"
+                    }
+                  ]
                 }
               }
             }
@@ -23719,6 +24220,24 @@
         "parameters": [
           {
             "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
               "anyOf": [
                 {
                   "type": "string"
@@ -23770,11 +24289,18 @@
         ],
         "responses": {
           "200": {
-            "description": "The sandboxes",
+            "description": "The sandboxes; limit opts into pagination",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListSandboxesResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ListSandboxesResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SandboxPage"
+                    }
+                  ]
                 }
               }
             }
@@ -32262,6 +32788,545 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{sessionId}/manifest": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Read the session's pinned manifest",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "agents:read",
+          "agents:write"
+        ],
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The pinned public manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionManifestView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{sessionId}/usage": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Read a session's recorded model usage",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "tenant:settings"
+        ],
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "turnId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recorded usage, including duplicate billed calls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUsageTotals"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{sessionId}/calls/model": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Page a session's model calls",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "tenant:settings"
+        ],
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "turnId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recorded usage, including duplicate billed calls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCallsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/calls/model": {
+      "get": {
+        "tags": [
+          "Tenant"
+        ],
+        "summary": "Export committed model calls in safe transaction order",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "tenant:settings"
+        ],
+        "x-nylorun-browser": false,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An unfiltered resumable ledger page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCallExportPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
                 }
               }
             }

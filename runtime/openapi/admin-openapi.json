@@ -23,7 +23,9 @@
         "a2a-endpoint",
         "action-endpoints",
         "sandboxes",
-        "sandbox-pods"
+        "sandbox-pods",
+        "session-reads",
+        "calls-export"
       ]
     }
   },
