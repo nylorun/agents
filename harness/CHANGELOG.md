@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.22.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [8773586]
+- Updated dependencies [e1bfb4b]
+- Updated dependencies [5cfaed9]
+- Updated dependencies [bd478ee]
+- Updated dependencies [c0b604e]
+  - @nylorun/core@0.13.0-beta
+
 ## 0.22.0-beta
 
 ### Minor Changes
