@@ -1,3 +1,109 @@
+# Open-source auth (protocol 7)
+
+Open source now verifies and enforces, and leaves sign-in, people and their secrets to you.
+Servers use **operator keys**, browsers and apps present **your identity provider's JWTs**
+(a trusted issuer in the identity file), shared credentials live in **installation vaults**,
+and a person's own credentials come from **your credential resolver**. Subject tokens,
+publishable keys, the access policy, derived keys and per-person vault routes are removed.
+[SELF_HOSTING.md](./SELF_HOSTING.md) describes the result.
+
+The protocol is now 7. A Runtime of this release still serves protocol 4, 5 and 6 clients on
+every route that remains; a protocol 7 client (this release's `@nylorun/agents`,
+`@nylorun/admin`, `@nylorun/cli`, `nylorun` and Studio) needs this release's Runtime, so
+upgrade them together (`nylorun start` pins the matching image). Removed routes answer `404`.
+
+**Who is affected.** A single developer on a local Tenant who uses the SDK with the Project
+link, Studio and `nylorun sandbox` has nothing to do: `nylorun start` adopts the project's key.
+You are affected if you mint subject tokens, ship a publishable key or use
+`@nylorun/agents/browser`, set an access policy, derive keys from the admin key
+(`NYLORUN_DERIVED_PRINCIPALS`, `deriveTenantKey`), create or read vaults while acting for a
+person (`vaults:own`), embed Studio in another app, or refresh OAuth credentials against a
+token endpoint on a private address.
+
+What to do:
+
+1. **Derived keys → operator keys.** Only Studio's key is still derived from the admin key.
+   `NYLORUN_DERIVED_PRINCIPALS` is ignored and no longer written, and `@nylorun/admin` drops
+   `deriveTenantKey`, `PROJECT_PRINCIPAL_ID` and `admin.deriveTenantKey`. A key an earlier Host
+   derived stays in the database and keeps working as an ordinary key. Give each client its own
+   operator key: `npx nylorun key put <id>` on a local Tenant, `admin.keys.put(id)` in
+   `@nylorun/admin`, or `PUT /v1/admin/keys/{id}` on the operator listener. Putting the id of a
+   derived key (`project`, or your own) rotates it to a random key, so do that once the client
+   has its new key. `nylorun start` already gives linked projects the key `project` and keeps an
+   existing project key that works.
+2. **Subject tokens and `createTokenEndpoint` → a trusted issuer.** `POST /v1/tokens`,
+   `POST /v1/access/revocations`, `client.tokens`, `createTokenEndpoint`,
+   `client.access.revokeSubject` and `nylo access token|revoke` are gone, and a JWT no trusted
+   issuer signed is the opaque `404`. Remove your token route. List your identity provider in
+   the identity file (`<Host root>/identity.yaml`, or `NYLORUN_IDENTITY_FILE`), with `issuer`,
+   `audience`, `jwks`, a `subject` template such as `u:{sub}` and the scopes, and send the
+   provider's token as the bearer
+   ([SELF_HOSTING.md](./SELF_HOSTING.md#the-identity-file)). Revoke people at the provider and
+   keep its tokens short-lived: a stream opened with a token now ends only at its expiry
+   (`token_expired`; `StreamClosedFrame` loses `revoked`, and the `subject.revoked` signal is
+   gone).
+3. **Publishable keys, `createBrowserClient` and browser access → the IdP's JWT and CORS at your
+   proxy.** `/v1/access/publishable-keys*`, `@nylorun/agents/browser` (`createBrowserClient`),
+   `client.access.publishableKeys`, `nylo access keys`, the `Nylorun-Key` header,
+   `NYLORUN_BROWSER_ACCESS` and `browserAccess` (`host.json`, `createHost`,
+   `startEphemeralRuntime`) are removed, and the Runtime sends no CORS headers. In the page, sign
+   in with your provider's SDK and call the Runtime with `fetch`, sending
+   `Authorization: Bearer <token>` and `Nylorun-Protocol: 7`; for a chat UI, give
+   `@ag-ui/client`'s `HttpAgent` a `fetch` that adds them. Answer preflights and add
+   `Access-Control-Allow-Origin` for your app's origins at the reverse proxy
+   ([SELF_HOSTING.md](./SELF_HOSTING.md#cors-at-your-proxy)). An application key or delivery
+   token sent with an `Origin` is `403 origin_rejected`.
+4. **Access policy roles and limits → issuer settings and proxy limits.**
+   `GET`/`PUT /v1/access/policy`, `client.access.getPolicy`/`putPolicy` and
+   `nylo access policy` are gone, and a stored policy is ignored. Move each role to the identity
+   file: its scopes to `allowedScopes` and your tokens' scope claim (or `scopes.fixed`), its
+   agents to `agents`, its sandboxes to `sandboxes` templates, and `tokens.maxTtlSeconds` to
+   `maxLifetime`. Turn limits (`429 limit_exceeded`) are gone: limit requests per person at your
+   proxy.
+5. **Per-person vaults and `vaults:own` → installation vaults and your resolver.** Every
+   `/v1/vaults` route takes an application key acting for no one; acting for a person, or with
+   an issuer's token, it is `403 scope_required`. `vaults:own` grants nothing. Move shared
+   credentials into an installation vault: Studio's Connections page,
+   `client.createVault({ scope: "installation", … })`, or `nylorun mcp connect <url>` for an
+   OAuth MCP server. Keep each person's own credentials in your secret store and answer for them
+   from a resolver (`NYLORUN_RESOLVER_URL`, `NYLORUN_RESOLVER_TOKEN` on the gateway;
+   [SELF_HOSTING.md](./SELF_HOSTING.md#the-credential-resolver)). Existing person vaults stay
+   attachable to their owner's sessions; `client.listVaults()` takes an optional owner.
+6. **Studio embedding.** The embed message `open.babai` is now `open.session` (`{ sessionId }`):
+   it asks the embedding app to open that session in its own UI. Embedding is opt-in: no origin
+   may frame Studio by default (`NYLORUN_STUDIO_FRAME_ANCESTORS` is empty); list your app's
+   origins with `nylorun start --studio-embed-origin <origin>`. A Tenant's `.env` from an
+   earlier nylorun keeps the origins it had; `--studio-embed-origin-reset` clears them.
+7. **OAuth refresh follows `NYLORUN_ENDPOINT_*`.** Refreshing an OAuth vault credential now goes
+   through the same address policy as Action deliveries: no redirects, and with
+   `NYLORUN_ENDPOINT_PRIVATE=refuse` a token endpoint on a private address is refused where
+   refresh used to call it. Allow private addresses on that gateway, or move the token endpoint.
+
+| Before | After |
+| --- | --- |
+| `NYLORUN_DERIVED_PRINCIPALS`, `deriveTenantKey`, `admin.deriveTenantKey`, `PROJECT_PRINCIPAL_ID` | `nylorun key put <id>`, `admin.keys.put(id)`, `PUT /v1/admin/keys/{id}` |
+| `hostPrincipals({ derived })`, `startEphemeralRuntime({ derivedPrincipals })` | Operator keys; `DERIVED_PRINCIPAL_ID_PATTERN` is `APPLICATION_KEY_ID_PATTERN` |
+| `POST /v1/tokens`, `client.tokens.create`, `createTokenEndpoint`, `nylo access token` | Your identity provider's tokens, trusted through the identity file |
+| `POST /v1/access/revocations`, `client.access.revokeSubject`, `nylo access revoke` | Revoke at the provider; tokens end at their expiry |
+| `GET`/`PUT /v1/access/policy`, `client.access.getPolicy`/`putPolicy`, `nylo access policy` | The issuer's `allowedScopes`, `agents`, `sandboxes` and `maxLifetime`; limits at your proxy |
+| `/v1/access/publishable-keys*`, `client.access.publishableKeys`, `nylo access keys`, `Nylorun-Key` | The IdP's JWT as the bearer |
+| `@nylorun/agents/browser`, `createBrowserClient` | `fetch` with `Authorization` and `Nylorun-Protocol` |
+| `NYLORUN_BROWSER_ACCESS`, `browserAccess`; CORS from the Runtime | CORS at your reverse proxy |
+| `vaults:own`; vault routes acting for a person | Installation vaults (application keys); your credential resolver |
+| `Destination.publishableKey`; `Destination.token` for subject tokens | `Destination.token` takes a trusted issuer's tokens |
+| Default Studio frame ancestors | None; `--studio-embed-origin <origin>` |
+| `GET /v1/me` `via: token` | `via: issuer:<name>` |
+| Core: `SUBJECT_TOKEN_*`, `subjectTokenIssuer`, `CreateTokenRequest`, `AccessPolicy*`, `PUBLISHABLE_KEY_*`, `originAllowed`, … | Removed; `tenantTokenIssuer` for the Runtime's own tokens; `TOKEN_SCOPES` is `agents:read`, `sessions:own`, `sandboxes:write` |
+
+- **Kept:** `GET /v1/access/jwks`, the signing-key routes and `nylo access signing-keys
+  list|rotate|revoke` (delivery tokens and capability links), `client.as()` with
+  `Nylorun-Subject` and `Nylorun-Scopes`, and Studio's own sign-in and embedding.
+- **Self-hosted Runtime.** Remove `NYLORUN_DERIVED_PRINCIPALS` and `NYLORUN_BROWSER_ACCESS`.
+  Set `NYLORUN_IDENTITY_FILE` on the runtime for your issuers, `NYLORUN_RESOLVER_URL` and
+  `NYLORUN_RESOLVER_TOKEN` on the gateway for a resolver, and `NYLORUN_PUBLIC_URL` to the public
+  address the OAuth callback uses. Migration `0010_oss_auth_removals` drops the
+  `subject_epochs`, `subject_usage` and `publishable_keys` tables.
+
 # File artifacts and message parts (protocol 6); `MediaStore` removed
 
 Files that users upload or agents make are **file artifacts**: an id, a name and numbered
@@ -163,7 +269,7 @@ What to do:
   `tenant_<id>` schemas fails readiness with `database-layout-old`. Set
   `NYLORUN_TENANT_NAME` (and optionally `NYLORUN_TENANT_ID`) for the Tenant it creates, and
   `NYLORUN_DERIVED_PRINCIPALS` (default `project`) for the clients whose keys the admin key
-  derives, e.g. `project,babai`.
+  derives, e.g. `project,app-server`.
 - **Protocol 4 clients** keep working against this Runtime for one release: a request
   without `Nylorun-Tenant`, or naming the Host's Tenant, reaches it; one naming another
   Tenant is the opaque `404`.

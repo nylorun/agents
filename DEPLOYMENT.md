@@ -47,6 +47,12 @@ Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
 
+To run an installation for a team with your own identity provider and secret
+store, read [SELF_HOSTING.md](./SELF_HOSTING.md): the front doors, operator
+keys, the identity file, credentials, Studio behind a sign-in proxy, CORS,
+private addresses and backups, with a runnable stack in
+[examples/self-host](./examples/self-host/README.md).
+
 ## Serving people through an app server
 
 To put agents in front of people, run your own **app server** (vocabulary in
