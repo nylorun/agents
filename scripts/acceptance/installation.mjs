@@ -518,9 +518,10 @@ async function i4(stack, admin) {
   const unavailable = await eventually(
     async () => {
       const { tenant } = await admin.status();
-      return tenant.state === "unavailable" ? tenant : undefined;
+      // While the runtime restarts, status can say `unavailable` before the open has a cause.
+      return tenant.state === "unavailable" && tenant.cause ? tenant : undefined;
     },
-    { timeout: 120_000, message: "the Tenant to be unavailable" },
+    { timeout: 120_000, message: "the Tenant to be unavailable with a cause" },
   );
   assert.equal(unavailable.cause?.code, "schema-too-new", JSON.stringify(unavailable));
   assert.equal(await status(url, "/v1/tenant", key), 404, "the unavailable Tenant does not serve (opaque 404)");

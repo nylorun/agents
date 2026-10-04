@@ -294,7 +294,12 @@ describe("a harness", () => {
     void core.offer(
       start({
         manifest: withTool,
-        checkpoint: createDurableCheckpoint({ manifest: withTool, sessionId: "s1", turnId: "t1", input: "go" }),
+        checkpoint: createDurableCheckpoint({
+          manifest: withTool,
+          sessionId: "s1",
+          turnId: "t1",
+          input: "go",
+        }),
         options: { fixtureModel: false, holdMs: 60_000 },
         routing: { rootManifest: withTool, pluginRoots: {} },
       }),
