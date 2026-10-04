@@ -35,9 +35,11 @@
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import * as restate from "@restatedev/restate-sdk";
 import {
+  DEFAULT_STOP_GRACE_MS,
   WAKE_REASONS,
   parseSessionKey,
   sessionKey,
+  settleWithin,
   type AdvanceResult,
   type DeliverResult,
   type DurableExecution,
@@ -118,6 +120,12 @@ export interface RestateExecutionOptions {
   forceRegistration?: boolean;
   /** How long `start` keeps retrying registration while Restate comes up. Default 60000. */
   registrationTimeoutMs?: number;
+  /**
+   * How long `stop` waits for running handlers after aborting them; the ones still running
+   * then are abandoned and their attempts end with the dropped connections, so Restate
+   * retries them. Default `DEFAULT_STOP_GRACE_MS`.
+   */
+  stopGraceMs?: number;
   /** Replaces the SDK's console logging. */
   logger?: (level: string, message: string) => void;
 }
@@ -310,7 +318,15 @@ export class RestateExecution implements DurableExecution {
     this.stopping = true;
     for (const controller of this.controllers)
       controller.abort(new Error("Worker stopping"));
-    while (this.inflight.size > 0) await Promise.allSettled(this.inflight);
+    const abandoned = await settleWithin(
+      this.inflight,
+      this.options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS,
+    );
+    if (abandoned > 0)
+      this.options.logger?.(
+        "warn",
+        `Worker stopped with ${abandoned} handler(s) still running; abandoned`,
+      );
     this.handlers = undefined;
     const server = this.server;
     this.server = undefined;

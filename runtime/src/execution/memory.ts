@@ -1,6 +1,8 @@
 import {
+  DEFAULT_STOP_GRACE_MS,
   WAKE_REASONS,
   sessionKey,
+  settleWithin,
   type DurableExecution,
   type SandboxSignal,
   type SandboxTrigger,
@@ -20,6 +22,11 @@ export interface MemoryExecutionOptions {
   maxAttempts?: number;
   /** How long a dedupe key merges repeated wakes. Default 24 hours. */
   dedupeRetentionMs?: number;
+  /**
+   * How long `stop` waits for running handlers after aborting them; the ones still running
+   * then are abandoned. Default `DEFAULT_STOP_GRACE_MS`.
+   */
+  stopGraceMs?: number;
   /** Receives handler failures that are not retried. */
   onError?: (error: unknown) => void;
 }
@@ -78,6 +85,7 @@ export class MemoryExecution implements DurableExecution {
   private readonly retryDelayMs: number;
   private readonly maxAttempts: number;
   private readonly dedupeRetentionMs: number;
+  private readonly stopGraceMs: number;
   private readonly onError: (error: unknown) => void;
 
   constructor(options: MemoryExecutionOptions = {}) {
@@ -85,6 +93,7 @@ export class MemoryExecution implements DurableExecution {
     this.retryDelayMs = options.retryDelayMs ?? 50;
     this.maxAttempts = options.maxAttempts ?? 5;
     this.dedupeRetentionMs = options.dedupeRetentionMs ?? 24 * 60 * 60_000;
+    this.stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
     this.onError =
       options.onError ??
       ((error) =>
@@ -218,7 +227,9 @@ export class MemoryExecution implements DurableExecution {
     for (const state of this.sandboxes.values())
       for (const entry of state.timers.values()) if (entry.handle) clearTimeout(entry.handle);
     for (const state of this.keys.values()) state.controller?.abort();
-    while (this.inflight.size > 0) await Promise.allSettled(this.inflight);
+    // Bounded: a handler that ignores its abort is abandoned and runs on unwaited. An
+    // abandoned advance's lease lapses and the next advance takes the session over (§11.4).
+    await settleWithin(this.inflight, this.stopGraceMs);
   }
 
   /**

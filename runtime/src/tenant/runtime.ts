@@ -359,20 +359,20 @@ export class TenantRuntime implements TenantHandle {
         });
 
       const sessionStreams = createSessionStreams();
+      const workers = hooks.execution?.workers ?? new TenantWorkers();
       const local = hooks.execution
         ? undefined
         : new MemoryExecution({
             sweepIntervalMs:
               config.sweepIntervalMs ?? Math.min(config.leaseMs ?? 30_000, 5000),
+            // Close's `detach` step waits no longer for running work than for its advances.
+            stopGraceMs: workers.graceMs,
             onError: (error) =>
               config.logger.error("tenant execution failed", {
                 message: error instanceof Error ? error.message : String(error),
               }),
           });
-      const { execution, workers } = hooks.execution ?? {
-        execution: local!,
-        workers: new TenantWorkers(),
-      };
+      const execution = hooks.execution?.execution ?? local!;
       const sweepHooks = new Set<() => Promise<void>>();
       ctx = {
         config,

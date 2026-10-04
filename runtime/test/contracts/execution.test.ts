@@ -68,3 +68,34 @@ it("rejects an unknown wake reason", async () => {
     execution.wake("tn_x", "s1", { reason: "nope" as never }),
   ).rejects.toThrow("Unknown wake reason");
 });
+
+it("stops within its grace when an advance ignores its abort, and abandons it", async () => {
+  const execution = new MemoryExecution({ stopGraceMs: 150 });
+  let entered = false;
+  let calls = 0;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await execution.start({
+    // Ignores its signal; asks to run again, as an abandoned advance answers `busy`.
+    advance: async () => {
+      calls += 1;
+      entered = true;
+      await released;
+      return { status: "busy", retryAfterMs: 0 };
+    },
+    sweep: async () => {},
+  });
+  await execution.wake("tn_x", "s1", { reason: "message" });
+  while (!entered) await new Promise((resolve) => setTimeout(resolve, 1));
+
+  const started = Date.now();
+  await execution.stop();
+  const took = Date.now() - started;
+  expect(took).toBeGreaterThanOrEqual(140);
+  expect(took).toBeLessThan(2_000);
+
+  // The abandoned advance ends later; a stopped execution does not run it again.
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(calls).toBe(1);
+});
