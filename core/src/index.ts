@@ -9,3 +9,6 @@ export type * from "./types/shared.js";
 export type * from "./types/manifest.js";
 export type * from "./types/transcript.js";
 export type * from "./types/workflow.js";
+
+// Keep the existing root ModelCall (the agent declaration); ledger rows live in contracts.
+export type { ModelCall } from "./define.js";
