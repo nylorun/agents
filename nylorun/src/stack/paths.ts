@@ -12,6 +12,11 @@ export interface StackPaths {
   state: string;
   /** tenant.json: the Tenant's name and the project it was created for. */
   record: string;
+  /**
+   * identity.yaml: the trusted issuers (F9 I2), written by the operator. When it exists the
+   * runtime reads it at boot (`NYLORUN_IDENTITY_FILE`).
+   */
+  identity: string;
   /** The Tenant directory: homes, sandboxes, plugin data, logs. */
   tenant: string;
   /**
@@ -47,6 +52,7 @@ export function stackPaths(hostRoot: string): StackPaths {
     credentials: join(root, "host-credentials.json"),
     state: join(root, "host-state.json"),
     record: join(root, "tenant.json"),
+    identity: join(root, "identity.yaml"),
     tenant: join(root, "tenant"),
     harness: {
       sandboxes: join(root, "tenant", "sandboxes"),

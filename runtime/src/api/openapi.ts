@@ -89,7 +89,7 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
     "securitySchemes",
     "subjectToken",
     bearer(
-      "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes.",
+      "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes. Or a JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`).",
       "JWT",
     ),
   );

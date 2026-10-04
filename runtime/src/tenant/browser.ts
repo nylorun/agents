@@ -3,13 +3,15 @@
  * bearer is looked at. `Nylorun-Key` names a publishable key of this Tenant; an `Origin` must
  * be on that key's allowlist, and only then does the response carry CORS headers. The
  * allowlist protects browsers from other sites' pages; it is not authentication, since a
- * non-browser can send any `Origin`: tokens authorize.
+ * non-browser can send any `Origin`: tokens authorize. A request whose bearer is a trusted
+ * issuer's token (Host feature `trusted-issuers`) needs no publishable key.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PUBLISHABLE_KEY_HEADER } from "@nylorun/core/compatibility";
 import { originAllowed } from "@nylorun/core/contracts";
 import { browserOrigin, setCorsHeaders } from "../host/cors.js";
 import type { TenantContext } from "./context.js";
+import { claimedIssuer } from "./issuers.js";
 import { fail, failOpaque } from "./http.js";
 
 /** The client app of a request: its publishable key, and the origin when from a browser. */
@@ -31,7 +33,9 @@ export async function identifyClient(
   const key = single(request, PUBLISHABLE_KEY_HEADER);
   const hasOrigin = request.headers.origin !== undefined;
   if (key === undefined) {
-    if (hasOrigin)
+    // A trusted issuer's token needs no publishable key (Host feature `trusted-issuers`):
+    // the token authorizes, and CORS comes from the operator's proxy.
+    if (hasOrigin && !claimedIssuer(ctx, request.headers.authorization))
       fail(403, `Browser requests need ${PUBLISHABLE_KEY_HEADER}`, {
         code: "origin_rejected",
       });

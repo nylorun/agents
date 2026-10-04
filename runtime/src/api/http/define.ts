@@ -178,7 +178,13 @@ export function tenantRoute(
     request: { ...route.request, headers },
     responses: {
       400: rejected("Invalid headers, path, body or cursor"),
-      ...(takes("token") ? { 401: rejected("The subject token expired or was revoked (`token_expired`)") } : {}),
+      ...(takes("token")
+        ? {
+            401: rejected(
+              "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            ),
+          }
+        : {}),
       403: rejected("Not allowed for this credential, subject scope or origin"),
       404: rejected("Not found, or a credential the Tenant does not know (`not_found`)"),
       426: { description: "`Nylorun-Protocol` missing or unsupported", content: { "application/json": { schema: ProtocolRejected } } },

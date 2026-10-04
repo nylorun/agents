@@ -49,6 +49,7 @@ import {
   observeSession,
   readHistory,
   StreamClosed,
+  streamHolderOf,
   type StreamHolder,
 } from "../../tenant/session-streams.js";
 import { putSession, sessionView } from "../../tenant/sessions.js";
@@ -74,9 +75,7 @@ function personOf(scope: AuthScope): string {
 }
 
 function holderOf(scope: AuthScope): StreamHolder | undefined {
-  return scope.kind === "token"
-    ? { subject: scope.subject, epoch: scope.epoch, expiresAt: scope.expiresAt }
-    : undefined;
+  return streamHolderOf(scope);
 }
 
 /** A refusal a client can act on, streamed as `RUN_ERROR` rather than an HTTP error. */

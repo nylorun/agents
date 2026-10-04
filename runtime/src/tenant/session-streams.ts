@@ -27,11 +27,11 @@ import {
   type DurableStreams,
   type StreamRecord,
 } from "../streams/types.js";
-import type { TenantContext } from "./context.js";
+import type { AuthScope, TenantContext } from "./context.js";
 import { fail } from "./http.js";
 import type { StreamsWiring } from "./streams.js";
 
-/** Why the Runtime ended a stream a subject token opened. */
+/** Why the Runtime ended a stream a token opened. */
 export type StreamEndReason = "token_expired" | "revoked";
 
 /** Where an observer's events go: an SSE response, or an in-process reader. */
@@ -41,12 +41,25 @@ export interface ObserverSink {
   end(reason?: StreamEndReason): void;
 }
 
-/** The subject token a stream was opened with: it ends at expiry or revocation. */
+/**
+ * The token a stream was opened with: it ends at expiry, and a subject token's also at
+ * revocation. An issuer token has no epoch: subject revocation does not reach it.
+ */
 export interface StreamHolder {
   readonly subject: string;
-  readonly epoch: number;
+  readonly epoch?: number;
   /** Epoch ms when the token expires. */
   readonly expiresAt: number;
+}
+
+/** The holder a stream opened with `scope` records: token callers only. */
+export function streamHolderOf(scope: AuthScope): StreamHolder | undefined {
+  if (scope.kind !== "token") return undefined;
+  return {
+    subject: scope.subject,
+    expiresAt: scope.expiresAt,
+    ...(scope.epoch !== undefined ? { epoch: scope.epoch } : {}),
+  };
 }
 
 /** One client of a session: the next sequence it needs. */
@@ -476,7 +489,7 @@ export async function checkSessionStreams(ctx: TenantContext): Promise<void> {
   const subjects = new Set<string>();
   for (const feed of feeds)
     for (const observer of feed.observers)
-      if (observer.holder) subjects.add(observer.holder.subject);
+      if (observer.holder?.epoch !== undefined) subjects.add(observer.holder.subject);
   const { exists, epochs, generation } = await ctx.store.tx(async (t) => {
     const exists = new Set<string>();
     for (const feed of feeds)
@@ -518,7 +531,11 @@ export function endSubjectStreams(
 ): void {
   for (const feed of [...hub.sessions.values()])
     for (const observer of [...feed.observers])
-      if (observer.holder?.subject === subject && observer.holder.epoch < epoch)
+      if (
+        observer.holder?.subject === subject &&
+        observer.holder.epoch !== undefined &&
+        observer.holder.epoch < epoch
+      )
         endObserver(hub, feed, observer, "revoked");
 }
 

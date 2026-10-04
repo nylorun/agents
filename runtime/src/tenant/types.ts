@@ -85,6 +85,11 @@ export interface TenantConfig {
    */
   flowEnv?: Readonly<Record<string, string | undefined>>;
   vaultFetch?: typeof fetch;
+  /**
+   * The trusted issuers whose JWTs the Tenant API accepts (Host feature `trusted-issuers`), from
+   * the identity file (`NYLORUN_IDENTITY_FILE`). Absent: none.
+   */
+  issuers?: import("./issuers.js").TrustedIssuers;
   logger: Logger;
 }
 

@@ -105,6 +105,45 @@ Runtime after it checks the key and its origins; a reverse proxy passes
 `OPTIONS`, `Origin` and `Nylorun-Key` through and never adds its own. A page
 served over HTTPS can only call a Runtime served over HTTPS.
 
+## Trusted issuers
+
+The Runtime can accept JWTs from your own identity provider (Keycloak, Auth0,
+Entra ID…) as bearers, from servers and browsers alike, with no Nylorun token
+to mint (optional feature `trusted-issuers`). List the issuers in
+`<Host root>/identity.yaml`; `nylorun start` then points the runtime at it
+(`NYLORUN_IDENTITY_FILE=/nylorun/identity.yaml`). Elsewhere, set
+`NYLORUN_IDENTITY_FILE` to the file's path. A change takes a restart.
+
+```yaml
+issuers:
+  - name: keycloak
+    issuer: https://sso.acme.dev/realms/eng      # the tokens' iss, exactly
+    audience: nylorun                            # the aud they must carry
+    jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs  # or keys: [<PEM>, …]
+    subject: "u:{sub}"                           # the owner of the person's sessions; scalar claims only
+    scopes: { claim: nylorun_scopes }            # or { fixed: [sessions:own, agents:read] }
+    allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
+    agents: [support]                            # optional; absent reaches every agent
+    sandboxes: ["{org_id}/*"]                    # optional grant templates; absent reaches none
+    maxLifetime: 15m                             # the longest exp - iat accepted
+```
+
+- Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp` and `iat`.
+  Their scopes are the claim's, limited to `allowedScopes` (the subject token
+  scopes, plus `studio`, an operator scope for Studio). A sandbox grant whose
+  claim is missing, or is not one id segment, reaches nothing.
+- A malformed file stops the runtime, naming the issuer and the field; a
+  subject template must reference a claim, or everyone would be one person.
+- The runtime fetches only the configured JWKS URLs, without following
+  redirects, and caches the keys. While a JWKS is unreachable, cached keys keep
+  working and a token with a new `kid` gets `401 issuer_unavailable`; an
+  unreachable JWKS never stops the boot.
+- An issuer token needs no publishable key from a browser, but the Runtime adds
+  no CORS headers for it: your reverse proxy answers CORS. Subject revocation
+  does not reach issuer tokens; keep them short-lived.
+- `GET /v1/me` shows what a token renders to (`via: issuer:<name>`), for any
+  credential.
+
 ## Reaching the Runtime from another machine
 
 When your app server runs on another machine (a laptop reaching a Mac mini on

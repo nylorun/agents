@@ -679,6 +679,13 @@ describe("the Host's Tenant", () => {
     });
   });
 
+  it("reads NYLORUN_IDENTITY_FILE, and an empty value as none", () => {
+    expect(
+      parseStackConfig({ NYLORUN_IDENTITY_FILE: " /nylorun/identity.yaml " }, []).tenant?.identityFile,
+    ).toBe("/nylorun/identity.yaml");
+    expect(parseStackConfig({ NYLORUN_IDENTITY_FILE: "" }, []).tenant).not.toHaveProperty("identityFile");
+  });
+
   it("rejects a malformed Tenant id and reserved or malformed principal ids, naming the variable", () => {
     expect(() => parseStackConfig({ NYLORUN_TENANT_ID: "tn_nope" }, [])).toThrow(/NYLORUN_TENANT_ID/);
     expect(() => parseStackConfig({ NYLORUN_DERIVED_PRINCIPALS: "studio" }, [])).toThrow(

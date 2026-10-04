@@ -218,6 +218,7 @@ function tenantOperations(): Operation[] {
     { method: "POST", path: `${vault}/credentials/crd-missing`, body: INVALID },
     { method: "DELETE", path: `${vault}/credentials/crd-missing` },
     { method: "GET", path: "/v1/access/jwks" },
+    { method: "GET", path: "/v1/me" },
     { method: "POST", path: "/v1/tokens", body: INVALID },
     { method: "GET", path: "/v1/access/policy" },
     { method: "PUT", path: "/v1/access/policy", body: INVALID },

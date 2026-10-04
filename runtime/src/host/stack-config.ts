@@ -312,6 +312,11 @@ export interface TenantSettings {
    * key derives (`deriveTenantKey`). Default `project`.
    */
   derivedPrincipals: readonly string[];
+  /**
+   * `NYLORUN_IDENTITY_FILE`: the identity file listing the trusted issuers (Host feature
+   * `trusted-issuers`), read once at boot (`host/main.ts`). Absent: no issuer is trusted.
+   */
+  identityFile?: string;
 }
 
 export class StackConfigError extends Error {
@@ -680,10 +685,12 @@ function parseTenant(env: EnvSnapshot): TenantSettings {
       throw new StackConfigError(
         `NYLORUN_DERIVED_PRINCIPALS has '${principal}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio`,
       );
+  const identityFile = read(env, "NYLORUN_IDENTITY_FILE");
   return {
     ...(id ? { id } : {}),
     name: read(env, "NYLORUN_TENANT_NAME") ?? "default",
     derivedPrincipals: [...new Set(derivedPrincipals)],
+    ...(identityFile ? { identityFile } : {}),
   };
 }
 

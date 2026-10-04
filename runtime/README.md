@@ -70,7 +70,10 @@ sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
 `NYLORUN_LISTEN_PORT`, `NYLORUN_ALLOWED_HOSTS` and `NYLORUN_PUBLIC_URL`, plus
 `NYLORUN_BROWSER_ACCESS` (`on` or `off`) and the operator listener
 (`NYLORUN_ADMIN_LISTEN_PORT`, `NYLORUN_ADMIN_LISTEN_HOST`,
-`NYLORUN_ADMIN_ALLOWED_HOSTS`). A process that runs `loop` sends its model
+`NYLORUN_ADMIN_ALLOWED_HOSTS`). `NYLORUN_IDENTITY_FILE` names the identity
+file, a YAML list of the trusted issuers whose JWTs the Tenant API accepts
+(Host feature `trusted-issuers`), read once at boot; a malformed file stops the
+boot ([DEPLOYMENT.md](../DEPLOYMENT.md#trusted-issuers)). A process that runs `loop` sends its model
 calls to the gate at `NYLORUN_GATES_URL`; in a container it refuses to start
 without it and `NYLORUN_GATES_TOKEN`. That token is core's credential: the gate
 accepts only it for vault writes, token signing and Action deliveries. Model and
@@ -104,6 +107,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 <host root>/
   host.json                 # format 1: hostId, host, port, adminPort?, runtimeVersion, …
   host-credentials.json     # adminKey (0600)
+  identity.yaml             # optional: trusted issuers (NYLORUN_IDENTITY_FILE)
   docker/                   # compose.yaml, .env (0600), Restate identity key
   tenant/                   # vault-kek, plugin-data, logs, home, tmp, sandboxes
 ```

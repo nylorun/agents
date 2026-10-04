@@ -457,6 +457,21 @@ describe("prepareStack", () => {
     expect(written.get("NYLORUN_DERIVED_PRINCIPALS")).toBe("project");
   });
 
+  it("points the runtime at identity.yaml only while the Host root has one", async () => {
+    const home = await temporaryHome();
+    const paths = stackPaths(home);
+    await prepare(home);
+    expect(await readFile(paths.compose, "utf8")).not.toContain("NYLORUN_IDENTITY_FILE");
+    await writeFile(paths.identity, "issuers: []\n");
+    await prepare(home);
+    const compose = await readFile(paths.compose, "utf8");
+    expect(compose).toBe(renderComposeFile("nylorun-shop", "shop", { identity: true }));
+    const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
+    expect(runtime).toContain("NYLORUN_IDENTITY_FILE: /nylorun/identity.yaml");
+    // The runtime reads it through the Host root mount.
+    expect(runtime).toContain("- ${NYLORUN_HOST_ROOT:?run nylorun start}:/nylorun # Host root");
+  });
+
   it("avoids ports other Tenants keep for new ports only, and keeps derived principals", async () => {
     const home = await temporaryHome();
     const first = await prepare(home, fakePorts(), {

@@ -1,9 +1,9 @@
 /**
  * Tenant request authentication and authorization: a bearer token resolves to an application
- * principal, a subject token or a delivery token; anything else is the opaque 404 (D5).
- * An application principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`); a
- * subject token names its subject itself. `authorize` limits both to the routes their scopes
- * allow, decided from the route alone.
+ * principal, a subject token, a trusted issuer's token or a delivery token; anything else is
+ * the opaque 404 (D5). An application principal may act for a subject (`Nylorun-Subject`,
+ * `Nylorun-Scopes`); a subject token or an issuer token names its subject itself.
+ * `requireScopes` limits them to the routes their scopes allow, decided from the route alone.
  */
 import type { IncomingMessage } from "node:http";
 import {
@@ -21,6 +21,7 @@ import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
 import { looksLikeToken, verifySubjectToken } from "./tokens.js";
 import { verifyDeliveryToken } from "./delivery-token.js";
+import { verifyIssuerToken } from "./issuers.js";
 import { tokenType } from "./jwt.js";
 import { readPolicy } from "./access-policy.js";
 import type { BrowserClient } from "./browser.js";
@@ -71,6 +72,18 @@ export async function authenticate(
       singleHeader(request, SCOPES_HEADER) !== undefined
     )
       fail(403, "A delivery token cannot act for a subject");
+    return scope;
+  }
+  // A trusted issuer's token (Host feature `trusted-issuers`), from a server or a browser: its
+  // unverified `iss` names an issuer of the identity file, and only that issuer verifies it.
+  const issuer = ctx.config.issuers?.claimed(token);
+  if (issuer) {
+    const scope = await verifyIssuerToken(ctx, issuer, token);
+    if (
+      singleHeader(request, SUBJECT_HEADER) !== undefined ||
+      singleHeader(request, SCOPES_HEADER) !== undefined
+    )
+      fail(403, "An issuer token cannot act for another subject");
     return scope;
   }
   if (looksLikeToken(token)) {

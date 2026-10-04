@@ -153,6 +153,23 @@ of the agents it may use.
 _Avoid_: "session token", "JWT" as the public name; accepting one from a query
 string.
 
+**Trusted issuer**: An identity provider whose JWTs the Tenant API accepts as
+bearers (feature `trusted-issuers`, F9 I2), declared in the **identity file**
+(`NYLORUN_IDENTITY_FILE`, YAML, `tenant/identity-file.ts`, read once at boot; a
+malformed file stops the boot). A bearer is its token when the unverified `iss`
+names it (`tenant/issuers.ts`, before the subject-token branch): RS256, ES256 or
+EdDSA, at most 16 KiB, `aud` matching, `exp − iat` within `maxLifetime`, a key
+from its static `keys` or its JWKS (configured URL only, cached by `kid`, one
+refetch a minute for an unknown `kid`; unreachable → `401 issuer_unavailable`
+for new kids). It becomes the `token` AuthScope with `issuer: <name>` and role
+`issuer:<name>`: the subject its template renders from scalar claims, the claim's
+scopes within `allowedScopes` (`ISSUER_SCOPES`: the token scopes plus `studio`, an
+operator scope no route requires), the issuer's agent allowlist and rendered
+sandbox grants, no limits and no revocation epoch. Accepted from browsers without
+a publishable key; CORS comes from the operator's proxy. `GET /v1/me` reports it
+as `via: issuer:<name>`.
+_Avoid_: "SSO login" (the Runtime signs no one in), "external token".
+
 **Signing key**: A Tenant's ES256 key pair for subject and delivery tokens (`signing_keys`,
 `tenant/signing-keys.ts`): the public JWK in the clear, the private key sealed
 with the vault KEK. States `standby`, `current` (signs), `previous` (verifies),

@@ -15,6 +15,7 @@
  */
 import type { SessionHistory } from "./history.js";
 import type {
+  IssuerScope,
   RoleLimits,
   SubjectScope,
   TenantEnvelope,
@@ -105,20 +106,27 @@ export type AuthScope =
   /**
    * A subject token (Host feature `subject-tokens`): one subject, the role's scopes and agents
    * narrowed by the token, until `expiresAt` (ms) or the subject's epoch moves past `epoch`.
+   * Or a trusted issuer's token (Host feature `trusted-issuers`, F9-D12): `issuer` names it,
+   * its role is `issuer:<name>`, and it has no limits and no epoch, so only its expiry ends it.
    */
   | {
       kind: "token";
       subject: string;
-      scopes: ReadonlySet<SubjectScope>;
+      /** A subject token's scopes, or an issuer token's, which may add `studio`. */
+      scopes: ReadonlySet<SubjectScope | IssuerScope>;
       agents: ReadonlySet<string> | "*";
       role: string;
       limits?: RoleLimits;
       /** The token's `sbx` grants: the sandboxes it reaches. Absent reaches none. */
       sandboxes?: readonly string[];
-      epoch: number;
+      /** The subject's revocation epoch the token was minted at; absent for an issuer token. */
+      epoch?: number;
       expiresAt: number;
       tokenId: string;
-      keyId: string;
+      /** The signing key's id; an issuer token's `kid`, when it has one. */
+      keyId?: string;
+      /** The identity file's issuer that signed it; absent for a subject token. */
+      issuer?: string;
     }
   /** An application principal acting for `subject` (`Nylorun-Subject`), narrowed to `scopes`. */
   | {

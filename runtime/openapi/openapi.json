@@ -23,7 +23,8 @@
         "a2a-endpoint",
         "action-endpoints",
         "sandboxes",
-        "sandbox-pods"
+        "sandbox-pods",
+        "trusted-issuers"
       ]
     }
   },
@@ -49,7 +50,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes."
+        "description": "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes. Or a JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`)."
       },
       "deliveryToken": {
         "type": "http",
@@ -6287,6 +6288,7 @@
               "placement_refused",
               "sandbox_lost",
               "sandbox_expired",
+              "issuer_unavailable",
               "internal_error"
             ]
           },
@@ -21322,6 +21324,64 @@
         ],
         "additionalProperties": false
       },
+      "MeResponse": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "description": "The person the request acts for; absent for an application key alone"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "agents:read",
+                "agents:write",
+                "sessions:own",
+                "vaults:own",
+                "tenant:settings",
+                "sandboxes:write",
+                "studio"
+              ]
+            }
+          },
+          "agents": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "*"
+                ]
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "sandboxes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A token caller's sandbox grants (empty reaches none); absent when no grant limits the caller"
+          },
+          "via": {
+            "type": "string",
+            "description": "How the caller authenticated: `application:<principalId>`, `subject`, `token` or `issuer:<name>`"
+          }
+        },
+        "required": [
+          "scopes",
+          "agents",
+          "via"
+        ],
+        "additionalProperties": false
+      },
       "A2aAgentCard": {
         "type": "object",
         "properties": {
@@ -21817,7 +21877,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22481,7 +22541,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22762,7 +22822,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22920,7 +22980,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23068,7 +23128,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23235,7 +23295,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23496,7 +23556,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23790,7 +23850,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23950,7 +24010,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24102,7 +24162,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24250,7 +24310,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24414,7 +24474,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24557,7 +24617,7 @@
             "description": "The sandbox is virtual"
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24703,7 +24763,7 @@
             "description": "The sandbox is virtual"
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24898,7 +24958,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25049,7 +25109,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25209,7 +25269,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25360,7 +25420,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25506,7 +25566,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25728,7 +25788,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25889,7 +25949,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26121,7 +26181,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26292,7 +26352,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26451,7 +26511,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26609,7 +26669,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26834,7 +26894,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28772,7 +28832,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28922,7 +28982,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29069,7 +29129,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29214,7 +29274,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29372,7 +29432,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29517,7 +29577,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29672,7 +29732,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29835,7 +29895,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29991,7 +30051,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30144,7 +30204,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31319,6 +31379,144 @@
         }
       }
     },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "Access"
+        ],
+        "summary": "Get who the caller is",
+        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), a subject token, or a trusted issuer's token (`via: issuer:<name>`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "subjectToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": "any",
+        "x-nylorun-browser": true,
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `6`"
+            },
+            "required": true,
+            "description": "The protocol version, `6`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, subject scope or origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ag-ui/agents/{agentId}": {
       "post": {
         "tags": [
@@ -31414,7 +31612,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31571,7 +31769,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31747,7 +31945,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31894,7 +32092,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32046,7 +32244,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32217,7 +32415,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired or was revoked (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {

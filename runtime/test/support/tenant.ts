@@ -220,6 +220,7 @@ export async function startTestTenant(
     sweepIntervalMs: options.sweepIntervalMs ?? 50,
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
+    ...(options.issuers === undefined ? {} : { issuers: options.issuers }),
     ...(options.vaultFetch === undefined
       ? {}
       : { vaultFetch: options.vaultFetch }),

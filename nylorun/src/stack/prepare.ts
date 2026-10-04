@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import { renderComposeFile } from "./compose-file.js";
 import { parseFrameAncestors } from "@nylorun/core/contracts";
@@ -175,6 +176,8 @@ export async function prepareStack(input: {
       harness: env.harness,
       ...(env.sandboxes ? { sandboxes: true } : {}),
       ...(env.restateUi ? { restateUi: true } : {}),
+      // The trusted issuers, when the operator wrote an identity file; a change takes a restart.
+      ...(existsSync(paths.identity) ? { identity: true } : {}),
     }),
     0o644,
   );

@@ -27,7 +27,7 @@ import { loadSession, sessionOf, type TenantContext } from "../../../tenant/cont
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
 import { sandboxGrantsOf } from "../../../tenant/sandboxes.js";
-import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/session-streams.js";
+import { readHistory, requestCursor, streamHolderOf, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
   listDefinitions,
@@ -281,9 +281,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
         outgoing,
         id,
         cursor,
-        scope.kind === "token"
-          ? { subject: scope.subject, epoch: scope.epoch, expiresAt: scope.expiresAt }
-          : undefined,
+        streamHolderOf(scope),
       );
       return RESPONSE_ALREADY_SENT;
     },

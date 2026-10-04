@@ -2492,6 +2492,54 @@ export const RevokeSubjectResponseSchema = z
   .object({ subject: z.string(), epoch: z.number().int().nonnegative() })
   .strict();
 
+// --- trusted issuers (Host feature `trusted-issuers`) --------------------------------------
+
+/**
+ * Scopes a trusted issuer's tokens may carry (`allowedScopes` in the identity file): the
+ * subject token scopes, and `studio`, an operator scope no Runtime route requires (Studio
+ * admits a person who holds it, Tenant-wide).
+ */
+export const ISSUER_SCOPES = [...TOKEN_SCOPES, "studio"] as const;
+export type IssuerScope = (typeof ISSUER_SCOPES)[number];
+/** Every scope a caller can hold: the subject scopes, and an issuer token's `studio`. */
+export const CALLER_SCOPES = [...SUBJECT_SCOPES, "studio"] as const;
+export type CallerScope = (typeof CALLER_SCOPES)[number];
+
+/**
+ * `GET /v1/me`: who the Runtime takes the caller to be, for any credential.
+ *
+ * - `via` is how the caller authenticated: `application:<principalId>` (an application key,
+ *   acting as itself), `subject` (an application key acting for `Nylorun-Subject`), `token`
+ *   (a subject token) or `issuer:<name>` (a token from the identity file's issuer `name`).
+ * - `subject` is the person the request acts for; absent for an application key alone.
+ * - `scopes`: what the caller holds. An application key alone holds every subject scope.
+ * - `agents`: the agents it may reach, `*` for all.
+ * - `sandboxes`: the sandbox grants of a token caller (empty reaches none); absent for an
+ *   application key, alone or acting for a subject, which no grant limits.
+ */
+export const MeResponseSchema = z
+  .object({
+    subject: z
+      .string()
+      .optional()
+      .meta({ description: "The person the request acts for; absent for an application key alone" }),
+    scopes: z.array(z.enum(CALLER_SCOPES)),
+    agents: AgentAllowlistSchema,
+    sandboxes: z
+      .array(z.string())
+      .optional()
+      .meta({
+        description:
+          "A token caller's sandbox grants (empty reaches none); absent when no grant limits the caller",
+      }),
+    via: z.string().meta({
+      description:
+        "How the caller authenticated: `application:<principalId>`, `subject`, `token` or `issuer:<name>`",
+    }),
+  })
+  .strict();
+export type MeResponse = z.infer<typeof MeResponseSchema>;
+
 /** The claims of a subject token, as the Runtime writes them. */
 export interface SubjectTokenClaims {
   iss: string;

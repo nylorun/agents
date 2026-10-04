@@ -44,6 +44,10 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * sandbox enable`), with `POST /v1/sandboxes/{id}/stop` and `/reset`, a TTL
  * (`lifecycle.ttl`), lifecycle events (`sandbox.running`, `.suspended`, `.expired`,
  * `.relaunched`, `.lost`, `.reset`, `.failed`) and the Tenant's `placement`.
+ * `trusted-issuers`: the Tenant API accepts JWTs from the issuers of the Host's identity file
+ * (`NYLORUN_IDENTITY_FILE`) as bearers, from servers and from browsers alike, with the
+ * issuer's subject, scopes (and the issuer-only `studio`), agents and sandbox grants; `GET
+ * /v1/me` reports who any credential is.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -57,6 +61,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "action-endpoints",
   "sandboxes",
   "sandbox-pods",
+  "trusted-issuers",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -123,6 +128,11 @@ export const ERROR_CODES = [
   "sandbox_lost",
   /** A pod sandbox passed its TTL: a `PUT` with a longer `lifecycle.ttl` revives it. */
   "sandbox_expired",
+  /**
+   * A trusted issuer's token names a key the Runtime has not seen, and the issuer's JWKS cannot
+   * be fetched now (Host feature `trusted-issuers`): retry later. Keys already fetched keep working.
+   */
+  "issuer_unavailable",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
