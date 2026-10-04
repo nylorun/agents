@@ -80,6 +80,19 @@ describe("resolveSandbox", () => {
     });
   });
 
+  it("lets a pod's egress-gate match *.suffix patterns within the Tenant's ceiling", () => {
+    const request = { network: { allow: ["*.example.com", "api.github.com"] } };
+    expect(resolveSandbox({ ...base, kind: "pod", request })).toMatchObject({
+      kind: "sandbox",
+      spec: { network: { preset: "none", allow: ["*.example.com", "api.github.com"] } },
+    });
+    expect(resolveSandbox({ ...base, kind: "pod", request: { network: { allow: ["*.github.com"] } } })).toEqual({
+      kind: "error",
+      status: 400,
+      errors: ["sandbox.network.allow includes *.github.com, which this Tenant does not allow."],
+    });
+  });
+
   it("refuses an inline sandbox from a caller acting for a subject, but not the default", () => {
     expect(resolveSandbox({ ...base, actingForSubject: true, request: {} })).toEqual({
       kind: "error",

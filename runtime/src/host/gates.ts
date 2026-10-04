@@ -30,7 +30,9 @@ import { probeDatabase } from "../infra/database.js";
 import type { PostgresClient } from "../store/postgres/connect.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener, headerValue, isAllowedRequestHost, sendRejected } from "./http.js";
-import type { GatesConfig } from "./stack-config.js";
+import type { EgressConfig, GatesConfig } from "./stack-config.js";
+import { startEgressGate, storeEgressSandboxes, type EgressGate, type StartEgressGateOptions } from "../gates/egress.js";
+import { verifyEgressToken, type EgressTokenKeyCache } from "../sandbox/egress-token.js";
 
 /** Above the gate's 600 s provider request timeout and the loop's 630 s client timeout. */
 export const GATES_REQUEST_TIMEOUT_MS = 660_000;
@@ -197,4 +199,43 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
       return closing;
     },
   };
+}
+
+export interface StartEgressOptions {
+  readonly egress: EgressConfig;
+  readonly logger: Logger;
+  /** The pool for the Tenant's keys and sandboxes. Required unless `vaults` is given. */
+  readonly database?: PostgresClient;
+  /** The Host root. Required unless `vaults` is given. */
+  readonly hostRoot?: string;
+  /** Replaces the Postgres-backed Tenant (tests). */
+  readonly vaults?: TenantVaults;
+  /** Replaces how sandboxes are read, and the gate's limits and hooks (tests). */
+  readonly gate?: Partial<Omit<StartEgressGateOptions, "listen" | "logger" | "verify">>;
+}
+
+/**
+ * egress-gate (`--service egress`, F7.2): pods' CONNECT proxy, verifying egress tokens against the
+ * Tenant's public keys and reading its sandboxes from the same database as the gates.
+ */
+export async function startEgress(options: StartEgressOptions): Promise<EgressGate> {
+  const { database } = options;
+  let vaults = options.vaults;
+  if (!vaults) {
+    if (!database || options.hostRoot === undefined)
+      throw new Error("startEgress needs the Postgres pool and the Host root");
+    vaults = createTenantVaults({ sql: database, hostRoot: options.hostRoot });
+  }
+  const tenant = vaults;
+  const publicKeys: EgressTokenKeyCache = new Map();
+  return startEgressGate({
+    listen: options.egress.listen,
+    logger: options.logger,
+    async verify(raw) {
+      const vault = await tenant.open();
+      return verifyEgressToken(vault.store, vault.tenantId, raw, publicKeys);
+    },
+    sandboxes: { live: async (sandboxId) => storeEgressSandboxes((await tenant.open()).store).live(sandboxId) },
+    ...options.gate,
+  });
 }

@@ -41,6 +41,31 @@ describe("parseServices", () => {
     expect(() => parseServices(["--service", "core,keys"])).toThrow(/may not share a process/);
   });
 
+  it("runs egress with gates and keys (F7.2), and never with core or loop", () => {
+    expect(parseServices(["--service", "gates,keys,egress"])).toEqual({
+      services: services("gates", "keys", "egress"),
+    });
+    expect(parseServices(["--service", "egress"])).toEqual({ services: services("egress") });
+    expect(() => parseServices(["--service", "core,egress"])).toThrow(/may not share a process/);
+  });
+
+  it("parses egress-gate's listener, by default 0.0.0.0:4200", () => {
+    const gateway = { NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
+    expect(parseStackConfig(gateway, ["--service", "gates,keys,egress"]).egress).toEqual({
+      listen: { host: "0.0.0.0", port: 4200 },
+    });
+    expect(parseStackConfig(gateway, ["--service", "gates,keys"]).egress).toBeUndefined();
+    expect(
+      parseStackConfig({ NYLORUN_EGRESS_LISTEN_HOST: "127.0.0.1", NYLORUN_EGRESS_LISTEN_PORT: "4299" }, [
+        "--service",
+        "egress",
+      ]),
+    ).toMatchObject({ egress: { listen: { host: "127.0.0.1", port: 4299 } } });
+    expect(() =>
+      parseStackConfig({ NYLORUN_EGRESS_LISTEN_PORT: "http" }, ["--service", "egress"]),
+    ).toThrow(/NYLORUN_EGRESS_LISTEN_PORT must be a port number/);
+  });
+
   it("reads the keys service's URL, defaulting to the gateway's", () => {
     const token = "ab".repeat(32);
     expect(
@@ -68,7 +93,7 @@ describe("parseServices", () => {
   it("rejects unknown, later, empty and repeated services", () => {
     expect(() => parseServices(["--service", "db"])).toThrow(/Unknown service db/);
     expect(() => parseServices(["--service", "all"])).toThrow(/use --service core,loop/);
-    expect(() => parseServices(["--service", "egress"])).toThrow(/not in this release/);
+    expect(() => parseServices(["--service", "sandboxd"])).toThrow(/not in this release/);
     expect(() => parseServices(["--service", "core,,loop"])).toThrow(/empty entry/);
     expect(() => parseServices(["--service", "core,core"])).toThrow(/twice/);
   });

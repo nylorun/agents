@@ -16,7 +16,7 @@
  * the Tenant and the infrastructure checks. With an Object store
  * (`NYLORUN_OBJECT_STORE_*`) the Tenant's blobs go to it through the `s3` BlobStore, and a
  * process running core creates its bucket; without one they stay on disk (`fs`). A process
- * running the gates service (the local stack's `gateway` container) starts only the gate (`runGates`): it needs
+ * running the gates service (the local stack's `gateway` container) starts only the gate, and egress-gate with `egress` (`runGates`): it needs
  * neither host.json nor host-credentials.json, and reads the files a prompt names from the Object store. A process running the harness service (`--service harness`, F6.2)
  * starts only the harness (`harness/main.ts`), which connects to core's Harness API. With `NYLORUN_HARNESS=remote`
  * the Tenant runs no harness of its own: core starts the Harness API listener (`NYLORUN_HARNESS_LISTEN_*`) and
@@ -54,7 +54,7 @@ import {
 } from "./stack-config.js";
 import { createExecution, createInfra } from "../infra/index.js";
 import { createDatabase } from "../infra/database.js";
-import { startGates } from "./gates.js";
+import { startEgress, startGates } from "./gates.js";
 import { httpToolGate } from "../gates/tool-client.js";
 import { httpKeys } from "../keys/client.js";
 import { httpModelGate } from "../gates/http-client.js";
@@ -134,14 +134,14 @@ async function lagOf(source: {
 }
 
 /**
- * The gates service: the Model Gate's listener over the Postgres pool and the Host's tenant
- * directory. Writes nothing to the Host root (the local stack mounts it read-only).
+ * The gateway's services: the Model Gate's listener (gates, keys) and egress-gate's (egress), over
+ * the Postgres pool and the Host's tenant directory. Writes nothing to the Host root (the local
+ * stack mounts it read-only).
  */
 async function runGates(stack: StackConfig): Promise<void> {
-  const gates = stack.gates!;
   if (!stack.endpoints.databaseUrl)
     throw new Error(
-      "NYLORUN_DATABASE_URL is required for --service gates: the gate reads Tenant vaults from Postgres (`nylorun start` sets it)",
+      `NYLORUN_DATABASE_URL is required for --service ${describeServices(stack.services)}: the gateway reads the Tenant from Postgres (\`nylorun start\` sets it)`,
     );
   const logger = createHostLogger();
   logger.info("host_stack_config", {
@@ -151,19 +151,29 @@ async function runGates(stack: StackConfig): Promise<void> {
     objectStore: stack.objectStore ? "s3" : "none",
   });
   const database = createDatabase(stack);
-  let server;
+  const servers: { close(): Promise<void> }[] = [];
   try {
-    server = await startGates({
-      gates,
-      database,
-      hostRoot: resolveHostRoot(),
-      logger,
-      ...(stack.delivery ? { delivery: stack.delivery } : {}),
-      ...(stack.services.has("keys") ? { keys: true } : {}),
-      // Model-gate reads the files a prompt names from the Object store (protocol 6).
-      ...(stack.objectStore ? { blobs: objectStore(stack.objectStore) } : {}),
-    });
+    if (stack.gates) {
+      const server = await startGates({
+        gates: stack.gates,
+        database,
+        hostRoot: resolveHostRoot(),
+        logger,
+        ...(stack.delivery ? { delivery: stack.delivery } : {}),
+        ...(stack.services.has("keys") ? { keys: true } : {}),
+        // Model-gate reads the files a prompt names from the Object store (protocol 6).
+        ...(stack.objectStore ? { blobs: objectStore(stack.objectStore) } : {}),
+      });
+      servers.push(server);
+      logger.info("gates_ready", { url: server.url });
+    }
+    if (stack.egress) {
+      const egress = await startEgress({ egress: stack.egress, database, hostRoot: resolveHostRoot(), logger });
+      servers.push(egress);
+      logger.info("egress_ready", { url: egress.url });
+    }
   } catch (error) {
+    await Promise.all(servers.map((server) => server.close()));
     await database.end({ timeout: 5 });
     if (error instanceof HostListenError) {
       logger.error("listen_failed", { message: error.message, exitCode: error.exitCode });
@@ -172,14 +182,12 @@ async function runGates(stack: StackConfig): Promise<void> {
     }
     throw error;
   }
-  logger.info("gates_ready", { url: server.url });
   let stopping = false;
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.on(signal, () => {
       if (stopping) return;
       stopping = true;
-      void server
-        .close()
+      void Promise.all(servers.map((server) => server.close()))
         .then(() => database.end({ timeout: 5 }))
         .finally(() => process.exit(0));
     });
@@ -187,7 +195,8 @@ async function runGates(stack: StackConfig): Promise<void> {
 
 export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
-  if (stack.services.has("gates") || stack.services.has("keys")) return runGates(stack);
+  if (stack.services.has("gates") || stack.services.has("keys") || stack.services.has("egress"))
+    return runGates(stack);
   if (stack.services.has("harness")) return runHarness(stack, baselineEnvironment(process.env));
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);

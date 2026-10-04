@@ -62,6 +62,49 @@ export interface HostTokenSigner {
   readonly config: { readonly tenantId: string };
 }
 
+/** One egress token to mint: one pod of one sandbox at one host epoch. */
+export interface EgressTokenRequest {
+  readonly tenantId: string;
+  readonly sandboxId: string;
+  /** The host epoch the join set. */
+  readonly epoch: number;
+  readonly podUid: string;
+  /** Seconds. Default and maximum `HOST_TOKEN_TTL_SECONDS`. */
+  readonly ttl?: number;
+}
+
+/**
+ * Mints an egress token (the only path that does): the proxy credential egress-gate accepts,
+ * with egress-gate's claims (no `sub`). `mintHostTokens` mints one with every host token.
+ */
+export async function mintEgressToken(
+  signer: { readonly keys: Keys },
+  request: EgressTokenRequest,
+): Promise<{ readonly token: string; readonly claims: HostClaims }> {
+  const { tenantId, sandboxId, epoch, podUid } = request;
+  const ttl = request.ttl ?? HOST_TOKEN_TTL_SECONDS;
+  if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > HOST_TOKEN_TTL_SECONDS)
+    throw new Error(`An egress token lives 1 to ${HOST_TOKEN_TTL_SECONDS} s, not ${ttl}`);
+  if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error(`Host epoch ${epoch} is not a positive integer`);
+  if (sandboxId === "" || podUid === "") throw new Error("An egress token names a sandbox and a pod");
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + ttl;
+  const { token } = await signer.keys.sign({
+    typ: EGRESS_TOKEN_TYP,
+    claims: {
+      iss: subjectTokenIssuer(tenantId),
+      aud: EGRESS_TOKEN_AUD,
+      sbx: sandboxId,
+      epc: epoch,
+      pod: podUid,
+      iat,
+      exp,
+      jti: randomUUID(),
+    },
+  });
+  return { token, claims: { tenantId, sandboxId, epoch, podUid, expiresAt: exp * 1000 } };
+}
+
 /** Mints the host and egress tokens of `sandboxId`'s pod `podUid` at host epoch `epoch`. */
 export async function mintHostTokens(
   signer: HostTokenSigner,
@@ -70,25 +113,26 @@ export async function mintHostTokens(
   const tenantId = signer.config.tenantId;
   const iat = Math.floor(Date.now() / 1000);
   const exp = iat + HOST_TOKEN_TTL_SECONDS;
-  const claims = (aud: string) => ({
-    iss: subjectTokenIssuer(tenantId),
-    aud,
-    // The egress token's claims are egress-gate's (no `sub`); the host token adds it.
-    ...(aud === HOST_TOKEN_AUD ? { sub: host.sandboxId } : {}),
-    sbx: host.sandboxId,
-    epc: host.epoch,
-    pod: host.podUid,
-    iat,
-    exp,
-    jti: randomUUID(),
-  });
-  const [hostToken, egressToken] = await Promise.all([
-    signer.keys.sign({ typ: HOST_TOKEN_TYP, claims: claims(HOST_TOKEN_AUD) }),
-    signer.keys.sign({ typ: EGRESS_TOKEN_TYP, claims: claims(EGRESS_TOKEN_AUD) }),
+  const [hostToken, egress] = await Promise.all([
+    signer.keys.sign({
+      typ: HOST_TOKEN_TYP,
+      claims: {
+        iss: subjectTokenIssuer(tenantId),
+        aud: HOST_TOKEN_AUD,
+        sub: host.sandboxId,
+        sbx: host.sandboxId,
+        epc: host.epoch,
+        pod: host.podUid,
+        iat,
+        exp,
+        jti: randomUUID(),
+      },
+    }),
+    mintEgressToken(signer, { tenantId, ...host }),
   ]);
   return {
     hostToken: hostToken.token,
-    egressToken: egressToken.token,
+    egressToken: egress.token,
     claims: {
       tenantId,
       sandboxId: host.sandboxId,
