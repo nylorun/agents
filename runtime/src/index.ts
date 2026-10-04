@@ -25,6 +25,7 @@ export type {
   OpenTenantRuntime,
 } from "./tenant/types.js";
 export { scriptedModel, gatewayModel, type ModelProvider } from "./core/provider.js";
+export type { ResolverConfig } from "./vault/sources.js";
 export type { RuntimeAgent } from "./contracts.js";
 export {
   IMAGE_MEDIA_TYPES,

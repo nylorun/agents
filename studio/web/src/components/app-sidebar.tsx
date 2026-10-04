@@ -306,10 +306,10 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={vaultActive} tooltip="Vault">
+                <SidebarMenuButton asChild isActive={vaultActive} tooltip="Connections">
                   <Link to="/vault">
                     <KeyRound />
-                    <span>Vault</span>
+                    <span>Connections</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

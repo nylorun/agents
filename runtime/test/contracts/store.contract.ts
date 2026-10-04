@@ -1113,13 +1113,15 @@ export function storeContract(name: string, factory: StoreFactory): void {
     });
 
     describe("vault", () => {
-      it("stores vaults, one host vault, and lists user vaults by owner", async () => {
+      it("stores vaults, one host vault, and lists user vaults by owner and installation vaults", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
           await t.insertVault({ id: "v2", name: "B", ownerUserId: "u1", metadataJson: null, createdAt: "2030-01-02T00:00:00.000Z", scope: "user" });
           await t.insertVault({ id: "v1", name: "A", ownerUserId: "u1", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
           await t.insertVault({ id: "v3", name: "C", ownerUserId: "u2", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
           await t.insertVault({ id: "host", name: "Host", ownerUserId: "u1", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "host" });
+          await t.insertVault({ id: "i2", name: "I2", ownerUserId: "installation", metadataJson: null, createdAt: "2030-01-02T00:00:00.000Z", scope: "installation" });
+          await t.insertVault({ id: "i1", name: "I1", ownerUserId: "installation", metadataJson: null, createdAt: "2030-01-02T00:00:00.000Z", scope: "installation" });
         });
         await expect(
           store.tx((t) => t.insertVault({ id: "host2", name: "H", ownerUserId: "host", metadataJson: null, createdAt: "x", scope: "host" })),
@@ -1130,6 +1132,8 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await store.tx((t) => t.updateVaultMetadata("host", '{"activeProvider":"x"}'));
         await store.tx(async (t) => {
           expect((await t.vaultsByOwner("u1")).map((v) => v.id)).toEqual(["v1", "v2"]);
+          expect((await t.vaultsByOwner("installation")).map((v) => v.id)).toEqual([]);
+          expect((await t.installationVaults()).map((v) => v.id)).toEqual(["i1", "i2"]);
           expect(await t.getVault("v1")).toEqual({ id: "v1", name: "A", ownerUserId: "u1", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", scope: "user" });
           expect((await t.getVault("host"))!.metadataJson).toBe('{"activeProvider":"x"}');
           expect(await t.getVault("nope")).toBeUndefined();

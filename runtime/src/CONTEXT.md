@@ -125,13 +125,31 @@ _Avoid_: "server token" / `serverToken` as the public name (legacy API).
 
 **Subject**: The person an application principal acts for, named with
 `Nylorun-Subject` (feature `subject-headers`, `tenant/auth.ts`). Chosen by the
-integrator (`app:42`); 1–200 visible ASCII characters, `host` reserved (it owns
-the host model's vault). A subject reaches only sessions and vaults whose
+integrator (`app:42`); 1–200 visible ASCII characters, `host` and `installation`
+reserved (they own the host model's vault and the installation vaults). A subject reaches only sessions and vaults whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
 missing one. Only application principals may send it; with a delivery token it is
 `403`.
 A **subject token** names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
+
+**Installation vault**: A vault with `scope: "installation"`, owned by the reserved
+subject `installation` (F9 C1, `vault/service.ts`): the installation's own
+credentials (shared tool keys, the operator's MCP connections). Only an application
+key acting for no one creates, lists or changes one; any session may attach one and
+select its credentials. A request acting for a subject never sees one (the opaque
+`404`). Studio's Connections page manages them. The `host` model vault is neither: it
+is never listed or attached.
+_Avoid_: "shared vault", "org vault".
+
+**Credential resolver**: The operator's HTTP service that holds people's own MCP
+credentials, which OSS never stores (`vault/sources.ts`, `NYLORUN_RESOLVER_URL` and
+`NYLORUN_RESOLVER_TOKEN` on the gateway, `TenantConfig.resolver` in process).
+`CredentialSources` asks it only when the session's attached vaults hold nothing for
+the URL, with the session's owner and turn: `200` headers are used, `404` goes without
+a credential, anything else or no answer in 5 s refuses the server
+(`credential_unavailable`). Answers are cached per (owner, URL), at most 5 minutes.
+_Avoid_: "broker" (Cloud's).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,

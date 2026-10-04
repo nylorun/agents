@@ -14,6 +14,7 @@ import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantCause } from "./cause.js";
 import type { OperatorKeys } from "./operator-keys.js";
 import type { OutboundPolicy } from "./outbound.js";
+import type { ResolverConfig } from "../vault/sources.js";
 import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
@@ -91,6 +92,12 @@ export interface TenantConfig {
    * the identity file (`NYLORUN_IDENTITY_FILE`). Absent: none.
    */
   issuers?: import("./issuers.js").TrustedIssuers;
+  /**
+   * The operator's credential resolver (F9 C1), asked for a person's MCP credential when the
+   * session's vaults hold none. Used where this process authorizes MCP calls itself (embedding,
+   * the ephemeral Runtime, tests); the gateway takes `NYLORUN_RESOLVER_*` instead.
+   */
+  resolver?: ResolverConfig;
   logger: Logger;
 }
 

@@ -932,14 +932,32 @@ const oauthRefreshSchema = z
     tokenEndpointAuth: tokenEndpointAuthSchema,
   })
   .strict();
+/** The owner of every installation vault (`scope: "installation"`); a reserved subject. */
+export const INSTALLATION_OWNER = "installation";
 export const CreateVaultRequestSchema = z
   .object({
     ...vaultWriteBase,
     name: z.string().min(1),
-    ownerUserId: z.string().min(1),
+    /**
+     * `user` (the default): one person's vault, owned by `ownerUserId`. `installation`: the
+     * installation's own vault, owned by `installation`, which any session may attach;
+     * application keys only.
+     */
+    scope: z.enum(["user", "installation"]).optional(),
+    /** Required for a `user` vault; absent (or `installation`) for an installation vault. */
+    ownerUserId: z.string().min(1).optional(),
     metadata: z.record(z.string(), z.string()).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if ((value.scope ?? "user") === "user") {
+      if (value.ownerUserId === undefined)
+        ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "ownerUserId is required for a user vault" });
+      else if (value.ownerUserId === INSTALLATION_OWNER)
+        ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "installation is reserved for installation vaults" });
+    } else if (value.ownerUserId !== undefined && value.ownerUserId !== INSTALLATION_OWNER)
+      ctx.addIssue({ code: "custom", path: ["ownerUserId"], message: "An installation vault is owned by installation" });
+  });
 export type CreateVaultRequest = z.infer<typeof CreateVaultRequestSchema>;
 export const CreateCredentialRequestSchema = z
   .object({
@@ -2281,8 +2299,11 @@ export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
 
 /** 1–200 visible ASCII characters; spaces only inside. */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
-/** Owner ids the Runtime uses itself: the host model's vault is owned by `host`. */
-const RESERVED_SUBJECTS = new Set(["host"]);
+/**
+ * Owner ids the Runtime uses itself: the host model's vault is owned by `host`, installation
+ * vaults by `installation`.
+ */
+const RESERVED_SUBJECTS = new Set(["host", INSTALLATION_OWNER]);
 
 /** A valid subject: 1–200 visible ASCII characters, not reserved by the Runtime. */
 export function isSubject(value: unknown): value is string {

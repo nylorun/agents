@@ -57,6 +57,13 @@
       "when": 1791048873567,
       "tag": "0007_sandbox_pods",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791099626069,
+      "tag": "0008_installation_vaults",
+      "breakpoints": true
     }
   ]
 }

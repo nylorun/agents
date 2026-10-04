@@ -33,6 +33,7 @@ import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import type { Keys } from "../keys/keys.js";
 import type { VaultService } from "../vault/service.js";
+import type { CredentialSources } from "../vault/sources.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { HarnessApiServer } from "../harness-api/server.js";
@@ -166,6 +167,11 @@ export interface TenantContext {
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
   readonly vault: VaultService;
+  /**
+   * A session's MCP credentials, for the in-process MCP pool: its attached vaults, then the
+   * operator's credential resolver (`TenantConfig.resolver`, F9 C1).
+   */
+  readonly credentials: CredentialSources;
   /**
    * The MCP pool of the Tenant's in-process harness. Absent when harnesses run elsewhere
    * (`NYLORUN_HARNESS=remote`): each keeps its own (F6.2).

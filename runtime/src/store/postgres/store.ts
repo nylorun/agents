@@ -1154,6 +1154,15 @@ class PostgresTx implements Tx {
       .orderBy(vaults.createdAt, vaults.id);
   }
 
+  async installationVaults(): Promise<VaultRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(vaults)
+      .where(eq(vaults.scope, "installation"))
+      .orderBy(vaults.createdAt, vaults.id);
+  }
+
   async updateVaultMetadata(
     id: string,
     metadataJson: string | null,

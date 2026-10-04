@@ -20023,6 +20023,13 @@
             "type": "string",
             "minLength": 1
           },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "installation"
+            ]
+          },
           "ownerUserId": {
             "type": "string",
             "minLength": 1
@@ -20037,8 +20044,7 @@
         "required": [
           "requestId",
           "idempotencyKey",
-          "name",
-          "ownerUserId"
+          "name"
         ],
         "additionalProperties": false
       },
@@ -28752,6 +28758,7 @@
           "Vaults"
         ],
         "summary": "Create a vault",
+        "description": "A person's vault (`ownerUserId`), or with `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach. Only an application key acting for no one creates an installation vault.",
         "security": [
           {
             "applicationKey": []
@@ -28902,6 +28909,7 @@
           "Vaults"
         ],
         "summary": "List a person's vaults",
+        "description": "A person's vaults. An application key acting for no one also gets the installation vaults, after the person's, and gets only those without `ownerUserId`.",
         "security": [
           {
             "applicationKey": []
@@ -28923,10 +28931,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "Whose vaults; required with an application key acting for no one"
+              "description": "Whose vaults; an application key acting for no one may leave it out"
             },
             "required": false,
-            "description": "Whose vaults; required with an application key acting for no one",
+            "description": "Whose vaults; an application key acting for no one may leave it out",
             "name": "ownerUserId",
             "in": "query"
           },

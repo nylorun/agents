@@ -29,7 +29,6 @@ import {
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
 import type { Tx } from "../store/types.js";
-import { scrub } from "../redact.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import { isRemoteMcpCall } from "../harness/calls.js";
 import {
@@ -378,27 +377,17 @@ function inheritedSandbox(
   return { spec, manifest: sandboxed.manifest, manifestHash: sandboxed.manifestHash };
 }
 
-/** Vault authorization for an MCP server request made on behalf of a session. */
+/**
+ * The credential of an MCP server request made on behalf of a session: from its attached vaults,
+ * else the operator's credential resolver (`vault/sources.ts`).
+ */
 export async function authorize(
   ctx: TenantContext,
   sessionId: string,
-  request: { url: string; serverName?: string }
+  request: { url: string; serverName?: string; agentId?: string }
 ): Promise<AuthorizeResult> {
   const s = await loadSession(ctx, sessionId);
-  const result = await ctx.vault.authorize({
-    sessionId,
-    vaultIds: s.vaultIds ?? [],
-    credentialSelections: s.credentialSelections ?? [],
-    url: request.url,
-    serverName: request.serverName,
-  });
-  if (result.status === "authorized") {
-    const token = result.headers.authorization.slice("Bearer ".length);
-    scrub({ authorization: result.headers.authorization, url: result.url }, [
-      token,
-    ]);
-  }
-  return result;
+  return ctx.credentials.authorize({ ...s, id: sessionId }, request);
 }
 
 /**

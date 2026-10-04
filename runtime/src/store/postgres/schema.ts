@@ -216,12 +216,16 @@ export const vaults = nylorun.table(
     /** JSON text, or null. */
     metadataJson: text(),
     createdAt: textC().notNull(),
-    scope: text({ enum: ["user", "host"] }).notNull().default("user"),
+    /**
+     * `user`: one person's (owner `ownerUserId`); `installation`: the installation's own,
+     * attachable to any session (owner `installation`); `host`: the model vault, never attached.
+     */
+    scope: text({ enum: ["user", "installation", "host"] }).notNull().default("user"),
   },
   (t) => [
     index("vaults_owner").on(t.ownerUserId, t.createdAt, t.id),
     uniqueIndex("vaults_one_host").on(t.scope).where(sql`scope = 'host'`),
-    check("vaults_scope_check", sql`scope IN ('user', 'host')`),
+    check("vaults_scope_check", sql`scope IN ('user', 'installation', 'host')`),
   ],
 );
 
