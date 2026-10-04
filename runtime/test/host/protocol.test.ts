@@ -72,10 +72,13 @@ it("P13: the Host serves protocol 4, 5 and 6 clients", async () => {
     headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: "7" },
   });
   expect(seven.status).toBe(426);
-  // Only a capability link is served without the header (protocol 6).
+  // Only a capability link is served without the header (protocol 6), and the OAuth callback.
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });
   expect(link.status).not.toBe(426);
+  // Nor the MCP OAuth callback a browser is sent back to (F9 C2), with no credential either.
+  const callback = await getJson(`${url}/v1/oauth/callback?state=s&code=c`, { headers: {} });
+  expect(callback.status).not.toBe(426);
   const noProtocol = await getJson(`${url}/v1/agents`, { headers: unversioned });
   expect(noProtocol.status).toBe(426);
 });

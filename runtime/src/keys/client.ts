@@ -13,6 +13,14 @@ import { KEYS_OPERATIONS, type Keys, type KeysOperation } from "./keys.js";
 
 /** Signing and vault writes are short; anything slower is a gateway in trouble. */
 const KEYS_TIMEOUT_MS = 30_000;
+/**
+ * MCP OAuth connect calls the authorization server several times (discovery, registration, the
+ * code exchange), each bounded by `guardedFetch`'s 30 s: these wait longer.
+ */
+const SLOW_OPERATIONS: Partial<Record<KeysOperation, number>> = {
+  startOAuth: 120_000,
+  finishOAuth: 60_000,
+};
 
 export interface HttpKeysOptions {
   /** The gateway, e.g. `http://gateway:4100` (`NYLORUN_KEYS_URL`). */
@@ -24,9 +32,9 @@ export interface HttpKeysOptions {
 
 export function httpKeys(options: HttpKeysOptions): Keys {
   const where = new URL(options.url).origin;
-  const timeoutMs = options.timeoutMs ?? KEYS_TIMEOUT_MS;
 
   function call(operation: KeysOperation, args: readonly unknown[]): Promise<unknown> {
+    const timeoutMs = Math.max(options.timeoutMs ?? KEYS_TIMEOUT_MS, SLOW_OPERATIONS[operation] ?? 0);
     const url = new URL(`${KEYS_PATH}/${operation}`, options.url);
     const send = url.protocol === "https:" ? httpsRequest : httpRequest;
     const payload = Buffer.from(JSON.stringify({ args }), "utf8");

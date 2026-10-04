@@ -24,6 +24,7 @@ import type { SessionStore } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import { SigningKeys } from "../tenant/signing-keys.js";
+import { guardedFetch, type OutboundPolicy } from "../tenant/outbound.js";
 
 /** The Tenant, as a model call needs it. */
 export interface TenantVault {
@@ -72,6 +73,11 @@ export interface TenantVaultsOptions {
   readonly hostRoot: string;
   /** The operator's credential resolver (`NYLORUN_RESOLVER_*`, F9 C1). */
   readonly resolver?: ResolverConfig;
+  /**
+   * The Host's address policy (`NYLORUN_ENDPOINT_*`): OAuth refresh and MCP OAuth connect call
+   * authorization servers through `guardedFetch` under it (F9 C2).
+   */
+  readonly delivery?: OutboundPolicy;
 }
 
 export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
@@ -95,7 +101,11 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       return kek;
     };
     const vault = new HostModelVault({ store, kek: readKek });
-    const credentials = new VaultService({ store, kek: readKek, fetch: globalThis.fetch });
+    const credentials = new VaultService({
+      store,
+      kek: readKek,
+      fetch: guardedFetch(options.delivery ?? {}),
+    });
     const sources = new CredentialSources({
       vault: credentials,
       ...(options.resolver ? { resolver: options.resolver } : {}),

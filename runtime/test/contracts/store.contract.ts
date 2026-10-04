@@ -1187,6 +1187,34 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
       });
 
+      it("keeps a pending OAuth connect until it is taken once, expired, or its vault goes (F9 C2)", async () => {
+        const store = await fresh();
+        const pending = (stateHash: string, vaultId: string, expiresAt: string) => ({
+          stateHash, vaultId, server: "remote", url: "https://mcp.example.com/mcp",
+          tokenEndpoint: "https://auth.example.com/token", clientId: "client-1",
+          tokenEndpointAuth: "none" as const, resource: null, kekId: "kek-1",
+          clientSecret: null, codeVerifier: new Uint8Array([1, 2, 3]),
+          redirectUri: "http://localhost:4000/v1/oauth/callback", expiresAt,
+          createdAt: "2030-01-01T00:00:00.000Z",
+        });
+        await store.tx(async (t) => {
+          await t.insertVault({ id: "i1", name: "mcp", ownerUserId: "installation", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", scope: "installation" });
+          await t.insertOAuthPending(pending("s1", "i1", "2030-01-01T00:10:00.000Z"));
+          await t.insertOAuthPending({ ...pending("s2", "i1", "2030-01-01T00:05:00.000Z"), clientSecret: new Uint8Array([7]) });
+          await t.insertOAuthPending(pending("s3", "i1", "2030-01-01T00:20:00.000Z"));
+        });
+        await expect(store.tx((t) => t.insertOAuthPending(pending("s1", "i1", "x")))).rejects.toThrow();
+        await expect(store.tx((t) => t.insertOAuthPending(pending("s9", "missing", "x")))).rejects.toThrow();
+        const taken = await store.tx((t) => t.takeOAuthPending("s1"));
+        expect(taken).toMatchObject({ stateHash: "s1", vaultId: "i1", clientSecret: null, resource: null });
+        expect([...taken!.codeVerifier]).toEqual([1, 2, 3]);
+        expect(await store.tx((t) => t.takeOAuthPending("s1"))).toBeUndefined();
+        expect(await store.tx((t) => t.deleteExpiredOAuthPending("2030-01-01T00:06:00.000Z"))).toBe(1);
+        expect(await store.tx((t) => t.takeOAuthPending("s2"))).toBeUndefined();
+        await store.tx((t) => t.deleteVault("i1"));
+        expect(await store.tx((t) => t.takeOAuthPending("s3"))).toBeUndefined();
+      });
+
       it("appends audit rows and keeps idempotency rows unique", async () => {
         const store = await fresh();
         const row = (id: string, vaultId: string | null) => ({

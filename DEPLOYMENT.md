@@ -425,9 +425,44 @@ A session's MCP credential comes from two places, in this order:
    resolver on a private network: the gateway allows private addresses for it,
    and never follows a redirect.
 
+### Connecting a remote MCP server with OAuth
+
+An MCP server that signs clients in with OAuth (MCP authorization: RFC 9728
+discovery, then RFC 8414 metadata) can be connected once for the whole
+installation; the credential goes into an installation vault:
+
+```sh
+nylorun mcp connect https://mcp.example.com/mcp --server linear
+# a server without dynamic client registration (RFC 7591): register a client
+# with it, its redirect URI the callback below, and pass the client's id
+nylorun mcp connect https://mcp.example.com/mcp --server linear --client-id <id>
+```
+
+The command creates the installation vault `mcp` unless `--vault <id>` names
+another, prints the sign-in URL and opens the browser, and waits (up to 10
+minutes) for the credential: an `oauth` credential bound to the URL, named
+after `--server`, refreshed by the gateway when it expires. Connecting again
+rotates it. Sessions use it when they attach the vault (`vaultIds`). An app
+server does the same with `POST /v1/vaults/{vaultId}/oauth/start` and an
+application key.
+
+The gateway's `keys` service does every OAuth step: discovery, registration,
+the PKCE code exchange and refresh. Tokens, the PKCE verifier and any client
+secret never reach the runtime container, which only routes the start and the
+callback. The authorization server sends the browser back to
+`NYLORUN_PUBLIC_URL` + `/v1/oauth/callback` (`http://localhost:<port>` for a
+local Tenant); a server reached through a proxy sets `NYLORUN_PUBLIC_URL` to
+its public address. Without one, the callback is the start request's own
+origin. A sign-in must finish within 10 minutes, and its `state` works once.
+
+These requests follow the `NYLORUN_ENDPOINT_*` settings, like Action
+deliveries: no redirects, and a local Tenant may reach an OAuth server on this
+machine. On a server, set `NYLORUN_ENDPOINT_PRIVATE=refuse` on the gateway so
+a discovery document cannot point it at a private address.
+
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
-credential, setting and selecting the host model) and signs every token
+credential, setting and selecting the host model, MCP OAuth connect) and signs every token
 (subject tokens, Action deliveries, signing-key rotation). The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
 never reads the key: Compose covers `keys/` and `docker/` in the runtime

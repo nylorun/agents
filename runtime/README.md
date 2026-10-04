@@ -131,6 +131,8 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `DELETE /v1/admin/keys/{id}` | admin key | The key stops authenticating at once; `404` when there is none |
 | `GET /v1/admin/openapi.json` | admin key | The Admin API's OpenAPI 3.2 document |
 | `/v1/*` Tenant routes | application key, subject token or delivery token | Require `Nylorun-Protocol`; nothing names the Tenant |
+| `POST /v1/vaults/{vaultId}/oauth/start` | application key | MCP OAuth connect into an installation vault (F9 C2): `{url, server, clientId?}` → `{authorizeUrl, expiresAt}`; the gateway's keys module does discovery, registration and the exchange. `oauth_client_required` without DCR or a `clientId` |
+| `GET /v1/oauth/callback` | the `state` itself | Where the authorization server sends the browser back: no credential, no `Nylorun-Protocol`; finishes the connect once (`oauth_state_invalid` after) and answers a small HTML page. Its base is `NYLORUN_PUBLIC_URL`, else the start request's origin |
 | `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported; a folder's link opens its zip, or one of its files |
 
 Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodies

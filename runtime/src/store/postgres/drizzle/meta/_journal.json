@@ -64,6 +64,13 @@
       "when": 1791099626069,
       "tag": "0008_installation_vaults",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791102046691,
+      "tag": "0009_oauth_pending",
+      "breakpoints": true
     }
   ]
 }

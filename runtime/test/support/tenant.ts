@@ -29,6 +29,7 @@ import { authorizeSessionMcp } from "../../src/gates/tenant-vaults.js";
 import { VaultService, type AuthorizeResult } from "../../src/vault/service.js";
 import { CredentialSources } from "../../src/vault/sources.js";
 import { httpKeys } from "../../src/keys/client.js";
+import { guardedFetch } from "../../src/tenant/outbound.js";
 import { inProcessKeys, type Keys } from "../../src/keys/keys.js";
 import { SigningKeys } from "../../src/tenant/signing-keys.js";
 import { createRunGrants, type RunGrants } from "../../src/tenant/run-grants.js";
@@ -94,6 +95,12 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   pods?: TenantOpenHooks["pods"];
   /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
   wrapBlobs?: (blobs: BlobStore) => BlobStore;
+  /**
+   * The gateway's OAuth fetch with `NYLORUN_TEST_MODEL_GATE=http` (refresh and MCP OAuth
+   * connect). Default `vaultFetch`, else the Host's `guardedFetch` under `delivery`, as the
+   * gateway has it; `vaultFetch` alone is then the runtime container's.
+   */
+  gateVaultFetch?: typeof fetch;
 };
 
 /**
@@ -229,6 +236,8 @@ export async function startTestTenant(
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
     ...(options.actionHoldMs === undefined ? {} : { actionHoldMs: options.actionHoldMs }),
     ...(options.resolver === undefined ? {} : { resolver: options.resolver }),
+    ...(options.delivery === undefined ? {} : { delivery: options.delivery }),
+    ...(options.publicUrl === undefined ? {} : { publicUrl: options.publicUrl }),
     logger,
   };
 
@@ -293,7 +302,7 @@ export async function startTestTenant(
       credentials: new VaultService({
         store: opened.store,
         kek,
-        fetch: options.vaultFetch ?? globalThis.fetch,
+        fetch: options.gateVaultFetch ?? options.vaultFetch ?? guardedFetch(options.delivery ?? {}),
       }),
       kek,
       root: paths.home,

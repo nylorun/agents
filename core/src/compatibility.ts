@@ -137,6 +137,15 @@ export const ERROR_CODES = [
    * be fetched now (Host feature `trusted-issuers`): retry later. Keys already fetched keep working.
    */
   "issuer_unavailable",
+  /**
+   * An MCP OAuth connect found no way to identify this installation to the authorization server:
+   * it offers no dynamic client registration and no client id was given (F9 C2).
+   */
+  "oauth_client_required",
+  /** An OAuth callback's `state` is unknown, already used or expired: start the connect again. */
+  "oauth_state_invalid",
+  /** The authorization server (or its discovery) failed or refused an MCP OAuth connect step. */
+  "oauth_failed",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

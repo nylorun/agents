@@ -281,6 +281,45 @@ export const vaultIdempotency = nylorun.table("vault_idempotency", {
   response: text().notNull(),
 });
 
+/**
+ * An MCP OAuth connect between its start and its callback (F9 C2): found by the SHA-256 of its
+ * `state`, used once, for ten minutes. The PKCE verifier and any client secret are sealed under
+ * the vault key (`sealBytes`), which only the keys module holds.
+ */
+export const oauthPending = nylorun.table(
+  "oauth_pending",
+  {
+    stateHash: text().primaryKey(),
+    vaultId: text().notNull(),
+    /** The MCP server's name in the agent, the credential's name. */
+    server: text().notNull(),
+    /** The MCP server's URL (normalized): the credential's binding. */
+    url: text().notNull(),
+    tokenEndpoint: text().notNull(),
+    clientId: text().notNull(),
+    /** How the client authenticates at the token endpoint: `none`, `client_secret_basic` or `client_secret_post`. */
+    tokenEndpointAuth: text({ enum: ["none", "client_secret_basic", "client_secret_post"] }).notNull(),
+    /** The RFC 8707 resource indicator sent with the authorization request, if any. */
+    resource: text(),
+    kekId: text().notNull(),
+    /** Sealed; null for a public client. */
+    clientSecret: bytes(),
+    /** Sealed. */
+    codeVerifier: bytes().notNull(),
+    redirectUri: text().notNull(),
+    expiresAt: textC().notNull(),
+    createdAt: textC().notNull(),
+  },
+  (t) => [
+    foreignKey({
+      name: "oauth_pending_vault_id_fkey",
+      columns: [t.vaultId],
+      foreignColumns: [vaults.id],
+    }).onDelete("cascade"),
+    index("oauth_pending_expires").on(t.expiresAt),
+  ],
+);
+
 export const tenantSettings = nylorun.table("tenant_settings", {
   key: text().primaryKey(),
   value: text().notNull(),
@@ -628,6 +667,7 @@ export type VaultRow = typeof vaults.$inferSelect;
 export type VaultCredentialRow = typeof vaultCredentials.$inferSelect;
 export type VaultAuditRow = Omit<typeof vaultAudit.$inferSelect, "ord">;
 export type VaultIdempotencyRow = typeof vaultIdempotency.$inferSelect;
+export type OAuthPendingRow = typeof oauthPending.$inferSelect;
 export type SigningKeyRow = typeof signingKeys.$inferSelect;
 export type SubjectUsageRow = typeof subjectUsage.$inferSelect;
 export type PublishableKeyRow = typeof publishableKeys.$inferSelect;
