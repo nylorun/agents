@@ -1,3 +1,3 @@
 // Kept in step with package.json by runtime/scripts/check-package.mjs, which runs in npm run check.
 // release:prepare also rewrites this when it bumps @nylorun/runtime.
-export const RUNTIME_VERSION = "0.15.2-beta";
+export const RUNTIME_VERSION = "0.16.0-beta";
