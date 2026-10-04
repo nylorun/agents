@@ -198,6 +198,8 @@ export class TenantUnavailableError extends Error {
 
 /** What the Tenant opener hands the Tenant Runtime it opens. */
 export interface OpenedTenant {
+  /** The isolated read pool, owned and closed with the Tenant. */
+  reads?: import("../reads/types.js").ReadStore;
   /**
    * The Tenant's opened Session Store. The Tenant Runtime owns it from here on and closes it
    * on close or on a failed open.

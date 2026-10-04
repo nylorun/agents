@@ -13,6 +13,8 @@
  * - A failure outside the Tenant (Postgres unreachable, its sweep not armed in Restate) is
  *   `TenantUnavailableError`; the Tenant module retries.
  */
+
+import { createPostgresReadStore } from "../store/postgres/reads.js";
 import { mkdirSync } from "node:fs";
 import type { PostgresClient } from "../store/postgres/connect.js";
 import type { Migration } from "../store/postgres/migrate.js";
@@ -80,12 +82,15 @@ export function createPostgresTenantOpener(options: PostgresTenantOptions): Tena
         from: opened.migrated.from,
         to: opened.migrated.to,
       });
+    let reads: ReturnType<typeof createPostgresReadStore> | undefined;
     try {
+      reads = createPostgresReadStore(options.sql, tenantId);
       const config = options.configFor(tenantId);
       const paths = tenantPaths(options.hostRoot);
       mkdirSync(paths.root, { recursive: true, mode: 0o700 });
-      return await options.openRuntime({ ...config, tenantId }, { store, envelope });
+      return await options.openRuntime({ ...config, tenantId }, { store, envelope, reads });
     } catch (error) {
+      await reads?.close().catch(() => undefined);
       await store.close().catch(() => undefined);
       if (error instanceof TenantOpenError) {
         // The Tenant's own failure (`kek-missing`): report which Tenant it is.

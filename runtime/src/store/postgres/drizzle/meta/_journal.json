@@ -57,6 +57,13 @@
       "when": 1791048873567,
       "tag": "0007_sandbox_pods",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791098088544,
+      "tag": "0008_session_reads",
+      "breakpoints": true
     }
   ]
 }

@@ -154,6 +154,7 @@ export type AuthScope =
     };
 
 export interface TenantContext {
+  readonly reads?: import("../reads/types.js").ReadStore;
   readonly config: TenantConfig;
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;

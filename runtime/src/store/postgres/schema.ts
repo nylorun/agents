@@ -123,6 +123,8 @@ export const tenant = nylorun.table(
 
 export const definitions = documents("definitions");
 
+const xid8 = customType<{ data: string }>({ dataType: () => "xid8" });
+
 export const sessions = nylorun.table(
   "sessions",
   {
@@ -130,6 +132,8 @@ export const sessions = nylorun.table(
     body: jsonText().notNull(),
     status: field("->>'status'"),
     agentId: field("->>'agentId'"),
+    /** Unknown for legacy sessions; assigned only on insert. */
+    createdAt: timestamp({ withTimezone: true, mode: "string" }).defaultNow(),
     /** The lease holder; store-managed, never in `body`. */
     owner: text(),
     epoch: bigint({ mode: "number" }).notNull().default(0),
@@ -140,6 +144,7 @@ export const sessions = nylorun.table(
     sandboxId: field("->>'sandboxId'"),
   },
   (t) => [
+    index("sessions_created").on(t.createdAt.desc().nullsLast(), t.id.desc().nullsFirst()),
     index("sessions_status").on(t.status, t.ownerExpiresAt),
     index("sessions_agent").on(t.agentId),
     index("sessions_owner_user").on(t.ownerUserId),
@@ -372,6 +377,9 @@ export const modelUsage = nylorun.table(
     id: textC().primaryKey(),
     /** The model effect's id; unique per Tenant, since it carries the turn id. */
     effectKey: textC().notNull(),
+    tokensReported: boolean(),
+    costKnown: boolean(),
+    txid: xid8().notNull().default(sql`pg_current_xact_id()`),
     sessionId: textC().notNull(),
     turnId: textC().notNull(),
     agentId: textC().notNull(),
@@ -389,6 +397,8 @@ export const modelUsage = nylorun.table(
     createdAt: text().notNull(),
   },
   (t) => [
+    index("model_usage_session").on(t.sessionId, t.createdAt, t.id),
+    index("model_usage_export").on(t.txid, t.id),
     index("model_usage_effect").on(t.effectKey),
     index("model_usage_agent").on(t.agentId, t.createdAt),
     index("model_usage_turn").on(t.turnId),
@@ -633,3 +643,8 @@ export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type SandboxResourceRow = typeof sandboxResources.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
+
+export type ModelUsageWrite = Omit<
+  ModelUsageRow,
+  "duplicate" | "txid" | "tokensReported" | "costKnown"
+> & { tokensReported?: boolean | null; costKnown?: boolean | null };
