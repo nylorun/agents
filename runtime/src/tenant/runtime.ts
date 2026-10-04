@@ -28,6 +28,7 @@ import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { SigningKeys } from "./signing-keys.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
+import { CredentialSources } from "../vault/sources.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { storeSandboxRecords } from "../sandbox/records.js";
@@ -273,6 +274,10 @@ export class TenantRuntime implements TenantHandle {
         kek: ensureKek,
         fetch: config.vaultFetch ?? globalThis.fetch,
       });
+      const credentials = new CredentialSources({
+        vault,
+        ...(config.resolver ? { resolver: config.resolver } : {}),
+      });
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
       const toolGate = hooks.toolGate ?? inProcessToolGate(config.delivery ?? {});
@@ -380,6 +385,7 @@ export class TenantRuntime implements TenantHandle {
         envelope,
         store: opened,
         vault,
+        credentials,
         ...(mcp ? { mcp } : {}),
         sandbox,
         flowLimits,
@@ -490,7 +496,7 @@ export class TenantRuntime implements TenantHandle {
 
   authorize(
     sessionId: string,
-    request: { url: string; serverName?: string }
+    request: { url: string; serverName?: string; agentId?: string }
   ): Promise<AuthorizeResult> {
     return authorize(this.ctx, sessionId, request);
   }

@@ -352,6 +352,39 @@ the runtime container never holds an MCP credential or calls a tool's server:
   restart a call that was in flight is `uncertain`: it may have run, and it is
   never run again.
 
+### Credentials
+
+A session's MCP credential comes from two places, in this order:
+
+1. **The session's attached vaults.** An installation vault (`POST /v1/vaults`
+   with `scope: "installation"`, application keys only; Studio's Connections
+   page creates these) holds the installation's own credentials: shared tool
+   keys and the operator's MCP connections. Any session may attach one, and a
+   request acting for a person never sees one. A person's vault (owner
+   `ownerUserId`) still attaches only to that person's sessions.
+2. **Your credential resolver**, for a person's own credentials, which Nylorun
+   never stores. Set `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the
+   gateway (a local Tenant passes them from the shell that runs `nylorun
+   start`). When the attached vaults hold nothing for the server's URL, the
+   gateway asks:
+
+   ```text
+   POST <NYLORUN_RESOLVER_URL>
+   Authorization: Bearer <NYLORUN_RESOLVER_TOKEN>
+   { "owner": "u:priya", "session": "s_…", "turn": "t_…" | null,
+     "target": { "kind": "mcp", "server": "github", "agent": "support", "url": "https://…/mcp" } }
+
+   200 { "headers": { "authorization": "Bearer …" }, "expiresAt"?: "<ISO time>" }
+   404                                      the call goes without a credential
+   anything else, or no answer within 5 s   the server is refused: credential_unavailable
+   ```
+
+   `owner` and `turn` come from the session, never from the agent. Answers are
+   kept per owner and URL until `expiresAt`, at most 5 minutes (60 s without
+   one), so a revoked credential can work for up to 5 minutes. Keep the
+   resolver on a private network: the gateway allows private addresses for it,
+   and never follows a redirect.
+
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
 credential, setting and selecting the host model) and signs every token

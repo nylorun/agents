@@ -695,6 +695,8 @@ export interface Tx {
   getVault(id: string): Promise<VaultRow | undefined>;
   /** User vaults of one owner, ordered by `createdAt`, then id. */
   vaultsByOwner(ownerUserId: string): Promise<VaultRow[]>;
+  /** Installation vaults (any session may attach them), ordered by `createdAt`, then id. */
+  installationVaults(): Promise<VaultRow[]>;
   updateVaultMetadata(id: string, metadataJson: string | null): Promise<void>;
   /** Deletes the vault and its credentials. */
   deleteVault(id: string): Promise<void>;

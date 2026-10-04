@@ -27,6 +27,7 @@ import { httpToolGate } from "../../src/gates/tool-client.js";
 import type { ToolGate } from "../../src/gates/tool-gate.js";
 import { authorizeSessionMcp } from "../../src/gates/tenant-vaults.js";
 import { VaultService, type AuthorizeResult } from "../../src/vault/service.js";
+import { CredentialSources } from "../../src/vault/sources.js";
 import { httpKeys } from "../../src/keys/client.js";
 import { inProcessKeys, type Keys } from "../../src/keys/keys.js";
 import { SigningKeys } from "../../src/tenant/signing-keys.js";
@@ -227,6 +228,7 @@ export async function startTestTenant(
     ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
     ...(options.actionHoldMs === undefined ? {} : { actionHoldMs: options.actionHoldMs }),
+    ...(options.resolver === undefined ? {} : { resolver: options.resolver }),
     logger,
   };
 
@@ -300,6 +302,7 @@ export async function startTestTenant(
       ...(options.delivery ? { delivery: options.delivery } : {}),
       // The gateway reads the Tenant's blobs as core writes them (the `fs` store here).
       blobs: createFsBlobStore({ root: paths.blobs }),
+      ...(options.resolver ? { resolver: options.resolver } : {}),
     });
   }
   if (options.modelGate) hooks.modelGate = options.modelGate;
@@ -417,7 +420,10 @@ export type TestGate = GatesServer & {
    * The gateway's vault authorization of a session's remote MCP server (F4.1): what
    * `TenantHandle.authorize` does in process, with the vault key only the gateway holds.
    */
-  authorizeMcp(sessionId: string, request: { url: string; serverName?: string }): Promise<AuthorizeResult>;
+  authorizeMcp(
+    sessionId: string,
+    request: { url: string; serverName?: string; agentId?: string },
+  ): Promise<AuthorizeResult>;
 };
 
 /**
@@ -439,16 +445,28 @@ export async function startTestGate(options: {
   delivery?: TenantConfig["delivery"];
   /** The Tenant's Object store, for the files a prompt names. */
   blobs?: BlobStore;
+  /** The operator's credential resolver (`NYLORUN_RESOLVER_*` on the gateway, F9 C1). */
+  resolver?: TenantConfig["resolver"];
 }): Promise<TestGate> {
   const token = randomBytes(32).toString("hex");
   const runGrants = createRunGrants();
   const session = (sessionId: string) =>
     options.store.tx((t) => t.get<Session>("sessions", sessionId));
-  const authorizeMcp = async (sessionId: string, request: { url: string; serverName?: string }) => {
-    if (!options.credentials) throw new Error("This test gate serves no MCP credentials");
-    return authorizeSessionMcp(options.credentials, session, sessionId, {
+  const sources = options.credentials
+    ? new CredentialSources({
+        vault: options.credentials,
+        ...(options.resolver ? { resolver: options.resolver } : {}),
+      })
+    : undefined;
+  const authorizeMcp = async (
+    sessionId: string,
+    request: { url: string; serverName?: string; agentId?: string },
+  ) => {
+    if (!sources) throw new Error("This test gate serves no MCP credentials");
+    return authorizeSessionMcp(sources, session, sessionId, {
       url: request.url,
       serverName: request.serverName ?? "",
+      ...(request.agentId === undefined ? {} : { agentId: request.agentId }),
     });
   };
   const keys = options.credentials

@@ -1,7 +1,8 @@
 /**
  * Vaults and their credentials (`/v1/vaults/**`): secrets a session's tools use, owned by one
- * person. Acting for a subject reaches only the subject's own vaults, and never on another's
- * behalf.
+ * person, or by the installation (`scope: "installation"`, any session may attach one). Acting
+ * for a subject reaches only the subject's own vaults, and never on another's behalf; only an
+ * application key acting for no one creates, lists or changes installation vaults.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
@@ -66,6 +67,8 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/vaults",
       tags: ["Vaults"],
       summary: "Create a vault",
+      description:
+        "A person's vault (`ownerUserId`), or with `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach. Only an application key acting for no one creates an installation vault.",
       request: { body: body(CreateVaultRequest) },
       responses: {
         200: json(VaultInfo, "The vault"),
@@ -75,6 +78,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const owner = await ownerFor(c);
       const request = CreateVaultRequestSchema.parse(await readJson(c.req.raw));
+      if (request.scope === "installation" && c.get("scope").kind !== "application")
+        fail(403, "Only an application key acting for no one creates an installation vault", {
+          code: "scope_required",
+        });
       if (owner !== undefined && request.ownerUserId !== owner)
         fail(403, "ownerUserId must be the subject");
       return jsonResponse(200, await c.env.tenant.vault.createVault(request));
@@ -89,23 +96,28 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/vaults",
       tags: ["Vaults"],
       summary: "List a person's vaults",
+      description:
+        "A person's vaults. An application key acting for no one also gets the installation vaults, after the person's, and gets only those without `ownerUserId`.",
       request: {
         query: z.object({
           ownerUserId: z
             .string()
             .optional()
-            .meta({ description: "Whose vaults; required with an application key acting for no one" }),
+            .meta({ description: "Whose vaults; an application key acting for no one may leave it out" }),
         }),
       },
       responses: { 200: json(ListVaultsResponse, "The vaults") },
     },
     async (c) => {
       const owner = await ownerFor(c);
-      const ownerUserId =
-        c.req.query("ownerUserId") ?? owner ?? fail(400, "ownerUserId is required");
+      const application = c.get("scope").kind === "application";
+      const ownerUserId = c.req.query("ownerUserId") ?? owner;
+      if (ownerUserId === undefined && !application) fail(400, "ownerUserId is required");
       if (owner !== undefined && ownerUserId !== owner)
         fail(403, "ownerUserId must be the subject");
-      return jsonResponse(200, { vaults: await c.env.tenant.vault.listVaults(ownerUserId) });
+      return jsonResponse(200, {
+        vaults: await c.env.tenant.vault.listVaults(ownerUserId, { installation: application }),
+      });
     },
   );
 

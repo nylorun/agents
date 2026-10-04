@@ -12,7 +12,7 @@
  * // Administration: each opens its own transaction and writes its audit rows
  * // in that transaction. Creates and rotations replay by idempotency key.
  * createVault(body: CreateVaultRequest): Promise<VaultInfo>
- * listVaults(ownerUserId: string): Promise<VaultInfo[]>
+ * listVaults(ownerUserId: string | undefined, options?: { installation?: boolean }): Promise<VaultInfo[]>
  * getVault(id: string): Promise<VaultInfo>
  * assertOwner(id: string, ownerUserId: string): Promise<void>
  * deleteVault(id: string): Promise<{ id: string }>
@@ -26,7 +26,8 @@
  * assertAttachment(t: Tx, ownerUserId: string, vaultIds: readonly string[], selections: readonly CredentialSelection[], options?: { opaque?: boolean }): Promise<void>
  * recordAttachment(t: Tx, sessionId: string, vaultIds: readonly string[]): Promise<void>
  *
- * // Use: opens its own transactions; never call it inside one.
+ * // Use: opens its own transactions; never call it inside one. `CredentialSources`
+ * // (`vault/sources.ts`) wraps it with the operator's credential resolver.
  * authorize(input: { sessionId; vaultIds; credentialSelections; url; serverName? }): Promise<AuthorizeResult>
  *
  * // Host model credential: each opens its own transaction.
@@ -39,6 +40,13 @@
  * Reading the host model's secret and writing back a refreshed one are `HostModelVault`'s
  * (`vault/host-model.ts`), which only the Model Gate uses: this service seals the host model's
  * credential but never reads it back.
+ *
+ * ## Scopes
+ *
+ * - `user`: one person's vault (owner `ownerUserId`), attachable only to that person's sessions.
+ * - `installation` (`INSTALLATION_OWNER`): the installation's own, created by application keys
+ *   only, attachable to any session. Subject and token callers never see one.
+ * - `host`: the model vault (`HOST_VAULT_ID`), never listed or attached.
  *
  * ## Transactions and I/O
  *
@@ -60,6 +68,7 @@
  *   in their own transaction before the refusal is returned.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { INSTALLATION_OWNER } from "@nylorun/core/contracts";
 import type {
   CreateCredentialRequest,
   CreateVaultRequest,
@@ -133,7 +142,8 @@ export type AuthorizeResult =
   | {
       status: "authorized";
       url: string;
-      headers: { authorization: string };
+      /** A vault credential's `authorization`, or the headers the credential resolver gave. */
+      headers: Record<string, string>;
     }
   | {
       status: "refused";
@@ -186,13 +196,16 @@ export class VaultService {
   async createVault(body: CreateVaultRequest): Promise<VaultInfo> {
     return this.store.tx((t) =>
       this.replay(t, `create-vault:${body.idempotencyKey}`, body, async () => {
+        const installation = body.scope === "installation";
+        const ownerUserId = installation ? INSTALLATION_OWNER : body.ownerUserId;
+        if (!ownerUserId) throw new VaultError(400, "ownerUserId is required for a user vault");
         const row: VaultRow = {
           id: randomUUID(),
           name: body.name,
-          ownerUserId: body.ownerUserId,
+          ownerUserId,
           metadataJson: body.metadata ? JSON.stringify(body.metadata) : null,
           createdAt: new Date().toISOString(),
-          scope: "user",
+          scope: installation ? "installation" : "user",
         };
         await t.insertVault(row);
         await this.audit(t, {
@@ -206,17 +219,29 @@ export class VaultService {
     );
   }
 
-  async listVaults(ownerUserId: string): Promise<VaultInfo[]> {
-    return this.store.tx(async (t) =>
-      (await t.vaultsByOwner(ownerUserId)).map(vaultInfoOf),
-    );
+  /**
+   * One person's vaults, then (with `installation`, for an application caller) the
+   * installation vaults. No owner lists the installation vaults only.
+   */
+  async listVaults(
+    ownerUserId: string | undefined,
+    options: { installation?: boolean } = {},
+  ): Promise<VaultInfo[]> {
+    return this.store.tx(async (t) => {
+      const own = ownerUserId === undefined ? [] : await t.vaultsByOwner(ownerUserId);
+      const shared = options.installation ? await t.installationVaults() : [];
+      return [...own, ...shared].map(vaultInfoOf);
+    });
   }
 
   async getVault(id: string): Promise<VaultInfo> {
     return this.store.tx((t) => this.vaultInfo(t, id));
   }
 
-  /** Another owner's vault, or the host vault, is the same 404 as a missing one. */
+  /**
+   * Another owner's vault, an installation vault, or the host vault, is the same 404 as a
+   * missing one: a request acting for a subject reaches only that subject's own vaults.
+   */
   async assertOwner(id: string, ownerUserId: string): Promise<void> {
     await this.store.tx(async (t) => {
       const row = await t.getVault(id);
@@ -391,6 +416,8 @@ export class VaultService {
       if (!vault) throw new VaultError(404, "Vault not found");
       if (vault.scope === "host")
         throw new VaultError(400, "Host vault cannot be attached to a session");
+      // Any session may use the installation's own vaults (F9-D13).
+      if (vault.scope === "installation") continue;
       if (vault.ownerUserId !== ownerUserId)
         throw options.opaque
           ? new VaultError(404, "Vault not found")

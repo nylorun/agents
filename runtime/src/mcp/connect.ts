@@ -258,7 +258,7 @@ function authorizedFetch(
       headers.set(key, value);
     new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
     if (result.status === "authorized")
-      headers.set("authorization", result.headers.authorization);
+      for (const [key, value] of Object.entries(result.headers)) headers.set(key, value);
     return fetch(target, { ...init, headers, redirect: "error" });
   };
 }

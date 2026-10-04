@@ -169,6 +169,8 @@ async function runGates(stack: StackConfig): Promise<void> {
     ...(stack.packing ? { packing: stack.packing } : {}),
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "none",
+    // Never the resolver's URL or token: only whether one is set (F9 C1).
+    resolver: stack.gates?.resolver ? "configured" : "none",
   });
   const database = createDatabase(stack);
   const servers: { close(): Promise<void> }[] = [];

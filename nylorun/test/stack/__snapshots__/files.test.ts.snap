@@ -162,6 +162,10 @@ services:
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
+      # unset by default. Set both in the shell that runs \`nylorun start\`.
+      NYLORUN_RESOLVER_URL: \${NYLORUN_RESOLVER_URL:-}
+      NYLORUN_RESOLVER_TOKEN: \${NYLORUN_RESOLVER_TOKEN:-}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:

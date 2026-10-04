@@ -146,3 +146,46 @@ test("proxy allows /health for SDK compatibility checks", async () => {
     },
   );
 });
+
+test("proxy creates Studio's Connections as installation vaults", async () => {
+  const seen: { path: string; body: string }[] = [];
+  await withUpstream(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      seen.push({ path: req.url ?? "", body });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      try {
+        const created = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults`, {
+          method: "POST",
+          headers: { origin, "content-type": "application/json" },
+          body: JSON.stringify({ requestId: "r", idempotencyKey: "k", name: "GitHub", ownerUserId: "someone" }),
+        });
+        assert.equal(created.status, 200);
+        assert.deepEqual(JSON.parse(seen[0]!.body), {
+          requestId: "r",
+          idempotencyKey: "k",
+          name: "GitHub",
+          scope: "installation",
+        });
+        const listed = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults`);
+        assert.equal(listed.status, 200);
+        assert.equal(seen[1]!.path, "/v1/vaults?ownerUserId=local-developer");
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});

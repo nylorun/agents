@@ -85,7 +85,11 @@ is refused with `409 run_stale`. A `gates` process needs only
 `NYLORUN_DATABASE_URL`, `NYLORUN_GATES_TOKEN`, its listener
 (`NYLORUN_GATES_LISTEN_HOST`, `NYLORUN_GATES_LISTEN_PORT`, default 4100, and
 `NYLORUN_GATES_ALLOWED_HOSTS`) and the Host's `tenant/` directory, which it
-never writes; it serves the database's one Tenant. With `egress`
+never writes; it serves the database's one Tenant. `NYLORUN_RESOLVER_URL` and
+`NYLORUN_RESOLVER_TOKEN` (both or neither, gates only) name the operator's
+credential resolver, which the gate asks for a person's MCP credential when the
+session's vaults hold none ([DEPLOYMENT.md](../DEPLOYMENT.md#credentials)); an
+embedding or `startEphemeralRuntime` takes `resolver: { url, token }` instead. With `egress`
 (`--service gates,keys,egress`, for pod sandboxes) the same process runs
 egress-gate on `NYLORUN_EGRESS_LISTEN_HOST`:`NYLORUN_EGRESS_LISTEN_PORT`
 (default `0.0.0.0:4200`): a CONNECT proxy that admits a pod's egress token and

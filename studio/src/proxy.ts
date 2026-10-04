@@ -99,8 +99,11 @@ export async function proxyRuntime(
     }
     if (!value || typeof value !== "object" || Array.isArray(value))
       return fail(400, "JSON object required");
-    if (vaultWrite && path === "/v1/vaults" && method === "POST")
-      value.ownerUserId = LOCAL_OWNER;
+    if (vaultWrite && path === "/v1/vaults" && method === "POST") {
+      // Studio's Connections are the installation's own vaults, which any session may use.
+      delete value.ownerUserId;
+      value.scope = "installation";
+    }
     else if (!tenantWrite && !vaultWrite && method === "PUT")
       value.ownerUserId = LOCAL_OWNER;
     else if (

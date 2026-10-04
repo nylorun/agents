@@ -45,7 +45,7 @@ export class McpPool {
       readonly childEnv: Readonly<Record<string, string>>;
       readonly authorize: (
         sessionId: string,
-        request: { url: string; serverName: string },
+        request: { url: string; serverName: string; agentId?: string },
       ) => Promise<AuthorizeResult>;
       /** Default `DEFAULT_MCP_IDLE_MS`. */
       readonly idleMs?: number;
@@ -297,6 +297,7 @@ export class McpPool {
                 this.options.authorize(input.sessionId, {
                   url,
                   serverName: declared.server.name,
+                  ...ownerOf(declared),
                 }),
       });
       return { ok: true, connection };
