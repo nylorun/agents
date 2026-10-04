@@ -115,7 +115,10 @@ export function createHarness(options: HarnessOptions): Harness {
   /** Waits for core's outcome of a pending Action of `run`, at most `ms`, or until it aborts. */
   const hold = (held: HarnessRun, effectId: string, ms: number) => {
     const run = live.get(held.runId);
-    if (!run || ms <= 0) return Promise.resolve(undefined);
+    // Core may stop the run while it asks about the Action (a cancel, or a shutdown on close):
+    // its abort fired already, so a listener added now would never run, and the run would
+    // keep its lease for the whole hold.
+    if (!run || ms <= 0 || run.signal.aborted) return Promise.resolve(undefined);
     const known = run.resolved.get(effectId);
     if (known) {
       run.resolved.delete(effectId);

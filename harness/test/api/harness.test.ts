@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { Agent } from "@nylorun/core/define";
 import {
   effectRequestHash,
@@ -92,6 +93,10 @@ function fakeCore(options: {
     channel: channels.harness,
     calls,
     outputs,
+    /** Core's `cancel` of a run, as core sends it when it aborts the advance. */
+    cancel(runId: string, reason: "cancel" | "shutdown") {
+      channels.core.notify("cancel", { runId, reason });
+    },
     offer(turnStart: TurnStart, turnId = "t1") {
       const done = new Promise<void>((resolve) => (settled = resolve));
       offers.push({ start: turnStart, turnId });
@@ -260,5 +265,48 @@ describe("a harness", () => {
     await harness.stop();
     expect(core.calls.filter(([method]) => method === "effect.outcome")).toEqual([]);
     expect(core.calls.at(-1)).toEqual(["lease.release", { runId: "r1", reason: "shutdown" }]);
+  });
+
+  it("does not hold a run core stopped while it asked about a pending Action", async () => {
+    const withTool = Agent({ id: "bot", name: "Bot" })
+      .use({
+        id: "work",
+        tools: [{ name: "note", inputSchema: z.object({}), execute: async () => "unused" }],
+      })
+      .build().manifest;
+    let asked!: () => void;
+    const asking = new Promise<void>((resolve) => (asked = resolve));
+    let answer!: (value: unknown) => void;
+    const core = fakeCore({
+      answer: (method, params) => {
+        if (method !== "effect.intent" || params.effect.kind !== "tool") return undefined;
+        asked();
+        // Core answers `pending` once the endpoint has the Action, after it stopped the run.
+        return new Promise((resolve) => (answer = resolve));
+      },
+    });
+    await harnessFor(
+      core,
+      executors(async () => ({
+        output: [{ type: "tool-call", id: "call-1", name: "note", args: {} }],
+      })),
+    );
+    void core.offer(
+      start({
+        manifest: withTool,
+        checkpoint: createDurableCheckpoint({ manifest: withTool, sessionId: "s1", turnId: "t1", input: "go" }),
+        options: { fixtureModel: false, holdMs: 60_000 },
+        routing: { rootManifest: withTool, pluginRoots: {} },
+      }),
+    );
+    await asking;
+    core.cancel("r1", "shutdown");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    answer({ status: "pending" });
+    const deadline = Date.now() + 2_000;
+    while (!core.calls.some(([method]) => method === "lease.release") && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(core.calls.at(-1)).toEqual(["lease.release", { runId: "r1", reason: "shutdown" }]);
+    expect(core.outputs).toEqual([]);
   });
 });
