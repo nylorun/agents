@@ -175,7 +175,11 @@ export interface DurableExecution {
   disarmSweep(tenantId: string): Promise<void>;
   /** Starts delivering to `handlers` (serving the Worker endpoint, for Restate). */
   start(handlers: WorkerHandlers): Promise<void>;
-  /** Stops delivering, aborts running advances' signals and waits for them. */
+  /**
+   * Stops delivering, aborts running advances' signals and waits for them, up to the
+   * implementation's stop grace (`DEFAULT_STOP_GRACE_MS`). Handlers still running then are
+   * abandoned: their sessions' leases lapse and the next advance takes over (§11.4).
+   */
   stop(): Promise<void>;
   /**
    * Resolves when the backing service answers, rejects otherwise (readiness,
@@ -223,4 +227,31 @@ export function parseSessionKey(key: string): {
   if (at <= 0 || at === key.length - 1)
     throw new Error(`Invalid session key: ${key}`);
   return { tenantId: key.slice(0, at), sessionId: key.slice(at + 1) };
+}
+
+/**
+ * Default time `DurableExecution.stop` waits for running handlers after aborting them: the
+ * advance grace period (`DEFAULT_ADVANCE_GRACE_MS` in `tenant/worker.ts`).
+ */
+export const DEFAULT_STOP_GRACE_MS = 30_000;
+
+/**
+ * Waits until `inflight` is empty (it shrinks as its promises settle and may grow meanwhile),
+ * for at most `graceMs`. Resolves to how many were still running when the grace ran out.
+ */
+export async function settleWithin(
+  inflight: ReadonlySet<Promise<unknown>>,
+  graceMs: number,
+): Promise<number> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<"expired">((resolve) => {
+    timer = setTimeout(() => resolve("expired"), Math.max(0, graceMs));
+  });
+  try {
+    while (inflight.size > 0)
+      if ((await Promise.race([Promise.allSettled(inflight), expired])) === "expired") break;
+  } finally {
+    clearTimeout(timer);
+  }
+  return inflight.size;
 }
