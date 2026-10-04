@@ -160,7 +160,7 @@ export function adminDocument(): OpenApiDocument {
       title: "Nylorun Runtime: Admin API",
       version: RUNTIME_VERSION,
       description:
-        "The Host's status, its Tenant's state and shutdown, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
+        "The Host's status, its Tenant's state, shutdown and the Tenant's operator keys, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
       "x-nylorun-protocol": PROTOCOL,
     },
     servers: [

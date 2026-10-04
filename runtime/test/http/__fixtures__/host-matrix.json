@@ -579,6 +579,234 @@
       "message": "Browser Origin headers are not accepted"
     }
   },
+  "public GET /v1/admin/keys": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public PUT /v1/admin/keys/studio": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public PUT /v1/admin/keys/Not_A_Key": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public DELETE /v1/admin/keys/studio": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public DELETE /v1/admin/keys/missing-key": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "public POST /v1/admin/keys": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
   "operator GET /health": {
     "none": {
       "status": 200
@@ -664,7 +892,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -724,7 +953,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -784,7 +1014,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -844,7 +1075,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -904,7 +1136,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -964,7 +1197,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1024,7 +1258,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1084,7 +1319,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1142,7 +1378,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1200,7 +1437,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1260,7 +1498,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1320,7 +1559,8 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },
@@ -1406,7 +1646,372 @@
           "action-endpoints",
           "sandboxes",
           "sandbox-pods",
-          "trusted-issuers"
+          "trusted-issuers",
+          "operator-keys"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Route not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator GET /v1/admin/keys": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 4,
+        "max": 6,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "action-endpoints",
+          "artifacts",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint",
+          "action-endpoints",
+          "sandboxes",
+          "sandbox-pods",
+          "trusted-issuers",
+          "operator-keys"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator PUT /v1/admin/keys/studio": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 4,
+        "max": 6,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "action-endpoints",
+          "artifacts",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint",
+          "action-endpoints",
+          "sandboxes",
+          "sandbox-pods",
+          "trusted-issuers",
+          "operator-keys"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "The studio key is derived from the admin key: it is not put or deleted here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator PUT /v1/admin/keys/Not_A_Key": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 4,
+        "max": 6,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "action-endpoints",
+          "artifacts",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint",
+          "action-endpoints",
+          "sandboxes",
+          "sandbox-pods",
+          "trusted-issuers",
+          "operator-keys"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "invalid_request",
+      "message": "A key id must match ^[a-z][a-z0-9-]{0,31}$"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator DELETE /v1/admin/keys/studio": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 4,
+        "max": 6,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "action-endpoints",
+          "artifacts",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint",
+          "action-endpoints",
+          "sandboxes",
+          "sandbox-pods",
+          "trusted-issuers",
+          "operator-keys"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "The studio key is derived from the admin key: it is not put or deleted here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator DELETE /v1/admin/keys/missing-key": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 4,
+        "max": 6,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "action-endpoints",
+          "artifacts",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint",
+          "action-endpoints",
+          "sandboxes",
+          "sandbox-pods",
+          "trusted-issuers",
+          "operator-keys"
+        ]
+      }
+    },
+    "protocol-only": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong-admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "No key missing-key"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "admin-with-origin": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Browser Origin headers are not accepted"
+    }
+  },
+  "operator POST /v1/admin/keys": {
+    "none": {
+      "status": 426,
+      "contentType": "application/json",
+      "code": "protocol_unsupported",
+      "protocol": {
+        "min": 4,
+        "max": 6,
+        "features": [
+          "runtime-tenants",
+          "admin-status",
+          "studio-principal",
+          "action-endpoints",
+          "artifacts",
+          "tenant-fixture-model",
+          "transcript-events",
+          "derived-principals",
+          "subject-headers",
+          "subject-tokens",
+          "browser-access",
+          "ag-ui-endpoint",
+          "a2a-endpoint",
+          "action-endpoints",
+          "sandboxes",
+          "sandbox-pods",
+          "trusted-issuers",
+          "operator-keys"
         ]
       }
     },

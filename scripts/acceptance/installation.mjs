@@ -359,7 +359,12 @@ async function i9(url, stack, admin, temporary) {
   assert.equal(linked.link.format, 3);
   assert.equal(linked.link.tenant, stack.env.NYLORUN_TENANT);
   assert.equal(linked.link.tenantId, id);
-  assert.equal(linked.credentials.applicationKey, key, "the link carries the derived project key");
+  assert.equal(linked.credentials.principalId, "project", "the link carries the operator key project");
+  assert.notEqual(linked.credentials.applicationKey, key, "the project key is not the checks' key");
+  assert.equal(await status(url, "/v1/tenant", linked.credentials.applicationKey), 200);
+  // A second start keeps the file: its key still authenticates.
+  await stack.start(["--no-studio"], { cwd: project });
+  assert.deepEqual((await readProject(project)).credentials, linked.credentials, "a later start keeps the key");
 
   // A moved checkout carries its link.
   const moved = join(temporary, "project-i9-moved");
@@ -380,6 +385,9 @@ async function i9(url, stack, admin, temporary) {
   const worktreeProject = await readProject(worktree);
   assert.equal(worktreeProject.link.tenantId, id);
   assert.equal(await status(url, "/v1/tenant", worktreeProject.credentials.applicationKey), 200);
+  // The checkouts share the one project key: linking the worktree rotated nothing.
+  assert.equal(worktreeProject.credentials.applicationKey, movedProject.credentials.applicationKey);
+  assert.equal(await status(url, "/v1/tenant", movedProject.credentials.applicationKey), 200);
   pass("I9", "a moved checkout keeps its Project link; clone/worktree do not inherit; nylorun start links a worktree");
 }
 
@@ -465,12 +473,15 @@ async function i8(url, stack, admin, packed, temporary) {
         { cwd: project, env: stack.env },
       ),
     );
+    const keys = new Set();
     for (const project of projects) {
       const { link, credentials } = await readProject(project);
       assert.equal(link.hostUrl, url, "both Projects use the one Runtime");
       assert.equal(link.tenantId, id, "both Projects use the one Tenant");
-      assert.equal(credentials.applicationKey, key);
+      assert.equal(await status(url, "/v1/tenant", credentials.applicationKey), 200, "each Project's key authenticates");
+      keys.add(credentials.applicationKey);
     }
+    assert.equal(keys.size, 1, "concurrent starts share the one project key");
     // The Runtime (in Docker) reaches each Project's Action endpoint on this machine.
     const connected = async (agentId) =>
       (await request(url, `/v1/endpoints/${agentId}/ping`, { method: "POST", key })).status === 200;

@@ -157,6 +157,10 @@ export function createHost(options: CreateHostOptions): HostServer {
     status: adminStatusBody,
     shutdown: () => void close(),
     document: adminDocument,
+    operatorKeys: async () => {
+      const resolved = await module.resolve();
+      return resolved.kind === "open" ? resolved.handle.operatorKeys?.() : undefined;
+    },
   });
 
   const app = createHostApp({

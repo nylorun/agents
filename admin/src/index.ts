@@ -1,4 +1,10 @@
-import type { AdminStatus, HostTenant, TenantEnvelope } from "@nylorun/core/contracts";
+import type {
+  AdminStatus,
+  HostTenant,
+  OperatorKey,
+  PutOperatorKeyResponse,
+  TenantEnvelope,
+} from "@nylorun/core/contracts";
 import {
   ERROR_CODES,
   PROTOCOL_FEATURES,
@@ -7,9 +13,11 @@ import {
 } from "@nylorun/core/compatibility";
 import {
   AdminClient,
+  OPERATOR_KEYS_FEATURE,
   resolveAdminConnection,
   tenantHostRoot,
   type AdminConnectionOptions,
+  type AdminKeys,
 } from "./client.js";
 import {
   PROJECT_PRINCIPAL_ID,
@@ -23,6 +31,7 @@ export type { ErrorCode };
 export { AdminError };
 export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey, tenantHostRoot };
 export { mintStudioLoginToken } from "./studio-login.js";
+export { OPERATOR_KEYS_FEATURE };
 
 export interface Admin {
   /** The Host's Tenant API URL. */
@@ -32,6 +41,11 @@ export interface Admin {
   readonly source: "options" | "environment" | "local-host";
   /** The Host's status, with the one Tenant it serves (`status.tenant`). */
   status(): Promise<AdminStatus>;
+  /**
+   * The Tenant's operator keys (Host feature `operator-keys`): revocable application keys by
+   * name. `keys.put("babai")` creates or rotates a key and returns it once.
+   */
+  readonly keys: AdminKeys;
   /**
    * The key of a derived principal on the Host's Tenant, from this client's admin key. The
    * Host registers the principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default
@@ -49,4 +63,12 @@ export function createAdmin(options?: AdminConnectionOptions): Admin {
   return new AdminClient(resolveAdminConnection(options));
 }
 
-export type { AdminConnectionOptions, AdminStatus, HostTenant, TenantEnvelope };
+export type {
+  AdminConnectionOptions,
+  AdminKeys,
+  AdminStatus,
+  HostTenant,
+  OperatorKey,
+  PutOperatorKeyResponse,
+  TenantEnvelope,
+};

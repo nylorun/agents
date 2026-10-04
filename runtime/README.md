@@ -36,7 +36,8 @@ refuses a database holding a migration it does not ship (`schema-too-new`); then
 first start, it creates the Tenant there: its id (`NYLORUN_TENANT_ID`, default a
 new one), its name (`NYLORUN_TENANT_NAME`, default `default`), its Studio principal and
 the derived principals (`NYLORUN_DERIVED_PRINCIPALS`, default `project`) whose keys the
-admin key derives. A database written by a Runtime that kept several Tenants in one
+admin key derives. Operator keys (`/v1/admin/keys`) add, rotate and delete the Tenant's
+application keys after that; a rotated or deleted key stops authenticating at once. A database written by a Runtime that kept several Tenants in one
 database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per database
 (`schema_version` tables), is refused: this release starts fresh on a new database. Restate runs one advance of a session at a time and holds the Tenant's sweep
 timer (Durable Session Execution); every session's events are relayed from the record to
@@ -121,6 +122,9 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `GET /openapi.json` | none | The Tenant API's OpenAPI 3.2 document (below); refuses an `Origin` |
 | `GET /v1/admin/status` | admin key | `AdminStatusSchema`: the Host, its protocol and its Tenant (`tenant`: id, name, `open` or `unavailable`, and the cause when it could not be opened); alias `GET /v1/admin/host`. On the operator listener when there is one |
 | `POST /v1/admin/host/shutdown` | admin key | Host-private; not in `@nylorun/admin` |
+| `PUT /v1/admin/keys/{id}` | admin key | Operator keys (Host feature `operator-keys`): creates key `id` or rotates it, and returns it once (`PutOperatorKeyResponse`); `studio` is refused |
+| `GET /v1/admin/keys` | admin key | Every key of the Tenant: id, role, when issued (`ListOperatorKeysResponse`), never the keys |
+| `DELETE /v1/admin/keys/{id}` | admin key | The key stops authenticating at once; `404` when there is none |
 | `GET /v1/admin/openapi.json` | admin key | The Admin API's OpenAPI 3.2 document |
 | `/v1/*` Tenant routes | application key, subject token or delivery token | Require `Nylorun-Protocol`; nothing names the Tenant |
 | `GET /v1/artifact-links/{token}` | the link itself | A capability link to one artifact version (protocol 6): no credential, no `Nylorun-Protocol`, Range supported; a folder's link opens its zip, or one of its files |

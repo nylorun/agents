@@ -272,7 +272,7 @@ console.log(JSON.stringify(found));
     const admin = await stack.admin();
     assert.equal((await admin.status()).host?.url, runtimeUrl, "admin status reports the public URL");
     const tenant = await hostTenant(admin);
-    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "the derived project key reaches the Tenant API");
+    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an operator key put through the Admin API reaches the Tenant API");
     assert.ok(!existsSync(join(home, ".nylorun")), "start outside a project writes no Project link");
 
     const studio = await studioSession(await stack.studioLogin());
@@ -309,7 +309,7 @@ console.log(JSON.stringify(found));
     assert.equal(others.status, 404, "an embedded session reaches no other Tenant");
 
     // `nylorun start` in a project attaches it to the running Tenant (NYLORUN_TENANT)
-    // and links it to that Tenant with the derived project key.
+    // and links it to that Tenant with the operator key `project`.
     const project = await mkdtemp(join(tmpdir(), "nylorun-tenant-project-"));
     let link;
     let credentials;
@@ -328,7 +328,8 @@ console.log(JSON.stringify(found));
     assert.equal(link.hostUrl, runtimeUrl);
     assert.equal(link.tenantId, tenant.id);
     assert.equal(credentials.principalId, "project");
-    assert.equal(credentials.applicationKey, tenant.key);
+    assert.ok(await runtimeGet(runtimeUrl, credentials.applicationKey, "/v1/tenant"), "the project key reaches the Tenant API");
+    assert.ok((await admin.keys.list()).some((key) => key.id === "project"), "the Admin API lists the project key");
 
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
     // `up` reuses the Compose files it set up, and the stopped volumes keep the Tenant.

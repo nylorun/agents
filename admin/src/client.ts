@@ -3,9 +3,14 @@ import { homedir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
 import {
   AdminStatusSchema,
+  DeleteOperatorKeyResponseSchema,
+  ListOperatorKeysResponseSchema,
   ProjectLinkFileSchema,
+  PutOperatorKeyResponseSchema,
   RejectedResponseSchema,
   type AdminStatus,
+  type OperatorKey,
+  type PutOperatorKeyResponse,
 } from "@nylorun/core/contracts";
 import {
   PROTOCOL_FEATURES,
@@ -304,20 +309,74 @@ async function readBody(response: Response): Promise<unknown> {
   }
 }
 
+/** The Host feature `/v1/admin/keys` needs. */
+export const OPERATOR_KEYS_FEATURE = "operator-keys";
+
+/** The Tenant's operator keys (Host feature `operator-keys`), managed by name. */
+export interface AdminKeys {
+  /**
+   * Creates key `id` (`^[a-z][a-z0-9-]{0,31}$`), or rotates it: the old key stops
+   * authenticating at once. The key is in the answer this once. `studio` is refused.
+   */
+  put(id: string): Promise<PutOperatorKeyResponse>;
+  /** Every key of the Tenant by id, with its role and when it was issued; never the keys. */
+  list(): Promise<OperatorKey[]>;
+  /** Deletes key `id`: true when it existed. `studio` is refused. */
+  delete(id: string): Promise<boolean>;
+}
+
 export class AdminClient {
   /** The Host's Tenant API URL. */
   readonly url: string;
   /** Where Admin API requests go: the operator listener, or `url` on a single-port Host. */
   readonly adminUrl: string;
   readonly source: AdminSource;
+  /** The Tenant's operator keys. */
+  readonly keys: AdminKeys;
   private readonly key: string;
   private compatible = false;
+  /** The features the Host's `/health` advertised. */
+  private features: readonly string[] = [];
 
   constructor(resolved: ResolvedAdmin) {
     this.url = resolved.url;
     this.adminUrl = resolved.adminUrl ?? resolved.url;
     this.source = resolved.source;
     this.key = resolved.key;
+    const path = (id: string) => `/v1/admin/keys/${encodeURIComponent(id)}`;
+    this.keys = {
+      put: async (id) => {
+        await this.requireFeature(OPERATOR_KEYS_FEATURE);
+        return PutOperatorKeyResponseSchema.parse(await this.json<unknown>(path(id), "PUT"));
+      },
+      list: async () => {
+        await this.requireFeature(OPERATOR_KEYS_FEATURE);
+        return ListOperatorKeysResponseSchema.parse(await this.json<unknown>("/v1/admin/keys"))
+          .keys;
+      },
+      delete: async (id) => {
+        await this.requireFeature(OPERATOR_KEYS_FEATURE);
+        try {
+          DeleteOperatorKeyResponseSchema.parse(await this.json<unknown>(path(id), "DELETE"));
+          return true;
+        } catch (error) {
+          // A missing key; an unknown route is the opaque 404 without this message.
+          if (error instanceof AdminError && error.status === 404 && error.message === `No key ${id}`)
+            return false;
+          throw error;
+        }
+      },
+    };
+  }
+
+  /** Throws `incompatible_host` when the Host does not advertise `feature`. */
+  private async requireFeature(feature: string): Promise<void> {
+    await this.ensureCompatible();
+    if (!this.features.includes(feature))
+      throw new AdminError(
+        "incompatible_host",
+        `The Host does not serve ${feature} (Host feature ${feature}): update it.`,
+      );
   }
 
   private clearCompatibilityCache(): void {
@@ -370,6 +429,7 @@ export class AdminClient {
         { details: result },
       );
     }
+    this.features = protocol.features;
     this.compatible = true;
   }
 

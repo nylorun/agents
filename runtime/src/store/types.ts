@@ -677,6 +677,16 @@ export interface Tx {
   principalByTokenHash(tokenHash: string): Promise<PrincipalRow | undefined>;
   principalById(id: string): Promise<PrincipalRow | undefined>;
   applicationTokenHashes(): Promise<string[]>;
+  /** Every principal, ordered by id. */
+  listPrincipals(): Promise<PrincipalRow[]>;
+  /**
+   * Creates application principal `id` with `tokenHash`, or gives an existing one this hash
+   * (and `createdAt`): its previous key stops authenticating. Rejects when another principal
+   * holds the hash.
+   */
+  putPrincipal(id: string, tokenHash: string, createdAt: string): Promise<PrincipalRow>;
+  /** Deletes principal `id`; false when there was none. */
+  deletePrincipal(id: string): Promise<boolean>;
 
   // --- vault ---------------------------------------------------------------
 

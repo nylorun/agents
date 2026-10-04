@@ -114,3 +114,27 @@ it("C5: a Tenant that could not be opened is reported with its cause", async () 
   );
   expect(status.tenant).toMatchObject({ id: FAKE_TENANT_ID, state: "unavailable", cause });
 });
+
+it("F9 I1: the key routes answer 503 while the Tenant is not open, and need the admin key", async () => {
+  const { url } = await startTestHost({
+    module: createFakeModule({ tenant: { state: "unavailable" } }),
+  });
+  for (const [method, path] of [
+    ["GET", "/v1/admin/keys"],
+    ["PUT", "/v1/admin/keys/babai"],
+    ["DELETE", "/v1/admin/keys/babai"],
+  ] as const) {
+    const unopened = await getJson(`${url}${path}`, {
+      method,
+      headers: { ...adminHeaders(), authorization: `Bearer ${ADMIN_KEY}` },
+    });
+    expect(unopened.status, `${method} ${path}`).toBe(503);
+    expect(unopened.body).toMatchObject({ code: "request_rejected" });
+    const wrong = await getJson(`${url}${path}`, {
+      method,
+      headers: adminHeaders("not-the-admin-key-000000000000000000000000000000000000"),
+    });
+    expect(wrong.status).toBe(404);
+    expect(wrong.body).toEqual(OPAQUE_NOT_FOUND);
+  }
+});

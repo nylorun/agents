@@ -72,8 +72,9 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
   terminates TLS for its clients.
 - The admin key and any application keys stay on the server; clients get
-  nothing. A server that holds the admin key can derive its Tenant key instead
-  of storing one (`admin.deriveTenantKey`, derived principals).
+  nothing. Give each server its own operator key (`npx nylorun key put <name>`,
+  or `admin.keys.put(name)` in `@nylorun/admin`), so you can rotate or delete
+  one without touching the others; the Runtime keeps only its hash.
 - Removing a person is the app server's decision: it stops acting for them and
   closes their open streams. If it also minted subject tokens for them, it
   revokes them too (`app.access.revokeSubject`).
@@ -205,8 +206,9 @@ On the app server's machine:
 - Use an **application key**, never the admin key. On the Runtime's machine,
   `npx nylorun start` in the app's project starts the app's installation and
   links it; `npx @nylorun/cli env` there prints the key
-  (`NYLORUN_SERVER_KEY`, the derived `project` key). Keep the key in the app
-  server's secret store.
+  (`NYLORUN_SERVER_KEY`, the operator key `project`). Better, give the app
+  server a key of its own: `npx nylorun key put app-server` prints one once.
+  Keep the key in the app server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
   for the client and the Action endpoint's `register`; keep
   `NYLORUN_SERVER_KEY` as printed. Register the app's

@@ -27,10 +27,13 @@ it("documents every Admin operation once, under the admin key: no Tenant routes"
       .map((method) => `${method.toUpperCase()} ${path}`),
   );
   expect(operations.sort()).toEqual([
+    "DELETE /v1/admin/keys/{id}",
     "GET /v1/admin/host",
+    "GET /v1/admin/keys",
     "GET /v1/admin/openapi.json",
     "GET /v1/admin/status",
     "POST /v1/admin/host/shutdown",
+    "PUT /v1/admin/keys/{id}",
   ]);
   for (const item of Object.values(document.paths ?? {}))
     for (const operation of Object.values(item as Record<string, { security?: unknown }>))
@@ -41,7 +44,15 @@ it("names the contracts' schemas as components and refers to them", () => {
   const document = adminDocument();
   const schemas = document.components?.schemas ?? {};
   expect(Object.keys(schemas)).toEqual(
-    expect.arrayContaining(["AdminStatus", "HostShutdownResponse", "ProtocolRejected", "Rejected"]),
+    expect.arrayContaining([
+      "AdminStatus",
+      "HostShutdownResponse",
+      "ListOperatorKeysResponse",
+      "PutOperatorKeyResponse",
+      "DeleteOperatorKeyResponse",
+      "ProtocolRejected",
+      "Rejected",
+    ]),
   );
   for (const removed of ["AdminTenantList", "AdminTenantStatus", "CreateTenantRequest"])
     expect(schemas).not.toHaveProperty(removed);

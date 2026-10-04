@@ -83,6 +83,10 @@ import {
   SessionCommandSchema,
   AdminStatusSchema,
   HostShutdownResponseSchema,
+  ListOperatorKeysResponseSchema,
+  PutOperatorKeyResponseSchema,
+  DeleteOperatorKeyResponseSchema,
+  OperatorKeySchema,
   ProtocolRejectedResponseSchema,
   RejectedResponseSchema,
   EVENT_SCHEMAS,
@@ -98,6 +102,16 @@ export const Rejected = named("Rejected", RejectedResponseSchema);
 export const ProtocolRejected = named("ProtocolRejected", ProtocolRejectedResponseSchema);
 export const AdminStatus = named("AdminStatus", AdminStatusSchema);
 export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
+export const OperatorKey = named("OperatorKey", OperatorKeySchema);
+export const ListOperatorKeysResponse = named(
+  "ListOperatorKeysResponse",
+  ListOperatorKeysResponseSchema,
+);
+export const PutOperatorKeyResponse = named("PutOperatorKeyResponse", PutOperatorKeyResponseSchema);
+export const DeleteOperatorKeyResponse = named(
+  "DeleteOperatorKeyResponse",
+  DeleteOperatorKeyResponseSchema,
+);
 
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
 export const PutSandboxRequest = named("PutSandboxRequest", PutSandboxRequestSchema);

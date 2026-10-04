@@ -63,7 +63,9 @@ async function getJson(
   return { status: response.status, body, headers: response.headers };
 }
 
-async function startHost(options: { model?: { kind: "fixture" } } = {}) {
+async function startHost(
+  options: { model?: { kind: "fixture" }; derivedPrincipals?: readonly string[] } = {},
+) {
   const hostRoot = await mkdtemp(join(tmpdir(), "nylorun-admin-conf-"));
   roots.push(hostRoot);
   // A database of its own: the Host creates its Tenant there.
@@ -73,6 +75,7 @@ async function startHost(options: { model?: { kind: "fixture" } } = {}) {
     baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     retainRoot: true,
     ...(options.model ? { model: options.model } : {}),
+    ...(options.derivedPrincipals ? { derivedPrincipals: options.derivedPrincipals } : {}),
     database: database.sql,
   });
   closers.push(runtime, { close: database.drop });
@@ -192,7 +195,7 @@ it("A7: Admin API conformance — status names the Host's Tenant and its work; n
 });
 
 it("the Studio key and the project key the admin key derives reach the Tenant; nothing else derived does", async () => {
-  const runtime = await startHost();
+  const runtime = await startHost({ derivedPrincipals: ["project"] });
   const { url, adminKey, tenantId, applicationKey } = runtime;
   const admin = createAdmin({ url, key: adminKey });
   const agents = (key: string, tenant?: string) =>

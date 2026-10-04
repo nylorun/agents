@@ -387,6 +387,13 @@ describe("route matrix", { timeout: 60_000 }, () => {
       { method: "GET", path: "/v1//admin/tenants" },
       { method: "HEAD", path: "/v1/admin/status" },
       { method: "PUT", path: "/v1/admin/status" },
+      // Operator keys (F9 I1): only refusals and misses, so nothing changes.
+      { method: "GET", path: "/v1/admin/keys" },
+      { method: "PUT", path: "/v1/admin/keys/studio" },
+      { method: "PUT", path: "/v1/admin/keys/Not_A_Key" },
+      { method: "DELETE", path: "/v1/admin/keys/studio" },
+      { method: "DELETE", path: "/v1/admin/keys/missing-key" },
+      { method: "POST", path: "/v1/admin/keys" },
     ];
     const matrix: Record<string, Record<string, Observed>> = {};
     for (const [listener, base] of [

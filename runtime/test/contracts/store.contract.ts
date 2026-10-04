@@ -1079,6 +1079,37 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await expect(store.tx((t) => t.insertPrincipal({ ...app, tokenHash: "new" }))).rejects.toThrow();
         await expect(store.tx((t) => t.insertPrincipal({ ...app, id: "pr_2" }))).rejects.toThrow();
       });
+
+      it("lists, puts (creates or rotates) and deletes principals by id", async () => {
+        const store = await fresh();
+        const created = await store.tx((t) => t.putPrincipal("babai", "h1", "2030-01-01T00:00:00.000Z"));
+        expect(created).toEqual({
+          id: "babai",
+          role: "application",
+          tokenHash: "h1",
+          idempotencyKey: null,
+          createdAt: "2030-01-01T00:00:00.000Z",
+        });
+        await store.tx((t) =>
+          t.insertPrincipal({ id: "app", role: "application", tokenHash: "h0", idempotencyKey: "k", createdAt: "2029-01-01T00:00:00.000Z" }),
+        );
+        // Rotating keeps the id and replaces the hash: the old one no longer finds it.
+        const rotated = await store.tx((t) => t.putPrincipal("babai", "h2", "2030-02-01T00:00:00.000Z"));
+        expect(rotated).toMatchObject({ id: "babai", tokenHash: "h2", createdAt: "2030-02-01T00:00:00.000Z" });
+        await store.tx(async (t) => {
+          expect(await t.principalByTokenHash("h1")).toBeUndefined();
+          expect((await t.principalByTokenHash("h2"))?.id).toBe("babai");
+          expect((await t.listPrincipals()).map((row) => row.id)).toEqual(["app", "babai"]);
+        });
+        // Another principal's hash is refused.
+        await expect(store.tx((t) => t.putPrincipal("other", "h0", "2030-01-01T00:00:00.000Z"))).rejects.toThrow();
+        expect(await store.tx((t) => t.deletePrincipal("babai"))).toBe(true);
+        expect(await store.tx((t) => t.deletePrincipal("babai"))).toBe(false);
+        await store.tx(async (t) => {
+          expect(await t.principalByTokenHash("h2")).toBeUndefined();
+          expect((await t.listPrincipals()).map((row) => row.id)).toEqual(["app"]);
+        });
+      });
     });
 
     describe("vault", () => {

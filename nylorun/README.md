@@ -46,6 +46,9 @@ nylorun ls [--json]                # the Tenants on this machine, with their sta
 nylorun delete <tenant> --yes      # remove a Tenant: containers, volumes, Host root and vault key
 nylorun sandbox ls [--tenant <name>] [--label <key=value>]... [--json]   # the running Tenant's sandboxes
 nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
+nylorun key put <id> [--tenant <name>]      # create or rotate the Tenant's operator key <id>; prints it once
+nylorun key list [--tenant <name>] [--json] # the Tenant's keys: id, role, when issued
+nylorun key rm <id> [--tenant <name>]       # delete a key: it stops working at once
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
@@ -137,8 +140,12 @@ its own `.gitignore` of `*`):
 - `link.json`: `{ "format": 3, "tenant", "tenantId", "hostUrl", "hostId" }`.
   `tenant` is the local Tenant's name; the Tenant id is information only:
   nothing in a request selects a Tenant.
-- `credentials.json` (mode 0600): the key of the derived principal `project`,
-  derived from the Tenant's admin key, and its id.
+- `credentials.json` (mode 0600): `{ "format": 1, "applicationKey",
+  "principalId" }`, the operator key `project`. A later `start` keeps the file
+  while its key still reaches the Tenant (one authenticated read); otherwise it
+  writes the Tenant's `project` key, which the Host root keeps in
+  `project-credentials.json` (mode 0600) so every checkout linked to the Tenant
+  shares one key, or puts a new one through the Admin API.
 
 Later starts reuse the Tenant and rewrite the link only when the Tenant's name,
 URL, Host or id changed (after `nylorun reset`, for example). When it writes a
@@ -156,7 +163,19 @@ link: `start` replaces it.
 
 The Runtime registers the derived principals of `NYLORUN_DERIVED_PRINCIPALS`
 (comma-separated, from the environment of `nylorun start`, kept in the Tenant's
-`.env`) when it creates the Tenant; `project` is always among them.
+`.env`) when it creates the Tenant; `project` is always among them. Projects no
+longer use the derived `project` key: an operator key of that name replaces it.
+
+## Operator keys
+
+`nylorun key put <id>` creates the running Tenant's key `<id>` (or rotates it:
+the previous key stops working at once) and prints it once on stdout.
+`nylorun key list [--json]` shows each key's id, role and when it was issued,
+never the keys; `nylorun key rm <id>` deletes one. Ids match
+`^[a-z][a-z0-9-]{0,31}$`; `studio` belongs to Studio and is refused. Give each
+app server its own key. `nylorun sandbox` uses the linked project's key, or the
+key `cli` it puts once and keeps in `<Host root>/cli-credentials.json` (mode
+0600).
 
 ## The containers
 
@@ -279,8 +298,9 @@ The **Host root** is `~/.nylorun/tenants/<name>/`, or `NYLORUN_HOME`. It is
 bind-mounted into the Runtime and Studio containers, and holds `tenant.json`
 (`{ "format": 1, "name", "project"? }`: the Tenant's name and the project it
 was created for), `host.json` (the client-facing host and port),
-`host-credentials.json` (the admin key, mode 0600), the Docker Compose files in
-`docker/`, the Tenant directory `tenant/` (homes, logs) and `keys/vault-kek`,
+`host-credentials.json` (the admin key, mode 0600), `project-credentials.json`
+and `cli-credentials.json` (the operator keys `project` and `cli`, mode 0600, when
+they were put), the Docker Compose files in `docker/`, the Tenant directory `tenant/` (homes, logs) and `keys/vault-kek`,
 the Tenant's vault key, which only the gateway container mounts. The Tenant's data lives in its Postgres, Restate and S2 volumes.
 
 `nylorun reset` deletes the selected Tenant's volumes, `tenant/` and `keys/`, and keeps
