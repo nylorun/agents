@@ -49,6 +49,8 @@ describe("usageRow", () => {
       cacheWriteTokens: 0,
       reasoningTokens: 0,
       costUsd: 0.002,
+      tokensReported: null,
+      costKnown: null,
       createdAt: "2030-05-17T13:45:00.000Z",
     });
   });
@@ -61,6 +63,12 @@ describe("usageRow", () => {
   it("sums input and output when the provider sent no total", () => {
     const row = usageRow(request, { output: [], usage: { inputTokens: 7, outputTokens: 2 } }, at);
     expect(row).toMatchObject({ totalTokens: 9, costUsd: 0, provider: null, model: null });
+  });
+
+  it("keeps explicit reporting and pricing provenance even for zero values", () => {
+    const zero = { output: [], usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 }, evidence: { extras: { tokensReported: true, costKnown: true } } };
+    expect(usageRow(request, zero, at)).toMatchObject({ totalTokens: 0, costUsd: 0, tokensReported: true, costKnown: true });
+    expect(usageRow(request, answered, at)).toMatchObject({ tokensReported: null, costKnown: null });
   });
 });
 
