@@ -1,0 +1,20 @@
+# The identity file for this example's Keycloak realm. Copy it to the Tenant's Host root
+# (~/.nylorun/tenants/selfhost/identity.yaml) and run `nylorun start` again: the runtime then
+# accepts the realm's access tokens as bearers. See SELF_HOSTING.md, "The identity file".
+issuers:
+  - name: keycloak
+    # The tokens' iss, exactly: Keycloak's KC_HOSTNAME plus the realm.
+    issuer: http://localhost:8180/realms/nylorun
+    # The realm's audience mapper adds this to every access token.
+    audience: nylorun
+    # Fetched by the runtime container, which reaches Keycloak on the Tenant's network.
+    jwks: http://keycloak:8080/realms/nylorun/protocol/openid-connect/certs
+    # Each person owns their sessions as u:<Keycloak user id>.
+    subject: "u:{sub}"
+    # The realm-role mapper puts the user's realm roles in this claim; others are dropped.
+    scopes: { claim: nylorun_scopes }
+    allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
+    # Sandboxes whose id starts with the token's org_id (a hardcoded claim here: acme/*).
+    sandboxes: ["{org_id}/*"]
+    # Keycloak's access tokens live 5 minutes in this realm.
+    maxLifetime: 15m

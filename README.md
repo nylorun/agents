@@ -117,6 +117,7 @@ eval "$(npx @nylorun/cli env)"
 | [RELEASING.md](./RELEASING.md)                       | Maintainers — version, publish, dist-tags       |
 | [MIGRATION.md](./MIGRATION.md)                       | Breaking beta migration (incl. Runtime V1)      |
 | [DEPLOYMENT.md](./DEPLOYMENT.md)                     | Application hosting                             |
+| [SELF_HOSTING.md](./SELF_HOSTING.md)                 | Teams — your own identity provider and secrets  |
 | [agents/README.md](./agents/README.md)               | Authoring agents against a Tenant               |
 | [SECURITY.md](./SECURITY.md)                         | Vulnerability reports                           |
 | [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)           | Community standards                             |
