@@ -35,7 +35,8 @@ session cookie; `nylorun studio --tenant <name>` opens any of them signed in.
 3. Every `/_studio/*` request needs that cookie (or an embedded session's
    bearer). The dashboard's files carry no data and the `/` redirect names only
    the Tenant id, so they need none. The `Host` header must be `localhost` or
-   `127.0.0.1` on the published port (any other answers `421`);
+   `127.0.0.1` on the published port, or a host in
+   `NYLORUN_STUDIO_ALLOWED_HOSTS` (any other answers `421`);
    state-changing requests must carry the request's own `Origin`; Studio never
    sends CORS headers.
 4. The session cookie (`nylorun_studio_session`, or
@@ -43,6 +44,14 @@ session cookie; `nylorun studio --tenant <name>` opens any of them signed in.
    HMAC-SHA256 with a key derived from the admin key. Studio keeps no session state, so a
    session survives container restarts and ends after 30 days or when the admin
    key changes (`nylorun reset`).
+5. Behind a sign-in proxy, a request with no session that carries a JWT
+   (`X-Forwarded-Access-Token`, or an `Authorization` bearer that is not a
+   Studio session) signs in once the Runtime's `GET /v1/me` verifies it and
+   reports the `studio` scope: Studio sets the same cookie, as
+   `v3.<claims>.<signature>` naming the subject (for its log of state
+   changes) and ending no later than the token. Without the scope it answers
+   `403`; a token the Runtime refuses gets `401`. See
+   [Studio behind a sign-in proxy](../DEPLOYMENT.md#studio-behind-a-sign-in-proxy).
 
 Studio serves its installation's one Tenant: there is no Tenant list, picker
 or create. It reads the Tenant from the Admin API (`admin.status().tenant`), and
@@ -83,6 +92,7 @@ The container entry is `dist/server-main.js`:
 | `NYLORUN_ADMIN_KEY_FILE` | `host-credentials.json`, mounted read-only (required) |
 | `PORT` | Listen port inside the container (default `3000`) |
 | `NYLORUN_STUDIO_PUBLIC_PORT` | The published loopback port the browser uses |
+| `NYLORUN_STUDIO_ALLOWED_HOSTS` | Extra `Host` values Studio serves behind a sign-in proxy, comma-separated, such as `studio.acme.dev` (default none). See [Studio behind a sign-in proxy](../DEPLOYMENT.md#studio-behind-a-sign-in-proxy) |
 | `NYLORUN_STUDIO_SESSION_COOKIE` | The session cookie's name, `[A-Za-z0-9_-]+` (default `nylorun_studio_session`). `nylorun start` sets `nylorun_studio_<tenant>`: browsers share cookies across ports, so Studios on one host need their own |
 | `NYLORUN_STUDIO_FRAME_ANCESTORS` | Exact origins that may frame the dashboard (default none) |
 | `NYLORUN_STUDIO_ANALYTICS_ID` | Google Analytics measurement id for anonymous page views (default none: no analytics). `nylorun start` sets it unless telemetry is off; see [Telemetry](../nylorun/README.md#telemetry) |

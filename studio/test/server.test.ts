@@ -21,6 +21,7 @@ import {
   LOGIN_TOKEN_TTL_MS,
   DEFAULT_SESSION_COOKIE as SESSION_COOKIE,
   SESSION_TTL_MS,
+  parseAllowedHosts,
   parseAnalyticsId,
   parseRuntimeUrl,
   parseSessionCookieName,
@@ -43,10 +44,14 @@ type FakeTenant = {
   cause?: { code: string; message: string; repair: string };
 };
 
-/** Fake Runtime: /health, the Admin API status with its one Tenant, and an echoing Tenant API. */
+/**
+ * Fake Runtime: /health, the Admin API status with its one Tenant, `GET /v1/me`
+ * for the bearers in `me` (any other is 401), and an echoing Tenant API.
+ */
 async function startFakeRuntime() {
   const seen: Seen[] = [];
   const tenant: FakeTenant = { id: TENANT_A, name: "orders", state: "open" };
+  const me = new Map<string, { status: number; body: unknown }>();
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -82,6 +87,16 @@ async function startFakeRuntime() {
       );
       return;
     }
+    if (req.url === "/v1/me") {
+      const token = (req.headers.authorization ?? "").replace(/^Bearer /u, "");
+      const reply = me.get(token) ?? {
+        status: 401,
+        body: { code: "unauthorized", message: "Invalid bearer token" },
+      };
+      res.statusCode = reply.status;
+      res.end(JSON.stringify(reply.body));
+      return;
+    }
     res.end(JSON.stringify({ ok: true, path: req.url }));
   });
   server.listen(0, "127.0.0.1");
@@ -92,6 +107,7 @@ async function startFakeRuntime() {
     url: `http://127.0.0.1:${address.port}`,
     seen,
     tenant,
+    me,
     close: async () => {
       server.closeAllConnections();
       server.close();
@@ -149,6 +165,7 @@ async function withStudio(
   }) => Promise<void>,
   extra: {
     publicPort?: number;
+    allowedHosts?: readonly string[];
     sessionCookie?: string;
     adminKey?: string;
     clock?: { now: number };
@@ -986,6 +1003,7 @@ test("the container entry refuses invalid configuration, naming the variable", a
       ["NYLORUN_STUDIO_FRAME_ANCESTORS", "https://*.example.com"],
       ["NYLORUN_STUDIO_FRAME_ANCESTORS", "nylorun:"],
       ["NYLORUN_STUDIO_SESSION_COOKIE", "a;b"],
+      ["NYLORUN_STUDIO_ALLOWED_HOSTS", "https://studio.acme.dev"],
     ] as const) {
       const child = spawn(process.execPath, [new URL("../dist/server-main.js", import.meta.url).pathname], {
         env: {
@@ -1006,4 +1024,218 @@ test("the container entry refuses invalid configuration, naming the variable", a
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// --- forwarded sign-in (F9 S1) and allowed hosts ---------------------------------------------
+
+const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+/** A JWT-shaped token; the fake Runtime's `me` map decides whether it is valid. */
+function jwt(claims: Record<string, unknown>): string {
+  return `${b64({ alg: "RS256", typ: "JWT", kid: "k1" })}.${b64(claims)}.c2lnbmF0dXJl`;
+}
+const scoped = (subject: string, scopes: string[]) => ({
+  status: 200,
+  body: { subject, scopes, agents: "*", sandboxes: [], via: "issuer:keycloak" },
+});
+/** `exp` in seconds, `ttl` seconds after the test clock's now. */
+const expIn = (clock: { now: number }, ttl: number) => Math.floor(clock.now / 1000) + ttl;
+const cookieOf = (reply: Reply) => String(reply.headers["set-cookie"]?.[0] ?? "");
+const meCalls = (runtime: { seen: Seen[] }) => runtime.seen.filter((entry) => entry.path === "/v1/me");
+
+test("a forwarded bearer with the studio scope signs in with Studio's cookie, for its subject", async () => {
+  const entries: Readonly<Record<string, unknown>>[] = [];
+  const clock = { now: 1_000_000 };
+  await withStudio(async ({ port, runtime }) => {
+    const token = jwt({ sub: "alice", exp: expIn(clock, 600) });
+    runtime.me.set(token, scoped("u:alice", ["sessions:own", "studio"]));
+    const hello = await send(port, { path: "/_studio/hello", headers: { authorization: `Bearer ${token}` } });
+    assert.equal(hello.status, 200, hello.body);
+    const setCookie = cookieOf(hello);
+    assert.match(setCookie, new RegExp(`^${SESSION_COOKIE}=v3\\.`));
+    assert.match(setCookie, /; HttpOnly; SameSite=Strict; Path=\/; Max-Age=600$/u);
+    // Verified with the Runtime, with the protocol header; the token goes nowhere else.
+    const [check] = meCalls(runtime);
+    assert.equal(check!.headers.authorization, `Bearer ${token}`);
+    assert.equal(check!.headers[PROTOCOL_HEADER.toLowerCase()], String(PROTOCOL_VERSION));
+    assert.ok(!hello.body.includes(token));
+
+    // The cookie alone is a session: no second check.
+    const cookie = setCookie.split(";")[0]!;
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
+    // So is the forwarded bearer beside it (oauth2-proxy sends it on every request).
+    assert.equal(
+      (await send(port, { path: "/_studio/hello", headers: { cookie, authorization: `Bearer ${token}` } })).status,
+      200,
+    );
+    assert.equal(meCalls(runtime).length, 1);
+
+    // Tenant-wide, through the Tenant's Studio key; writes are logged with the subject.
+    const put = await send(port, {
+      method: "PUT",
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1`,
+      body: JSON.stringify({ agentId: "a" }),
+      headers: { cookie, origin: `http://localhost:${port}`, "content-type": "application/json" },
+    });
+    assert.equal(put.status, 200, put.body);
+    const upstream = runtime.seen.at(-1)!;
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+
+    // The cookie ends with the token.
+    clock.now += 599_000;
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
+    clock.now += 1_000;
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 401);
+
+    // A forged subject is refused.
+    const [version, claims, signature] = cookie.split("=")[1]!.split(".") as [string, string, string];
+    const decoded = JSON.parse(Buffer.from(claims, "base64url").toString("utf8"));
+    const forged = `${SESSION_COOKIE}=${version}.${b64({ ...decoded, sub: "u:mallory", exp: decoded.exp + 10_000 })}.${signature}`;
+    clock.now -= 600_000;
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie: forged } })).status, 401);
+  }, { clock, log: (entry) => entries.push(entry) });
+  assert.deepEqual(entries, [
+    { msg: "studio proxy", subject: "u:alice", tenant: TENANT_A, method: "PUT", path: "/v1/sessions/s1", status: 200 },
+  ]);
+});
+
+test("oauth2-proxy's X-Forwarded-Access-Token signs in, beside its Basic Authorization", async () => {
+  const clock = { now: 1_000_000 };
+  await withStudio(async ({ port, runtime }) => {
+    const token = jwt({ sub: "bob", exp: expIn(clock, 60 * 24 * 60 * 60) });
+    runtime.me.set(token, scoped("u:bob", ["studio"]));
+    const reply = await send(port, {
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`,
+      headers: { "x-forwarded-access-token": token, authorization: "Basic Ym9iOg==" },
+    });
+    assert.equal(reply.status, 200, reply.body);
+    // A token that outlives Studio's cookie gets the usual 30 days.
+    assert.match(cookieOf(reply), new RegExp(`Max-Age=${SESSION_TTL_MS / 1000}$`));
+    assert.equal(runtime.seen.at(-1)!.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.equal(meCalls(runtime).length, 1);
+  }, { clock });
+});
+
+test("forwarded sign-in refuses an unscoped, invalid or opaque token", async () => {
+  await withStudio(async ({ port, runtime }) => {
+    const unscoped = jwt({ sub: "carol", exp: 9_999_999_999 });
+    runtime.me.set(unscoped, scoped("u:carol", ["sessions:own", "agents:read"]));
+    for (const headers of [{ authorization: `Bearer ${unscoped}` }, { "x-forwarded-access-token": unscoped }]) {
+      const reply = await send(port, { path: "/_studio/hello", headers });
+      assert.equal(reply.status, 403, reply.body);
+      assert.match(JSON.parse(reply.body).message, /does not carry the studio scope/);
+      assert.equal(reply.headers["set-cookie"], undefined);
+    }
+
+    const invalid = jwt({ sub: "dave", exp: 9_999_999_999 });
+    const refused = await send(port, { path: "/_studio/hello", headers: { "x-forwarded-access-token": invalid } });
+    assert.equal(refused.status, 401);
+    assert.match(JSON.parse(refused.body).message, /^The Runtime refused the forwarded token: Invalid bearer token\./);
+    assert.equal(refused.headers["set-cookie"], undefined);
+
+    const missing = jwt({ sub: "erin" });
+    runtime.me.set(missing, { status: 404, body: { message: "Not found" } });
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { authorization: `Bearer ${missing}` } })).status, 401);
+
+    // Not a JWT: refused without asking the Runtime.
+    const before = meCalls(runtime).length;
+    const opaque = await send(port, { path: "/_studio/hello", headers: { "x-forwarded-access-token": "gho_opaque" } });
+    assert.equal(opaque.status, 401);
+    assert.match(JSON.parse(opaque.body).message, /not a JWT/);
+    assert.equal(meCalls(runtime).length, before);
+  });
+});
+
+test("embed bearer sessions and CLI sign-in are unchanged by forwarded sign-in", async () => {
+  await withStudio(async ({ port, runtime }) => {
+    const token = jwt({ sub: "alice", exp: 9_999_999_999 });
+    runtime.me.set(token, scoped("u:alice", ["studio"]));
+    // A valid embed session wins over a forwarded token; no Runtime check.
+    const sessionToken = await embedSession(port, TENANT_A);
+    const embedded = await send(port, {
+      path: "/_studio/hello",
+      headers: { authorization: `Bearer ${sessionToken}`, "x-forwarded-access-token": token },
+    });
+    assert.equal(embedded.status, 200);
+    assert.equal(embedded.headers["set-cookie"], undefined);
+    // A bad Studio bearer is refused even beside a forwarded token or a cookie.
+    const cookie = await session(port);
+    for (const bad of ["v2.x.y", "browser-supplied"]) {
+      const reply = await send(port, {
+        path: "/_studio/hello",
+        headers: { authorization: `Bearer ${bad}`, "x-forwarded-access-token": token, cookie },
+      });
+      assert.equal(reply.status, 401, bad);
+    }
+    assert.equal(meCalls(runtime).length, 0);
+    // The CLI's cookie still signs in on its own.
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
+  });
+});
+
+test("NYLORUN_STUDIO_ALLOWED_HOSTS adds Host values; others are still refused", async () => {
+  await withStudio(async ({ port, runtime }) => {
+    const host = "studio.acme.dev";
+    const token = jwt({ sub: "alice", exp: 9_999_999_999 });
+    runtime.me.set(token, scoped("u:alice", ["studio"]));
+    // The proxy ends TLS: the cookie is Secure.
+    const hello = await send(port, {
+      path: "/_studio/hello",
+      host,
+      headers: { "x-forwarded-access-token": token, "x-forwarded-proto": "https" },
+    });
+    assert.equal(hello.status, 200, hello.body);
+    assert.match(cookieOf(hello), /; Secure$/u);
+    const cookie = cookieOf(hello).split(";")[0]!;
+    assert.equal((await send(port, { path: "/", host, headers: { cookie } })).status, 302);
+    assert.equal((await send(port, { path: `/tenants/${TENANT_A}`, host: "STUDIO.ACME.DEV" })).status, 200);
+    // State changes from the proxied origin (https or http) pass; another origin does not.
+    for (const origin of [`https://${host}`, `http://${host}`]) {
+      const put = await send(port, {
+        method: "PUT",
+        path: `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1`,
+        host,
+        body: JSON.stringify({ agentId: "a" }),
+        headers: { cookie, origin, "content-type": "application/json" },
+      });
+      assert.equal(put.status, 200, `${origin} ${put.body}`);
+    }
+    const evil = await send(port, {
+      method: "PUT",
+      path: `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1`,
+      host,
+      body: "{}",
+      headers: { cookie, origin: "https://evil.example", "content-type": "application/json" },
+    });
+    assert.equal(evil.status, 403);
+    // The loopback address still works; an unlisted Host does not.
+    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
+    for (const other of ["other.acme.dev", `${host}:8443`, `evil.${host}`]) {
+      const reply = await send(port, { path: "/_studio/hello", host: other, headers: { cookie } });
+      assert.equal(reply.status, 421, other);
+      assert.match(JSON.parse(reply.body).message, /NYLORUN_STUDIO_ALLOWED_HOSTS/);
+    }
+    // CLI sign-in on the listed host: the login URL opens there.
+    const minted = await send(port, {
+      method: "POST",
+      path: "/_studio/login-tokens",
+      host,
+      headers: { authorization: `Bearer ${ADMIN_KEY}`, "x-forwarded-proto": "https" },
+    });
+    assert.equal(minted.status, 201);
+    const { token: login } = JSON.parse(minted.body) as { token: string; url: string };
+    assert.match(JSON.parse(minted.body).url, /^https:\/\/studio\.acme\.dev\/login\?token=/);
+    const signedIn = await send(port, { path: `/login?token=${login}`, host });
+    assert.equal(signedIn.status, 303);
+  }, { allowedHosts: ["studio.acme.dev"], log: () => {} });
+});
+
+test("parseAllowedHosts accepts host names with optional ports and refuses anything else", () => {
+  assert.deepEqual(parseAllowedHosts(""), []);
+  assert.deepEqual(parseAllowedHosts(" Studio.Acme.dev , studio.acme.dev:8443,,10.0.0.5:3000 "), [
+    "studio.acme.dev",
+    "studio.acme.dev:8443",
+    "10.0.0.5:3000",
+  ]);
+  for (const bad of ["https://studio.acme.dev", "studio.acme.dev/path", "*.acme.dev", "studio acme", "studio.acme.dev:99999", "-x.dev"])
+    assert.throws(() => parseAllowedHosts(bad), /is not a Host value/, bad);
 });

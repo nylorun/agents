@@ -7,8 +7,11 @@
  * - `NYLORUN_ADMIN_KEY_FILE` (required): `host-credentials.json` with `{ adminKey }`.
  * - `PORT` (default 3000): listen port inside the container.
  * - `NYLORUN_STUDIO_PUBLIC_PORT` (default `PORT`): the published loopback port
- *   the browser uses; the `Host` check accepts only `localhost` and
- *   `127.0.0.1` on it.
+ *   the browser uses; the `Host` check accepts `localhost` and `127.0.0.1` on
+ *   it.
+ * - `NYLORUN_STUDIO_ALLOWED_HOSTS` (default none): extra `Host` values,
+ *   separated by commas, that Studio serves behind a sign-in proxy, such as
+ *   `studio.acme.dev` or `studio.acme.dev:8443`.
  * - `NYLORUN_STUDIO_SESSION_COOKIE` (default `nylorun_studio_session`): the
  *   session cookie's name, `[A-Za-z0-9_-]+`. `nylorun start` sets
  *   `nylorun_studio_<tenant>`, so Studios on one host keep their own sessions.
@@ -20,6 +23,7 @@
  */
 import { parseFrameAncestors } from "@nylorun/agents/studio-embed";
 import {
+  parseAllowedHosts,
   parseAnalyticsId,
   parseRuntimeUrl,
   parseSessionCookieName,
@@ -61,18 +65,20 @@ try {
   const sessionCookie = parsed("NYLORUN_STUDIO_SESSION_COOKIE", parseSessionCookieName);
   const frameAncestors = parsed("NYLORUN_STUDIO_FRAME_ANCESTORS", parseFrameAncestors);
   const analyticsId = parsed("NYLORUN_STUDIO_ANALYTICS_ID", parseAnalyticsId);
+  const allowedHosts = parsed("NYLORUN_STUDIO_ALLOWED_HOSTS", parseAllowedHosts);
   const studio = await startStudioServer({
     runtimeUrl,
     adminKey,
     host: "0.0.0.0",
     port: listenPort,
     publicPort,
+    allowedHosts,
     sessionCookie,
     frameAncestors,
     ...(analyticsId ? { analyticsId } : {}),
   });
   console.log(
-    `Studio listening on 0.0.0.0:${studio.port}; browser URL ${studio.url}; Runtime ${runtimeUrl}`,
+    `Studio listening on 0.0.0.0:${studio.port}; browser URL ${studio.url}${allowedHosts.length > 0 ? ` (also ${allowedHosts.join(", ")})` : ""}; Runtime ${runtimeUrl}`,
   );
   for (const signal of ["SIGTERM", "SIGINT"] as const)
     process.once(signal, () => {
