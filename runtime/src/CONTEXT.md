@@ -1,8 +1,8 @@
 # Runtime Clients vocabulary
 
-Terms follow the Runtime Tenants model, Runtime Clients and Admin API
-(version 1), and the Runtime architecture (Postgres, Restate, S2). Every agent
-uses these terms in code, comments, errors and CLI output.
+Terms follow the Runtime Tenants model, Runtime Clients, the Runtime and
+Management APIs (protocol 8), and the Runtime architecture (Postgres, Restate,
+S2). Every agent uses these terms in code, comments, errors and CLI output.
 
 Agent definitions describe capabilities. The harness engine advances execution.
 A **Runtime Host** listens once and serves the one **Tenant** of its
@@ -16,23 +16,27 @@ or its storage. Every process that talks to a Runtime is a **Client**.
 application, Studio, the CLI, a desktop app, an IDE extension or CI.
 _Avoid_: calling only the SDK or only the CLI "the client".
 
-**Tenant API**: Every route a Tenant principal calls, on the Host's one Tenant: nothing
-in a request selects it (protocol 5). Agents, sessions, events, Action endpoints, vaults,
-Tenant settings and status. Client package: `@nylorun/agents`.
-_Avoid_: "SDK API" or "application API" as the surface name.
+**Runtime API**: The Tenant's routes for developers' apps, browsers and Action endpoints:
+everything under `/v1` except `/v1/tenant/*` (protocol 8). Agents, Action endpoints and
+deliveries, sessions with AG-UI and A2A, sandboxes, artifacts, `/v1/me` and the public JWKS
+(`/v1/access/jwks`). It takes application keys, trusted issuers' tokens and delivery
+tokens; a management key here is `403 key_role_mismatch` (except `/v1/me` and the JWKS).
+Nothing in a request selects the Tenant (protocol 5). Client package: `@nylorun/agents`.
+Reference: `/openapi/runtime.json` (alias `/openapi.json`).
+_Avoid_: "Tenant API" for the whole surface (say which API), "SDK API" or "application API".
 
-**Admin API**: `/v1/admin/status` (the Host, its protocol, its Tenant and why it is not
-open, `AdminStatus.tenant`), called with an admin key (`host/admin-api.ts`). There are no
-Tenant routes: the Host creates its Tenant itself. Shared by OSS and Cloud. Client package:
-`@nylorun/admin`.
-Served on the **operator listener** when the Host has one, otherwise on its
-only listener.
-`POST /v1/admin/host/shutdown` is Host-private on OSS and is not part of
-this surface.
-_Avoid_: treating Host shutdown as a shared Admin API method.
+**Management API**: The Tenant's routes for operators, `/v1/tenant/*` (status, seed and
+reset, models, usage and budgets, vaults, signing keys, sandbox and artifact settings,
+application keys), plus the keyless `GET /v1/oauth/callback` (protocol 8; its routes'
+credentials are `management`, `RouteAccess` in `api/http/define.ts`). It takes management
+keys only: an application key,
+alone or acting for a subject, is `403 key_role_mismatch`. Client package: `@nylorun/admin`.
+Reference: `/openapi/management.json`.
+_Avoid_: "Admin API" (removed), "Tenant settings API".
 
-**Client package**: `@nylorun/agents` or `@nylorun/admin` — a library a client
-imports to call one surface. Each depends only on `@nylorun/core`.
+**Client package**: `@nylorun/agents` (the Runtime API) or `@nylorun/admin` (the
+Management API) — a library a client imports to call one API. Each depends only on
+`@nylorun/core`.
 _Avoid_: depending on `runtime` or `harness` from application code.
 
 **Local Tenant**: The Tenant of an installation that `nylorun start` (the `nylorun`
@@ -57,28 +61,31 @@ or newer and Docker, on macOS or Linux; Windows developers use WSL2. A missing
 prerequisite is an error naming what to install.
 _Avoid_: "bootstrap" for installing the Runtime.
 
-**Local Host settings**: `host.json` and `host-credentials.json` in the Host
-root. `@nylorun/admin` reads them for local connection resolution: `port` is
-the Tenant API, `adminPort` (when present) the operator listener.
+**Local Host settings**: `host.json` in the Host root and the credentials files
+beside it. `@nylorun/admin` reads them for local connection resolution: the URL
+from `host.json` (`host`, `port`), the management key from the linked Project's
+`.nylorun/credentials.json`, else `project-credentials.json`, else
+`cli-credentials.json`.
 
-**Public listener** / **Operator listener**: With an operator listener
-(`adminPort` in host.json, or `NYLORUN_ADMIN_LISTEN_PORT` in a container; a
-local Tenant's is container port 4001, published on loopback as `NYLORUN_ADMIN_PORT`),
-the Host serves two ports (`ListenerRole` in `host/create-host.ts`). The public
-listener serves the Tenant API, to servers and to browsers with a trusted issuer's token, and answers
-admin routes with the opaque `404`. The operator listener serves the Admin API,
-Host shutdown and the Tenant API, never to browsers. Without one, a single
-`combined` listener serves everything. Studio uses the operator listener.
-_Avoid_: proxying the operator port.
+**`nylorun-operate`**: The Runtime image's operator command (`host/operate.ts`), run
+inside the runtime container (`docker compose exec runtime nylorun-operate …`,
+`kubectl exec … -- nylorun-operate …`; `nylorun status` and `nylorun key` run it on a
+local Tenant). It reads the Tenant's database from `NYLORUN_DATABASE_URL`, does one job
+and exits: `status [--json]` (version, protocol, the Tenant's id, name, state and cause;
+exit 2 when it is not open, needing no key) and `keys list | put <id> [--role
+application|management] | rm <id>`. Being able to run it is the authorization: it is the
+only way, with the bootstrap secret, to issue a management key.
+_Avoid_: "Admin API" or "operator listener" for Host work (both removed).
 
 **Runtime Host** (or **Host**): The code in every Runtime process that listens,
-validates `Nylorun-Protocol`, serves admin routes, and forwards Tenant routes to its one
-Tenant Runtime, which it opens at start (`host/create-host.ts`: the listeners and the
-`Host` check; `host/app.ts`: the rest of the pipeline, a Hono app). A protocol 4
-`Nylorun-Tenant` naming another Tenant gets the opaque `404`. Only
-`host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`, `hostId`
-and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
-(`infra/readiness.ts`). The Tenant's data is its Postgres database; the Host keeps its
+validates `Nylorun-Protocol`, and forwards the `/v1` routes of both APIs to its one
+Tenant Runtime, which it opens at start (`host/create-host.ts`: the listener and the
+`Host` check; `host/app.ts`: the rest of the pipeline, a Hono app). It has one listener
+(protocol 8). A protocol 4 `Nylorun-Tenant` naming another Tenant gets the opaque `404`.
+Only `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtime"`,
+`hostId` and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
+(`infra/readiness.ts`), and `harness: { mode, connected }` while the Tenant is open. It
+stops on SIGTERM. The Tenant's data is its Postgres database; the Host keeps its
 key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or a
 local Tenant's `~/.nylorun/tenants/<name>/`). `nylorun start` writes `host.json` and
 `host-credentials.json`.
@@ -96,8 +103,8 @@ _Avoid_: "scope" as the name for this unit.
 
 **Tenant Runtime**: The in-process handler for one open Tenant. Created from a
 `TenantConfig` (paths, model, sandbox, child env, logger). It authenticates its
-own principals and never reads ambient environment, cwd, or home. Its Tenant
-API routes are in `api/`: the `/v1` HTTP routes (`api/http/`), the AG-UI
+own principals and never reads ambient environment, cwd, or home. The routes of
+both APIs are in `api/`: the `/v1` HTTP routes (`api/http/`), the AG-UI
 endpoint (`api/ag-ui/`) and the A2A endpoint (`api/a2a/`).
 _Avoid_: equating "Runtime" alone with a single Project's process.
 
@@ -109,37 +116,68 @@ at `/nylorun`.
 **Project link**: Project-local `.nylorun/link.json` with
 `{ format: 3, tenant, tenantId, hostUrl, hostId }` (`tenant` is the local Tenant's
 name, absent for an installation that is not local; `tenantId` is information:
-nothing selects a Tenant), plus `.nylorun/credentials.json` (mode 0600) holding the
-operator key `project` and its id. `nylorun start` writes both, and keeps the
-credentials while their key still authenticates. A
+nothing selects a Tenant), plus `.nylorun/credentials.json` (mode 0600, format 1)
+holding the application key `project` and the management key `project-management`, with
+their ids (`applicationKey`, `principalId`, `managementKey`, `managementPrincipalId`).
+`nylorun start` writes both, and keeps the credentials while both keys still
+authenticate. A
 link below format 3 is from an older nylorun; clients refuse it and `nylorun start`
 replaces it. A fresh clone or second worktree does not attach until `nylorun start`
 creates its Tenant, or `nylorun start --tenant <name>` attaches it to an existing one.
 _Avoid_: naming isolation by Project-local vs shared home layout; removed CLI
 flags and env vars that selected a database path.
 
-**Application principal**: Bearer credential hashed in the Tenant `principals`
-table. Authorizes definition and session routes for that Tenant only. May act
-for a **subject** on any request, which only narrows what it can reach.
-_Avoid_: "server token" / `serverToken` as the public name (legacy API).
+**Key role**: What a key in the `principals` table may reach (`principals.role`,
+`KEY_ROLES` in `@nylorun/core`, protocol 8): `application` (the Runtime API),
+`management` (the Management API) or `studio` (both; only the Studio principal). Each
+route's credentials say which roles reach it (`RouteAccess`, `api/http/define.ts`;
+`tenant/auth.ts` maps the role); a valid key of the wrong role
+is `403 key_role_mismatch`, naming the API it belongs to, and an unknown key is still the
+opaque `404`. A rotated key keeps its role; putting an id that holds the other role is
+refused.
+
+**Application key** (or **application principal**): A key with role `application`,
+hashed in the Tenant's `principals` table and named by its principal id
+(`^[a-z][a-z0-9-]{0,31}$`). It reaches the Runtime API: definition, session, endpoint,
+sandbox and artifact routes. May act for a **subject** on any request, which only narrows
+what it can reach. Issued by a management key (`PUT /v1/tenant/keys/{keyId}`,
+`admin.keys.put`), or on the machine (`nylorun key put <id>`, `nylorun-operate keys
+put`); the key is returned once and only its hash is kept, and a rotated or deleted key
+stops authenticating on its next request (`tenant/operator-keys.ts`). App servers hold
+them (`NYLORUN_SERVER_KEY`).
+_Avoid_: "operator key" (the protocol 7 name), "server token" / `serverToken` as the
+public name (legacy API).
+
+**Management key**: A key with role `management`. It reaches the Management API
+(`/v1/tenant/*`) and `/v1/me` only, as itself: with `Nylorun-Subject` or
+`Nylorun-Scopes` it is `403 subject_invalid`, with an `Origin` `403 origin_rejected`.
+`/v1/me` reports it as `via: management:<id>`, with no scopes and no agents. Issued only
+on the Tenant's machine (`nylorun key put <id> --management`, `nylorun-operate keys put
+<id> --role management`) or from the **bootstrap secret** (`NYLORUN_MANAGEMENT_KEY_FILE`,
+64 hex characters, registered as the key `bootstrap` at every start and replaced when the
+file changes). No API call creates, rotates or deletes one, so a leaked key cannot mint
+another. `nylorun start` keeps `project-management` for a Project and `cli-management`
+outside one; `@nylorun/admin` reads it from `NYLORUN_MANAGEMENT_KEY` or those files.
+_Avoid_: using one for an app server or a browser; "admin key" for it.
 
 **Subject**: The person an application principal acts for, named with
 `Nylorun-Subject` (feature `subject-headers`, `tenant/auth.ts`). Chosen by the
 integrator (`app:42`); 1–200 visible ASCII characters, `host` and `installation`
 reserved (they own the host model's vault and the installation vaults). A subject reaches only sessions whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
-missing one. Vault routes take no subject (`403 scope_required`, protocol 7). Only
-application principals may send it; with a delivery token it is `403`.
+missing one. No subject reaches the Management API (protocol 8). Only
+application keys may send it; with a delivery token or a management key it is `403`.
 A **trusted issuer**'s token names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
 **Installation vault**: A vault with `scope: "installation"`, owned by the reserved
 subject `installation` (F9 C1, `vault/service.ts`): the installation's own
-credentials (shared tool keys, the operator's MCP connections). Only an application
-key acting for no one creates, lists or changes one (as every vault: vault routes are
-application-only since protocol 7); any session may attach one and select its
+credentials (shared tool keys, the operator's MCP connections). Only a management key
+creates, lists or changes one (as every vault: vault routes are the Management API's,
+`/v1/tenant/vaults…`, since protocol 8; `admin.vaults` in `@nylorun/admin`); any session
+may attach one by id (`vaultIds`, through the Runtime API) and select its
 credentials. Studio's Connections page manages them. A person's vault (`scope: "user"`,
-created by an application key for `ownerUserId`) attaches only to that person's
+created by a management key for `ownerUserId`) attaches only to that person's
 sessions. The `host` model vault is neither: it
 is never listed or attached.
 _Avoid_: "shared vault", "org vault".
@@ -152,8 +190,9 @@ minutes in `oauth_pending` (verifier and client secret sealed), then the callbac
 exchanges the code once and seals an `oauth` credential bound to the URL in the
 installation vault. All of it runs in the keys module (F9-D14) over `guardedFetch`
 (`tenant/outbound.ts`, the Host's address policy, no redirects), which OAuth refresh
-uses too. Core only routes `POST /v1/vaults/{id}/oauth/start` and the anonymous
-`GET /v1/oauth/callback`.
+uses too. Core only routes `POST /v1/tenant/vaults/{id}/oauth/start` (a management key)
+and the anonymous `GET /v1/oauth/callback`, which keeps its path because providers have it
+registered.
 _Avoid_: "OAuth login" (nobody signs in to Nylorun), "per-person connect" (Cloud's broker).
 
 **Credential resolver**: The operator's HTTP service that holds people's own MCP
@@ -167,15 +206,16 @@ _Avoid_: "broker" (Cloud's).
 
 **Scope**: What a subject may do, sent with the subject in `Nylorun-Scopes`
 (required, no default): `agents:read`, `agents:write`, `sessions:own`,
-`tenant:settings`, `sandboxes:write` (`SUBJECT_SCOPES`). `vaults:own`, retired in
-protocol 7, is still accepted and grants nothing. Each route declares the scopes that
+`sandboxes:write` (`SUBJECT_SCOPES`). `vaults:own` (retired in protocol 7) and
+`tenant:settings` (retired in protocol 8, when the Tenant's settings moved to the
+Management API) are still accepted and grant nothing. Each route declares the scopes that
 allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
-lookup (`403 scope_required`); reset, config seed, endpoints, actions, the
-sandbox tool routes, vaults and `/v1/access/**` are open to no subject.
+lookup (`403 scope_required`); endpoints, actions and the sandbox tool routes are open to
+no subject, and no subject reaches the Management API.
 A trusted issuer's token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
 `sandboxes:write`) and `studio`.
 
-**Trusted issuer**: An identity provider whose JWTs the Tenant API accepts as
+**Trusted issuer**: An identity provider whose JWTs the Runtime API accepts as
 bearers (feature `trusted-issuers`, F9 I2), declared in the **identity file**
 (`NYLORUN_IDENTITY_FILE`, YAML, `tenant/identity-file.ts`, read once at boot; a
 malformed file stops the boot). A bearer is its token when the unverified `iss`
@@ -197,9 +237,11 @@ _Avoid_: "SSO login" (the Runtime signs no one in), "external token".
 
 **Signing key**: A Tenant's ES256 key pair for the tokens the Runtime signs itself
 (delivery tokens, capability links, run and host tokens; `signing_keys`,
-`tenant/signing-keys.ts`): the public JWK in the clear (`GET /v1/access/jwks`), the
-private key sealed with the vault KEK. States `standby`, `current` (signs), `previous`
-(verifies), `revoked`. Rotation never signs anyone out; `force` does.
+`tenant/signing-keys.ts`): the public JWK in the clear (`GET /v1/access/jwks`, the
+Runtime API, no key), the private key sealed with the vault KEK. States `standby`,
+`current` (signs), `previous` (verifies), `revoked`. Listing, rotating and revoking them
+is the Management API's (`/v1/tenant/signing-keys…`, `admin.signingKeys`). Rotation never
+signs anyone out; `force` does.
 
 **Runtime AG-UI endpoint**: `/v1/ag-ui/agents/:agent` (feature
 `ag-ui-endpoint`, `api/ag-ui/routes.ts`): run, thread messages, reattach and
@@ -210,11 +252,11 @@ every path; it is created on the thread's first run with the options in
 `forwardedProps.nylorun.session` and never changed by a later run.
 _Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
 
-**Browsers**: A request with an `Origin` reaches the Tenant routes of the public
-listener (protocol 7): a trusted issuer's token is served, an application key or a
-delivery token is `403 origin_rejected`. The Runtime sends no CORS headers and answers
+**Browsers**: A request with an `Origin` reaches the `/v1` routes (protocol 7): a
+trusted issuer's token is served, any key (application or management) or a delivery
+token is `403 origin_rejected`. The Runtime sends no CORS headers and answers
 `OPTIONS` with `204` and `Allow` only; the operator's proxy answers preflights.
-`/health`, `/ready`, admin routes and the operator listener refuse `Origin`.
+`/health`, `/ready` and the OpenAPI documents refuse `Origin`.
 _Avoid_: browser keys and Runtime CORS settings (gone in protocol 7).
 
 **App server**: The developer's own server: signs people in, names the subject
@@ -224,10 +266,11 @@ libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
 
 **Reverse proxy**: Infrastructure on the Runtime's machine, needed only when the
-Runtime is reached from another machine: TLS, `Host` rewrite, only the public
-port proxied (admin routes blocked as well), Studio and the operator port never
-proxied, `OPTIONS`, `Origin` and `Nylorun-Key` passed through, no CORS headers
-of its own. Configured by the developer (Caddy, nginx, Tailscale).
+Runtime is reached from another machine: TLS, `Host` rewrite, only the Runtime port
+proxied (`/health`, `/ready`, `/v1/*`), Studio never proxied, `/v1/tenant/*` optionally
+limited to operator networks, `OPTIONS`, `Origin` and the `Nylorun-*` headers passed
+through, CORS answered for the app's origins only. Configured by the developer (Caddy,
+nginx, Tailscale).
 
 **Action endpoint**: The URL an app registers for one agent (`PUT /v1/endpoints`,
 `endpoints` table, `tenant/endpoints.ts`), served by `createActionHandler` from
@@ -252,8 +295,11 @@ being delivered. Endpoints verify it with the public JWKS (`GET /v1/access/jwks`
 readable without a credential).
 _Avoid_: "executor key" (removed in protocol 3).
 
-**Admin key**: Host-level secret in `host-credentials.json` (mode 0600).
-Authorizes `/v1/admin/*` only; never accepted as a Tenant bearer.
+**Admin key**: The installation's root secret in `host-credentials.json` (mode 0600),
+written by `nylorun start`. No request accepts it (protocol 8). Studio's key derives from
+it (`deriveStudioToken(adminKey)`), Studio signs its sessions with a key derived from it,
+and it mints Studio login tokens (`mintStudioLoginToken`, `POST /_studio/login-tokens`).
+_Avoid_: calling a management key the admin key.
 
 **File artifact**: A file a client uploaded or our engine saved (`artifacts/`, protocol 6): an
 `af_` id, a name, a kind (`file`, or `folder`) and numbered immutable versions, each with its
@@ -315,12 +361,16 @@ sandbox capability to a session with a sandbox): it saves a sandbox file (`path`
 (`tenant/artifact-tool.ts`).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 7`; the Host serves 4 to 7; required features
-`admin-status`, `studio-principal`, `action-endpoints` and `artifacts`, and the Host still
-advertises `runtime-tenants` for protocol 4 clients; optional Host features
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 8`; the Host serves 4 to 8; required features
+`studio-principal`, `action-endpoints`, `artifacts` and `management-api`. The Host still
+advertises `runtime-tenants` for protocol 4 clients and `admin-status` for protocol 5 to 7
+clients, which require it, though the Admin API is gone; optional Host features
 `tenant-fixture-model`, `transcript-events`, `subject-headers`, `ag-ui-endpoint`,
-`a2a-endpoint`, `action-endpoints`, `sandboxes`, `sandbox-pods`, `trusted-issuers` and
-`operator-keys`). Protocol 7 removed subject tokens, the access policy, revocations,
+`a2a-endpoint`, `action-endpoints`, `sandboxes`, `sandbox-pods` and `trusted-issuers`).
+Protocol 8 split the Runtime API from the Management API by key role, moved vaults and
+signing keys under `/v1/tenant`, retired `tenant:settings`, and removed the Admin API, the
+operator listener and the feature `operator-keys`; the old paths answer `404`, with no
+alias. Protocol 7 removed subject tokens, the access policy, revocations,
 browser keys, the Runtime's CORS and derived principals; their routes answer `404`.
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
@@ -330,20 +380,14 @@ _Avoid_: treating package-version equality as the compatibility check.
 creates its Tenant. Its key is derived from the admin key alone (`nylorun/studio/v2`;
 `deriveStudioToken`, `admin/src/derived-credentials.ts`; the Host's side is
 `tenant/principals.ts`), and the Host replaces an older hash at each start; the Tenant stores
-only its hash. Studio derives it to call the
-Tenant API; the admin key is never a Tenant bearer.
+only its hash. Studio derives it to call both APIs, as itself (role `studio`); the admin
+key is never a bearer.
 
 **Derived principal**: Gone in protocol 7. Only the Studio principal's key is derived
-from the admin key; every other application key is an operator key. Principals an
-earlier Host derived stay in the `principals` table and keep working as ordinary keys.
-
-**Operator key** (F9 I1, Host feature `operator-keys`): a revocable application key of
-the Tenant, named by its principal id (`^[a-z][a-z0-9-]{0,31}$`) and managed with the
-admin key: `PUT /v1/admin/keys/{id}` creates or rotates it and returns it once, `GET`
-lists ids, `DELETE` removes the principal (`tenant/operator-keys.ts`). It is a row of the
-principals table; only its hash is kept, and a rotated or deleted key stops
-authenticating on its next request. `studio` is not managed this way.
-_Avoid_: deriving a key a client could hold as an operator key.
+from the admin key; every other key is issued by name (an application or management
+key). Principals an earlier Host derived stay in the `principals` table and keep working
+as ordinary application keys.
+_Avoid_: deriving a key a client could hold.
 
 **Transcript event**: A session event a chat UI renders (feature
 `transcript-events`): `message.assistant` for each completed model step (text
@@ -357,7 +401,7 @@ The Runtime's AG-UI endpoint turns them into AG-UI events
 _Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
 formats.
 
-**A2A endpoint**: The Tenant routes `POST /v1/a2a/agents/:agent` (A2A 1.0
+**A2A endpoint**: The Runtime API routes `POST /v1/a2a/agents/:agent` (A2A 1.0
 JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,
 `api/a2a/routes.ts`, protocol in `api/a2a/`). A request acts for a subject with
 `sessions:own`; an application key without one is `400 subject_required`. An
@@ -379,11 +423,11 @@ _Avoid_: "A2A proxy"; parsing A2A messages in the app server.
 
 One line each; the module named is where the term lives in code.
 
-- **Route declaration**: A Tenant or Admin route declared once with who may call it (`RouteAccess`: credentials, subject scopes), which serves it, checks subject scopes (`requireScopes`) and describes it (`api/http/define.ts`, `api/route.ts`). A path or method no route declares is `404 Route not found` once the caller is known.
-- **OpenAPI document**: The Tenant API's and the Admin API's OpenAPI 3.2 descriptions, generated from the route declarations (`api/openapi.ts`): served (`/openapi.json`, `/v1/admin/openapi.json`), packed (`@nylorun/runtime/openapi.json`, `/admin-openapi.json`), attached to each release; `runtime/openapi/` is their committed snapshot.
+- **Route declaration**: A Runtime API or Management API route declared once with who may call it (`RouteAccess`: credentials, where `management` marks the Management API, and subject scopes), which serves it, checks subject scopes (`requireScopes`) and describes it (`api/http/define.ts`, `api/route.ts`). A path or method no route declares is `404 Route not found` once the caller is known.
+- **OpenAPI document**: The Runtime API's and the Management API's OpenAPI 3.2 descriptions, generated from the route declarations (`api/openapi.ts`, `runtimeDocument()` and `managementDocument()`), with described tags in use order (the Runtime API's grouped by `x-tagGroups`): served without a key (`/openapi/runtime.json` with its alias `/openapi.json`, `/openapi/management.json`), packed (`@nylorun/runtime/openapi.json`, `/management-openapi.json`), attached to each release; `runtime/openapi/` is their committed snapshot.
 - **Profile**: Who operates the Runtime's infrastructure, OSS or Cloud; not a code switch, since only endpoints (`host/stack-config.ts`) and the vault key differ.
 - **Tenant handle**: The `TenantHandle` of the Host's open Tenant Runtime, bound to its database, basin and vault key (`tenant/types.ts`, opened by `tenant/store-pg.ts`, kept by `tenant/module.ts`).
-- **Service**: What one Runtime process runs, chosen with `--service` (blueprint §19): `core` (the Tenant and Admin APIs, SSE, the stream relay), `loop` (the agent loop and the Worker endpoint) or `gates` (the Model Gate); `--role api|worker|all` is its deprecated alias (`host/stack-config.ts`). A service is not a container. _Avoid_: "role", which means a Postgres or access-policy role.
+- **Service**: What one Runtime process runs, chosen with `--service` (blueprint §19): `core` (the Runtime and Management APIs, SSE, the stream relay), `loop` (the agent loop and the Worker endpoint) or `gates` (the Model Gate); `--role api|worker|all` is its deprecated alias (`host/stack-config.ts`). A service is not a container. _Avoid_: "role", which means a Postgres or access-policy role.
 - **Packing**: Which services share a container. A local Tenant's combined packing runs `core,loop` in the `runtime` container and `gates` in the `gateway` container; core and loop may share a process, gates never joins them (`NYLORUN_PACKING`, `nylorun/src/stack/compose-file.ts`).
 - **Gateway**: A local Tenant's container for the gates and keys services, and egress when sandboxes are enabled (`--service gates,keys,egress`). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider.
 - **Keys service**: The `keys` service (F4.2), run in the gateway's process (`--service gates,keys`): the only process that reads the vault key (`<Host root>/keys/vault-kek`). It runs the vault writes that touch a secret and signs every token, behind the `Keys` seam (`keys/keys.ts`): in process, or over HTTP (`keys/client.ts`, `POST /nylorun/v1/keys/{operation}`, `NYLORUN_KEYS_URL`). With it, a Tenant runtime never reads, creates or holds the key.
@@ -391,7 +435,7 @@ One line each; the module named is where the term lives in code.
 - **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod sandboxes' only way out, a CONNECT proxy that verifies an egress token, checks its sandbox's host epoch, and tunnels only to a host name in the spec's `network.allow` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). No TLS interception, no credential injection, no events; refusals are logged.
 - **Egress token**: The ES256 JWT (`typ: nylorun-egress+jwt`, `aud: nylorun-egress`) a pod's harness gets at join, naming its sandbox, host epoch and pod UID; minted with every host token (`mintEgressToken`, `tenant/host-token.ts`) and accepted only by egress-gate, as the proxy credential (`sandbox/egress-token.ts`).
 - **Model Gate**: The gates service's endpoint for model calls, `POST /nylorun/v1/model-calls` (`api/gate/routes.ts`, `host/gates.ts`), and the `ModelGate` seam the loop calls (`gates/model-gate.ts`): in process (`gates/in-process.ts`) or over HTTP (`gates/http-client.ts`). Only it reads a model credential (`vault/host-model.ts`); a hop failure is a failure outcome, never an uncertain effect.
-- **API node**: A Runtime process that runs the core service, serving the Tenant API, Admin API and SSE (`host/stack-config.ts`, `infra/workers.ts`).
+- **API node**: A Runtime process that runs the core service, serving the Runtime API, the Management API and SSE (`host/stack-config.ts`, `infra/workers.ts`).
 - **Worker**: A Runtime process that runs the loop service, whose Restate endpoint runs advances and sweeps (`infra/workers.ts`, `tenant/worker.ts`).
 - **Session Store**: The Tenant's durable state in the fixed schemas of its own Postgres database, behind the async `SessionStore`/`Tx` seam (`store/types.ts`, `store/postgres/`). Drizzle defines its tables (`store/postgres/schema.ts`), generates its migrations (`store/postgres/drizzle/`) and runs its queries; only `store/postgres/` imports Drizzle or the driver.
 - **Migration**: One step of the Tenant database's schema: a SQL file drizzle-kit generated from `schema.ts`, or custom SQL for what it does not model (the schemas, `doc()`, the relay's publication). The Host applies the missing ones at startup under an advisory lock and records them in `nylorun.__drizzle_migrations`; a database holding one this Runtime does not ship is `schema-too-new`. The schema version is the number applied (`store/postgres/migrate.ts`).
@@ -433,7 +477,7 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | `startRuntime` / `createRuntime` | `startEphemeralRuntime` (tests) / Host entry |
 | `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents` | Action endpoints: `createActionHandler` and `PUT /v1/endpoints` |
 | `nylorun serve` | `node dist/src/main.js` / the app's Action endpoint |
-| importing `@nylorun/runtime` from a client | call the Admin or Tenant API |
+| importing `@nylorun/runtime` from a client | call the Runtime API (`@nylorun/agents`) or the Management API (`@nylorun/admin`) |
 | `nylorun-runtime`, the launcher, `nylorun runtime up` | the local Tenant: `nylorun start` |
 | `nylorun dev`, `nylorun dev --ephemeral` | `nylorun start` once, then the project's `npm run dev` |
 | `nylo tenant create\|use\|list\|current\|delete`, one installation for every project | `nylorun start` in the project: its own local Tenant and link |
@@ -442,5 +486,13 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres database (Session Store) |
 | `tenant_<id>` schemas, the Tenant catalog, quarantine | one Tenant per database; a readiness cause |
 | `schema_version` tables, hand-written migrations, `lockSchema` | Drizzle migrations and their journal (`store/postgres/migrate.ts`) |
-| `Nylorun-Tenant` on new clients, `/v1/admin/tenants` | nothing selects the Tenant; `/v1/admin/status` names it |
+| `Nylorun-Tenant` on new clients, `/v1/admin/tenants` | nothing selects the Tenant; `GET /v1/tenant` (a management key) or `nylorun-operate status` names it |
 | Hosted Studio, `local.nylorun.studio`, pairing | the local Tenant's Studio service and its login URL |
+| Tenant API (for the whole surface) | the Runtime API or the Management API: say which |
+| Admin API, `/v1/admin/*`, `admin.status()`, `NYLORUN_ADMIN_URL`, `NYLORUN_ADMIN_KEY`, `admin-openapi.json` (removed in protocol 8) | the Management API (`/v1/tenant/*`, `@nylorun/admin` with `NYLORUN_MANAGEMENT_KEY`, `/openapi/management.json`); Host work: `nylorun status`, `stop` and `key`, or `nylorun-operate status\|keys` in the runtime container |
+| operator listener, operator port, `NYLORUN_ADMIN_PORT`, `NYLORUN_ADMIN_LISTEN_*`, `adminPort` (removed in protocol 8) | the Host's one listener; `nylorun-operate` for Host work |
+| operator key, Host feature `operator-keys` | application key (`PUT /v1/tenant/keys/{keyId}`, `nylorun key put <id>`); management key for the Management API |
+| `tenant:settings` (retired in protocol 8) | a management key on the Management API, as itself; Studio uses its own key |
+| `/v1/vaults…`, `/v1/access/signing-keys…`, `client.createVault`, `client.access.signingKeys` | `/v1/tenant/vaults…`, `/v1/tenant/signing-keys…`; `admin.vaults`, `admin.signingKeys` |
+| required feature `admin-status` on new clients | `management-api` (the Host advertises `admin-status` only for protocol 5 to 7 clients) |
+| `deriveStudioToken(adminKey, tenantId)` | `deriveStudioToken(adminKey)` (Studio key v2) |

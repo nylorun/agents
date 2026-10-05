@@ -1,14 +1,15 @@
 /**
- * Vaults and their credentials (`/v1/vaults/**`): secrets a session's tools use. Only an
- * application key acting for no one (an operator key, Studio) reaches these routes (protocol 7):
- * a request acting for a subject, or a trusted issuer's token, is `403 scope_required`. The
- * installation's own vaults (`scope: "installation"`) attach to any session; a vault of one
- * person (`ownerUserId`) attaches only to that person's sessions. A person's own credentials
- * come from the operator's credential resolver (`vault/sources.ts`), not from these routes.
+ * Vaults and their credentials (`/v1/tenant/vaults/**`, the Management API, protocol 8): secrets
+ * a session's tools use. Only a management key (or Studio's key, acting as itself) reaches these
+ * routes; an application key is `403 key_role_mismatch`, and nothing acts for a subject here. The
+ * installation's own vaults (`scope: "installation"`) attach to any session (`vaultIds`); a vault
+ * of one person (`ownerUserId`) attaches only to that person's sessions. A person's own
+ * credentials come from the operator's credential resolver (`vault/sources.ts`), not from these
+ * routes.
  *
- * MCP OAuth connect (F9 C2): an application key starts one into an installation vault
- * (`/oauth/start`); the authorization server sends the browser back to the anonymous, unversioned
- * `GET /v1/oauth/callback`. Both only route: the gateway's keys module does the OAuth (F9-D14).
+ * MCP OAuth connect: a management key starts one into an installation vault (`/oauth/start`);
+ * the authorization server sends the browser back to the anonymous, unversioned
+ * `GET /v1/oauth/callback`. Both only route: the gateway's keys module does the OAuth.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";

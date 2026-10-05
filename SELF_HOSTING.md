@@ -9,7 +9,8 @@ Read [DEPLOYMENT.md](./DEPLOYMENT.md) first: it covers the Tenant's containers, 
 in front of the Runtime, Postgres, the gateway and the harness. This guide covers who gets in
 and where credentials come from. [`examples/self-host`](./examples/self-host/README.md) runs
 all of it on one machine with Keycloak, oauth2-proxy, OpenBao and a sample resolver, and checks
-it end to end. Upgrading from a release before protocol 7:
+it end to end. Upgrading from protocol 7:
+[MIGRATION.md](./MIGRATION.md#runtime-and-management-apis-protocol-8); from an earlier release:
 [MIGRATION.md](./MIGRATION.md#open-source-auth-protocol-7).
 
 ## Scope
@@ -23,7 +24,8 @@ Open source includes:
 
 - verifying JWTs from your identity provider ([trusted issuers](#the-identity-file)), with
   scopes, an agent allowlist and sandbox grants per issuer;
-- operator keys for your servers, which act for the whole Tenant or for one person;
+- application keys for your servers, which act for the whole Tenant or for one person, and
+  management keys for your operators' tools;
 - each person's sessions kept to that person (another person's session is a `404`);
 - installation vaults for shared credentials, including OAuth MCP servers the installation
   signs in to once;
@@ -45,13 +47,16 @@ nothing depends on it (`nylorun telemetry disable`, or `NYLORUN_TELEMETRY_DISABL
 
 ## Front doors
 
-There are three ways in, and an installation can use all of them:
+Every Tenant serves two APIs on one URL: the **Runtime API** (agents, Action endpoints,
+sessions, sandboxes and artifacts) for apps and people, and the **Management API**
+(`/v1/tenant/*`) for operators. There are four ways in, and an installation can use all of them:
 
 | Front door | Credential | Who it acts for |
 | --- | --- | --- |
-| **An app server** | An [operator key](#operator-keys), with `Nylorun-Subject` and `Nylorun-Scopes` | Any person your server names, with the scopes it names; the whole Tenant without them |
-| **Browsers and apps** | A JWT from your identity provider, as `Authorization: Bearer` | The token's subject, with the scopes, agents and sandboxes the [identity file](#the-identity-file) allows |
+| **An app server** | An [application key](#keys), with `Nylorun-Subject` and `Nylorun-Scopes` | On the Runtime API: any person your server names, with the scopes it names; the whole Tenant without them |
+| **Browsers and apps** | A JWT from your identity provider, as `Authorization: Bearer` | On the Runtime API: the token's subject, with the scopes, agents and sandboxes the [identity file](#the-identity-file) allows |
 | **A sign-in proxy** | The person's JWT, forwarded by the proxy | The same as a browser's; Studio admits it with the `studio` scope ([Studio](#studio-behind-a-sign-in-proxy)) |
+| **An operator's tool** (the CLI, CI, your scripts) | A [management key](#keys), from a server | Itself only, on the Management API: models, vaults, signing keys, settings, application keys, seed and reset. Never a person |
 
 **An app server** signs people in itself and calls the Runtime for each one:
 `client.as(subject, { scopes })` in `@nylorun/agents`
@@ -61,7 +66,7 @@ There are three ways in, and an installation can use all of them:
 application key sent with one (`403 origin_rejected`).
 
 **Browsers and apps** present the token your identity provider gave the person, with
-`Nylorun-Protocol: 7`. The Runtime verifies it against the identity file and takes the subject,
+`Nylorun-Protocol: 8`. The Runtime verifies it against the identity file and takes the subject,
 scopes, agents and sandbox grants from it. Nylorun mints no token and ships no browser client:
 use your provider's SDK to sign in, and put the Runtime behind a reverse proxy that answers
 [CORS](#cors-at-your-proxy). An issuer's token cannot act for anyone else: with
@@ -74,17 +79,27 @@ their token on. In front of Studio, oauth2-proxy's `--pass-access-token` sends i
 so set the issuer's `audience` to the proxy's client id and put the scope claim in ID tokens.
 
 `GET /v1/me` answers, for any of these credentials, who the Runtime takes the caller to be: the
-subject, scopes, agents, sandbox grants and `via` (`application:<id>`, `subject` or
-`issuer:<name>`).
+subject, scopes, agents, sandbox grants and `via` (`application:<id>`, `subject`,
+`issuer:<name>` or `management:<id>`).
 
-## Operator keys
+## Keys
 
-An operator key is an application key you create by name, one per server or tool, so you can
-rotate or delete one without touching the others. It acts for the whole Tenant, or for a person
-with `Nylorun-Subject`. A key is 64 hex characters, returned once; the Runtime keeps only its
-SHA-256. A rotated or deleted key stops working on its next request.
+Each API takes its own kind of key, and a key never crosses over: an application key on
+`/v1/tenant/*`, or a management key anywhere else, is `403 key_role_mismatch`. Only `/v1/me`
+and the public `GET /v1/access/jwks` answer both. You name each key, one per server or tool,
+so you can rotate or delete one without touching the others. A key is 64 hex characters,
+returned once; the Runtime keeps only its SHA-256. A rotated or deleted key stops working on
+its next request.
 
-From a terminal, on the Tenant's machine:
+| Key | Reaches | Issued by | Held by |
+| --- | --- | --- | --- |
+| **Application key** (role `application`) | The Runtime API, for the whole Tenant or for a person with `Nylorun-Subject` | A management key (`PUT /v1/tenant/keys/{keyId}`), or `nylorun key put <id>` on the machine | App servers |
+| **Management key** (role `management`) | The Management API (`/v1/tenant/*`), as itself. Refused with `Origin`, `Nylorun-Subject` or `Nylorun-Scopes` | Only the Tenant's machine | Operators, CI, the CLI |
+
+Studio's key (principal `studio`) is the only key derived from the admin key, and the only one
+that reaches both APIs.
+
+**Application keys.** From a terminal, on the Tenant's machine:
 
 ```sh
 npx nylorun key put app-server     # create, or rotate: prints the new key once on stdout
@@ -92,17 +107,37 @@ npx nylorun key list               # id, role, when issued (never the keys); --j
 npx nylorun key rm app-server      # it stops working at once
 ```
 
-Add `--tenant <name>` outside the project the Tenant belongs to. From code, `@nylorun/admin`
-(`admin.keys.put(id)`, `admin.keys.list()`, `admin.keys.delete(id)`;
-[admin/README.md](./admin/README.md)), or the Admin API on the operator listener with the admin
-key: `PUT /v1/admin/keys/{id}`, `GET /v1/admin/keys` and `DELETE /v1/admin/keys/{id}`.
+Add `--tenant <name>` outside the project the Tenant belongs to. From code, with a management
+key: `@nylorun/admin` (`admin.keys.put(id)`, `admin.keys.list()`, `admin.keys.delete(id)`;
+[admin/README.md](./admin/README.md)), or `PUT /v1/tenant/keys/{keyId}`, `GET /v1/tenant/keys`
+and `DELETE /v1/tenant/keys/{keyId}`. The Management API issues application keys only.
 
-- Ids match `^[a-z][a-z0-9-]{0,31}$`. `studio` is refused: Studio's key is derived from the
-  admin key and is the only derived key.
-- `nylorun start` gives the projects it links the key `project`, kept in
-  `<Host root>/project-credentials.json` (0600) so every linked checkout shares it.
-  `nylorun sandbox` and `nylorun mcp connect` use the key `cli` outside a project, kept in
+**Management keys** are issued only on the Tenant's machine, so a leaked key can't mint
+another:
+
+```sh
+npx nylorun key put ops --management                                # a local Tenant
+docker compose exec runtime nylorun-operate keys put ops --role management   # a Compose file of your own
+kubectl exec <runtime pod> -- nylorun-operate keys put ops --role management  # Kubernetes
+```
+
+`nylorun-operate` runs inside the runtime container; `keys list` and `keys rm <id>` list and
+delete keys of either role. Where no one can run it, give the runtime a **bootstrap secret**:
+a file holding a key of 64 lowercase hex characters (`openssl rand -hex 32`), named by
+`NYLORUN_MANAGEMENT_KEY_FILE`. The Runtime registers it as the management key `bootstrap` at
+every start, and replaces it when the file changes. Mount it as a secret file, never as an
+environment value printed in logs.
+
+- Ids match `^[a-z][a-z0-9-]{0,31}$`. `studio` and `bootstrap` are reserved. Putting an id
+  that holds the other role is refused; rotating keeps the role.
+- `nylorun start` gives the projects it links the application key `project` and the
+  management key `project-management`, kept in `<Host root>/project-credentials.json` (0600)
+  and the Project's `.nylorun/credentials.json` (`managementKey`, `managementPrincipalId`).
+  Outside a project, `nylorun` keeps `cli` and `cli-management` in
   `<Host root>/cli-credentials.json`.
+- `@nylorun/admin` reads a management key from `NYLORUN_MANAGEMENT_KEY` (with
+  `NYLORUN_RUNTIME_URL`), else from those files; `nylo` from the Project's credentials, else
+  `NYLORUN_MANAGEMENT_KEY`.
 - Keep keys in your servers' secret store, never in a browser or a shipped app.
 
 ## The identity file
@@ -205,22 +240,26 @@ project's `.env` or in Studio.
 
 Installation vaults hold the installation's own credentials: shared tool keys and the MCP
 servers the installation signs in to. Any session may attach one (`vaultIds` when the session
-is created). Create them on Studio's **Connections** page, or with an application key acting for
-no one:
+is created). Create them on Studio's **Connections** page, or through the Management API with a
+management key:
 
 ```ts
-const vault = await app.createVault({ scope: "installation", name: "tools", idempotencyKey: "tools" });
-await app.createCredential(vault.id, {
+import { createAdmin } from "@nylorun/admin";
+
+const admin = createAdmin(); // NYLORUN_RUNTIME_URL + NYLORUN_MANAGEMENT_KEY, or the Project link
+const vault = await admin.vaults.create({ scope: "installation", name: "tools", idempotencyKey: "tools" });
+await admin.vaults.credentials.create(vault.id, {
   name: "linear",
   idempotencyKey: "linear",
   auth: { type: "bearer", url: "https://mcp.linear.app/mcp", token: process.env.LINEAR_TOKEN! },
 });
 ```
 
-Over HTTP that is `POST /v1/vaults` with `{ requestId, idempotencyKey, name, scope: "installation" }`,
-then `POST /v1/vaults/{vaultId}/credentials`. Every vault route takes only an application key
-acting for no one: acting for a person, or with an issuer's token, it is
-`403 scope_required`.
+Over HTTP that is `POST /v1/tenant/vaults` with
+`{ requestId, idempotencyKey, name, scope: "installation" }`, then
+`POST /v1/tenant/vaults/{vaultId}/credentials`. Every vault route takes only a management key:
+an application key is `403 key_role_mismatch`, and the app server only names the vault ids
+when it opens a session.
 
 ### OAuth MCP servers
 
@@ -235,9 +274,9 @@ npx nylorun mcp connect https://mcp.example.com/mcp --server linear --client-id 
 
 It creates the installation vault `mcp` (or uses `--vault <id>`), opens the sign-in page and
 waits up to 10 minutes for the credential, which the gateway refreshes. Connecting again
-rotates it. An app server does the same with
-`POST /v1/vaults/{vaultId}/oauth/start` (`{ url, server, clientId? }`, answering
-`{ authorizeUrl, expiresAt }`).
+rotates it. A tool of your own does the same with a management key:
+`admin.vaults.startOAuth(vaultId, { url, server, clientId? })`, or
+`POST /v1/tenant/vaults/{vaultId}/oauth/start`, answering `{ authorizeUrl, expiresAt }`.
 
 The authorization server sends the browser back to `NYLORUN_PUBLIC_URL` +
 `/v1/oauth/callback`. A local Tenant's is `http://localhost:<port>`, so sign in from a browser on
@@ -291,8 +330,9 @@ or your own token service fits behind the same contract.
 
 ## Studio behind a sign-in proxy
 
-Studio serves operators on loopback, signed in by `nylorun studio`. To open it to a team, put a
-sign-in proxy such as [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) in front of
+Studio serves operators on loopback, where it needs no sign-in: a request on its published
+loopback address (`localhost` or `127.0.0.1` at its port) acts as signed in. Any other `Host`
+and an embedded Studio keep their sign-in. To open it to a team, put a sign-in proxy such as [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) in front of
 it, signed in against an issuer of the identity file:
 
 1. List `studio` in the issuer's `allowedScopes` and put it in the tokens of the people who
@@ -398,13 +438,21 @@ Back up the Object store's volume (file artifacts) with Postgres, and the Host r
 provider and secret store keep the people and their credentials; back those up on their own
 terms.
 
-## Never expose the admin port
+## Keep the root secrets on the machine
 
-The operator listener (`NYLORUN_ADMIN_PORT`) serves the Admin API: operator keys and Host
-status, with the admin key in `host-credentials.json`, which controls the whole installation.
-`nylorun start` publishes it on `127.0.0.1` only. Never forward it, never publish it beyond
-loopback, and keep the admin key on the machine. Proxy only the Runtime port, and answer
-`/v1/admin/*` with `403` there as well
-([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)). The same goes for
-Restate's UI, the gateway (no published port), your secret store and your resolver: none of them
-belongs on a public address.
+- **The admin key** in `host-credentials.json` is no request's credential, but Studio's key,
+  which reaches both APIs, derives from it, and whoever holds it can mint Studio login tokens.
+  Keep the file on the machine (mode 0600), out of images and repositories. Only an app that
+  embeds Studio needs it, on its backend.
+- **The bootstrap secret** (`NYLORUN_MANAGEMENT_KEY_FILE`) is a management key on disk. Handle
+  it like the admin key: a secret file (a Kubernetes Secret, for example), never an environment
+  value printed in logs. Change the file to rotate it.
+- **Management keys** reach every setting of the Tenant, but no session or its content. Give
+  them to operators and CI, never to app servers or browsers.
+- **Optionally, limit `/v1/tenant/*` to operator networks at your proxy**, on top of the key
+  role: the Management API then answers only from the addresses your operators and CI use
+  ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)). Leave
+  `/v1/oauth/callback` open: browsers come back to it.
+
+Restate's UI, the gateway (no published port), your secret store and your resolver don't
+belong on a public address either, and Studio reaches one only through a sign-in proxy.

@@ -48,22 +48,23 @@ new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
 
 To run an installation for a team with your own identity provider and secret
-store, read [SELF_HOSTING.md](./SELF_HOSTING.md): the front doors, operator
-keys, the identity file, credentials, Studio behind a sign-in proxy, CORS,
+store, read [SELF_HOSTING.md](./SELF_HOSTING.md): the front doors, application
+and management keys, the identity file, credentials, Studio behind a sign-in proxy, CORS,
 private addresses and backups, with a runnable stack in
 [examples/self-host](./examples/self-host/README.md).
 
 ## Serving people through an app server
 
 To put agents in front of people, run your own **app server** (vocabulary in
-[CONTEXT.md](./runtime/src/CONTEXT.md)): it signs people in, holds the Tenant
-key, and calls the Runtime for each person with
+[CONTEXT.md](./runtime/src/CONTEXT.md)): it signs people in, holds an
+application key, and calls the Runtime API for each person with
 `client.as(subject, { scopes })` or the AG-UI handler
 ([agents/README.md](./agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
 [examples](./examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
 enforces the scopes and each subject's ownership of sessions itself. Vaults
-are the installation's: only an application key acting for no one manages them
+are the installation's: operators manage them through the Management API with a
+management key, and the app server attaches them to sessions by id (`vaultIds`)
 ([Credentials](#credentials)).
 
 - Keep the Runtime off the network. An app server on the same machine calls
@@ -80,15 +81,18 @@ are the installation's: only an application key acting for no one manages them
   frame Studio. Embedding is opt-in: `nylorun start --studio-embed-origin
   <origin>` lists the exact origins of the app that frames it.
 - The app server drops every `Nylorun-*` header its own clients send, never
-  forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
+  forwards `Origin` (the Runtime refuses keys from browsers), and
   terminates TLS for its clients.
-- The admin key and any application keys stay on the server; clients get
-  nothing. Give each server its own operator key (`npx nylorun key put <name>`,
-  or `admin.keys.put(name)` in `@nylorun/admin`), so you can rotate or delete
-  one without touching the others; the Runtime keeps only its hash. No key is
-  derived from the admin key but Studio's: an earlier Host's derived keys are no
-  longer registered, and those already in a database keep working as ordinary
-  keys until you replace them with operator keys.
+- The application key stays on the server; clients get nothing. Give each
+  server its own application key (`npx nylorun key put <name>`, or
+  `admin.keys.put(name)` in `@nylorun/admin` with a management key), so you can
+  rotate or delete one without touching the others; the Runtime keeps only its
+  hash. An app server needs no management key and never the admin key: an
+  application key reaches only the Runtime API, so a leaked one cannot reset the
+  Tenant, read vaults or rotate signing keys. No key is derived from the admin
+  key but Studio's: an earlier Host's derived keys are no longer registered, and
+  those already in a database keep working as ordinary application keys until
+  you replace them.
 - Removing a person is the app server's decision: it stops acting for them and
   closes their open streams.
 
@@ -152,7 +156,7 @@ issuers:
 
 ## Studio behind a sign-in proxy
 
-Studio serves operators on loopback. To open it to a team, put a sign-in proxy
+Studio serves operators on loopback, where it needs no sign-in. To open it to a team, put a sign-in proxy
 such as [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) in front
 of it, signed in against an issuer from the identity file
 ([Trusted issuers](#trusted-issuers)).
@@ -199,12 +203,12 @@ way in. Nothing in the Runtime changes.
 
 | Proxy rule | Why |
 | --- | --- |
-| Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun start` prints) | The Tenant key travels on every request and controls the whole Tenant |
+| Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun start` prints) | A key travels on every request |
 | Rewrite `Host` to `localhost:<port>` | The Runtime answers `421` to any other `Host` |
-| Forward to the Runtime port only (`NYLORUN_PORT`); never the operator port (`NYLORUN_ADMIN_PORT`), Studio or Restate | The Admin API is on its own port and stays on the machine |
-| Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
-| Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
-| Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses application keys sent with an `Origin` |
+| Forward to the Runtime port only (`NYLORUN_PORT`); never Studio or Restate | Studio is for operators, behind its own sign-in proxy; Restate's UI has no authentication |
+| Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Runtime API or the Management API |
+| Optional: answer `/v1/tenant/*` with `403` unless the request comes from your operator networks | Defense in depth for the Management API, on top of the key role. Leave `/v1/oauth/callback` open: browsers come back to it |
+| Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses keys sent with an `Origin` |
 | Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
@@ -215,11 +219,14 @@ prints):
 
 ```caddyfile
 runtime.example.com {
-	# One handle runs per request, the first that matches. Keep the admin block
-	# first: a bare `respond` would run after the proxy, not before it.
-	@admin path /v1/admin /v1/admin/*
-	handle @admin {
-		# The Admin API is on its own port (never proxied); block it here too.
+	# Optional: the Management API only from your operator networks (replace the
+	# range). One handle runs per request, the first that matches, so keep this
+	# block first: a bare `respond` would run after the proxy, not before it.
+	@management {
+		path /v1/tenant /v1/tenant/*
+		not remote_ip 10.20.0.0/16
+	}
+	handle @management {
 		respond "Blocked by the reverse proxy" 403
 	}
 
@@ -243,15 +250,15 @@ TLS by placement:
 
 | Placement | Certificate | Notes |
 | --- | --- | --- |
-| Same LAN | Tailscale: name the site after the machine (`mac-mini.<tailnet>.ts.net`) and Caddy fetches its certificate from the local Tailscale daemon. Or a local CA (`tls internal`) whose root the app server trusts (`NODE_EXTRA_CA_CERTS`) | Never plain HTTP on a LAN or Wi-Fi: it exposes the Tenant key. With Tailscale, accept only the tailnet: add `@outside not remote_ip 100.64.0.0/10` with `handle @outside { respond 403 }` as the first block |
+| Same LAN | Tailscale: name the site after the machine (`mac-mini.<tailnet>.ts.net`) and Caddy fetches its certificate from the local Tailscale daemon. Or a local CA (`tls internal`) whose root the app server trusts (`NODE_EXTRA_CA_CERTS`) | Never plain HTTP on a LAN or Wi-Fi: it exposes the key. With Tailscale, accept only the tailnet: add `@outside not remote_ip 100.64.0.0/10` with `handle @outside { respond 403 }` as the first block |
 | Internet | A public certificate: Caddy obtains one automatically for a public DNS name | Prefer a private path (Tailscale, a VPN or the same cloud network) over a public endpoint; publish publicly only when the backend cannot join one |
 
 On the app server's machine:
 
-- Use an **application key**, never the admin key. On the Runtime's machine,
-  `npx nylorun start` in the app's project starts the app's installation and
-  links it; `npx @nylorun/cli env` there prints the key
-  (`NYLORUN_SERVER_KEY`, the operator key `project`). Better, give the app
+- Use an **application key**, never the admin key or a management key. On the
+  Runtime's machine, `npx nylorun start` in the app's project starts the app's
+  installation and links it; `npx @nylorun/cli env` there prints the key
+  (`NYLORUN_SERVER_KEY`, the application key `project`). Better, give the app
   server a key of its own: `npx nylorun key put app-server` prints one once.
   Keep the key in the app server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
@@ -401,14 +408,15 @@ the runtime container never holds an MCP credential or calls a tool's server:
 
 A session's MCP credential comes from two places, in this order:
 
-1. **The session's attached vaults.** An installation vault (`POST /v1/vaults`
-   with `scope: "installation"`, application keys only; Studio's Connections
-   page creates these) holds the installation's own credentials: shared tool
-   keys and the operator's MCP connections. Any session may attach one. Vault
-   routes take only an application key acting for no one (protocol 7): a
-   request acting for a person, or a trusted issuer's token, gets
-   `403 scope_required`. A person's vault (owner `ownerUserId`) still attaches
-   only to that person's sessions.
+1. **The session's attached vaults.** An installation vault
+   (`POST /v1/tenant/vaults` with `scope: "installation"`, or
+   `admin.vaults.create` in `@nylorun/admin`; Studio's Connections page creates
+   these) holds the installation's own credentials: shared tool keys and the
+   operator's MCP connections. Any session may attach one (`vaultIds`). Vault
+   routes are the Management API's and take only a management key (protocol 8):
+   an application key, alone or acting for a person, gets
+   `403 key_role_mismatch`. A person's vault (owner `ownerUserId`) still
+   attaches only to that person's sessions.
 2. **Your credential resolver**, for a person's own credentials, which Nylorun
    never stores. Set `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the
    gateway (a local Tenant passes them from the shell that runs `nylorun
@@ -449,9 +457,10 @@ The command creates the installation vault `mcp` unless `--vault <id>` names
 another, prints the sign-in URL and opens the browser, and waits (up to 10
 minutes) for the credential: an `oauth` credential bound to the URL, named
 after `--server`, refreshed by the gateway when it expires. Connecting again
-rotates it. Sessions use it when they attach the vault (`vaultIds`). An app
-server does the same with `POST /v1/vaults/{vaultId}/oauth/start` and an
-application key.
+rotates it. Sessions use it when they attach the vault (`vaultIds`). A tool of
+your own does the same with a management key:
+`POST /v1/tenant/vaults/{vaultId}/oauth/start`, or
+`admin.vaults.startOAuth(vaultId, { url, server })` in `@nylorun/admin`.
 
 The gateway's `keys` service does every OAuth step: discovery, registration,
 the PKCE code exchange and refresh. Tokens, the PKCE verifier and any client
@@ -491,8 +500,8 @@ The runtime container runs no turn, no MCP server and no workspace command.
 - It connects to the runtime's Harness API (`ws://runtime:4200/nylorun/harness/v1`)
   with the harness token, `NYLORUN_HARNESS_TOKEN` from `docker/.env`, which
   `nylorun start` generates once and keeps. Only the runtime (which checks it)
-  and the harness hold it; the Tenant API, the Admin API and the gateway refuse
-  it. The harness holds no other credential: no database, no Restate, no vault
+  and the harness hold it; the Runtime API, the Management API and the gateway
+  refuse it. The harness holds no other credential: no database, no Restate, no vault
   key, no gates token. Its model and remote MCP calls go to the gateway with the
   run token of the turn they belong to.
 - It mounts only the Tenant directory's `sandboxes/` (the workspaces),

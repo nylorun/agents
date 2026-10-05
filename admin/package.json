@@ -1,7 +1,7 @@
 {
   "name": "@nylorun/admin",
   "version": "0.10.0-beta",
-  "description": "Nylorun Admin API client for Tenants and Host status",
+  "description": "Nylorun Management API client: the Tenant's models, vaults, signing keys, settings and application keys",
   "type": "module",
   "license": "Apache-2.0",
   "files": [

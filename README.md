@@ -5,7 +5,7 @@ state-in/state-out; the optional **Runtime Host** owns sessions for the one
 **Tenant** of its installation.
 
 This repository contains core (definitions/contracts), harness (engine), agents
-(SDK), admin (Admin API client), runtime (OSS Host), CLI, Studio and the project
+(SDK), admin (Management API client), runtime (OSS Host), CLI, Studio and the project
 creator. Cloud lives in the private agents-api repository. Vocabulary:
 [runtime/src/CONTEXT.md](runtime/src/CONTEXT.md).
 
@@ -103,7 +103,7 @@ eval "$(npx @nylorun/cli env)"
 | [`nylorun`](./nylorun)                    | `npx nylorun start`: a project's local Tenant and its link        |
 | [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): status, reset, access, model provider    |
 | [`@nylorun/agents`](./agents)             | Session SDK, authoring, and the Action endpoint that runs your tools |
-| [`@nylorun/admin`](./admin)               | Admin API client: Host status, its Tenant, operator keys          |
+| [`@nylorun/admin`](./admin)               | Management API client: models, vaults, signing keys, application keys |
 | [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
 | [`@nylorun/studio`](./studio)             | Dashboard and trusted proxy; the `ghcr.io/nylorun/studio` image   |
 | [`@nylorun/create-agent`](./create-agent) | Project scaffolding, compatibility pins, and examples sync        |

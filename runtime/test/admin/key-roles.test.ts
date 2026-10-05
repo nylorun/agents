@@ -120,6 +120,11 @@ describe("nylorun-operate keys", () => {
     expect((await host.operate("keys", "put", "bootstrap", "--role", "management")).code).toBe(
       EXIT_REFUSED,
     );
+    // The bootstrap key is never put here, but may be removed on the machine (AP18).
+    const removed = await host.operate("keys", "rm", "bootstrap", "--json");
+    expect(removed.code).toBe(0);
+    expect(JSON.parse(removed.out[0]!)).toEqual({ id: "bootstrap", deleted: true });
+    expect((await host.call(host.managementKey, "GET", "/v1/tenant")).status).toBe(404);
   });
 
   it("refuses bad usage, and a database without a Tenant", async () => {
