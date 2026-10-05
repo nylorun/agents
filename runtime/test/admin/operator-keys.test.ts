@@ -119,7 +119,7 @@ describe("operator keys", () => {
       expect(malformed.status, method).toBe(400);
       expect(RejectedResponseSchema.parse(malformed.body).code).toBe("invalid_request");
     }
-    expect(await host.reads(deriveStudioToken(host.adminKey, host.tenantId))).toBe(200);
+    expect(await host.reads(deriveStudioToken(host.adminKey))).toBe(200);
   });
 
   it("is reached through @nylorun/admin's keys methods", async () => {

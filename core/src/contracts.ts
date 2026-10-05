@@ -2145,11 +2145,17 @@ export const ProjectLinkFileSchema = z
   .passthrough();
 export type ProjectLinkFile = z.infer<typeof ProjectLinkFileSchema>;
 
+/**
+ * `.nylorun/credentials.json`: the Project's application key and, from protocol 8, its
+ * management key. Still format 1: readers that predate the management key ignore it.
+ */
 export const ProjectCredentialsFileSchema = z
   .object({
     format: z.union([z.literal(0), z.literal(1)]).default(0),
     applicationKey: z.string().regex(/^[0-9a-f]{64}$/),
     principalId: z.string().min(1),
+    managementKey: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    managementPrincipalId: z.string().min(1).optional(),
   })
   .passthrough();
 export type ProjectCredentialsFile = z.infer<

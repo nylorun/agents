@@ -40,7 +40,7 @@ describe("nylorun (the setup command)", () => {
     expect(stdout).toMatch(/^ {2}ls \[--json\]/m);
     expect(stdout).toMatch(/^ {2}delete <tenant> --yes/m);
     expect(stdout).toMatch(/^Local Tenants \(Docker Compose\), one per project:$/m);
-    expect(stdout).toMatch(/^ {2}key put <id> \[--tenant <name>\]/m);
+    expect(stdout).toMatch(/^ {2}key put <id> \[--management\] \[--tenant <name>\]/m);
     expect(stdout).toMatch(/^ {2}key rm <id>/m);
     expect(stdout).not.toMatch(/stack|legacy|--name|\bdev\b|configure/i);
   });

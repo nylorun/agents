@@ -9,7 +9,7 @@ import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility
 import { createClient } from "@nylorun/agents";
 import { readCredentials } from "../../src/project/credentials.js";
 import { linkedConnection } from "../../src/project/connection.js";
-import { APPLICATION_KEY, link3, project, writeProjectLink } from "../helpers/project.js";
+import { APPLICATION_KEY, link3, MANAGEMENT_KEY, project, writeProjectLink } from "../helpers/project.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -23,7 +23,11 @@ it("the linked client sends the key and the protocol, and no Nylorun-Tenant head
   roots.push(root);
   await writeProjectLink(root, link3("http://127.0.0.1:8787"));
   const connection = await linkedConnection(root, {});
-  expect(connection).toMatchObject({ url: "http://127.0.0.1:8787", key: APPLICATION_KEY });
+  expect(connection).toMatchObject({
+    url: "http://127.0.0.1:8787",
+    key: APPLICATION_KEY,
+    managementKey: MANAGEMENT_KEY,
+  });
   const seen: Headers[] = [];
   const client = createClient({
     url: connection.url,
@@ -55,6 +59,12 @@ it("without a link, NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY are the connectio
       NYLORUN_SERVER_KEY: "key",
     }),
   ).toEqual({ url: "https://runtime.example.com", key: "key" });
+  expect(
+    await linkedConnection(root, {
+      NYLORUN_RUNTIME_URL: "https://runtime.example.com",
+      NYLORUN_MANAGEMENT_KEY: "management",
+    }),
+  ).toEqual({ url: "https://runtime.example.com", managementKey: "management" });
   await expect(linkedConnection(root, { NYLORUN_RUNTIME_URL: "https://x" })).rejects.toThrow(
     'Run "npx nylorun start" in this project',
   );

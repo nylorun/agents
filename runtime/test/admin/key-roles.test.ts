@@ -9,10 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
-import { mintBearerToken } from "../../src/core/bearer.js";
+import { createHmac } from "node:crypto";
+import { hashToken, mintBearerToken } from "../../src/core/bearer.js";
 import { EXIT_REFUSED, EXIT_TENANT, EXIT_USAGE, runOperate } from "../../src/host/operate.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
-import { hostPrincipals } from "../../src/tenant/principals.js";
+import { deriveStudioKey, hostPrincipals } from "../../src/tenant/principals.js";
 import { openTenantDatabase } from "../../src/store/postgres/tenant.js";
 import { isolatedTestDatabase } from "../support/store.js";
 
@@ -169,5 +170,35 @@ describe("the bootstrap key", () => {
     const after = await opened.store.tx((t) => t.principalById("bootstrap"));
     expect(after?.tokenHash).not.toBe(row?.tokenHash);
     expect(after?.role).toBe("management");
+  });
+});
+
+describe("Studio's key v2", () => {
+  it("replaces a v1 hash (derived with the Tenant id) when the Host opens the database", async () => {
+    const database = await isolatedTestDatabase();
+    closers.push({ close: database.drop });
+    const adminKey = "a".repeat(64);
+    // The v1 derivation: HMAC-SHA256(adminKey, "nylorun/studio/v1" NUL tenantId).
+    const v1 = (tenantId: string) =>
+      createHmac("sha256", adminKey).update(`nylorun/studio/v1\0${tenantId}`).digest("hex");
+    const opened = await openTenantDatabase({
+      sql: database.sql,
+      create: {
+        name: "t",
+        principals: (tenantId) => [
+          { id: "studio", role: "studio", credentialHash: hashToken(v1(tenantId)) },
+        ],
+      },
+    });
+    const old = await opened.store.tx((t) => t.principalById("studio"));
+    expect(old?.tokenHash).toBe(hashToken(v1(opened.envelope.id)));
+
+    await openTenantDatabase({
+      sql: database.sql,
+      create: { name: "t", principals: hostPrincipals({ adminKey }) },
+    });
+    const after = await opened.store.tx((t) => t.principalById("studio"));
+    expect(after?.tokenHash).toBe(hashToken(deriveStudioKey(adminKey)));
+    expect(after?.role).toBe("studio");
   });
 });

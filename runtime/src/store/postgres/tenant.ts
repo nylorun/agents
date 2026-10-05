@@ -59,8 +59,9 @@ export interface InitialPrincipal {
   /** What the key reaches; `application` when absent. */
   role?: KeyRole;
   /**
-   * Its key comes from outside the database (the bootstrap file): on later opens a principal
-   * of the same role takes this hash. Otherwise an existing principal is kept as it is.
+   * Its key comes from outside the database (the bootstrap file, or Studio's key derived from
+   * the admin key): on later opens a principal of the same role takes this hash. Otherwise an
+   * existing principal is kept as it is.
    */
   replace?: boolean;
 }
@@ -72,8 +73,8 @@ export interface TenantCreation {
   /** Ignored when the Tenant exists. */
   name: string;
   /**
-   * The principals the Tenant must have, given its id (Studio's derived key depends on it). Created
-   * with the Tenant; on later opens, the missing ones are added.
+   * The principals the Tenant must have, given its id. Created with the Tenant; on later
+   * opens, the missing ones are added.
    */
   principals?(tenantId: string): readonly InitialPrincipal[];
 }
@@ -223,7 +224,7 @@ async function ensureTenant(
       createdAt,
     });
     if (principal.replace)
-      // The bootstrap key: a principal of the same role takes the file's current key.
+      // The bootstrap key or Studio's: a principal of the same role takes the current key.
       await insert.onConflictDoUpdate({
         target: principals.id,
         set: { tokenHash: principal.credentialHash, createdAt },

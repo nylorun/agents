@@ -3,13 +3,16 @@ import { CliError } from "../errors.js";
 import { credentialsPath } from "./link.js";
 
 /**
- * Project-local credentials (mode 0600): the application key and its principal. A format 0
- * file may still carry a legacy `executors` map from before protocol 3; it is ignored.
+ * Project-local credentials (mode 0600): the application key and its principal, and the
+ * management key and its principal when `nylorun start` issued one. A format 0 file may still
+ * carry a legacy `executors` map from before protocol 3; it is ignored.
  */
 export interface ProjectCredentials {
   format: 0 | 1;
   applicationKey: string;
   principalId: string;
+  managementKey?: string;
+  managementPrincipalId?: string;
 }
 
 /** The Project's credentials, which `nylorun start` writes beside the link. */
@@ -22,6 +25,8 @@ export async function readCredentials(
       format?: unknown;
       applicationKey?: unknown;
       principalId?: unknown;
+      managementKey?: unknown;
+      managementPrincipalId?: unknown;
     };
     if (
       typeof value?.applicationKey !== "string" ||
@@ -51,6 +56,11 @@ export async function readCredentials(
       format,
       applicationKey: value.applicationKey,
       principalId: value.principalId,
+      ...(typeof value.managementKey === "string" &&
+      /^[0-9a-f]{64}$/.test(value.managementKey) &&
+      typeof value.managementPrincipalId === "string"
+        ? { managementKey: value.managementKey, managementPrincipalId: value.managementPrincipalId }
+        : {}),
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;

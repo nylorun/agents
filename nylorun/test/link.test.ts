@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { ProjectCredentialsFileSchema } from "@nylorun/core/contracts";
 import {
   readProjectCredentials,
   readProjectLink,
@@ -95,5 +96,33 @@ describe("the Project link", () => {
     expect(await mode(dir)).toBe(0o700);
     expect(await mode(join(dir, "link.json"))).toBe(0o600);
     expect(await mode(join(dir, "credentials.json"))).toBe(0o600);
+  });
+
+  it("keeps both keys in credentials.json, still format 1, and reads a file with one", async () => {
+    const root = await project();
+    const credentials = {
+      applicationKey: "ab".repeat(32),
+      principalId: "project",
+      management: { key: "cd".repeat(32), principalId: "project-management" },
+    };
+    await writeProjectCredentials(root, credentials);
+    const file = join(root, ".nylorun", "credentials.json");
+    const written = JSON.parse(await readFile(file, "utf8"));
+    expect(written).toEqual({
+      format: 1,
+      applicationKey: "ab".repeat(32),
+      principalId: "project",
+      managementKey: "cd".repeat(32),
+      managementPrincipalId: "project-management",
+    });
+    // Readers that predate management keys (the schema @nylorun/agents parses) still accept it.
+    expect(ProjectCredentialsFileSchema.parse(written).applicationKey).toBe("ab".repeat(32));
+    expect(await readProjectCredentials(root)).toEqual(credentials);
+    // A file from before management keys has none.
+    await writeFile(file, JSON.stringify({ format: 1, applicationKey: "ab".repeat(32), principalId: "project" }));
+    expect(await readProjectCredentials(root)).toEqual({
+      applicationKey: "ab".repeat(32),
+      principalId: "project",
+    });
   });
 });

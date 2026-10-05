@@ -133,14 +133,7 @@ async function fakeRuntime() {
       res.end(JSON.stringify(body));
     };
     if (path === "/health") return send(200, { status: "ok", protocol });
-    if (path === "/v1/admin/status")
-      return send(200, {
-        service: "nylorun-runtime",
-        version: "0.0.0-test",
-        protocol,
-        tenant: { id: TENANT, name: "orders", state: "open", envelope: null },
-        aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
-      });
+    if (path === "/v1/tenant") return send(200, { tenant: { id: TENANT, name: "orders" } });
     if (path === "/v1/agents")
       return send(200, {
         agents: [
@@ -191,7 +184,7 @@ async function fakeRuntime() {
       return send(200, view(id));
     }
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models") return send(200, { providers: [] });
-    if (path === "/v1/vaults") return send(200, { vaults: [] });
+    if (path === "/v1/tenant/vaults") return send(200, { vaults: [] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
     send(200, {});
   });

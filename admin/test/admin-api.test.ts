@@ -84,7 +84,7 @@ describe("B5 derived keys", () => {
   it("has no derived Tenant keys: only Studio's key is derived (protocol 7)", () => {
     const admin = createAdmin({ url: "http://127.0.0.1:1", key: ADMIN_KEY });
     expect("deriveTenantKey" in admin).toBe(false);
-    expect(deriveStudioToken(ADMIN_KEY, sampleStatus().tenant.id)).toMatch(/^[0-9a-f]{64}$/);
+    expect(deriveStudioToken(ADMIN_KEY)).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

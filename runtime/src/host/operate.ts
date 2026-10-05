@@ -7,7 +7,7 @@
  *
  *   nylorun-operate keys list [--json]
  *   nylorun-operate keys put <id> [--role application|management] [--json]
- *   nylorun-operate keys rm <id>
+ *   nylorun-operate keys rm <id> [--json]
  *
  * `keys put` prints the new key once on stdout (with `--json`, the whole response). Exit codes:
  * 0 done, 1 refused (an id, a role), 2 the Tenant cannot be opened, 64 usage.
@@ -28,7 +28,7 @@ export const EXIT_USAGE = 64;
 const USAGE = `Usage:
   nylorun-operate keys list [--json]
   nylorun-operate keys put <id> [--role application|management] [--json]
-  nylorun-operate keys rm <id>`;
+  nylorun-operate keys rm <id> [--json]`;
 
 export interface OperateIo {
   env: Readonly<Record<string, string | undefined>>;
@@ -111,7 +111,8 @@ function parse(argv: readonly string[]): Command {
       return async (keys, io) => {
         const deleted = await keys.delete(id);
         if (typeof deleted !== "boolean") throw new Exit(EXIT_REFUSED, deleted.message);
-        io.err(deleted ? `Deleted key ${id}.` : `There is no key ${id}.`);
+        if (json) io.out(JSON.stringify({ id, deleted }));
+        else io.err(deleted ? `Deleted key ${id}.` : `There is no key ${id}.`);
         return 0;
       };
     }

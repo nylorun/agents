@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -130,4 +131,40 @@ export function testDeps(
     errors,
     opened,
   };
+}
+
+/** The keys a fake `nylorun-operate` keeps, by id. */
+export type FakeKeys = Map<string, { key: string; role: string; createdAt: string }>;
+
+/**
+ * A `respond` for `fakeDocker` that answers `docker compose … exec -T runtime nylorun-operate
+ * keys … --json` as nylorun-operate does, from the keys of the Compose project (`keysOf`);
+ * `studio` is refused (exit 1). Other runs are left to the caller.
+ */
+export function fakeOperate(keysOf: (project: string) => FakeKeys) {
+  return (args: readonly string[]): DockerResult | undefined => {
+    const at = args.indexOf("nylorun-operate");
+    if (at < 0) return undefined;
+    const keys = keysOf(args[args.indexOf("--project-name") + 1]!);
+    const [group, verb, id, flag, role] = args.slice(at + 1);
+    const ok = (body: unknown) => ({ code: 0, stdout: `${JSON.stringify(body)}\n`, stderr: "" });
+    if (group === "keys" && verb === "list")
+      return ok({ keys: [...keys].map(([key, { role, createdAt }]) => ({ id: key, role, createdAt })) });
+    if (group === "keys" && verb === "put" && id && flag === "--role") {
+      if (id === "studio")
+        return { code: 1, stdout: "", stderr: "The studio key is derived from the admin key\n" };
+      const rotated = keys.has(id);
+      const value = { key: randomBytes(32).toString("hex"), role: role!, createdAt: "2026-10-04T00:00:00.000Z" };
+      keys.set(id, value);
+      return ok({ id, ...value, rotated });
+    }
+    if (group === "keys" && verb === "rm" && id) return ok({ id, deleted: keys.delete(id) });
+    return { code: 64, stdout: "", stderr: "Usage: nylorun-operate keys …\n" };
+  };
+}
+
+/** Whether the request's bearer key is one of `keys` (a fake `GET /v1/me`). */
+export function bearerIn(keys: Iterable<{ key: string }>, init?: RequestInit): boolean {
+  const bearer = new Headers(init?.headers).get("authorization")?.replace(/^Bearer /, "");
+  return [...keys].some((value) => value.key === bearer);
 }

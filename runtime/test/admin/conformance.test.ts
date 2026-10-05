@@ -196,7 +196,7 @@ it("the Studio key the admin key derives reaches the Tenant; nothing else derive
   const agents = (key: string, tenant?: string) =>
     getJson(`${url}/v1/agents`, { headers: tenantApiHeaders(key, tenant) });
 
-  expect((await agents(deriveStudioToken(adminKey, tenantId))).status).toBe(200);
+  expect((await agents(deriveStudioToken(adminKey))).status).toBe(200);
   expect((await agents(applicationKey)).status).toBe(200);
   // Protocol 4 clients name the Tenant; this Host's id is served, another is the opaque 404.
   expect((await agents(applicationKey, tenantId)).status).toBe(200);
@@ -204,6 +204,6 @@ it("the Studio key the admin key derives reaches the Tenant; nothing else derive
   // Other admin keys and the admin key itself reach nothing; the admin client derives no
   // Tenant key (protocol 7).
   expect("deriveTenantKey" in admin).toBe(false);
-  expect((await agents(deriveStudioToken("f".repeat(64), tenantId))).status).toBe(404);
+  expect((await agents(deriveStudioToken("f".repeat(64)))).status).toBe(404);
   expect((await agents(adminKey)).status).toBe(404);
 });
