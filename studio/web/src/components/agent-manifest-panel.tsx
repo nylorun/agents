@@ -63,7 +63,28 @@ const TOOL_GROUPS: readonly {
 
 /** A segmented control: the active view is raised on the muted track. */
 const SEGMENT =
-  "h-7 rounded-md! px-2.5 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!";
+  "size-7 min-w-7 rounded-md! px-0 text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!";
+
+/** An icon-only view switch; the tooltip and label name it. */
+function ViewToggle({
+  value,
+  label,
+  icon: Icon,
+}: Readonly<{ value: "layout" | "json"; label: string; icon: LucideIcon }>) {
+  return (
+    <Tooltip>
+      {/* A wrapper triggers the tooltip so the item keeps its own data-state (on/off). */}
+      <TooltipTrigger asChild>
+        <span className="inline-flex">
+          <ToggleGroupItem value={value} aria-label={label} className={SEGMENT}>
+            <Icon className="size-3.5" />
+          </ToggleGroupItem>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 const HOOK_HELP: Record<string, string> = {
   beforeTurn: "Patches the turn before its first model call.",
@@ -115,14 +136,8 @@ export function AgentManifestPanel({
               aria-label="Manifest view"
               className="shrink-0 gap-0.5 rounded-lg bg-muted p-0.5"
             >
-              <ToggleGroupItem value="layout" aria-label="Layout view" className={SEGMENT}>
-                <LayoutList className="size-3.5" />
-                Layout
-              </ToggleGroupItem>
-              <ToggleGroupItem value="json" aria-label="JSON view" className={SEGMENT}>
-                <Braces className="size-3.5" />
-                JSON
-              </ToggleGroupItem>
+              <ViewToggle value="layout" label="Layout view" icon={LayoutList} />
+              <ViewToggle value="json" label="JSON view" icon={Braces} />
             </ToggleGroup>
           </div>
           {view.description ? (
