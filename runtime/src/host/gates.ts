@@ -54,7 +54,7 @@ export interface StartGatesOptions {
   readonly drainMs?: number;
   /** How long keyed outcomes are kept, and how many (tests). */
   readonly inflight?: InflightCallsOptions;
-  /** How the gate may call Action endpoints (`NYLORUN_ENDPOINT_*`). Default: no limits. */
+  /** How the gate may call Action endpoints and MCP servers (`NYLORUN_ENDPOINT_*`). Default: no limits. */
   readonly delivery?: OutboundPolicy;
   /** How long an MCP connection may sit unused. Default `GATE_MCP_IDLE_MS`. */
   readonly mcpIdleMs?: number;
@@ -104,6 +104,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
     logger,
     idleMs: mcpIdleMs,
     ...(options.openMcp ? { open: options.openMcp } : {}),
+    ...(options.delivery ? { delivery: options.delivery } : {}),
   });
   const toolCalls = createToolCalls({
     vaults,

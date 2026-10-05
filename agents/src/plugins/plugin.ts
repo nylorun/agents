@@ -10,10 +10,26 @@ export interface PluginCapability extends CapabilityDeclaration {
   readonly diagnostics: readonly PluginDiagnostic[];
 }
 
-/** Read an Agent Plugin package and return one capability for `Agent.use`. */
+/**
+ * Read an Agent Plugin package and return one capability for `Agent.use`. Each part it skips
+ * (an invalid MCP server or skill) is a process warning, so building or registering the agent
+ * says why the agent has less than the package declares.
+ */
 export function plugin(directory: string): PluginCapability {
   const loaded = loadPlugin(directory);
+  warn(loaded);
   return capabilityFromPlugin(loaded);
+}
+
+function warn(loaded: LoadedPlugin): void {
+  for (const diagnostic of loaded.diagnostics) {
+    if (diagnostic.severity !== "warning") continue;
+    process.emitWarning(`Plugin '${loaded.name}': ${diagnostic.message}`, {
+      type: "NylorunPluginWarning",
+      code: diagnostic.code,
+      ...(diagnostic.path === undefined ? {} : { detail: diagnostic.path }),
+    });
+  }
 }
 
 export function capabilityFromPlugin(loaded: LoadedPlugin): PluginCapability {

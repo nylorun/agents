@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { AgentManifest, McpServerManifest } from "@nylorun/core/define";
 import { delegatesOf } from "@nylorun/core/define";
+import type { OutboundPolicy } from "../tenant/outbound.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import {
   callMcpTool,
@@ -52,6 +53,8 @@ export class McpPool {
       readonly now?: () => number;
       /** Tests replace how a declared server is opened. */
       readonly open?: typeof openMcpServer;
+      /** How remote servers opened in this process are reached (`TenantConfig.delivery`). */
+      readonly policy?: OutboundPolicy;
       /**
        * Opens a remote (`streamable-http` or `sse`) server somewhere else: the gates service
        * holds the connection and its credential, and the loop never sees either (F4.1).
@@ -290,6 +293,7 @@ export class McpPool {
           ...pluginKey(declared).split("/"),
         ),
         childEnv: this.options.childEnv,
+        ...(this.options.policy ? { policy: this.options.policy } : {}),
         authorize:
           declared.server.type === "stdio"
             ? undefined

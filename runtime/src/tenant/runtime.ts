@@ -296,6 +296,7 @@ export class TenantRuntime implements TenantHandle {
             pluginData: paths.pluginData,
             childEnv: config.childEnv,
             authorize: (sessionId, request) => authorize(ctx, sessionId, request),
+            policy: config.delivery ?? {},
             ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),
           })
         : undefined;

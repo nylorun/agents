@@ -12,6 +12,8 @@ export type AgentDefinition = {
   kind?: undefined;
   /** The registered definition's hash; a session may be pinned to an older one. */
   manifestHash?: string;
+  /** The manifest as the Runtime returned it, for the JSON view. */
+  rawManifest?: Record<string, unknown>;
   manifest: {
     id?: string;
     kind?: undefined;
@@ -31,6 +33,7 @@ export type WorkflowDefinition = {
   name: string;
   kind: "workflow";
   manifestHash?: string;
+  rawManifest?: undefined;
   manifest: WorkflowManifest;
 };
 

@@ -1740,6 +1740,32 @@ export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
   .passthrough();
 
+/** What readying one declared MCP server found (`mcp.discovered`). */
+export const McpServerOutcomeSchema = z
+  .object({
+    /** The agent used as a tool that declares the server; absent for the session's root agent. */
+    agentId: z.string().optional(),
+    capabilityId: z.string(),
+    serverName: z.string(),
+    /** `refused`: the vault has no usable credential for it; `failed`: it could not be reached or listed. */
+    outcome: z.enum(["connected", "refused", "failed"]),
+    message: z.string(),
+    /** The tools it added to the session; 0 unless connected. */
+    tools: z.number().int().nonnegative(),
+    /** The credentials a refusal names. */
+    credentialIds: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;
+/**
+ * `mcp.discovered`: the session's first turn readied its MCP servers and pinned the tools they
+ * offer, one outcome per declared server. A server that did not connect adds no tools for the
+ * session's life, so this is where the model's missing tools show (also `mcpDiagnostics`).
+ */
+export const McpDiscoveredPayloadSchema = z
+  .object({ servers: z.array(McpServerOutcomeSchema) })
+  .passthrough();
+
 /**
  * The event catalog (Durable Streams §9.5): every session event type, its payload schema, its
  * payload schema version and who writes it. A type not listed here cannot be written. A type
@@ -1774,6 +1800,7 @@ export const EVENT_CATALOG = {
   "effect.uncertain": { payload: EffectUncertainPayloadSchema, source: "loop", version: 1 },
   "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
+  "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
   "sandbox.state": { payload: SandboxStatePayloadSchema, source: "loop", version: 1 },
   "sandbox.exec": { payload: SandboxExecPayloadSchema, source: "loop", version: 1 },
   "sandbox.attached": { payload: SandboxAttachedPayloadSchema, source: "api", version: 1 },
