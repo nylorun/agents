@@ -36,12 +36,21 @@ export type ResolvedChild = {
 export function isToolDefinition(value: unknown): value is ToolDefinition {
   if (!value || typeof value !== "object") return false;
   if (!("name" in value) || typeof (value as { name: unknown }).name !== "string") return false;
+  // A named Agent builder has `name` and an `.input()` method; agents and flows are never tools.
+  if (isBuiltWorkflow(value) || isAgentOrBuilder(value)) return false;
   const v = value as ToolDefinition;
   return (
     typeof v.execute === "function" ||
     typeof v.run === "function" ||
     v.inputSchema !== undefined ||
     v.input !== undefined
+  );
+}
+
+function isAgentOrBuilder(value: object): boolean {
+  return (
+    typeof (value as { getBinding?: unknown }).getBinding === "function" ||
+    typeof (value as { build?: unknown }).build === "function"
   );
 }
 
