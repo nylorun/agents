@@ -81,6 +81,9 @@ COPY --from=build /app/runtime/dist runtime/dist
 # The Host root is bind-mounted here. It is world-writable only so that an
 # arbitrary compose `user:` can start without a mount; the mount replaces it.
 RUN mkdir -p /nylorun /workspaces && chmod 1777 /nylorun /workspaces
+# The operator command (`docker compose exec runtime nylorun-operate keys put …`).
+RUN printf '#!/bin/sh\nexec node /app/runtime/dist/host/operate.js "$@"\n' > /usr/local/bin/nylorun-operate \
+  && chmod 755 /usr/local/bin/nylorun-operate
 USER node
 EXPOSE 4000 4100 9080
 ENTRYPOINT ["node", "runtime/dist/host/main.js"]

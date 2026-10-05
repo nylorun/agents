@@ -105,6 +105,11 @@ export const ERROR_CODES = [
   "incompatible_host",
   "subject_invalid",
   "scope_required",
+  /**
+   * A known key on the other API (protocol 8): an application key on the Management API
+   * (`/v1/tenant/*`), or a management key on the Runtime API. The message names the key's API.
+   */
+  "key_role_mismatch",
   "token_expired",
   "limit_exceeded",
   /** A request the Runtime refuses for a reason the message gives. */
@@ -156,6 +161,16 @@ export const ARTIFACT_ID_PATTERN = /^af_[0-9a-hjkmnp-tv-z]{26}$/;
  * `studio` is reserved for the key Studio derives from the admin key.
  */
 export const APPLICATION_KEY_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
+/**
+ * What a key reaches (protocol 8). `application`: the Runtime API, for the whole Tenant or for
+ * one subject. `management`: the Management API (`/v1/tenant/*`), as itself only. `studio`: the
+ * key Studio derives from the admin key, which reaches both.
+ */
+export const KEY_ROLES = ["application", "management", "studio"] as const;
+export type KeyRole = (typeof KEY_ROLES)[number];
+/** The management key a Host registers from `NYLORUN_MANAGEMENT_KEY_FILE` at start. */
+export const BOOTSTRAP_KEY_ID = "bootstrap";
 
 export function isTenantId(value: unknown): value is string {
   return typeof value === "string" && TENANT_ID_PATTERN.test(value);

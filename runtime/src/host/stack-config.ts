@@ -314,6 +314,12 @@ export interface TenantSettings {
    * `trusted-issuers`), read once at boot (`host/main.ts`). Absent: no issuer is trusted.
    */
   identityFile?: string;
+  /**
+   * `NYLORUN_MANAGEMENT_KEY_FILE`: a file holding a management key (64 hex characters), which
+   * the Host registers as the principal `bootstrap` at every start, replacing its key when the
+   * file changed (protocol 8). For installations where no one can run `nylorun-operate`.
+   */
+  managementKeyFile?: string;
 }
 
 export class StackConfigError extends Error {
@@ -670,10 +676,12 @@ function parseTenant(env: EnvSnapshot): TenantSettings {
       `NYLORUN_TENANT_ID must be a Tenant id (tn_ and 26 Crockford characters), not ${id}`,
     );
   const identityFile = read(env, "NYLORUN_IDENTITY_FILE");
+  const managementKeyFile = read(env, "NYLORUN_MANAGEMENT_KEY_FILE");
   return {
     ...(id ? { id } : {}),
     name: read(env, "NYLORUN_TENANT_NAME") ?? "default",
     ...(identityFile ? { identityFile } : {}),
+    ...(managementKeyFile ? { managementKeyFile } : {}),
   };
 }
 

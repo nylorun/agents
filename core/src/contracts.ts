@@ -2501,7 +2501,7 @@ export const MeResponseSchema = z
       }),
     via: z.string().meta({
       description:
-        "How the caller authenticated: `application:<principalId>`, `subject` or `issuer:<name>`",
+        "How the caller authenticated: `application:<principalId>`, `management:<principalId>`, `subject` or `issuer:<name>`",
     }),
   })
   .strict();

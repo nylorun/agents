@@ -51,7 +51,8 @@ export function findTenantRoute(
 
 /** No route: authenticated first, so an unknown credential stays the opaque 404. */
 async function notFound(c: Context<TenantEnv>): Promise<Response> {
-  await authenticateCaller(c);
+  // Any known key, of either API, learns only that there is no such route.
+  await authenticateCaller(c, false, { application: true, management: true });
   return fail(404, "Route not found");
 }
 

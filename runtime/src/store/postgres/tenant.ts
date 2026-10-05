@@ -21,7 +21,8 @@
  * A lost connection or an unavailable server says nothing about the Tenant: it is thrown as
  * it is, never as a cause.
  */
-import { sql } from "drizzle-orm";
+import type { KeyRole } from "@nylorun/core/compatibility";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type { Sql } from "postgres";
 import { isTenantId, newTenantId } from "@nylorun/core/compatibility";
 import {
@@ -55,6 +56,13 @@ export interface InitialPrincipal {
   id: string;
   /** SHA-256 hex of the principal's key. */
   credentialHash: string;
+  /** What the key reaches; `application` when absent. */
+  role?: KeyRole;
+  /**
+   * Its key comes from outside the database (the bootstrap file): on later opens a principal
+   * of the same role takes this hash. Otherwise an existing principal is kept as it is.
+   */
+  replace?: boolean;
 }
 
 /** Who the Tenant is when the database holds none yet. */
@@ -206,17 +214,26 @@ async function ensureTenant(
   } else if (migrated.from !== migrated.to) {
     await tx.update(tenant).set({ schemaVersion: migrated.to });
   }
-  for (const principal of create.principals?.(tenantId) ?? [])
+  for (const principal of create.principals?.(tenantId) ?? []) {
+    const insert = tx.insert(principals).values({
+      id: principal.id,
+      role: principal.role ?? "application",
+      tokenHash: principal.credentialHash,
+      idempotencyKey: null,
+      createdAt,
+    });
+    if (principal.replace)
+      // The bootstrap key: a principal of the same role takes the file's current key.
+      await insert.onConflictDoUpdate({
+        target: principals.id,
+        set: { tokenHash: principal.credentialHash, createdAt },
+        setWhere: and(
+          eq(principals.role, principal.role ?? "application"),
+          ne(principals.tokenHash, principal.credentialHash),
+        ),
+      });
     // A principal with this id or this key already exists: it is kept as it is.
-    await tx
-      .insert(principals)
-      .values({
-        id: principal.id,
-        role: "application",
-        tokenHash: principal.credentialHash,
-        idempotencyKey: null,
-        createdAt,
-      })
-      .onConflictDoNothing();
+    else await insert.onConflictDoNothing();
+  }
   return existing === undefined;
 }

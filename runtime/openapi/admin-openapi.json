@@ -328,6 +328,7 @@
               "incompatible_host",
               "subject_invalid",
               "scope_required",
+              "key_role_mismatch",
               "token_expired",
               "limit_exceeded",
               "request_rejected",

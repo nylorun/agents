@@ -76,8 +76,9 @@ const LINK: RouteAccess = {
   anonymous: true,
   unversioned: true,
 };
+/** The Tenant's artifact limits: a Management API route (`/v1/tenant/artifacts`). */
 const SETTINGS: RouteAccess = {
-  credentials: ["application", "subject"],
+  credentials: ["application", "subject", "management"],
   scopes: ["tenant:settings"],
 };
 
