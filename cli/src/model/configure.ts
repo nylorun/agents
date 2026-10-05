@@ -17,6 +17,7 @@ import {
   stream,
   streamSimple,
 } from "@earendil-works/pi-ai/api/openai-completions";
+import type { ManagementClient } from "@nylorun/admin";
 import { resolveHome } from "../home.js";
 
 export class ConfigurationCancelled extends Error {
@@ -149,31 +150,9 @@ function modelsFor(
   };
 }
 
-/** Fetch GET /v1/tenant/models when a connection is available. */
-export async function fetchModelCatalog(options: {
-  url: string;
-  key: string;
-  fetchImpl?: typeof fetch;
-}): Promise<ModelCatalog> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const { PROTOCOL_HEADER, PROTOCOL_VERSION } = await import(
-    "@nylorun/agents"
-  );
-  const response = await fetchImpl(
-    `${options.url.replace(/\/$/, "")}/v1/tenant/models`,
-    {
-      headers: {
-        authorization: `Bearer ${options.key}`,
-        [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Runtime model catalog returned ${response.status}`);
-  }
-  return (await response.json()) as ModelCatalog;
+/** The Tenant's model catalog (`GET /v1/tenant/models`, Management API). */
+export async function fetchModelCatalog(admin: ManagementClient): Promise<ModelCatalog> {
+  return await admin.models.catalog();
 }
 
 // Internal options also allow isolated prompt tests without changing process globals.

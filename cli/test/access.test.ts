@@ -1,19 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentsClient } from "@nylorun/agents";
+import type { ManagementClient } from "@nylorun/admin";
 import { accessCommand } from "../src/access/commands.js";
 import { CliError } from "../src/errors.js";
 
 function stub() {
   const calls: [string, ...unknown[]][] = [];
   const client = {
-    access: {
-      signingKeys: {
-        list: async () => (calls.push(["list"]), []),
-        rotate: async (options: unknown) => (calls.push(["rotate", options]), []),
-        revoke: async (kid: string) => (calls.push(["revoke", kid]), { id: kid }),
-      },
+    signingKeys: {
+      list: async () => (calls.push(["list"]), []),
+      rotate: async (options: unknown) => (calls.push(["rotate", options]), []),
+      revoke: async (kid: string) => (calls.push(["revoke", kid]), { id: kid }),
     },
-  } as unknown as AgentsClient;
+  } as unknown as ManagementClient;
   return { calls, run: (args: string[]) => accessCommand(args, async () => client) };
 }
 

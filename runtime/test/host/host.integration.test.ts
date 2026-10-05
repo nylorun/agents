@@ -165,7 +165,7 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     const tenantId = status.tenant.id!;
     const tenant = await getJson(`${host.url}/v1/tenant`, {
       headers: {
-        authorization: `Bearer ${deriveStudioToken(ADMIN_KEY, tenantId)}`,
+        authorization: `Bearer ${deriveStudioToken(ADMIN_KEY)}`,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       },
     });

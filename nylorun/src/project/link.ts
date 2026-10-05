@@ -91,13 +91,17 @@ export async function writeProjectLink(
   });
 }
 
-/** An application key and its principal: `credentials.json`'s content (format 1). */
+/**
+ * An application key and its principal, and the management key and its principal when the file
+ * has one: `credentials.json`'s content (format 1).
+ */
 export interface KeyCredentials {
   applicationKey: string;
   principalId: string;
+  management?: { key: string; principalId: string };
 }
 
-/** The Project's application key and principal, or undefined when absent or unreadable. */
+/** The Project's keys, or undefined when absent or unreadable. */
 export async function readProjectCredentials(
   projectRoot: string,
 ): Promise<KeyCredentials | undefined> {
@@ -105,18 +109,27 @@ export async function readProjectCredentials(
 }
 
 /**
- * A credentials file (`{ format: 1, applicationKey, principalId }`): the Project's, or one the
- * nylorun commands keep in the Host root. Undefined when absent or unreadable.
+ * A credentials file (`{ format: 1, applicationKey, principalId, managementKey?,
+ * managementPrincipalId? }`): the Project's, or one the nylorun commands keep in the Host root.
+ * Undefined when absent or unreadable.
  */
 export async function readCredentialsFile(path: string): Promise<KeyCredentials | undefined> {
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as {
       applicationKey?: unknown;
       principalId?: unknown;
+      managementKey?: unknown;
+      managementPrincipalId?: unknown;
     };
-    return typeof value.applicationKey === "string" && typeof value.principalId === "string"
-      ? { applicationKey: value.applicationKey, principalId: value.principalId }
-      : undefined;
+    if (typeof value.applicationKey !== "string" || typeof value.principalId !== "string")
+      return undefined;
+    return {
+      applicationKey: value.applicationKey,
+      principalId: value.principalId,
+      ...(typeof value.managementKey === "string" && typeof value.managementPrincipalId === "string"
+        ? { management: { key: value.managementKey, principalId: value.managementPrincipalId } }
+        : {}),
+    };
   } catch {
     return undefined;
   }
@@ -140,5 +153,11 @@ export async function writeCredentialsFile(
     format: 1,
     applicationKey: credentials.applicationKey,
     principalId: credentials.principalId,
+    ...(credentials.management
+      ? {
+          managementKey: credentials.management.key,
+          managementPrincipalId: credentials.management.principalId,
+        }
+      : {}),
   });
 }

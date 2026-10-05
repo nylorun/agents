@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { RuntimeError } from "@nylorun/agents/client";
 import type { CredentialInfo, VaultInfo } from "@nylorun/agents";
 import { KeyRound, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createTenantClient } from "@/proxy-client";
+import { createTenantManagementClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
 
 const SECRET_MASK = "••••••••••••••••";
@@ -39,7 +38,7 @@ type Row = {
   credential: CredentialInfo;
 };
 
-const client = (tenantId: string) => createTenantClient(tenantId);
+const client = (tenantId: string) => createTenantManagementClient(tenantId);
 
 function formatWhen(value?: string): string {
   if (!value) return "—";
@@ -51,12 +50,8 @@ function formatWhen(value?: string): string {
   }).format(parsed);
 }
 
+/** The Management client's errors carry the Runtime's message. */
 function messageOf(cause: unknown): string {
-  if (cause instanceof RuntimeError) {
-    const body = cause.body as { message?: string } | undefined;
-    if (body && typeof body.message === "string" && body.message)
-      return body.message;
-  }
   return cause instanceof Error ? cause.message : String(cause);
 }
 
@@ -80,7 +75,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
   const refresh = useCallback(async () => {
     const sdk = client(tenantId);
     const nextVaults = listFrom<VaultInfo>(
-      await sdk.listVaults(),
+      { vaults: await sdk.vaults.list() },
       "vaults",
       "The Runtime did not return the Tenant's vaults.",
     );
@@ -97,7 +92,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     const credentials = await Promise.all(
       nextVaults.map(async (vault) => {
         const listedCredentials = listFrom<CredentialInfo>(
-          await sdk.listCredentials(vault.id),
+          { credentials: await sdk.vaults.credentials.list(vault.id) },
           "credentials",
           "The Runtime did not return the vault's credentials.",
         );
@@ -163,7 +158,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     const secretValue = secret;
     try {
       if (panelMode === "add-vault") {
-        await sdk.createVault({
+        await sdk.vaults.create({
           name: vaultName.trim(),
           scope: "installation",
           idempotencyKey: crypto.randomUUID(),
@@ -171,7 +166,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
         setSaved(`Created vault “${vaultName.trim()}”.`);
       } else if (panelMode === "add-credential") {
         if (!selectedVaultId) throw new Error("Create a vault first.");
-        const created = await sdk.createCredential(selectedVaultId, {
+        const created = await sdk.vaults.credentials.create(selectedVaultId, {
           name: credentialName.trim(),
           idempotencyKey: crypto.randomUUID(),
           auth:
@@ -189,7 +184,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
           `Saved “${created.name}”. Secrets stay encrypted in the Runtime vault.`,
         );
       } else if (panelMode === "update" && active) {
-        const updated = await sdk.rotateCredential(
+        const updated = await sdk.vaults.credentials.rotate(
           active.vault.id,
           active.credential.id,
           {
@@ -206,7 +201,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
       } else if (panelMode === "delete" && active) {
         if (confirmName.trim() !== active.credential.name)
           throw new Error("Type the credential name to confirm deletion.");
-        await sdk.deleteCredential(active.vault.id, active.credential.id);
+        await sdk.vaults.credentials.delete(active.vault.id, active.credential.id);
         setSaved(`Deleted “${active.credential.name}”.`);
       } else if (panelMode === "view") {
         setPanelOpen(false);
@@ -235,7 +230,7 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     setSaved("");
     setPending(true);
     try {
-      await client(tenantId).deleteVault(selectedVault.id);
+      await client(tenantId).vaults.delete(selectedVault.id);
       setSelectedVaultId("");
       setSaved(`Deleted vault “${label}”.`);
       await refresh();

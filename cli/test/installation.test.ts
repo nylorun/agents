@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { endpointLine } from "../src/installation/commands.js";
-import { APPLICATION_KEY, HOST_ID, link3, project, writeProjectLink } from "./helpers/project.js";
+import {
+  APPLICATION_KEY,
+  HOST_ID,
+  link3,
+  MANAGEMENT_KEY,
+  project,
+  writeProjectLink,
+} from "./helpers/project.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const roots: string[] = [];
@@ -95,10 +102,13 @@ async function runtime(options: { tenantOpen?: boolean } = {}) {
   return { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, requests };
 }
 
-async function linkedProject(hostUrl: string): Promise<string> {
+async function linkedProject(
+  hostUrl: string,
+  credentials?: Record<string, unknown>,
+): Promise<string> {
   const root = await project("nylo-installation-");
   roots.push(root);
-  await writeProjectLink(root, link3(hostUrl));
+  await writeProjectLink(root, link3(hostUrl), credentials);
   return root;
 }
 
@@ -111,6 +121,7 @@ function nylo(args: string[], cwd: string, env: Record<string, string> = {}) {
       ...process.env,
       NYLORUN_RUNTIME_URL: "",
       NYLORUN_SERVER_KEY: "",
+      NYLORUN_MANAGEMENT_KEY: "",
       NYLORUN_ADMIN_URL: "",
       NYLORUN_ADMIN_KEY: "",
       NYLORUN_TENANT: "",
@@ -189,27 +200,68 @@ describe("nylo status|reset|endpoints on the linked installation", { timeout: 20
     expect(ping.stdout).toContain("support  serves dev");
   });
 
-  it("uses NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY without a link", async () => {
+  it("uses NYLORUN_RUNTIME_URL with NYLORUN_MANAGEMENT_KEY or NYLORUN_SERVER_KEY without a link", async () => {
     const host = await runtime();
     const root = await project("nylo-installation-");
     roots.push(root);
     const result = await nylo(["status"], root, {
       NYLORUN_RUNTIME_URL: host.url,
-      NYLORUN_SERVER_KEY: APPLICATION_KEY,
+      NYLORUN_MANAGEMENT_KEY: MANAGEMENT_KEY,
     });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`runtime  ${host.url}`);
+    const endpoints = await nylo(["endpoints"], root, {
+      NYLORUN_RUNTIME_URL: host.url,
+      NYLORUN_SERVER_KEY: APPLICATION_KEY,
+    });
+    expect(endpoints.code).toBe(0);
+    expect(host.requests.map((r) => `${r.url} ${r.headers.authorization}`)).toEqual([
+      `/v1/tenant Bearer ${MANAGEMENT_KEY}`,
+      `/v1/endpoints Bearer ${APPLICATION_KEY}`,
+    ]);
+    // Each API needs its own key.
+    const status = await nylo(["status"], root, {
+      NYLORUN_RUNTIME_URL: host.url,
+      NYLORUN_SERVER_KEY: APPLICATION_KEY,
+    });
+    expect(status.code).toBe(1);
+    expect(status.stderr).toContain("No management key");
   });
 
-  it("requests carry the key and protocol and never a Nylorun-Tenant header", async () => {
+  it("status and reset need a management key: a credentials file from before management keys is refused", async () => {
+    const host = await runtime();
+    const root = await linkedProject(host.url, {
+      format: 1,
+      applicationKey: APPLICATION_KEY,
+      principalId: "project",
+    });
+    for (const args of [["status"], ["reset", "--yes"]]) {
+      const result = await nylo(args, root);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        `No management key for the Tenant at ${host.url}: run npx nylorun start, or set NYLORUN_MANAGEMENT_KEY.`,
+      );
+    }
+    expect(host.requests).toEqual([]);
+    // NYLORUN_MANAGEMENT_KEY stands in for the missing one.
+    expect((await nylo(["status"], root, { NYLORUN_MANAGEMENT_KEY: MANAGEMENT_KEY })).code).toBe(0);
+    // The Runtime API needs only the application key.
+    expect((await nylo(["endpoints"], root)).code).toBe(0);
+  });
+
+  it("requests carry the key of their API and the protocol, and never a Nylorun-Tenant header", async () => {
     const host = await runtime();
     const root = await linkedProject(host.url);
     for (const args of [["status"], ["reset", "--yes"], ["endpoints"], ["endpoints", "ping", "support"]])
       expect((await nylo(args, root)).code).toBe(0);
-    const tenantApi = host.requests.filter((r) => !r.url.startsWith("/v1/admin/"));
-    expect(tenantApi.length).toBeGreaterThanOrEqual(4);
-    for (const request of tenantApi) {
-      expect(request.headers.authorization).toBe(`Bearer ${APPLICATION_KEY}`);
+    const requests = host.requests.filter((r) => !r.url.startsWith("/v1/admin/"));
+    expect(requests.map((r) => `${r.url} ${r.headers.authorization}`)).toEqual([
+      `/v1/tenant Bearer ${MANAGEMENT_KEY}`,
+      `/v1/tenant/reset Bearer ${MANAGEMENT_KEY}`,
+      `/v1/endpoints Bearer ${APPLICATION_KEY}`,
+      `/v1/endpoints/support/ping Bearer ${APPLICATION_KEY}`,
+    ]);
+    for (const request of requests) {
       expect(request.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
       expect(request.headers["nylorun-tenant"]).toBeUndefined();
     }

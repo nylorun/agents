@@ -27,6 +27,8 @@ async function runtime(report: unknown): Promise<string> {
       );
       return;
     }
+    // The Management API, with the management key.
+    expect(url).toBe("/v1/tenant/sandbox");
     expect(request.headers.authorization).toBe("Bearer key");
     tenantHeaders.push(request.headers["nylorun-tenant"]);
     response.setHeader("content-type", "application/json");
@@ -60,10 +62,10 @@ it("F2-4: doctor sandbox prints Tenant API report (snapshot)", async () => {
   const url = await runtime(report);
   const previous = {
     url: process.env.NYLORUN_RUNTIME_URL,
-    key: process.env.NYLORUN_SERVER_KEY,
+    key: process.env.NYLORUN_MANAGEMENT_KEY,
   };
   process.env.NYLORUN_RUNTIME_URL = url;
-  process.env.NYLORUN_SERVER_KEY = "key";
+  process.env.NYLORUN_MANAGEMENT_KEY = "key";
   const lines: string[] = [];
   const original = console.log;
   console.log = (...args: unknown[]) => {
@@ -75,8 +77,8 @@ it("F2-4: doctor sandbox prints Tenant API report (snapshot)", async () => {
     console.log = original;
     if (previous.url === undefined) delete process.env.NYLORUN_RUNTIME_URL;
     else process.env.NYLORUN_RUNTIME_URL = previous.url;
-    if (previous.key === undefined) delete process.env.NYLORUN_SERVER_KEY;
-    else process.env.NYLORUN_SERVER_KEY = previous.key;
+    if (previous.key === undefined) delete process.env.NYLORUN_MANAGEMENT_KEY;
+    else process.env.NYLORUN_MANAGEMENT_KEY = previous.key;
   }
   const text = lines.join("\n");
   expect(text).toContain("virtual");

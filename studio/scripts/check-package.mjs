@@ -76,7 +76,8 @@ for (const path of walk("web/src")) {
     /@nylorun\/harness/,
     /@nylorun\/runtime/,
     /@nylorun\/core/,
-    /@nylorun\/admin/,
+    // Only the Management client, which loads no Node modules.
+    /@nylorun\/admin(?!\/client["'])/,
     /action-handler/,
     /execute-action/,
   ])

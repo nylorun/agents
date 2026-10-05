@@ -62,16 +62,7 @@ async function fakeRuntime({ listsMissing = false } = {}) {
           protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
         }),
       );
-    if (path === "/v1/admin/status")
-      return res.end(
-        JSON.stringify({
-          service: "nylorun-runtime",
-          version: "0.0.0-test",
-          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
-          tenant: { id: TENANT, name: "orders", state: "open", envelope: null },
-          aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
-        }),
-      );
+    if (path === "/v1/tenant") return res.end(JSON.stringify({ tenant: { id: TENANT, name: "orders" } }));
     if (path === "/v1/agents")
       return res.end(
         JSON.stringify({
@@ -88,11 +79,11 @@ async function fakeRuntime({ listsMissing = false } = {}) {
       return; // held open, like a live stream
     }
     if (path.endsWith("/items")) return res.end(JSON.stringify({ items: [], cursor: null }));
-    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/vaults"].includes(path))
+    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/tenant/vaults"].includes(path))
       return res.end(JSON.stringify({}));
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return res.end(JSON.stringify({ providers: [] }));
-    if (path === "/v1/vaults") return res.end(JSON.stringify({ vaults: [] }));
+    if (path === "/v1/tenant/vaults") return res.end(JSON.stringify({ vaults: [] }));
     if (path === "/v1/tenant/model") return res.end(JSON.stringify({ configured: false }));
     res.end(JSON.stringify({}));
   });
@@ -294,7 +285,7 @@ for (const [name, browserType] of [
   });
 }
 
-test("a normal browser tab still signs in with the cookie and opens the one Tenant", async () => {
+test("a normal browser tab on loopback opens the one Tenant with no sign-in, and the login link still works", async () => {
   const browser = await chromium.launch();
   try {
     await withStack(async ({ studioUrl }) => {
@@ -304,9 +295,11 @@ test("a normal browser tab still signs in with the cookie and opens the one Tena
       });
       const { url } = (await minted.json()) as { url: string };
       const page = await browser.newPage();
-      const signedOut = await browser.newPage();
-      await signedOut.goto(studioUrl);
-      await signedOut.getByRole("heading", { name: "Sign in to Studio" }).waitFor();
+      // AP19: the published loopback address needs no sign-in.
+      const local = await browser.newPage();
+      await local.goto(studioUrl);
+      await local.waitForURL(`${studioUrl}/tenants/${TENANT}`);
+      await local.getByText("Agent One").first().waitFor();
       // `/login` sends the browser to `/`, which redirects to the Tenant.
       await page.goto(url);
       await page.waitForURL(`${studioUrl}/tenants/${TENANT}`);

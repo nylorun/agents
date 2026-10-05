@@ -1,6 +1,6 @@
 /**
  * `nylorun mcp connect <url> --server <name>`: signs the running local Tenant in to a remote MCP
- * server with OAuth (F9 C2), through its Tenant API with an operator key (`runningTenantApi`).
+ * server with OAuth (F9 C2), through its Management API with a management key (`runningTenantApi`).
  * The Runtime's keys module runs discovery, registration and the code exchange and seals the
  * credential in an installation vault (`mcp` unless `--vault` names one); this command only
  * opens the browser and waits for the credential to appear. It never starts the Tenant.
@@ -32,7 +32,7 @@ async function call<T>(
   const response = await deps.fetch(`${api.runtimeUrl}${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${api.applicationKey}`,
+      authorization: `Bearer ${api.managementKey}`,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       accept: "application/json",
       ...(body === undefined ? {} : { "content-type": "application/json" }),
@@ -65,11 +65,11 @@ function bindingUrl(input: string): string {
 
 /** The installation vault named `mcp`, created when there is none. */
 async function mcpVault(deps: StackDeps, api: TenantApi): Promise<VaultInfo> {
-  const { vaults } = await call<{ vaults: VaultInfo[] }>(deps, api, "GET", "/v1/vaults");
+  const { vaults } = await call<{ vaults: VaultInfo[] }>(deps, api, "GET", "/v1/tenant/vaults");
   const found = vaults.find((vault) => vault.ownerUserId === "installation" && vault.name === MCP_VAULT_NAME);
   if (found) return found;
   const key = `nylorun-mcp-${randomUUID()}`;
-  return await call<VaultInfo>(deps, api, "POST", "/v1/vaults", {
+  return await call<VaultInfo>(deps, api, "POST", "/v1/tenant/vaults", {
     requestId: key,
     idempotencyKey: key,
     name: MCP_VAULT_NAME,
@@ -83,7 +83,7 @@ async function credentialsFor(deps: StackDeps, api: TenantApi, vaultId: string, 
     deps,
     api,
     "GET",
-    `/v1/vaults/${encodeURIComponent(vaultId)}/credentials`,
+    `/v1/tenant/vaults/${encodeURIComponent(vaultId)}/credentials`,
   );
   return new Map(
     credentials
@@ -113,7 +113,7 @@ async function connect(deps: StackDeps, args: readonly string[]): Promise<number
     deps,
     api,
     "POST",
-    `/v1/vaults/${encodeURIComponent(vaultId)}/oauth/start`,
+    `/v1/tenant/vaults/${encodeURIComponent(vaultId)}/oauth/start`,
     { url, server, ...(clientId === undefined ? {} : { clientId }) },
   );
   deps.out(`Sign in to ${server} in your browser:`);

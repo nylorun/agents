@@ -1,28 +1,29 @@
 /**
- * `nylo status`, `nylo reset` and `nylo endpoints`: the linked installation's one Tenant,
- * through the Tenant API with the Project's application key.
+ * `nylo status`, `nylo reset` and `nylo endpoints`: the linked installation's one Tenant.
+ * Status and reset are the Management API's (the Project's management key); endpoints are the
+ * Runtime API's (its application key).
  */
 import { createInterface } from "node:readline/promises";
-import { randomUUID } from "node:crypto";
 import { createAdmin, type HostTenant } from "@nylorun/admin";
 import { createClient } from "@nylorun/agents";
 import { CliError } from "../errors.js";
-import { linkedConnection, type LinkedConnection } from "../project/connection.js";
+import {
+  linkedConnection,
+  managementClient,
+  type LinkedConnection,
+} from "../project/connection.js";
 import { findProjectRoot } from "../project/root.js";
-
-/** The Tenant API status body (`GET /v1/tenant`), the parts `nylo status` prints. */
-type TenantStatusView = {
-  tenant: { name: string; id: string };
-  path: string;
-  checks: Record<string, boolean>;
-  counts: Record<string, number>;
-  sandbox: { backend: string | null };
-};
 
 const projectRoot = () => findProjectRoot() ?? process.cwd();
 
-const clientFor = (connection: LinkedConnection) =>
-  createClient({ url: connection.url, key: connection.key });
+const clientFor = (connection: LinkedConnection) => {
+  if (!connection.key)
+    throw new CliError(
+      `No application key for the Tenant at ${connection.url}: run npx nylorun start, or set NYLORUN_SERVER_KEY.`,
+      1,
+    );
+  return createClient({ url: connection.url, key: connection.key });
+};
 
 /** `nylo status [--json]`: the Tenant, its checks and counts; the Host's cause when it is not open. */
 export async function statusCommand(args: readonly string[]): Promise<void> {
@@ -31,12 +32,10 @@ export async function statusCommand(args: readonly string[]): Promise<void> {
     throw new CliError("Usage: nylo status [--json]", 2);
   const root = projectRoot();
   const connection = await linkedConnection(root);
+  const admin = managementClient(connection);
   let reason: unknown;
   try {
-    const body = await clientFor(connection).transport.json<TenantStatusView>(
-      "/v1/tenant",
-      "GET",
-    );
+    const body = await admin.tenant.status();
     if (json) {
       console.log(JSON.stringify(body, null, 2));
       return;
@@ -96,16 +95,13 @@ export async function resetCommand(args: readonly string[]): Promise<void> {
   const connection = await linkedConnection(projectRoot());
   const tenant = connection.link?.tenant;
   const target = tenant ? `Tenant ${tenant} (${connection.url})` : `the Tenant on ${connection.url}`;
+  const admin = managementClient(connection);
   if (scope === "all" && !yes)
     await confirmOrThrow(
       `Reset ALL data of ${target}? The Project link and credentials are kept. [y/N] `,
     );
   try {
-    await clientFor(connection).transport.json("/v1/tenant/reset", "POST", {
-      requestId: randomUUID(),
-      scope,
-      activeWork: "drain",
-    });
+    await admin.tenant.reset({ scope, activeWork: "drain" });
   } catch (error) {
     throw new CliError(
       error instanceof Error ? error.message : `Tenant reset failed: ${String(error)}`,

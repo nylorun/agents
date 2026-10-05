@@ -3,13 +3,21 @@ import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import { sandboxCommand } from "../../src/stack/sandbox.js";
-import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.js";
+import {
+  bearerIn,
+  fakeDocker,
+  fakeFetch,
+  fakeOperate,
+  json,
+  temporaryHome,
+  testDeps,
+  type FakeKeys,
+} from "./support.js";
 
 const TENANT_ID = "tn_01TESTSTACK000000000000001";
 
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
-const CLI_KEY = "c".repeat(64);
 
 const psUp = {
   code: 0,
@@ -48,8 +56,10 @@ const SANDBOXES = [
 /** A running Tenant whose Runtime answers the sandbox routes. */
 async function running(options: { up?: boolean } = {}) {
   const home = await temporaryHome();
+  const keys: FakeKeys = new Map();
+  const operate = fakeOperate(() => keys);
   const docker = fakeDocker({
-    respond: (args) => (options.up !== false && args.includes("ps") ? psUp : undefined),
+    respond: (args) => (args.includes("ps") ? (options.up !== false ? psUp : undefined) : operate(args)),
   });
   const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health"))
@@ -58,11 +68,9 @@ async function running(options: { up?: boolean } = {}) {
       return json({ tenant: { id: TENANT_ID, name: "home-root", state: "open", envelope: null } });
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
-    if (path === "/v1/admin/keys/cli" && init?.method === "PUT")
-      return json({ id: "cli", role: "application", createdAt: "2026-10-04T00:00:00.000Z", key: CLI_KEY, rotated: false });
-    if (path === "/v1/tenant")
-      return new Headers(init?.headers).get("authorization") === `Bearer ${CLI_KEY}`
-        ? json({ tenant: { id: TENANT_ID } })
+    if (path === "/v1/me")
+      return bearerIn(keys.values(), init)
+        ? json({ kind: "application" })
         : json({ status: "rejected", code: "not_found", message: "Not found" }, 404);
     if (path === "/v1/sandboxes") return json({ sandboxes: SANDBOXES });
     if (path === "/v1/sandboxes/team-a%2Fproj-42" && init?.method === "DELETE")
@@ -76,12 +84,12 @@ async function running(options: { up?: boolean } = {}) {
   deps.lines.length = 0;
   deps.errors.length = 0;
   docker.streamed.length = 0;
-  return { home, deps, fetch, docker };
+  return { home, deps, fetch, docker, keys };
 }
 
 describe("nylorun sandbox", () => {
-  it("ls lists the Tenant's sandboxes with the operator key cli, put once and kept in the Host root", async () => {
-    const { home, deps, fetch } = await running();
+  it("ls lists the Tenant's sandboxes with the application key cli, put once and kept in the Host root", async () => {
+    const { home, deps, fetch, docker, keys } = await running();
     expect(await sandboxCommand(deps, ["ls", "--label", "project=acme"])).toBe(0);
     expect(deps.lines).toEqual([
       "ID              KIND     STATE    SESSIONS  LABELS",
@@ -91,18 +99,20 @@ describe("nylorun sandbox", () => {
     const request = fetch.requests.find((item) => item.url.includes("/v1/sandboxes"))!;
     expect(new URL(request.url).searchParams.getAll("label")).toEqual(["project=acme"]);
     const headers = new Headers(request.init?.headers);
-    expect(headers.get("authorization")).toBe(`Bearer ${CLI_KEY}`);
+    expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli")!.key}`);
     expect(headers.get("nylorun-protocol")).toBe("7");
     const file = stackPaths(home).cliCredentials;
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
       format: 1,
-      applicationKey: CLI_KEY,
+      applicationKey: keys.get("cli")!.key,
       principalId: "cli",
+      managementKey: keys.get("cli-management")!.key,
+      managementPrincipalId: "cli-management",
     });
     expect(statSync(file).mode & 0o777).toBe(0o600);
-    // A later command reuses the kept key: no second put.
+    // A later command reuses the kept keys: no second put.
     expect(await sandboxCommand(deps, ["ls"])).toBe(0);
-    expect(fetch.requests.filter((item) => item.url.endsWith("/v1/admin/keys/cli"))).toHaveLength(1);
+    expect(docker.calls.filter((args) => args.includes("nylorun-operate"))).toHaveLength(2);
   });
 
   it("ls --json prints the sandboxes", async () => {

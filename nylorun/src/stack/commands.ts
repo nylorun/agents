@@ -60,7 +60,7 @@ import {
   hostKey,
   keyAuthenticates,
   PROJECT_KEY_ID,
-  type AdminEndpoint,
+  type OperateEndpoint,
 } from "./operator-keys.js";
 
 export const STACK_SERVICES = [
@@ -257,6 +257,15 @@ function composeArgs(ctx: Pick<Context, "project" | "paths">, ...args: string[])
     ctx.paths.env,
     ...args,
   ];
+}
+
+/** `nylorun-operate` in the Tenant's runtime container (`docker compose exec`), for its keys. */
+function operateEndpoint(ctx: Pick<Context, "deps" | "project" | "paths">): OperateEndpoint {
+  return {
+    fetch: ctx.deps.fetch,
+    operate: (args) =>
+      ctx.deps.docker.run(composeArgs(ctx, "exec", "-T", "runtime", "nylorun-operate", ...args)),
+  };
 }
 
 function requireStackFiles(ctx: Context): void {
@@ -736,11 +745,12 @@ async function openLogin(ctx: Pick<Context, "deps">, login: string): Promise<voi
  * `.nylorun/credentials.json`. The link is rewritten only when it is older, or the Tenant's
  * name, URL, Host or id changed; a new link seeds the Tenant from the project's `.env`.
  *
- * The credentials file is kept while its key still reaches the Tenant (one authenticated
- * read). Otherwise it gets the operator key `project` (F9 I1): the one the Host root keeps for
- * the projects linked to this Tenant (`project-credentials.json`), or a new one put through
- * the Admin API. Every checkout linked to the Tenant shares it, so linking one never rotates
- * another's key.
+ * The credentials file is kept while both its keys still reach the Tenant (one authenticated
+ * read each). Otherwise it gets the keys `project` (application) and `project-management`
+ * (management): the ones the Host root keeps for the projects linked to this Tenant
+ * (`project-credentials.json`), or new ones put through `nylorun-operate`. Every checkout linked
+ * to the Tenant shares them, so linking one never rotates another's keys. A file from before
+ * management keys keeps its application key and gains the management key.
  */
 async function linkProject(
   ctx: Context & { projectDir: string },
@@ -761,36 +771,28 @@ async function linkProject(
       hostId: started.hostId,
       tenantId,
     });
+  const reaches = (key: string) => keyAuthenticates(deps.fetch, started.runtimeUrl, key);
   const existing = await readProjectCredentials(projectDir);
-  const admin: AdminEndpoint = {
-    fetch: deps.fetch,
-    adminUrl: started.adminUrl,
-    adminKey: started.adminKey,
-  };
-  const keyOptions = {
-    admin,
-    runtimeUrl: started.runtimeUrl,
-    id: PROJECT_KEY_ID,
-    file: ctx.paths.projectCredentials,
-    lock: ctx.paths.keysLock,
-  };
-  let applicationKey: string;
-  if (existing && (await keyAuthenticates(deps.fetch, started.runtimeUrl, existing.applicationKey))) {
-    applicationKey = existing.applicationKey;
+  const kept = existing && (await reaches(existing.applicationKey)) ? existing : undefined;
+  let credentials = kept;
+  if (
+    !kept?.management ||
     // A project key from before operator keys becomes the one the Host root keeps.
-    if (
-      existing.principalId === PROJECT_KEY_ID &&
-      (await readCredentialsFile(ctx.paths.projectCredentials))?.applicationKey !== applicationKey
-    )
-      await hostKey({ ...keyOptions, adopt: existing });
-  } else {
-    const key = await hostKey(keyOptions);
-    applicationKey = key.applicationKey;
-    await writeProjectCredentials(projectDir, {
-      applicationKey: key.applicationKey,
-      principalId: key.principalId,
+    (kept.principalId === PROJECT_KEY_ID &&
+      (await readCredentialsFile(ctx.paths.projectCredentials))?.applicationKey !== kept.applicationKey) ||
+    !(await reaches(kept.management.key))
+  ) {
+    const keys = await hostKey({
+      endpoint: operateEndpoint(ctx),
+      runtimeUrl: started.runtimeUrl,
+      id: PROJECT_KEY_ID,
+      file: ctx.paths.projectCredentials,
+      lock: ctx.paths.keysLock,
+      ...(kept?.principalId === PROJECT_KEY_ID ? { adopt: kept } : {}),
     });
-    if (existing && !fresh)
+    credentials = kept ? { ...kept, management: keys.management } : keys;
+    await writeProjectCredentials(projectDir, credentials);
+    if (existing && !kept && !fresh)
       deps.err(`Replaced the project's key, which no longer reaches Tenant ${ctx.name} (.nylorun/credentials.json).`);
   }
   if (!fresh) return;
@@ -799,7 +801,7 @@ async function linkProject(
     const seeded = await seedTenant({
       fetch: deps.fetch,
       runtimeUrl: started.runtimeUrl,
-      applicationKey,
+      managementKey: credentials!.management!.key,
       projectRoot: projectDir,
     });
     const set = [...seeded.applied, ...(seeded.model ? [`model ${seeded.model}`] : [])];
@@ -1374,20 +1376,21 @@ async function ensureSelected(ctx: Context, options: { studio: boolean }): Promi
   };
 }
 
-/** The running Tenant's API, reached with an operator key (`nylorun sandbox`). */
+/** The running Tenant's APIs and their keys (`nylorun sandbox`, `nylorun mcp`). */
 export interface TenantApi {
   /** The Tenant's name. */
   name: string;
   runtimeUrl: string;
   /**
-   * The linked project's key (`.nylorun/credentials.json`) when it reaches the Tenant, else
-   * the operator key `cli` the Host root keeps (`cli-credentials.json`).
+   * The linked project's keys (`.nylorun/credentials.json`) when both reach the Tenant, else
+   * the keys `cli` and `cli-management` the Host root keeps (`cli-credentials.json`).
    */
   applicationKey: string;
+  managementKey: string;
 }
 
-/** The selected Tenant's Admin API while it runs: `nylorun key` and `runningTenantApi`. */
-export interface RunningAdmin extends AdminEndpoint {
+/** The selected Tenant's `nylorun-operate` while it runs: `nylorun key` and `runningTenantApi`. */
+export interface RunningOperate extends OperateEndpoint {
   /** The Tenant's name. */
   name: string;
   runtimeUrl: string;
@@ -1397,7 +1400,7 @@ export interface RunningAdmin extends AdminEndpoint {
 async function runningSelected(
   deps: StackDeps,
   options: { name?: string },
-): Promise<{ ctx: Context; admin: RunningAdmin }> {
+): Promise<{ ctx: Context; running: RunningOperate }> {
   const ctx = await selectStack(deps, options);
   requireStackFiles(ctx);
   await dockerPreflight(deps.docker);
@@ -1409,26 +1412,24 @@ async function runningSelected(
     throw new CliError(`Tenant ${ctx.name} is not open. See "nylorun status".`, 7);
   return {
     ctx,
-    admin: {
+    running: {
       name: ctx.name,
       runtimeUrl: running.runtimeUrl,
       paths: ctx.paths,
-      fetch: deps.fetch,
-      adminUrl: running.adminUrl,
-      adminKey: running.adminKey,
+      ...operateEndpoint(ctx),
     },
   };
 }
 
 /**
- * The selected Tenant's Admin API while it runs; exit 3 when it is not running, 7 when it is
- * not open.
+ * The selected Tenant's `nylorun-operate` while it runs; exit 3 when it is not running, 7 when
+ * it is not open.
  */
-export async function runningAdmin(
+export async function runningOperate(
   deps: StackDeps,
   options: { name?: string } = {},
-): Promise<RunningAdmin> {
-  return (await runningSelected(deps, options)).admin;
+): Promise<RunningOperate> {
+  return (await runningSelected(deps, options)).running;
 }
 
 /**
@@ -1439,20 +1440,31 @@ export async function runningTenantApi(
   deps: StackDeps,
   options: { name?: string } = {},
 ): Promise<TenantApi> {
-  const { ctx, admin } = await runningSelected(deps, options);
+  const { ctx, running } = await runningSelected(deps, options);
+  const api = (applicationKey: string, managementKey: string) => ({
+    name: ctx.name,
+    runtimeUrl: running.runtimeUrl,
+    applicationKey,
+    managementKey,
+  });
+  const reaches = (key: string) => keyAuthenticates(deps.fetch, running.runtimeUrl, key);
   if (ctx.projectDir && ctx.link?.format === 3 && ctx.link.tenant === ctx.name) {
     const project = await readCredentialsFile(credentialsPath(ctx.projectDir));
-    if (project && (await keyAuthenticates(deps.fetch, admin.runtimeUrl, project.applicationKey)))
-      return { name: ctx.name, runtimeUrl: admin.runtimeUrl, applicationKey: project.applicationKey };
+    if (
+      project?.management &&
+      (await reaches(project.applicationKey)) &&
+      (await reaches(project.management.key))
+    )
+      return api(project.applicationKey, project.management.key);
   }
-  const key = await hostKey({
-    admin,
-    runtimeUrl: admin.runtimeUrl,
+  const keys = await hostKey({
+    endpoint: running,
+    runtimeUrl: running.runtimeUrl,
     id: CLI_KEY_ID,
     file: ctx.paths.cliCredentials,
     lock: ctx.paths.keysLock,
   });
-  return { name: ctx.name, runtimeUrl: admin.runtimeUrl, applicationKey: key.applicationKey };
+  return api(keys.applicationKey, keys.management.key);
 }
 
 /**

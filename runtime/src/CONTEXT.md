@@ -326,10 +326,11 @@ Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
 _Avoid_: treating package-version equality as the compatibility check.
 
-**Studio principal**: Application principal `studio` that the Host registers when it
-creates its Tenant. Its key is derived from the admin key and the Tenant id
-(`deriveStudioToken`, `admin/src/derived-credentials.ts`; the Host's side is
-`tenant/principals.ts`); the Tenant stores only its hash. Studio derives it to call the
+**Studio principal**: Principal `studio` (role `studio`) that the Host registers when it
+creates its Tenant. Its key is derived from the admin key alone (`nylorun/studio/v2`;
+`deriveStudioToken`, `admin/src/derived-credentials.ts`; the Host's side is
+`tenant/principals.ts`), and the Host replaces an older hash at each start; the Tenant stores
+only its hash. Studio derives it to call the
 Tenant API; the admin key is never a Tenant bearer.
 
 **Derived principal**: Gone in protocol 7. Only the Studio principal's key is derived

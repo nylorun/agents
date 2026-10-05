@@ -115,7 +115,7 @@ it("creates its Tenant on first start, and serves the same one after a restart",
   const again = await startHost(sql, { adminKey: first.adminKey, tenantId: newTenantId(), name: "other" });
   expect((await again.status()).tenant).toMatchObject({ id: tenantId, name: "my-app", state: "open" });
   expect(again.lines.join("\n")).not.toContain("tenant created");
-  const studio = deriveStudioToken(first.adminKey, tenantId);
+  const studio = deriveStudioToken(first.adminKey);
   expect((await again.tenant(studio)).status).toBe(200);
 });
 
@@ -124,7 +124,7 @@ it("registers the Studio principal; its key reaches the Tenant without naming it
   const host = await startHost(sql);
   const { tenant } = await host.status();
   const id = tenant.id!;
-  const studio = deriveStudioToken(host.adminKey, id);
+  const studio = deriveStudioToken(host.adminKey);
   const response = await host.tenant(studio);
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ tenant: { id } });
@@ -188,5 +188,5 @@ it("refuses a database migrated by a newer Runtime, naming its Tenant", async ()
     state: "unavailable",
     cause: { code: "schema-too-new", repair: expect.stringContaining("newer") },
   });
-  expect((await host.tenant(deriveStudioToken(first.adminKey, tenantId))).status).toBe(404);
+  expect((await host.tenant(deriveStudioToken(first.adminKey))).status).toBe(404);
 });

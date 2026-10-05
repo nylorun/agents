@@ -70,13 +70,13 @@ function modelFromEnv(env: Readonly<Record<string, string>>, projectRoot: string
 async function call(
   fetch: FetchLike,
   url: string,
-  applicationKey: string,
+  managementKey: string,
   init: { method?: string; body?: unknown } = {},
 ): Promise<unknown> {
   const response = await fetch(url, {
     ...(init.method ? { method: init.method } : {}),
     headers: {
-      authorization: `Bearer ${applicationKey}`,
+      authorization: `Bearer ${managementKey}`,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       accept: "application/json",
       ...(init.body === undefined ? {} : { "content-type": "application/json" }),
@@ -105,7 +105,8 @@ async function call(
 export async function seedTenant(input: {
   fetch: FetchLike;
   runtimeUrl: string;
-  applicationKey: string;
+  /** The Project's management key: seeding is the Management API's. */
+  managementKey: string;
   projectRoot: string;
 }): Promise<SeedResult> {
   const env = readProjectEnv(input.projectRoot);
@@ -114,7 +115,7 @@ export async function seedTenant(input: {
 
   const sandbox = env.NYLORUN_SANDBOX?.trim();
   if (sandbox === "auto" || sandbox === "virtual") {
-    const body = (await call(input.fetch, `${base}/v1/tenant/config/seed`, input.applicationKey, {
+    const body = (await call(input.fetch, `${base}/v1/tenant/config/seed`, input.managementKey, {
       method: "PUT",
       body: { requestId: randomUUID(), sandbox: { backend: sandbox } },
     })) as { applied?: unknown; kept?: unknown };
@@ -125,14 +126,14 @@ export async function seedTenant(input: {
   if (env.NYLORUN_DEV_MODEL?.trim() === "fixture") return result;
   const seeded = modelFromEnv(env, input.projectRoot);
   if (!seeded) return result;
-  const current = (await call(input.fetch, `${base}/v1/tenant/model`, input.applicationKey)) as {
+  const current = (await call(input.fetch, `${base}/v1/tenant/model`, input.managementKey)) as {
     configured?: unknown;
   };
   if (current.configured === true) {
     result.kept.push("model");
     return result;
   }
-  await call(input.fetch, `${base}/v1/tenant/model`, input.applicationKey, {
+  await call(input.fetch, `${base}/v1/tenant/model`, input.managementKey, {
     method: "PUT",
     body: {
       requestId: randomUUID(),
