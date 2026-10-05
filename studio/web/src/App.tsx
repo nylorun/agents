@@ -53,6 +53,7 @@ import {
   StudioSignedOutError,
   createTenantClient,
   fetchHello,
+  openStudioSession,
   tenantHref,
   tenantRuntime,
   tenantScope,
@@ -671,10 +672,10 @@ function SessionWorkspace({
     const sdk = studioClient(tenantId);
     const current = sdk.session(sessionId);
     void (async () => {
-      await sdk.createSession({
-        id: sessionId,
+      const inspect = await openStudioSession(sdk, {
+        sessionId,
         agentId: agent.id,
-        ownerUserId: "local-developer",
+        signal: abort.signal,
       });
       const history = await current.history({ signal: abort.signal });
       if (abort.signal.aborted) return;
@@ -688,7 +689,6 @@ function SessionWorkspace({
           linksFromEvents(loaded, sessionId, { workflowAgentId: agent.id }),
         );
       }
-      const inspect = await current.inspect(abort.signal);
       setStatus(inspect.status);
       await refresh();
       for await (const event of current.observe({

@@ -103,6 +103,27 @@ export function createTenantClient(
   });
 }
 
+/** Open existing client-created sessions without changing their creation settings. */
+export async function openStudioSession(
+  client: ReturnType<typeof createTenantClient>,
+  options: { sessionId: string; agentId: string; signal?: AbortSignal },
+) {
+  const session = client.session(options.sessionId);
+  try {
+    return await session.inspect(options.signal);
+  } catch (error) {
+    if (!(error instanceof Error && "status" in error && error.status === 404))
+      throw error;
+  }
+  options.signal?.throwIfAborted();
+  await client.createSession({
+    id: options.sessionId,
+    agentId: options.agentId,
+    ownerUserId: "local-developer",
+  });
+  return session.inspect(options.signal);
+}
+
 async function readJson<T>(response: Response, what: string): Promise<T> {
   if (response.status === 401) throw new StudioSignedOutError();
   if (!response.ok) {

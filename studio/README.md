@@ -64,6 +64,7 @@ must name that Tenant, and any other id is an unknown Tenant (`404`).
 A Tenant with no agents shows its name, full Tenant id and Runtime connection
 status, with a short link to the documentation. Developers can use the SDK, CLI
 or any Runtime API client; the agent list appears when the first agent registers.
+Existing sessions open with their original owner and sandbox settings.
 The dashboard calls the Tenant API through
 `/_studio/tenants/<id>/runtime/…`, which the server forwards with the Tenant's
 Studio key (derived from the admin key and the Tenant id in memory) and no

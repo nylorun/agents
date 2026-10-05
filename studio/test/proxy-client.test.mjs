@@ -4,6 +4,7 @@ import {
   StudioSignedOutError,
   createTenantClient,
   fetchHello,
+  openStudioSession,
   studioFetch,
   tenantHref,
   tenantRuntime,
@@ -86,4 +87,40 @@ test("fetchHello reports the installation's Tenant, or a missing session", async
   assert.deepEqual(hello.runtime, { compatible: true });
   assert.deepEqual(hello.tenant, tenant);
   assert.equal(ok.calls[0].url, "/_studio/hello");
+});
+
+test("openStudioSession reads client-created sessions without recreating them", async () => {
+  const existing = { id: "s", status: "completed", ownerUserId: "another-client", sandboxId: "shared" };
+  const { calls, fetcher } = recorder((url) =>
+    url.endsWith("/health")
+      ? Response.json({ protocol: { min: 4, max: 7, features: ["admin-status", "studio-principal", "action-endpoints", "artifacts"] } })
+      : Response.json(existing),
+  );
+  const client = createTenantClient("tn_1", { origin: "http://localhost", fetcher });
+  assert.deepEqual(await openStudioSession(client, { sessionId: "s", agentId: "a" }), existing);
+  assert.ok(calls.every(({ init }) => init?.method !== "PUT"));
+});
+
+test("openStudioSession creates a new Studio session when the read returns 404", async () => {
+  let exists = false;
+  const { calls, fetcher } = recorder((url, init) => {
+    if (url.endsWith("/health")) return Response.json({ protocol: { min: 4, max: 7, features: ["admin-status", "studio-principal", "action-endpoints", "artifacts"] } });
+    if (init?.method === "PUT") { exists = true; return Response.json({}); }
+    return exists ? Response.json({ id: "s", status: "idle" }) : Response.json({ message: "Not found" }, { status: 404 });
+  });
+  const client = createTenantClient("tn_1", { origin: "http://localhost", fetcher });
+  assert.equal((await openStudioSession(client, { sessionId: "s", agentId: "a" })).status, "idle");
+  const put = calls.find(({ init }) => init?.method === "PUT");
+  assert.deepEqual(JSON.parse(put.init.body), { requestId: JSON.parse(put.init.body).requestId, agentId: "a", ownerUserId: "local-developer" });
+});
+
+test("openStudioSession preserves access failures without attempting creation", async () => {
+  const { calls, fetcher } = recorder((url) =>
+    url.endsWith("/health")
+      ? Response.json({ protocol: { min: 4, max: 7, features: ["admin-status", "studio-principal", "action-endpoints", "artifacts"] } })
+      : Response.json({ message: "Forbidden" }, { status: 403 }),
+  );
+  const client = createTenantClient("tn_1", { origin: "http://localhost", fetcher });
+  await assert.rejects(openStudioSession(client, { sessionId: "s", agentId: "a" }), { status: 403 });
+  assert.ok(calls.every(({ init }) => init?.method !== "PUT"));
 });
