@@ -4,26 +4,16 @@ import type { ExecutionSnapshot } from "./step/runtime.js";
 import { HarnessError, isHarnessError } from "@nylorun/core/define";
 import { runStep } from "./step/run.js";
 import { compact, contextBudget, estimateTokens } from "./compaction/index.js";
-import type { RunOptions, RunResult, SavedToolCall, TurnHookState } from "../types/execution.js";
+import type { RunOptions, RunResult, SavedToolCall } from "../types/execution.js";
 import type { InputEvent } from "@nylorun/core/define";
 import type { JsonValue, Tripwire } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
 import { createId } from "../utils/ids.js";
-import { copyJson } from "@nylorun/core/define";
 import { dispatchPlan } from "./dispatch.js";
 import type { ExecuteInternals } from "./delegation.js";
 import { createInvocation, type Invocation } from "./invocation.js";
 import { openExecution, validateRunOptions } from "./options.js";
 import { applyResume } from "./resume.js";
-import {
-  asDecisions,
-  callHooks,
-  hasAnyHooks,
-  mergeTurnDecisions,
-  projectInput,
-} from "./step/hooks.js";
-import type { ModelCandidate, TurnDecision } from "@nylorun/core/define";
-import type { TurnOutputContract } from "@nylorun/core/define";
 
 /** All mutable progress belongs to this invocation and is discarded when it settles. */
 export async function execute(
@@ -86,15 +76,6 @@ export async function execute(
     };
     let arrivals: readonly InputEvent[] = [];
     let toolResults: readonly ToolResult[] = [];
-    const hooked = hasAnyHooks(agent);
-    let turnStart = false;
-    const setTurn = (update: (turn: TurnHookState) => TurnHookState) => {
-      const turn = invocation.state.turn ?? {
-        turnId,
-        attempts: { afterStep: 0, afterTurn: 0 },
-      };
-      invocation.state = { ...invocation.state, turn: update(turn) };
-    };
     if (invocation.state.plan) {
       turnId = invocation.state.plan.turnId;
       stepNumber = invocation.state.plan.stepNumber + 1;
@@ -103,7 +84,7 @@ export async function execute(
       if ((await dispatchPlan(invocation)) === "paused") return finish({ status: "paused" });
       toolResults = lastResults(invocation.state);
     } else if (invocation.state.turn) {
-      // Crash-continue inside a turn that already ran before("turn"): keep the turn.
+      // Continue a turn that yielded, or crash-continue inside it: keep the turn.
       turnId = invocation.state.turn.turnId;
       stepNumber =
         1 +
@@ -126,18 +107,6 @@ export async function execute(
           ...arrivals.map((event) => ({ kind: "input" as const, turnId, event })),
         ],
       };
-      if (hooked) {
-        const text = projectInput(arrivals);
-        invocation.state = {
-          ...invocation.state,
-          turn: {
-            turnId,
-            ...(text === undefined ? {} : { input: text }),
-            attempts: { afterStep: 0, afterTurn: 0 },
-          },
-        };
-        turnStart = true;
-      }
       await record();
     }
     for (; ; stepNumber++) {
@@ -151,8 +120,7 @@ export async function execute(
         ((yieldAfter.steps !== undefined && stepsRun >= yieldAfter.steps) ||
           (yieldAfter.ms !== undefined && Date.now() - started >= yieldAfter.ms))
       ) {
-        if (!invocation.state.turn)
-          setTurn(() => ({ turnId, attempts: { afterStep: 0, afterTurn: 0 } }));
+        if (!invocation.state.turn) invocation.state = { ...invocation.state, turn: { turnId } };
         return finish({ status: "yielded" });
       }
       stepsRun++;
@@ -176,11 +144,7 @@ export async function execute(
           middleware: agent.middleware,
           invoke: options.onModelCall,
           registry: agent.registry,
-          definition: agent,
           sessionState: invocation.sessionBag,
-          recordAfterDynamics: async () => {
-            await record();
-          },
         },
         state: snapshot,
         executionId: invocation.state.executionId,
@@ -194,32 +158,8 @@ export async function execute(
         info: options.info,
         observe,
         output: agent.output,
-        ...(hooked
-          ? {
-              turn: {
-                start: turnStart,
-                ...(invocation.state.turn?.input === undefined
-                  ? {}
-                  : { input: invocation.state.turn.input }),
-                ...(invocation.state.turn?.patch === undefined
-                  ? {}
-                  : { patch: invocation.state.turn.patch }),
-                afterStepAttempts: invocation.state.turn?.attempts.afterStep ?? 0,
-              },
-            }
-          : {}),
       });
       signal.throwIfAborted();
-      turnStart = false;
-      if (result.turnPatch) {
-        const patch = result.turnPatch;
-        setTurn((turn) => ({ ...turn, patch }));
-      }
-      if (result.retried)
-        setTurn((turn) => ({
-          ...turn,
-          attempts: { ...turn.attempts, afterStep: turn.attempts.afterStep + 1 },
-        }));
       // The prompt did not fit: compact once and ask again with the same inputs.
       if (
         result.output.kind === "tripwire" &&
@@ -230,29 +170,7 @@ export async function execute(
         if (await compactHistory("overflow", stepId)) continue;
       }
       if (result.output.kind !== "tripwire") overflowCompacted = false;
-      let candidate = result.candidate;
-      let finalOutput = result.output.kind === "final" ? result.output.output : undefined;
-      let turnDecision: TurnDecision = {};
-      if (hooked && result.output.kind === "final" && result.retry === undefined) {
-        turnDecision = mergeTurnDecisions(
-          asDecisions<TurnDecision>(
-            await callHooks(
-              agent,
-              { at: "after", scope: "turn" },
-              {
-                ...(agent.output || typeof finalOutput !== "string" ? {} : { text: finalOutput }),
-                output: finalOutput ?? null,
-                info: options.info,
-                state: { ...invocation.sessionBag },
-                attempt: invocation.state.turn?.attempts.afterTurn ?? 0,
-              },
-              `after-turn:${stepId}`,
-            ),
-          ),
-        );
-        const replaced = replaceAnswer(turnDecision, candidate, agent.output);
-        if (replaced) ({ candidate, output: finalOutput } = replaced);
-      }
+      const candidate = result.candidate;
       if (candidate) {
         invocation.state = {
           ...invocation.state,
@@ -269,7 +187,7 @@ export async function execute(
           ...(result.requestedModelId === undefined
             ? {}
             : { requestedModelId: result.requestedModelId }),
-          attributes: result.candidate ?? candidate,
+          attributes: candidate,
         });
       }
       if (result.output.kind === "tripwire") {
@@ -283,46 +201,8 @@ export async function execute(
         });
         return finish({ status: "failed", error: result.output.tripwire });
       }
-      if (turnDecision.block !== undefined) {
-        const tripwire = {
-          code: "dynamics.blocked",
-          message: turnDecision.block,
-          scope: "execution" as const,
-        };
-        observe({
-          type: "tripwire",
-          turnId,
-          stepId,
-          code: tripwire.code,
-          scope: tripwire.scope,
-          attributes: { message: tripwire.message },
-        });
-        return finish({ status: "failed", error: tripwire });
-      }
-      const feedback = result.retry ?? turnDecision.retry;
-      if (feedback !== undefined) {
-        // A hook sent the answer back: the model sees its answer, then the feedback.
-        const event: InputEvent = {
-          kind: "user-message",
-          text: feedback,
-          metadata: { source: "hook.retry" },
-        };
-        if (turnDecision.retry !== undefined)
-          setTurn((turn) => ({
-            ...turn,
-            attempts: { ...turn.attempts, afterTurn: turn.attempts.afterTurn + 1 },
-          }));
-        invocation.state = {
-          ...invocation.state,
-          transcript: [...invocation.state.transcript, { kind: "input", turnId, event }],
-        };
-        await record();
-        arrivals = [event];
-        toolResults = [];
-        continue;
-      }
       if (result.output.kind === "final") {
-        const output = finalOutput as JsonValue;
+        const output = result.output.output as JsonValue;
         invocation.state = {
           ...invocation.state,
           transcript: [
@@ -484,43 +364,4 @@ async function finishInvocation(
 function lastResults(state: Invocation["state"]): readonly ToolResult[] {
   const entry = state.transcript[state.transcript.length - 1];
   return entry?.kind === "tool-results" ? entry.results : [];
-}
-
-/** Apply an after("turn") replacement to the final candidate and output. */
-function replaceAnswer(
-  decision: TurnDecision,
-  candidate: ModelCandidate | undefined,
-  contract: TurnOutputContract | undefined,
-): { readonly candidate: ModelCandidate; readonly output: JsonValue } | undefined {
-  if (decision.text === undefined && decision.output === undefined) return undefined;
-  if (contract) {
-    if (decision.text !== undefined)
-      throw new HarnessError(
-        "configuration.invalid",
-        'after("turn") must return output, not text, for an agent with an output schema',
-      );
-    const validation = contract.schema.validate(decision.output);
-    if (!validation.ok)
-      throw new HarnessError(
-        "output.invalid",
-        `after("turn") output failed validation: ${validation.issues
-          .map((issue) => issue.message)
-          .join("; ")}`,
-      );
-    const value = copyJson(validation.value as JsonValue);
-    return {
-      candidate: { ...candidate, output: [{ type: "json", value }] } as ModelCandidate,
-      output: value,
-    };
-  }
-  if (decision.output !== undefined)
-    throw new HarnessError(
-      "configuration.invalid",
-      'after("turn") must return text, not output, for an agent without an output schema',
-    );
-  const text = decision.text!;
-  return {
-    candidate: { ...candidate, output: [{ type: "text", text }] } as ModelCandidate,
-    output: text,
-  };
 }

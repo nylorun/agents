@@ -302,12 +302,9 @@ describe("reading an answer", () => {
       outcome: { value: { kind: "completed", output: { a: 1 } } },
     });
     expect(interpret(action("fn"), response(200, { a: 1 }))).toEqual({ kind: "outcome", outcome: { value: { a: 1 } } });
-    expect(interpret(action("hook"), response(200, { a: 1 }))).toMatchObject({
-      outcome: { value: { kind: "failed", code: "endpoint.invalid-answer" } },
-    });
-    expect(interpret(action("hook"), response(200, { value: { results: [] } }, { "nylorun-outcome": "1" }))).toEqual({
+    expect(interpret(action("verify"), response(200, { value: { pass: true } }, { "nylorun-outcome": "1" }))).toEqual({
       kind: "outcome",
-      outcome: { value: { results: [] } },
+      outcome: { value: { pass: true } },
     });
     expect(interpret(action("tool"), response(202, ""))).toEqual({ kind: "accepted" });
     expect(interpret(action("tool"), response(503, "", { "retry-after": "2" }))).toMatchObject({ kind: "retry", retryAfterMs: 2000 });

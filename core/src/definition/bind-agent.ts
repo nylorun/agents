@@ -78,8 +78,6 @@ function buildImplementations(
       ...(Object.keys(tools).length
         ? { tools: Object.freeze({ ...tools }) }
         : {}),
-      ...(dyn?.before ? { before: Object.freeze({ ...dyn.before }) } : {}),
-      ...(dyn?.after ? { after: Object.freeze({ ...dyn.after }) } : {}),
       ...(dyn?.middleware ? { middleware: dyn.middleware } : {}),
     });
   }

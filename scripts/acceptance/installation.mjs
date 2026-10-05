@@ -137,7 +137,7 @@ const putAgent = (url, key, agentId, name = agentId) =>
     body: {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: agentId, name, manifestSchemaVersion: 4, capabilities: [] },
+      manifest: { id: agentId, name, manifestSchemaVersion: 5, capabilities: [] },
     },
   }).then(ok);
 
@@ -352,7 +352,7 @@ async function i3(url, stack) {
     body: {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 4, capabilities: [] },
+      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 5, capabilities: [] },
     },
   });
   assert.equal(rejected.status, 426, await rejected.text());

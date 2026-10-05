@@ -5,7 +5,6 @@ import {
   isToolError,
   normalizeToolDefinition,
   normalizedSchemasFor,
-  runHookPoint,
   type BoundToolDefinition,
   type BuiltAgent,
   type BuiltWorkflow,
@@ -57,17 +56,6 @@ export async function executeAction(
   // Work for an agent used as a tool runs that agent's code, served from the root's binding.
   const agent = action.agent ? delegatedAgent(root, action.agent.id) : root;
   const ref = action.agent ?? { id: root.id, path: root.id };
-  if (action.kind === "hook")
-    // All capabilities at this hook point run concurrently in one action. Never throws.
-    return {
-      value: {
-        results: await runHookPoint(
-          implementationsFor(agent),
-          action.hook,
-          action.input
-        ),
-      },
-    };
   if (action.kind !== "tool" || !("capabilityId" in action))
     throw new Error(`Unsupported action kind ${action.kind}`);
   const impl = implementationsFor(agent)[action.capabilityId];

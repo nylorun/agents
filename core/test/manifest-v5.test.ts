@@ -12,15 +12,15 @@ const github = {
 
 function manifest(capabilities: readonly Record<string, unknown>[]) {
   return {
-    manifestSchemaVersion: 4 as const,
+    manifestSchemaVersion: 5 as const,
     id: "issue-bot",
     capabilities,
   };
 }
 
-it("round-trips a v4 capability and a named streamable-http server", () => {
+it("round-trips a v5 capability and a named streamable-http server", () => {
   const built = Agent({ id: "issue-bot", name: "Issue bot" }).build();
-  expect(built.manifest.manifestSchemaVersion).toBe(4);
+  expect(built.manifest.manifestSchemaVersion).toBe(5);
   expect(built.manifest).not.toHaveProperty("runtime");
   const json = manifest([
     {
@@ -126,76 +126,29 @@ it("rejects a server key that differs from name and a duplicate server", () => {
   ).toThrow(HarnessError);
 });
 
-it("projects registered hooks in canonical order with a stable hash", () => {
-  const noop = () => ({});
-  const first = Agent({ id: "hooked" })
-    .use({ id: "policy", after: { turn: noop, step: noop }, before: { step: noop } })
-    .after("step", noop)
-    .before("turn", noop)
-    .build();
-  const policy = first.manifest.capabilities.find((item) => item.id === "policy");
-  expect(policy?.hooks).toEqual([
-    { at: "before", scope: "step" },
-    { at: "after", scope: "step" },
-    { at: "after", scope: "turn" },
-  ]);
-  const agent = first.manifest.capabilities.find((item) => item.id === "agent");
-  expect(agent?.hooks).toEqual([
-    { at: "before", scope: "turn" },
-    { at: "after", scope: "step" },
-  ]);
-  expect(AgentManifestSchema.safeParse(first.manifest).success).toBe(true);
-  const second = Agent({ id: "hooked" })
-    .use({ id: "policy", before: { step: noop }, after: { step: noop, turn: noop } })
-    .before("turn", noop)
-    .after("step", noop)
-    .build();
-  expect(hashManifest(second.manifest)).toBe(hashManifest(first.manifest));
-  expect(first.manifest.capabilities.some((item) => "beforeModelCall" in item)).toBe(false);
-});
-
-it("rejects duplicate, unknown and out-of-order hook lists", () => {
-  const withHooks = (hooks: unknown) =>
-    manifest([{ id: "policy", type: "agent", hooks }]);
-  const noop = () => ({});
-  const impl = { policy: { before: { step: noop, turn: noop } } };
-  for (const hooks of [
-    [{ at: "before", scope: "step" }, { at: "before", scope: "turn" }],
-    [{ at: "before", scope: "step" }, { at: "before", scope: "step" }],
-    [{ at: "during", scope: "step" }],
-    [],
-  ]) {
-    expect(AgentManifestSchema.safeParse(withHooks(hooks)).success).toBe(false);
-    expect(() => Agent.from(withHooks(hooks), impl as never)).toThrow(HarnessError);
-  }
-});
-
-it("requires hook implementations to match the manifest", () => {
-  const noop = () => ({});
+it("refuses hooks with what replaces them", () => {
   const json = manifest([
     { id: "policy", type: "agent", hooks: [{ at: "before", scope: "step" }] },
   ]);
-  expect(() => Agent.from(json, {})).toThrow(/Missing before\("step"\) implementation/);
-  expect(() =>
-    Agent.from(json, { policy: { before: { step: noop, turn: noop } } })
-  ).toThrow(/does not declare it/);
-  expect(
-    Agent.from(json, { policy: { before: { step: noop } } }).manifest.capabilities[0]?.hooks
-  ).toEqual([{ at: "before", scope: "step" }]);
-});
-
-it("rejects schema 3 manifests and the removed hook flags", () => {
-  expect(() =>
-    Agent.from({ manifestSchemaVersion: 3, id: "old", capabilities: [] }, {})
-  ).toThrow(/MIGRATION\.md/);
+  const parsed = AgentManifestSchema.safeParse(json);
+  expect(parsed.success).toBe(false);
+  expect(parsed.error?.issues[0]?.message).toMatch(/hooks were removed.*HTTP tool/);
+  expect(() => Agent.from(json, {})).toThrow(/hooks were removed/);
   expect(() =>
     Agent.from(manifest([{ id: "old", type: "agent", beforeModelCall: true }]), {})
-  ).toThrow(/replaced by hooks/);
+  ).toThrow(/removed with hooks/);
+  const noop = () => ({});
+  expect(() =>
+    Agent({ id: "hooked" }).use({ id: "policy", before: { step: noop } } as never)
+  ).toThrow(/hooks were removed/);
 });
 
-it("reports a duplicate agent-level hook as a build diagnostic", () => {
-  const noop = () => ({});
-  expect(() => Agent({ id: "twice" }).before("step", noop).before("step", noop).build()).toThrow(
-    /registered more than once/
-  );
+it("refuses manifest v4 and older with a message naming the change", () => {
+  for (const version of [3, 4]) {
+    const json = { manifestSchemaVersion: version, id: "old", capabilities: [] };
+    expect(() => Agent.from(json, {})).toThrow(/manifest v5 removed hooks.*MIGRATION\.md/);
+    expect(AgentManifestSchema.safeParse(json).error?.issues[0]?.message).toMatch(
+      /manifestSchemaVersion \d is no longer supported/
+    );
+  }
 });

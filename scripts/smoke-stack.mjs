@@ -120,7 +120,7 @@ async function harnessChecks(stack, images, status) {
       manifest: {
         id: "plugged",
         name: "Plugged",
-        manifestSchemaVersion: 4,
+        manifestSchemaVersion: 5,
         capabilities: [
           {
             id: "echo-tools",

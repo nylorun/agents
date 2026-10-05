@@ -356,7 +356,7 @@ describe("Agent.from reads a v2 flow document", () => {
 });
 
 describe("workflow manifest v2 schema", () => {
-  const base = { kind: "workflow", workflowSchemaVersion: 2, id: "f", agents: { a: { manifestSchemaVersion: 4, id: "a", capabilities: [] } } };
+  const base = { kind: "workflow", workflowSchemaVersion: 2, id: "f", agents: { a: { manifestSchemaVersion: 5, id: "a", capabilities: [] } } };
   it("accepts v1 and v2, and checks embedded agents and loop limits", () => {
     expect(WorkflowManifestSchema.safeParse({ ...base, root: { chain: [{ agent: "a" }] } }).success).toBe(true);
     expect(WorkflowManifestSchema.safeParse({ ...base, root: { agent: "b" } }).success).toBe(false);
@@ -369,7 +369,7 @@ describe("workflow manifest v2 schema", () => {
     expect(
       WorkflowManifestSchema.safeParse({
         ...base,
-        agents: { b: { manifestSchemaVersion: 4, id: "a", capabilities: [] } },
+        agents: { b: { manifestSchemaVersion: 5, id: "a", capabilities: [] } },
         root: { agent: "b" },
       }).success
     ).toBe(false);

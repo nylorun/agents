@@ -1,3 +1,31 @@
+# Manifest-only agents (manifest v5)
+
+The Runtime now runs an agent from its manifest alone: during a session it never calls your
+code. This release removes what used to run your code mid-session. Manifests are
+`manifestSchemaVersion: 5`. A Runtime of this release refuses a v4 manifest with a message that
+names what changed, and a session pinned to a v4 manifest cannot take another turn: rebuild and
+save your agents with this SDK, then start new sessions.
+
+## Hooks are removed
+
+`.beforeTurn()`, `.beforeModel()`, `.afterModel()` and `.afterTurn()` (with the deprecated
+`.before()` and `.after()`), a capability's `before` and `after`, the manifest's
+`capabilities[].hooks`, the `hook` Action and the `Patch`, `Decision` and `TurnDecision` types are
+gone. A manifest or capability that still names them is refused with
+`hooks were removed: …`. Each use has a replacement that needs no code of yours mid-turn:
+
+| Hook use                                            | Instead                                                                      |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Add instructions for a turn (`beforeTurn`)          | `.instructions()`, or send the message with a turn manifest that changes them |
+| Hide tools or capabilities for a turn               | A turn manifest that leaves them out (a variant may remove tools)            |
+| Deny or approve a proposed tool call (`afterModel`) | `approval` on the tool                                                       |
+| Check or redo the final answer (`afterTurn`)        | An output schema, or a flow `loop` with a verifier agent                     |
+| Write session state                                 | A tool writes `ctx.state`                                                    |
+| A policy over every model call                      | Bring your own harness (Harness API)                                         |
+
+Studio's Agent Manifest tab no longer shows hooks or the turn lifecycle. The engine version is
+`hosted-4`.
+
 # Runtime and Management APIs (protocol 8)
 
 Every Tenant now serves two APIs on its one URL, split by route and by key. The **Runtime API**

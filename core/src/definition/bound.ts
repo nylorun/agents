@@ -5,7 +5,6 @@ import type {
   SkillManifest,
 } from "../types/manifest.js";
 import type { SkillRecord } from "../types/middleware.js";
-import type { HookManifest } from "../types/dynamics.js";
 import type { Delegate } from "./delegate.js";
 import type {
   MiddlewareContributions,
@@ -55,8 +54,6 @@ export interface BoundMiddleware {
   /** Execution-only tools. Advertised for this run and omitted from the manifest. */
   readonly sessionTools?: readonly ToolDefinition<any, any, any>[];
   readonly contributions?: MiddlewareContributions;
-  /** Registered hook points, in canonical order. */
-  readonly hooks?: readonly HookManifest[];
   readonly manifestType?: "agent" | "agent-plugin";
   readonly metadata?: JsonObject;
   readonly skills?: Readonly<Record<string, SkillManifest>>;

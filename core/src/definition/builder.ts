@@ -13,17 +13,10 @@ import type {
 import type { AgentTool, BuiltAgent } from "../types/agent.js";
 import type { AgentManifest, McpServerManifest } from "../types/manifest.js";
 import type { WorkflowBinding, WorkflowManifest } from "../types/workflow.js";
-import type {
-  AfterHook,
-  BeforeHook,
-  HookAt,
-  HookScope,
-} from "../types/dynamics.js";
 import type { Implementations } from "./implementations.js";
 import { assembleAgent, type CapabilityDynamics } from "./assemble.js";
 import { compileDeclaration } from "./declaration.js";
 import { agentFrom } from "./from.js";
-import { hooksFrom } from "./hooks.js";
 import { isAgentItem } from "./delegate.js";
 import { normalizeMcpServers, type McpServerSpec } from "./mcp.js";
 import { deprecate } from "../utils/deprecate.js";
@@ -287,26 +280,6 @@ export class AgentBuilder<
     return this.addDeclaration(declaration, "capability()");
   }
 
-  /** Run `fn` before each turn. */
-  beforeTurn(fn: BeforeHook<"turn", Info>): this {
-    return this.addAgentHook("before", "turn", fn);
-  }
-
-  /** Run `fn` before every model call. */
-  beforeModel(fn: BeforeHook<"step", Info>): this {
-    return this.addAgentHook("before", "step", fn);
-  }
-
-  /** Run `fn` after every model call. */
-  afterModel(fn: AfterHook<"step", Info>): this {
-    return this.addAgentHook("after", "step", fn);
-  }
-
-  /** Run `fn` after the turn's final answer. */
-  afterTurn(fn: AfterHook<"turn", Info>): this {
-    return this.addAgentHook("after", "turn", fn);
-  }
-
   /** The structured output. Set once. */
   output<S extends ToolSchemaSource>(schema: S): AgentBuilder<Info, S, Id> {
     const snapshot = this.#snapshot;
@@ -360,30 +333,6 @@ export class AgentBuilder<
       };
     }
     return this.appendCompiled(compiled, body);
-  }
-
-  /**
-   * @deprecated Use `.beforeTurn()` or `.beforeModel()`.
-   * Run `fn` before each turn (`"turn"`) or before every model call (`"step"`).
-   */
-  before<S extends HookScope>(
-    scope: S,
-    fn: BeforeHook<S, Info>
-  ): this {
-    deprecate("NYLORUN_DEP_HOOKS", '.before()/.after() are deprecated. Use .beforeTurn(), .beforeModel(), .afterModel() or .afterTurn().');
-    return this.addAgentHook("before", scope, fn);
-  }
-
-  /**
-   * @deprecated Use `.afterModel()` or `.afterTurn()`.
-   * Run `fn` after every model call (`"step"`) or after the turn's final answer (`"turn"`).
-   */
-  after<S extends HookScope>(
-    scope: S,
-    fn: AfterHook<S, Info>
-  ): this {
-    deprecate("NYLORUN_DEP_HOOKS", '.before()/.after() are deprecated. Use .beforeTurn(), .beforeModel(), .afterModel() or .afterTurn().');
-    return this.addAgentHook("after", scope, fn);
   }
 
   // ── Flow: code decides ─────────────────────────────────────────────────────
@@ -564,15 +513,12 @@ export class AgentBuilder<
       })
     );
     const compiled = compileDeclaration({ id: "agent", ...part });
-    const dynamics = snapshot.dynamics.get("agent") ?? {};
-    const hooks = hooksFrom(dynamics.before, dynamics.after);
-    const bound = hooks === undefined ? compiled.bound : Object.freeze({ ...compiled.bound, hooks });
     return this.spawn({
       ...snapshot,
       ...body,
       agentPart: Object.freeze(part),
-      entries: replaceOrAppend(snapshot.entries, bound),
-      dynamics: withDynamics(snapshot.dynamics, "agent", dynamics),
+      entries: replaceOrAppend(snapshot.entries, compiled.bound),
+      dynamics: withDynamics(snapshot.dynamics, "agent", snapshot.dynamics.get("agent") ?? {}),
       diagnostics: addDiagnostics(body.diagnostics ?? snapshot.diagnostics, diagnostics),
     });
   }
@@ -588,59 +534,11 @@ export class AgentBuilder<
   ): this {
     const snapshot = this.#snapshot;
     const dynamics = new Map(snapshot.dynamics);
-    dynamics.set(compiled.bound.id, {
-      ...(compiled.before ? { before: compiled.before } : {}),
-      ...(compiled.after ? { after: compiled.after } : {}),
-      ...(compiled.middleware ? { middleware: compiled.middleware } : {}),
-    });
+    dynamics.set(compiled.bound.id, compiled.middleware ? { middleware: compiled.middleware } : {});
     return this.spawn({
       ...snapshot,
       ...body,
       entries: Object.freeze([...snapshot.entries, compiled.bound]),
-      dynamics,
-    });
-  }
-
-  private addAgentHook(
-    at: HookAt,
-    scope: HookScope,
-    fn: unknown
-  ): this {
-    if (typeof fn !== "function")
-      throw new HarnessError(
-        "configuration.invalid",
-        `${at}("${scope}") requires a function`
-      );
-    if (scope !== "turn" && scope !== "step")
-      throw new HarnessError(
-        "configuration.invalid",
-        `Unknown hook scope '${String(scope)}'; use "turn" or "step"`
-      );
-    const snapshot = this.#snapshot;
-    const body = this.bodyFor("react", hookMethod(at, scope));
-    const dynamics = new Map(snapshot.dynamics);
-    const existing = dynamics.get("agent") ?? {};
-    const current = existing[at] as Record<string, unknown> | undefined;
-    if (current?.[scope] !== undefined)
-      return this.spawn({
-        ...snapshot,
-        ...body,
-        diagnostics: addDiagnostics(body.diagnostics ?? snapshot.diagnostics, [
-          Object.freeze({
-            code: "hook.duplicate",
-            message: `Agent hook ${at}("${scope}") is registered more than once`,
-          }),
-        ]),
-      });
-    const next: CapabilityDynamics = {
-      ...existing,
-      [at]: Object.freeze({ ...current, [scope]: fn }),
-    };
-    dynamics.set("agent", next);
-    return this.spawn({
-      ...snapshot,
-      ...body,
-      entries: withAgentHooks(snapshot.entries, next),
       dynamics,
     });
   }
@@ -692,10 +590,6 @@ function createSnapshot(
         }),
     stages: Object.freeze([]),
   };
-}
-
-function hookMethod(at: HookAt, scope: HookScope): string {
-  return `${at}${scope === "turn" ? "Turn" : "Model"}()`;
 }
 
 function singleValue(id: string, what: string): BuildDiagnostic {
@@ -751,33 +645,6 @@ function nextMiddlewareId(entries: readonly BoundMiddleware[]): string {
     id = `middleware-${seq}`;
   } while (taken.has(id));
   return id;
-}
-
-/** Record the agent-level hooks on the synthetic `"agent"` capability, creating it if needed. */
-function withAgentHooks(
-  entries: readonly BoundMiddleware[],
-  dynamics: CapabilityDynamics
-): readonly BoundMiddleware[] {
-  const hooks = hooksFrom(dynamics.before, dynamics.after);
-  const index = entries.findIndex((item) => item.id === "agent");
-  if (index >= 0) {
-    const next = Object.freeze({ ...entries[index]!, hooks });
-    return Object.freeze([
-      ...entries.slice(0, index),
-      next,
-      ...entries.slice(index + 1),
-    ]);
-  }
-  return Object.freeze([
-    ...entries,
-    Object.freeze({
-      id: "agent",
-      handle: async (_request: unknown, next: () => Promise<unknown>) => next(),
-      hasMiddleware: false,
-      contributions: Object.freeze({}),
-      hooks,
-    } as BoundMiddleware),
-  ]);
 }
 
 export type { Implementations };

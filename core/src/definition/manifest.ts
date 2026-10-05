@@ -24,7 +24,7 @@ export function createManifest(input: {
 }): AgentManifest {
   const capabilities = input.middleware.map((item) => projectCapability(item));
   return deepFreeze({
-    manifestSchemaVersion: 4 as const,
+    manifestSchemaVersion: 5 as const,
     id: input.id,
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.description === undefined
@@ -65,9 +65,6 @@ function projectCapability(item: BoundMiddleware): CapabilityManifest {
     ...(item.sandbox === undefined
       ? {}
       : { sandbox: copyJsonObject(item.sandbox as unknown as JsonObject, "sandbox") }),
-    ...(item.hooks === undefined
-      ? {}
-      : { hooks: item.hooks.map((hook) => ({ at: hook.at, scope: hook.scope })) }),
   };
 }
 

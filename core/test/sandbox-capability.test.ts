@@ -24,7 +24,7 @@ it("builds the save_artifact capability that comes with a sandbox", () => {
     "artifactId",
   ]);
   const manifest = {
-    manifestSchemaVersion: 4,
+    manifestSchemaVersion: 5,
     id: "bot",
     capabilities: [sandboxCapabilityManifest(spec), capability],
   };
@@ -59,6 +59,6 @@ it("builds the capability the Runtime adds to a session with a sandbox", () => {
   expect(capability.tools?.map((tool) => tool.name)).toEqual([...SANDBOX_TOOL_NAMES]);
   expect(capability.instructions).toEqual([SANDBOX_INSTRUCTIONS]);
   expect(capability.tools?.every((tool) => tool.description && tool.inputSchema)).toBe(true);
-  const manifest = { manifestSchemaVersion: 4, id: "bot", capabilities: [capability] };
+  const manifest = { manifestSchemaVersion: 5, id: "bot", capabilities: [capability] };
   expect(AgentManifestSchema.safeParse(manifest).success).toBe(true);
 });

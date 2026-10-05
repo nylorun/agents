@@ -4,11 +4,9 @@ import type { ExecutionInput, ExecutionState, RunResult } from "../types/executi
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Implementations } from "@nylorun/core/define";
 import type { ActionOutcome } from "@nylorun/core/contracts";
-import type { AgentRef, HookAt, HookScope, ModelAdapter } from "@nylorun/core/define";
+import type { AgentRef, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
-import { HOOK_POINTS, hasHook } from "@nylorun/core/define";
 import type { AgentDefinition } from "../definition/agent-definition.js";
-import type { HookRunner } from "../loop/step/hooks.js";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
 import { agentFrom } from "@nylorun/core/define";
 import { definitionFor } from "../definition/agent-definition.js";
@@ -43,17 +41,11 @@ export interface HostEffect {
    * `delegation` journals when an agent used as a tool starts and settles; hosts record it and resolve it at once.
    * Flow effects: `agent`, `tool` (node), `fn`, `verify` — each carries `path`, `key`, and `iterations`.
    */
-  readonly kind: "model" | "tool" | "hook" | "delegation" | "agent" | "fn" | "verify";
+  readonly kind: "model" | "tool" | "delegation" | "agent" | "fn" | "verify";
   /** Set on work for an agent used as a tool; `agentId` stays the session's root agent. */
   readonly agent?: AgentRef;
   readonly capabilityId?: string;
   readonly toolName?: string;
-  /** For `hook` effects: the hook point and every capability that registered it, in manifest order. */
-  readonly hook?: {
-    readonly at: HookAt;
-    readonly scope: HookScope;
-    readonly capabilityIds: readonly string[];
-  };
   /** Workflow node path (flow effects). */
   readonly path?: string;
   /** Workflow node key without Map indices (flow effects). */
@@ -152,7 +144,7 @@ export async function runDurable(options: {
     input: unknown,
     context: Record<string, unknown>,
     identity: string,
-    target: Pick<HostEffect, "capabilityId" | "toolName" | "hook" | "agent"> = {},
+    target: Pick<HostEffect, "capabilityId" | "toolName" | "agent"> = {},
   ): Promise<ActionOutcome> => {
     const effectId = `${checkpoint.turnId}:${checkpoint.segment}:${kind}:${identity}`;
     const request: HostEffect = JSON.parse(
@@ -246,7 +238,7 @@ export async function runDurable(options: {
     });
   };
   const sessionTools = options.sessionTools ?? [];
-  /** Rebuild one agent from its manifest with every tool and hook routed through host effects. */
+  /** Rebuild one agent from its manifest with every tool routed through host effects. */
   const hostedDefinition = (agent: AgentManifest, ref?: AgentRef): AgentDefinition => {
     const hostedTool = hostedTools(ref);
     const owned = sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id);
@@ -258,13 +250,9 @@ export async function runDurable(options: {
         if (!tool.agent) tools[tool.name] = hostedTool(capability.id, tool);
       for (const tool of owned)
         if (tool.capabilityId === capability.id) tools[tool.name] = hostedTool(capability.id, tool);
-      implementations[capability.id] = {
-        tools,
-        // Hooks run through runHooks below, one effect per hook point; these only satisfy binding.
-        ...hookPlaceholders(capability.hooks),
-      };
+      implementations[capability.id] = { tools };
     }
-    const definition = definitionFor(
+    return definitionFor(
       agentFrom(
         agent,
         implementations,
@@ -278,18 +266,6 @@ export async function runDurable(options: {
             },
       ),
     );
-    // All capabilities registered at a hook point share one effect, so one Action delivery.
-    const runHooks: HookRunner = async ({ point, capabilityIds, args, identity }) => {
-      const outcome = await effect("hook", args, { info: checkpoint.info }, scoped(ref, identity), {
-        hook: { at: point.at, scope: point.scope, capabilityIds },
-        ...(ref ? { agent: ref } : {}),
-      });
-      const results = (outcome.value as { results?: unknown } | null)?.results;
-      return results !== null && typeof results === "object" && !Array.isArray(results)
-        ? (results as Record<string, unknown>)
-        : {};
-    };
-    return Object.freeze({ ...definition, runHooks });
   };
   const modelCall =
     (ref?: AgentRef): ModelAdapter =>
@@ -366,14 +342,4 @@ export async function runDurable(options: {
 /** Effect identities of an agent used as a tool live under its delegation. */
 function scoped(ref: AgentRef | undefined, identity: string): string {
   return ref ? `${ref.delegationId}/${identity}` : identity;
-}
-
-function hookPlaceholders(hooks: AgentManifest["capabilities"][number]["hooks"]) {
-  const placeholder = () => {
-    throw new HarnessError("execution.incompatible", "Hosted hooks run through the host effect");
-  };
-  const table: { before?: Record<string, unknown>; after?: Record<string, unknown> } = {};
-  for (const point of HOOK_POINTS)
-    if (hasHook(hooks, point.at, point.scope)) (table[point.at] ??= {})[point.scope] = placeholder;
-  return table;
 }

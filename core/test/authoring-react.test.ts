@@ -12,17 +12,16 @@ import {
 
 /**
  * Flow Agents Phase 1: the new ReAct methods compile to exactly today's manifests.
- * The hashes below were recorded with the builder before the change; they must never move.
+ * The hashes below were recorded with the builder before the change; they move only with the
+ * manifest schema version (re-recorded for manifest v5).
  */
 const GOLDEN = {
-  options: "426b82ff265379ee15a6cbbd63b5bc9571fc0c0d16e003c149e1af80d6b255c2",
-  optionsOutput: "4af1235113c93b9ad21d0630b976ac50d66026bf6b767578d7bd47cc6742fddc",
-  hookOnly: "fc5cebf3a618b93f39b24d2305099db9bab0da18c1c8b12e47310612095b7ab8",
-  hooksAfterOptions: "e7d6a4dd389cba4104d0af5acfb61414216fc2b2ac0b0a44b6ebe82cbc7d1fa0",
-  useCapability: "f97bb5a2d315073e085ee5228d166605869646f47bdff62bf99f1297e8a6e40d",
-  useMcp: "33f7ba25af773420f44ccaebdae47fea2915dad96bd39204dc9885db1164d2ad",
-  subagent: "fda680e798c6f208599537893929cf8f53e2f8590717eae81233855d35d3a341",
-  empty: "a3e5d8d035e1c8cec9c40a66c2d3980b7784e7b6b7c1dc41430589174c14bc7d",
+  options: "6bb90193a9087d42ea95312db5e7bcce0ad1e8fcf9b97f6ab6ac2b08d32577b1",
+  optionsOutput: "e596e55116ac66ec6c304511e01116c790046e3e7bc8a0e76953484f8d15abcc",
+  useCapability: "1c781e56b324b9b6c0cc2fa1ea353b6a98d43c972e0d9f8e77b2285ceb5b89dd",
+  useMcp: "a2438f66e72113e3f9c41af29b4f8d3af4b84ae46c9a5ac94167ffb08290895a",
+  subagent: "f31101aa36ce0497ae532ff459cb65c5620900daa2711cca73735d7808986e29",
+  empty: "549e1757a7fcd85e5172fb9420b06dcf26d1e44bff03a07e39268872cb16aea8",
   loopWorkflow: "5ddba0cf4b2845fa3e0c17e4bc37eee5d0a4d46b9b904a396c79b220af6cc768",
 } as const;
 
@@ -54,10 +53,6 @@ describe("today's syntax is unchanged", () => {
     expect(hash(Agent({ id: "a", instructions: "Do it.", outputSchema: z.object({ x: z.number() }) }))).toBe(
       GOLDEN.optionsOutput
     );
-    expect(hash(Agent({ id: "a" }).before("turn", () => ({})))).toBe(GOLDEN.hookOnly);
-    expect(
-      hash(Agent({ id: "a", instructions: "x", tools: [look] }).before("turn", () => ({})).after("step", () => ({})))
-    ).toBe(GOLDEN.hooksAfterOptions);
     expect(hash(Agent({ id: "a" }).use(capability({ id: "cap", instructions: "c", tools: [look] })))).toBe(
       GOLDEN.useCapability
     );
@@ -81,10 +76,6 @@ describe("the new ReAct methods", () => {
     expect(hash(Agent({ id: "a" }).instructions("Do it.").output(z.object({ x: z.number() })))).toBe(
       GOLDEN.optionsOutput
     );
-    expect(hash(Agent({ id: "a" }).beforeTurn(() => ({})))).toBe(GOLDEN.hookOnly);
-    expect(
-      hash(Agent({ id: "a" }).instructions("x").tools(look).beforeTurn(() => ({})).afterModel(() => ({})))
-    ).toBe(GOLDEN.hooksAfterOptions);
     expect(hash(Agent({ id: "a" }).capability(capability({ id: "cap" }).instructions("c").tools(look)))).toBe(
       GOLDEN.useCapability
     );
@@ -92,16 +83,6 @@ describe("the new ReAct methods", () => {
       hash(Agent({ id: "a" }).instructions("x").mcp({ gh: { type: "streamable-http", url: "https://x.example/mcp" } }))
     ).toBe(GOLDEN.useMcp);
     expect(hash(Agent({ id: "a" }).instructions("x").tools(look).subagents(sub))).toBe(GOLDEN.subagent);
-  });
-
-  it("keeps hooks when instructions and tools are added after them", () => {
-    const later = Agent({ id: "a" }).beforeTurn(() => ({})).instructions("x").tools(look);
-    const capabilityOf = (agent: typeof later) => agent.build().manifest.capabilities.find((c) => c.id === "agent");
-    expect(capabilityOf(later)).toMatchObject({
-      instructions: ["x"],
-      tools: [{ name: "look" }],
-      hooks: [{ at: "before", scope: "turn" }],
-    });
   });
 
   it("accumulates list methods across calls", () => {
@@ -143,12 +124,6 @@ describe("build diagnostics", () => {
 
   it("agent.mixed-body for a flow method on a ReAct agent", () => {
     expect(diagnosticsOf(() => Agent({ id: "a" }).instructions("x").step(sub).build())).toEqual(["agent.mixed-body"]);
-  });
-
-  it("hook.duplicate across the old and new hook names", () => {
-    expect(diagnosticsOf(() => Agent({ id: "a" }).beforeTurn(() => ({})).before("turn", () => ({})).build())).toEqual([
-      "hook.duplicate",
-    ]);
   });
 
   it("mcp.duplicate-server for the same server twice", () => {
