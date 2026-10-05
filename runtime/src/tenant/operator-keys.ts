@@ -56,8 +56,11 @@ export interface OperatorKeys {
    * this once. An id that holds the other role is refused.
    */
   put(id: string, role?: Exclude<KeyRole, "studio">): Promise<PutOperatorKeyResponse | OperatorKeyRefusal>;
-  /** Deletes key `id`: false when there is none. */
-  delete(id: string): Promise<boolean | OperatorKeyRefusal>;
+  /**
+   * Deletes key `id`: false when there is none. With `role`, a key of another role is refused
+   * (the Management API deletes application keys only).
+   */
+  delete(id: string, role?: Exclude<KeyRole, "studio">): Promise<boolean | OperatorKeyRefusal>;
 }
 
 export function operatorKeys(
@@ -91,10 +94,20 @@ export function operatorKeys(
         throw error;
       }
     },
-    async delete(id) {
+    async delete(id, role) {
       const refused = refuseOperatorKeyId(id);
       if (refused) return refused;
-      return await store.tx((t) => t.deletePrincipal(id));
+      return await store.tx(async (t) => {
+        if (role !== undefined) {
+          const existing = await t.principalById(id);
+          if (existing && existing.role !== role)
+            return {
+              reason: "role" as const,
+              message: `Key ${id} is a ${existing.role} key: only the Tenant's machine manages it (nylorun-operate)`,
+            };
+        }
+        return await t.deletePrincipal(id);
+      });
     },
   };
 }

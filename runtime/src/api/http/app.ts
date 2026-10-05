@@ -21,6 +21,7 @@ import { actionRoutes } from "./routes/actions.js";
 import { sandboxRoutes } from "./routes/sandboxes.js";
 import { artifactRoutes } from "./routes/artifacts.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { keyRoutes } from "./routes/keys.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { vaultRoutes } from "./routes/vaults.js";
 
@@ -71,6 +72,7 @@ function build(): OpenAPIHono<TenantEnv> {
   sandboxRoutes(api);
   artifactRoutes(api);
   tenantRoutes(api);
+  keyRoutes(api);
   vaultRoutes(api);
   accessRoutes(api);
   meRoutes(api);

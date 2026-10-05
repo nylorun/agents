@@ -28,6 +28,17 @@ export { AdminError };
 export { deriveStudioToken, tenantHostRoot };
 export { mintStudioLoginToken } from "./studio-login.js";
 export { OPERATOR_KEYS_FEATURE };
+export {
+  ManagementClient,
+  createManagementClient,
+  type ManagementClientOptions,
+  type ManagementKeys,
+  type ManagementModels,
+  type ManagementSettings,
+  type ManagementSigningKeys,
+  type ManagementTenant,
+  type ManagementVaults,
+} from "./management.js";
 
 export interface Admin {
   /** The Host's Tenant API URL. */
