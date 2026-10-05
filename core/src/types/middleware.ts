@@ -12,12 +12,14 @@ import type {
   SkillManifest,
 } from "./manifest.js";
 
-/** Skill files held on the developer binding. Not a manifest field. */
-export interface SkillRecord {
-  readonly name: string;
-  readonly description: string;
-  readonly instructions: string;
-  readonly resources?: Readonly<Record<string, string>>;
+/**
+ * The bytes of one skill file the manifest names (`SkillManifest.files`), held on the developer
+ * binding: the client uploads the files the Runtime lacks before it registers the agent. Not a
+ * manifest field.
+ */
+export interface SkillFileSource {
+  readonly size: number;
+  read(): Promise<Uint8Array>;
 }
 import type { ContextItem, JsonObject, Tripwire } from "./shared.js";
 import type { Interaction, ToolDefinition, ToolResult } from "./tool.js";
@@ -103,8 +105,8 @@ export interface CapabilityDeclaration<Info = unknown> {
   readonly tools?: CapabilityItems<ToolDefinition<any, Info, any>>;
   readonly instructions?: CapabilityItems<string>;
   readonly skills?: Readonly<Record<string, SkillManifest>>;
-  /** File contents for load_skill. Omitted from the manifest. */
-  readonly skillRecords?: Readonly<Record<string, SkillRecord>>;
+  /** Each skill file's bytes, by `sha256:<hex>`, for the client to upload. Not projected into the manifest. */
+  readonly skillFiles?: Readonly<Record<string, SkillFileSource>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   /**
    * @deprecated Model resolution is Runtime-owned. Not projected into the harness manifest.

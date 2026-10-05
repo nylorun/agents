@@ -141,7 +141,7 @@ export function virtualBackend(options: { readonly root: string }): SandboxBacke
           return { entries, truncated: !complete };
         },
         async writeFile(path, content) {
-          await fs.writeFile(path, content, "utf8");
+          await (typeof content === "string" ? fs.writeFile(path, content, "utf8") : fs.writeFile(path, content));
         },
         async stop() {},
       };

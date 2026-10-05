@@ -360,6 +360,23 @@ sandbox capability to a session with a sandbox): it saves a sandbox file (`path`
 (`content`) as a file artifact of its session, with its turn and tool call on the event
 (`tenant/artifact-tool.ts`).
 
+**Definition file**: A file a definition names by the SHA-256 of its bytes (`sha256:<hex>`), today
+each file of a skill's folder (`SkillManifest.files`, track R2 M4; `tenant/definition-files.ts`).
+A client uploads it once with `PUT /v1/files/sha256:<hex>` (application key, at most 10 MiB, a
+body of another hash is a `400`; `201` stored, `200` held already; `HEAD` says which); its bytes
+go to the Object store at `definitions/sha256/<hex>` and a `definition_files` row says the Tenant
+holds it. `PUT /v1/agents/{id}` refuses a definition naming a file the Tenant lacks
+(`definition_files_missing`) and records each one it names in `definition_file_uses` (agent id,
+manifest hash, file). Nothing deletes them yet: a later sweep removes the unused ones.
+_Avoid_: calling it an artifact; artifacts are a session's or an application's files.
+
+**Skill tools**: `load_skill` and `read_skill_resource`, which the build gives the first
+capability with skills. Core runs them like `save_artifact` (`tenant/skill-tool.ts`), reading the
+skill's definition files: no Action reaches the developer's process. A session with a sandbox
+also has each skill's files read-only under `/skills/<name>/`: the SandboxManager mounts them on a
+workspace before the first call that opens it (`sandbox/skills.ts`), with bytes from the Object
+store, or in a harness from core (`definition.file`, for the run that made the call).
+
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 8`; the Host serves 4 to 8; required features
 `studio-principal`, `action-endpoints`, `artifacts` and `management-api`. The Host still

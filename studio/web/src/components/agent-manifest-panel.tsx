@@ -342,6 +342,13 @@ function CapabilityItem({ capability }: Readonly<{ capability: CapabilityView }>
                   {skill.description ? (
                     <p className="text-xs text-muted-foreground">{skill.description}</p>
                   ) : null}
+                  {skill.files.length ? (
+                    <ul className="mt-1 font-mono text-[11px] text-muted-foreground">
+                      {skill.files.map((path) => (
+                        <li key={path}>{path}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               ))}
             </ul>

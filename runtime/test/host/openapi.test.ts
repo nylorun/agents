@@ -27,7 +27,7 @@ afterAll(async () => {
 const operations = (document: { paths?: Record<string, unknown> }) =>
   Object.entries(document.paths ?? {}).flatMap(([path, item]) =>
     Object.keys(item as object)
-      .filter((key) => ["get", "put", "post", "delete", "patch"].includes(key))
+      .filter((key) => ["get", "head", "put", "post", "delete", "patch"].includes(key))
       .map((method) => `${method.toUpperCase()} ${path}`),
   );
 

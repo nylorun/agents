@@ -74,6 +74,7 @@ import type { HostEffect } from "@nylorun/harness/run";
 import type {
   ArtifactRow,
   ArtifactVersionRow,
+  DefinitionFileRow,
   ModelBudgetRow,
   ModelUsageRow,
   ModelUsageWrite,
@@ -337,6 +338,7 @@ export type EndpointHealthUpdate =
 export type {
   ArtifactRow,
   ArtifactVersionRow,
+  DefinitionFileRow,
   ModelBudgetRow,
   ModelUsageRow,
   ModelUsageWrite,
@@ -836,6 +838,17 @@ export interface Tx {
    */
   artifactContentShas(scope: "sessions" | "all" | { artifactId: string }): Promise<string[]>;
 
+  // --- definition files (track R2 M4) ---------------------------------------
+
+  /** The definition file `sha256` (`sha256:<hex>`) names, once its bytes are stored. */
+  definitionFile(sha256: string): Promise<DefinitionFileRow | undefined>;
+  /** Records a stored definition file; false when the Tenant held it already. */
+  insertDefinitionFile(row: DefinitionFileRow): Promise<boolean>;
+  /** Those of `shas` the Tenant holds. */
+  heldDefinitionFiles(shas: readonly string[]): Promise<Set<string>>;
+  /** Records that version `manifestHash` of definition `agentId` names each of `shas`. */
+  insertDefinitionFileUses(agentId: string, manifestHash: string, shas: readonly string[]): Promise<void>;
+
   // --- tenant settings (non-secret) -----------------------------------------
 
   getSetting(key: string): Promise<string | undefined>;
@@ -850,7 +863,8 @@ export interface Tx {
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
    * - `sandboxes`: sandbox records, sandbox resources and their lifecycle streams;
-   * - `all`: both, plus definitions, Action endpoints, user vaults with their credentials,
+   * - `all`: both, plus definitions (and which definition files they use), Action endpoints,
+   *   user vaults with their credentials,
    *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys,
    *   settings, audit and vault idempotency rows stay.
    */

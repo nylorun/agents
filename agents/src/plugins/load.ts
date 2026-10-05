@@ -1,11 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import {
-  stdioMcpRefusal,
-  type McpServerManifest,
-  type SkillRecord,
-} from "@nylorun/core/define";
-import { loadSkillsFromDirectory } from "../skills/load.js";
+import { stdioMcpRefusal, type McpServerManifest } from "@nylorun/core/define";
+import { loadSkillsFromDirectory, type LoadedSkill } from "../skills/load.js";
 
 export const PLUGIN_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -53,7 +49,7 @@ export interface LoadedPlugin {
   readonly root: string;
   readonly name: string;
   readonly description?: string;
-  readonly skills: Readonly<Record<string, SkillRecord>>;
+  readonly skills: Readonly<Record<string, LoadedSkill>>;
   readonly mcpServers: Readonly<Record<string, McpServerManifest>>;
   readonly diagnostics: readonly PluginDiagnostic[];
 }
@@ -160,7 +156,7 @@ function validateMetadata(manifest: Record<string, unknown>, diagnostics: Plugin
 function loadSkills(
   root: string,
   diagnostics: PluginDiagnostic[]
-): Readonly<Record<string, SkillRecord>> {
+): Readonly<Record<string, LoadedSkill>> {
   const location = join(root, "skills");
   if (!existsSync(location)) return {};
   const real = realInside(root, location);

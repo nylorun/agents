@@ -19,6 +19,8 @@ import type { BoundMiddleware } from "./bound.js";
 import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./removed.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
 import { stdioMcpRefusal } from "./mcp.js";
+import { SKILL_TOOL_NAMES } from "./skill-tools.js";
+import { skillFilesIssue } from "../utils/definition-files.js";
 import { httpToolFromManifest, httpToolOf } from "./http-tool.js";
 
 /** Tools the engine or the Runtime runs, which need no implementation: agents and HTTP tools. */
@@ -209,8 +211,9 @@ function resolveTools(
           : httpToolFromManifest({ ...declared, http: declared.http }),
       ];
     if (live) return [live];
+    // The build attaches the skill tools again; the Runtime serves them.
     if (
-      (declared.name === "load_skill" || declared.name === "read_skill_resource") &&
+      SKILL_TOOL_NAMES.has(declared.name) &&
       capability.skills &&
       Object.keys(capability.skills).length > 0
     )
@@ -253,6 +256,8 @@ function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
     );
   const versionIssue = manifestVersionIssue(value.manifestSchemaVersion);
   if (versionIssue) throw new HarnessError("agent.build-failed", versionIssue);
+  if ("functions" in value && value.functions !== undefined)
+    throw new HarnessError("agent.build-failed", "Functions are not available yet");
   // Reject top-level model (Runtime-owned).
   if ("model" in value && value.model !== undefined)
     throw new HarnessError(
@@ -409,9 +414,16 @@ function normalizeSkills(
         "agent.build-failed",
         `Capability '${capabilityId}' skills key '${key}' must equal the skill name`
       );
+    const issue = skillFilesIssue(skill.files);
+    if (issue)
+      throw new HarnessError(
+        "agent.build-failed",
+        `Capability '${capabilityId}' skill '${key}' ${issue}`
+      );
     normalized[key] = Object.freeze({
       name: skill.name,
       description: skill.description,
+      files: Object.freeze({ ...skill.files }),
     });
   }
   return Object.freeze(normalized);

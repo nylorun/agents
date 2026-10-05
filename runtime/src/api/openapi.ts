@@ -152,6 +152,13 @@ const RUNTIME_TAGS: readonly Tag[] = [
     operations: ["PUT /v1/agents/{agentId}", "GET /v1/agents"],
   },
   {
+    name: "Definition files",
+    group: "Agents",
+    description:
+      "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`). `saveAgent` in `@nylorun/agents` does both.",
+    operations: ["PUT /v1/files/{file}", "HEAD /v1/files/{file}"],
+  },
+  {
     name: "Action endpoints",
     group: "Agents",
     description:
@@ -324,7 +331,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   },
 ];
 
-const METHODS = ["get", "put", "post", "delete", "patch"] as const;
+const METHODS = ["get", "head", "put", "post", "delete", "patch"] as const;
 const SERVERS = [
   {
     url: "{origin}",

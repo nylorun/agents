@@ -215,6 +215,14 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
         backends,
         preference: answer.sandbox.backend ?? "auto",
         ephemeral: options.ephemeral === true,
+        // A skill file's bytes come from core, for the run that made the call.
+        definitionFile: async (sha256, session) => {
+          const channel = client.channel();
+          if (!channel || session.claim === undefined)
+            throw new Error(`No run to fetch ${sha256} for`);
+          const { base64 } = await channel.request("definition.file", { runId: session.claim, sha256 });
+          return new Uint8Array(Buffer.from(base64, "base64"));
+        },
         // A claim core refuses (its run ended, the session is gone) is dropped, as core's own
         // SandboxManager drops an event it cannot write.
         emit: async (sessionId, turnId, type, payload, meta) => {

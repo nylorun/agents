@@ -94,6 +94,26 @@ tool error the model sees. What does not carry over:
 
 See [agents/README.md](./agents/README.md#http-tools).
 
+## Skills are files the Runtime serves
+
+A skill is now every file of its folder, uploaded once and served by the Runtime: no skill call
+reaches your process. The manifest's `skills.<name>` gains `files`, each path of the folder
+(`SKILL.md` required) mapped to `sha256:<hex>`; the build hashes them, binary files included.
+
+- **Nothing to change** if you load skills with `.skills(folder)`, `skills(folder)` or
+  `.plugin(folder)` and register with `saveAgent` or `createActionHandler().register()`: they
+  upload the files the Runtime lacks (`client.files`) before the definition.
+- **`PUT /v1/agents/{id}` by hand** must upload each file first with
+  `PUT /v1/files/sha256:<hex>` (application key, the raw bytes, at most 10 MiB; `HEAD` says
+  whether the Runtime holds it). A definition naming a file the Runtime lacks is
+  `400 definition_files_missing`, with the hashes in `details.missing`.
+- **`skillRecords` is gone** from capability declarations (and `SkillRecord` from
+  `@nylorun/core/define`): declare `skills` with `files`, and `skillFiles` for the bytes to upload.
+- **`load_skill` and `read_skill_resource` run only on the Runtime.** In a local run without one
+  they fail with `skills.runtime-only`. `read_skill_resource` refuses a binary file; with a
+  sandbox the model finds it under `/skills/<name>/`.
+- A top-level `functions` key in a manifest is reserved: it is refused for now.
+
 # Runtime and Management APIs (protocol 8)
 
 Every Tenant now serves two APIs on its one URL, split by route and by key. The **Runtime API**

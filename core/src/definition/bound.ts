@@ -4,10 +4,10 @@ import type {
   SandboxManifest,
   SkillManifest,
 } from "../types/manifest.js";
-import type { SkillRecord } from "../types/middleware.js";
 import type { Delegate } from "./delegate.js";
 import type {
   MiddlewareContributions,
+  SkillFileSource,
   StepMiddleware,
 } from "../types/middleware.js";
 import type {
@@ -57,7 +57,8 @@ export interface BoundMiddleware {
   readonly manifestType?: "agent" | "agent-plugin";
   readonly metadata?: JsonObject;
   readonly skills?: Readonly<Record<string, SkillManifest>>;
-  readonly skillRecords?: Readonly<Record<string, SkillRecord>>;
+  /** Each skill file's bytes, by `sha256:<hex>`. Not a manifest field. */
+  readonly skillFiles?: Readonly<Record<string, SkillFileSource>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   readonly sandbox?: SandboxManifest;
 }

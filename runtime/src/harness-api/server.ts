@@ -43,13 +43,14 @@ import {
   type TurnStart,
   type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
-import type { ActionOutcome } from "@nylorun/core/contracts";
+import { definitionFilesOf, type ActionOutcome } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
 import { mcpDiscovered, sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
+import { readDefinitionFile } from "../tenant/definition-files.js";
 import { recordIntent, recordOutcome } from "./record.js";
 import { beat, renewEveryMs, tokenOf } from "./renew.js";
 
@@ -292,6 +293,8 @@ export function createHarnessApiServer(
           return { cursor: run.offer.start.transcript.cursor, entries: [...run.offer.transcript] };
         case "session.mcp":
           return recordMcp(run, p as ParamsOf<"session.mcp">);
+        case "definition.file":
+          return definitionFile(run, (p as ParamsOf<"definition.file">).sha256, signal);
         default:
           throw new HarnessApiError("invalid", `Unknown request ${method}`);
       }
@@ -373,6 +376,15 @@ export function createHarnessApiServer(
         sessionTools: [...(sessionToolsOf(current.mcpSnapshot, current.manifest) ?? [])],
       } as { snapshot: unknown; sessionTools: unknown[] };
     });
+
+  /** A definition file the run's definition names (its skills', for its sandbox), base64. */
+  const definitionFile = async (run: Run, sha256: string, signal: AbortSignal) => {
+    if (!definitionFilesOf(run.offer.start.routing.rootManifest).has(sha256))
+      throw new HarnessApiError("invalid", `The run's definition names no file ${sha256}`);
+    const bytes = await readDefinitionFile(ctx.blobs, sha256, signal);
+    if (!bytes) throw new HarnessApiError("unavailable", `The Object store has no bytes for ${sha256}`);
+    return { base64: Buffer.from(bytes).toString("base64") };
+  };
 
   const output = (run: Run, method: string, params: Record<string, unknown>) => {
     const known = run.outputs.get(method);

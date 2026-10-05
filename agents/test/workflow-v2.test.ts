@@ -29,6 +29,7 @@ async function register(agents: Parameters<typeof createActionHandler>[0]["agent
     fetch: async (url, init) => {
       const path = String(url);
       if (path.endsWith("/health")) return healthOk();
+      if (path.includes("/v1/files/")) return heldFile(init);
       if (path.includes("/v1/agents/") && init?.method === "PUT") {
         saved.push(decodeURIComponent(path.split("/").pop()!));
         return Response.json({ ok: true });
@@ -55,6 +56,12 @@ async function register(agents: Parameters<typeof createActionHandler>[0]["agent
     implementationVersion: "test",
   }).register({ url: ENDPOINT });
   return { saved, registrations, answers };
+}
+
+/** The Runtime holds every skill file already: `saveAgent` asks (HEAD) and uploads nothing. */
+function heldFile(init: RequestInit | undefined) {
+  if (init?.method !== "HEAD") throw new Error(`unexpected ${init?.method} of a file`);
+  return new Response(null, { status: 200 });
 }
 
 function healthOk() {
@@ -113,6 +120,7 @@ describe("saveAgent with a v2 flow agent", () => {
       key: KEY,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
+        if (String(url).includes("/v1/files/")) return heldFile(init);
         if (init?.method === "PUT") {
           puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init.body)) });
           return Response.json({ ok: true });
@@ -192,6 +200,7 @@ describe("a flow agent used as a tool (Phase 3)", () => {
       key: KEY,
       fetch: async (url, init) => {
         if (String(url).endsWith("/health")) return healthOk();
+        if (String(url).includes("/v1/files/")) return heldFile(init);
         puts.push({ path: decodeURIComponent(String(url).split("/").pop()!), body: JSON.parse(String(init!.body)) });
         return Response.json({ ok: true });
       },

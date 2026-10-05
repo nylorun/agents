@@ -173,7 +173,9 @@ const assistant = Agent({ id: "assistant", name: "Order assistant" })
   .skills("./assistant-skills");
 ```
 
-Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Supporting files (for example `references/`) are available through `read_skill_resource` after `load_skill`. The helper sets both the manifest skill catalog and the on-disk skill records so you do not duplicate content.
+Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`), at most 500 files of 10 MiB each. `saveAgent` (and `createActionHandler().register()`) uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it puts the definition, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`).
+
+The Runtime serves the skills itself, with no call to your process: `load_skill` returns a skill's `SKILL.md` body and the paths of its other files, and `read_skill_resource` returns a text file. A session with a sandbox also has each skill's files read-only under `/skills/<name>/`, so the model can run a skill's scripts with `bash`. Run without a Runtime, the skill tools only say so.
 
 Declare MCP servers with `.mcp(...)` (same map shape as agent-plugins `mcpServers`):
 

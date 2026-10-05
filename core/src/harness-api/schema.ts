@@ -228,6 +228,10 @@ const requests: Record<string, { params: z.ZodType; result: z.ZodType }> = {
     params: runId.extend({ snapshot: z.unknown().optional(), diagnostics: z.array(z.unknown()) }).strict(),
     result: z.object({ snapshot: z.unknown(), sessionTools: z.array(z.unknown()) }).strict(),
   },
+  "definition.file": {
+    params: runId.extend({ sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/) }).strict(),
+    result: z.object({ base64: z.string() }).strict(),
+  },
   "turn.completed": { params: TurnOutputSchema, result: settled },
   "turn.paused": { params: TurnOutputSchema, result: settled },
   "turn.waiting": { params: TurnOutputSchema, result: settled },

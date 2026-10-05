@@ -36,7 +36,8 @@ export type CapabilityView = {
   description?: string;
   instructions: string[];
   tools: ToolView[];
-  skills: { name: string; description?: string }[];
+  /** Each skill, with the paths of its files (names only). */
+  skills: { name: string; description?: string; files: string[] }[];
   mcpServers: string[];
   /** The MCP servers whose every tool call waits for approval. */
   mcpApproval: string[];
@@ -135,6 +136,7 @@ export function manifestView(manifest: unknown): ManifestView {
               ...(typeof skill.description === "string"
                 ? { description: skill.description }
                 : {}),
+              files: isRecord(skill.files) ? Object.keys(skill.files).sort() : [],
             }))
         : [],
       mcpServers: isRecord(capability.mcpServers) ? Object.keys(capability.mcpServers) : [],

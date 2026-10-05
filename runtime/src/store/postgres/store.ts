@@ -86,6 +86,7 @@ import type {
   ArtifactRow,
   ArtifactVersionRow,
   ActionStatus,
+  DefinitionFileRow,
   CommitListener,
   DefinitionDoc,
   DocTable,
@@ -137,6 +138,8 @@ import {
   artifacts,
   artifactVersions,
   artifactContent,
+  definitionFiles,
+  definitionFileUses,
   commands,
   definitions,
   effects,
@@ -1576,6 +1579,50 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.blobKey);
   }
 
+  // --- definition files -----------------------------------------------------
+
+  async definitionFile(sha256: string): Promise<DefinitionFileRow | undefined> {
+    this.check();
+    const [row] = await this.db.select().from(definitionFiles).where(eq(definitionFiles.sha256, sha256));
+    return row;
+  }
+
+  async insertDefinitionFile(row: DefinitionFileRow): Promise<boolean> {
+    this.check();
+    const inserted = await this.db
+      .insert(definitionFiles)
+      .values(row)
+      .onConflictDoNothing()
+      .returning({ sha256: definitionFiles.sha256 });
+    return inserted.length === 1;
+  }
+
+  async heldDefinitionFiles(shas: readonly string[]): Promise<Set<string>> {
+    this.check();
+    const found = new Set<string>();
+    for (let at = 0; at < shas.length; at += CONTENT_BATCH) {
+      const rows = await this.db
+        .select({ sha256: definitionFiles.sha256 })
+        .from(definitionFiles)
+        .where(inArray(definitionFiles.sha256, shas.slice(at, at + CONTENT_BATCH)));
+      for (const row of rows) found.add(row.sha256);
+    }
+    return found;
+  }
+
+  async insertDefinitionFileUses(
+    agentId: string,
+    manifestHash: string,
+    shas: readonly string[],
+  ): Promise<void> {
+    this.check();
+    for (let at = 0; at < shas.length; at += CONTENT_BATCH)
+      await this.db
+        .insert(definitionFileUses)
+        .values(shas.slice(at, at + CONTENT_BATCH).map((sha256) => ({ agentId, manifestHash, sha256 })))
+        .onConflictDoNothing();
+  }
+
   // --- settings ------------------------------------------------------------
 
   async getSetting(key: string): Promise<string | undefined> {
@@ -1621,6 +1668,8 @@ class PostgresTx implements Tx {
     }
     if (scope === "all") {
       await db.delete(definitions);
+      // The files stay, as their bytes do; only what used them goes.
+      await db.delete(definitionFileUses);
       await db.delete(endpoints);
       await db.delete(modelUsage);
       await db.delete(modelBudgets);

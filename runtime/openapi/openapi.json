@@ -6312,6 +6312,7 @@
               "oauth_client_required",
               "oauth_state_invalid",
               "oauth_failed",
+              "definition_files_missing",
               "internal_error"
             ]
           },
@@ -6519,11 +6520,18 @@
                               "description": {
                                 "type": "string",
                                 "minLength": 1
+                              },
+                              "files": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
                               "name",
-                              "description"
+                              "description",
+                              "files"
                             ],
                             "additionalProperties": false
                           }
@@ -6743,6 +6751,9 @@
                     "type": "object",
                     "properties": {},
                     "additionalProperties": false
+                  },
+                  "functions": {
+                    "description": "Reserved: Functions are not available yet"
                   }
                 },
                 "required": [
@@ -6856,11 +6867,18 @@
                               "description": {
                                 "type": "string",
                                 "minLength": 1
+                              },
+                              "files": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
                               "name",
-                              "description"
+                              "description",
+                              "files"
                             ],
                             "additionalProperties": false
                           }
@@ -7080,6 +7098,9 @@
                     "type": "object",
                     "properties": {},
                     "additionalProperties": false
+                  },
+                  "functions": {
+                    "description": "Reserved: Functions are not available yet"
                   }
                 },
                 "required": [
@@ -7192,11 +7213,18 @@
                               "description": {
                                 "type": "string",
                                 "minLength": 1
+                              },
+                              "files": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
                               "name",
-                              "description"
+                              "description",
+                              "files"
                             ],
                             "additionalProperties": false
                           }
@@ -7416,6 +7444,9 @@
                     "type": "object",
                     "properties": {},
                     "additionalProperties": false
+                  },
+                  "functions": {
+                    "description": "Reserved: Functions are not available yet"
                   }
                 },
                 "required": [
@@ -7663,11 +7694,18 @@
                           "description": {
                             "type": "string",
                             "minLength": 1
+                          },
+                          "files": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
                           "name",
-                          "description"
+                          "description",
+                          "files"
                         ],
                         "additionalProperties": false
                       }
@@ -7887,6 +7925,9 @@
                 "type": "object",
                 "properties": {},
                 "additionalProperties": false
+              },
+              "functions": {
+                "description": "Reserved: Functions are not available yet"
               }
             },
             "required": [
@@ -8066,11 +8107,18 @@
                                 "description": {
                                   "type": "string",
                                   "minLength": 1
+                                },
+                                "files": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "string"
+                                  }
                                 }
                               },
                               "required": [
                                 "name",
-                                "description"
+                                "description",
+                                "files"
                               ],
                               "additionalProperties": false
                             }
@@ -8290,6 +8338,9 @@
                       "type": "object",
                       "properties": {},
                       "additionalProperties": false
+                    },
+                    "functions": {
+                      "description": "Reserved: Functions are not available yet"
                     }
                   },
                   "required": [
@@ -9117,11 +9168,18 @@
                               "description": {
                                 "type": "string",
                                 "minLength": 1
+                              },
+                              "files": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
                               "name",
-                              "description"
+                              "description",
+                              "files"
                             ],
                             "additionalProperties": false
                           }
@@ -9341,6 +9399,9 @@
                     "type": "object",
                     "properties": {},
                     "additionalProperties": false
+                  },
+                  "functions": {
+                    "description": "Reserved: Functions are not available yet"
                   }
                 },
                 "required": [
@@ -17372,6 +17433,25 @@
         ],
         "additionalProperties": false
       },
+      "DefinitionFileView": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10485760
+          }
+        },
+        "required": [
+          "sha256",
+          "size"
+        ],
+        "additionalProperties": false
+      },
       "ListSandboxesResponse": {
         "type": "object",
         "properties": {
@@ -19310,6 +19390,226 @@
           },
           "401": {
             "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/files/{file}": {
+      "put": {
+        "tags": [
+          "Definition files"
+        ],
+        "summary": "Upload a definition file",
+        "description": "Stores the body, at most 10485760 bytes, at the SHA-256 the path names; a body with another hash stores nothing (`400`). A file the Tenant holds already is kept as it is (`200`).",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "`sha256:` and the SHA-256 of the file's bytes, 64 lowercase hex digits"
+            },
+            "required": true,
+            "description": "`sha256:` and the SHA-256 of the file's bytes, 64 lowercase hex digits",
+            "name": "file",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The file's bytes",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Tenant held the file already",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionFileView"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The file, stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionFileView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Larger than 10485760 bytes (`limit_exceeded`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "Definition files"
+        ],
+        "summary": "Whether the Runtime holds a definition file",
+        "description": "`200` when the Tenant holds the file, `404` when it does not: upload it.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "`sha256:` and the SHA-256 of the file's bytes, 64 lowercase hex digits"
+            },
+            "required": true,
+            "description": "`sha256:` and the SHA-256 of the file's bytes, 64 lowercase hex digits",
+            "name": "file",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Tenant holds the file"
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -25683,6 +25983,10 @@
       "description": "The agents a Tenant can run: put a definition, list what is there. In `@nylorun/agents`."
     },
     {
+      "name": "Definition files",
+      "description": "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`). `saveAgent` in `@nylorun/agents` does both."
+    },
+    {
       "name": "Action endpoints",
       "description": "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call and workflow step to, signed with a delivery token your endpoint verifies with the public keys."
     },
@@ -25722,6 +26026,7 @@
       "name": "Agents",
       "tags": [
         "Agents",
+        "Definition files",
         "Action endpoints",
         "Deliveries"
       ]

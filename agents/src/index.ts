@@ -106,6 +106,7 @@ export type {
   ArtifactVersionView,
   ArtifactLink,
   UploadArtifactResponse,
+  DefinitionFileView,
   ArtifactTree,
   ArtifactDiff,
   FolderEntry,
@@ -113,6 +114,7 @@ export type {
 export { SUBJECT_SCOPES } from "@nylorun/core/contracts";
 export { AgentsClient, SessionClient, createClient } from "./client.js";
 export { ArtifactsClient } from "./artifacts.js";
+export { FilesClient, definitionFileHash } from "./files.js";
 export type {
   ArtifactBody,
   ArtifactLinkWithUrl,

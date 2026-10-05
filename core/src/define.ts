@@ -94,6 +94,24 @@ export {
   parseSandboxSize,
 } from "./utils/sandbox.js";
 export type { SandboxToolName } from "./utils/sandbox.js";
+export {
+  LOAD_SKILL_TOOL,
+  READ_SKILL_RESOURCE_TOOL,
+  SKILL_TOOL_NAMES,
+  isSkillTool,
+} from "./definition/skill-tools.js";
+export {
+  DEFINITION_FILE_MAX_BYTES,
+  SKILL_ENTRY,
+  SKILL_FILES_MAX,
+  SKILL_FILE_PATH_MAX,
+  SKILLS_MOUNT,
+  definitionFilesOf,
+  isDefinitionFileHash,
+  skillFilePathIssue,
+  skillFilesIssue,
+  skillInstructions,
+} from "./utils/definition-files.js";
 export type { Implementations } from "./definition/implementations.js";
 
 export type {
@@ -115,7 +133,7 @@ export type {
   CapabilityInput,
   CapabilityItems,
   MiddlewareContributions,
-  SkillRecord,
+  SkillFileSource,
   StepMiddleware,
   StepRequest,
   StepResponse,

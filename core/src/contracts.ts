@@ -20,9 +20,16 @@ import {
   httpUrlIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
+import { DEFINITION_FILE_MAX_BYTES, skillFilesIssue } from "./utils/definition-files.js";
 export type { AgentManifest } from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
+export {
+  DEFINITION_FILE_MAX_BYTES,
+  SKILL_FILES_MAX,
+  definitionFilesOf,
+  isDefinitionFileHash,
+} from "./utils/definition-files.js";
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
@@ -77,6 +84,10 @@ const skillManifestSchema = z
   .object({
     name: z.string().min(1),
     description: z.string().min(1),
+    files: z.record(z.string(), z.string()).superRefine((files, ctx) => {
+      const issue = skillFilesIssue(files);
+      if (issue) ctx.addIssue({ code: "custom", message: `Skill ${issue}` });
+    }),
   })
   .strict();
 const sandboxManifestSchema = z
@@ -193,9 +204,14 @@ export const AgentManifestSchema = z
       )
     ),
     runtime: z.object({}).strict().optional(),
+    // Reserved for Functions, which are deferred: developer code the Runtime will run from
+    // uploaded definition files (a `functions/` folder). Any value is refused below.
+    functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
   })
   .strict()
   .superRefine((manifest, ctx) => {
+    if (manifest.functions !== undefined)
+      ctx.addIssue({ code: "custom", path: ["functions"], message: "Functions are not available yet" });
     delegationIssues(manifest as AgentManifest, (message) =>
       ctx.addIssue({ code: "custom", message })
     );
@@ -3209,6 +3225,18 @@ export const UploadArtifactResponseSchema = z
   .object({ artifact: ArtifactViewSchema, version: ArtifactVersionViewSchema })
   .strict();
 export type UploadArtifactResponse = z.infer<typeof UploadArtifactResponseSchema>;
+
+/**
+ * `PUT /v1/files/sha256:{hex}`: a definition file the Runtime holds (track R2 M4), named by the
+ * SHA-256 of its bytes. `201` stored it, `200` already had it.
+ */
+export const DefinitionFileViewSchema = z
+  .object({
+    sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    size: z.number().int().nonnegative().max(DEFINITION_FILE_MAX_BYTES),
+  })
+  .strict();
+export type DefinitionFileView = z.infer<typeof DefinitionFileViewSchema>;
 
 export const DeleteArtifactResponseSchema = z
   .object({ artifactId: z.string(), deleted: z.boolean() })

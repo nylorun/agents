@@ -88,6 +88,13 @@ export async function authenticateCaller(
   return await authenticate(tenant, incoming, keys);
 }
 
+/** No route: authenticated first, so an unknown credential stays the opaque 404. */
+export async function routeNotFound(c: Context<TenantEnv>): Promise<Response> {
+  // Any known key, of either API, learns only that there is no such route.
+  await authenticateCaller(c, false, { application: true, management: true });
+  return fail(404, "Route not found");
+}
+
 /** Which keys a route's credentials take. */
 export function keyAccess(access: RouteAccess): KeyAccess {
   const takes = (credential: Credential) => access.credentials.includes(credential);
@@ -191,15 +198,18 @@ export function tenantRoute(
     "x-nylorun-credentials": access.credentials,
     "x-nylorun-scopes": access.scopes,
   } as RouteConfig);
-  declared.push({
-    method: route.method.toUpperCase(),
-    segments: route.path.split("/").filter(Boolean),
-    access,
-  });
-  api.on(
-    route.method.toUpperCase(),
-    route.path.replaceAll(/\/{(.+?)}/g, "/:$1"),
-    authenticated(access),
-    handler,
-  );
+  const method = route.method.toUpperCase();
+  declared.push({ method, segments: route.path.split("/").filter(Boolean), access });
+  const path = route.path.replaceAll(/\/{(.+?)}/g, "/:$1");
+  // Hono answers a HEAD request with the GET route: a HEAD route is served there, and a GET of
+  // its path is no route.
+  if (method === "HEAD")
+    api.on(
+      "GET",
+      path,
+      async (c, next) => (c.req.method === "HEAD" ? await next() : await routeNotFound(c)),
+      authenticated(access),
+      handler,
+    );
+  else api.on(method, path, authenticated(access), handler);
 }

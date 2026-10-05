@@ -4,6 +4,7 @@ import { formatSkillCatalog, SKILLS_USAGE } from "./catalog.js";
 import {
   loadSkillsFromDirectory,
   resolveSkillsRoot,
+  type LoadedSkill,
   type SkillDiagnostic,
 } from "./load.js";
 
@@ -30,9 +31,9 @@ export interface SkillsCapability extends CapabilityDeclaration {
  *     references/policy.md
  * ```
  *
- * Sets both `skills` (manifest names/descriptions) and `skillRecords` (bodies +
- * resources) so callers do not duplicate content. The harness injects
- * `load_skill` / `read_skill_resource` from the records.
+ * Sets `skills`: each skill's name, description and files (every file of its folder, binary
+ * included, by content hash). The client uploads the files the Runtime lacks when it registers
+ * the agent, and the Runtime serves `load_skill` / `read_skill_resource` from them.
  */
 export function skills(
   directory: string,
@@ -40,18 +41,13 @@ export function skills(
 ): SkillsCapability {
   const root = resolveSkillsRoot(directory);
   const diagnostics: SkillDiagnostic[] = [];
-  const records = loadSkillsFromDirectory(root, diagnostics);
-  const listed = Object.values(records);
+  const loaded = loadSkillsFromDirectory(root, diagnostics);
+  const listed = Object.values(loaded);
   const id = options.id ?? basename(root);
   if (listed.length === 0) {
     return { id, root, diagnostics };
   }
-  const skillManifest = Object.fromEntries(
-    listed.map((skill) => [
-      skill.name,
-      { name: skill.name, description: skill.description },
-    ])
-  );
+  const { skills: skillManifest, skillFiles } = skillsDeclaration(listed);
   return {
     id,
     root,
@@ -65,7 +61,22 @@ export function skills(
       ),
     ],
     skills: skillManifest,
-    skillRecords: records,
+    skillFiles,
     diagnostics,
+  };
+}
+
+/** The manifest's skills and the bytes behind their files, for a capability declaration. */
+export function skillsDeclaration(
+  listed: readonly LoadedSkill[]
+): Required<Pick<CapabilityDeclaration, "skills" | "skillFiles">> {
+  return {
+    skills: Object.fromEntries(
+      listed.map((skill) => [
+        skill.name,
+        { name: skill.name, description: skill.description, files: skill.files },
+      ])
+    ),
+    skillFiles: Object.assign({}, ...listed.map((skill) => skill.sources)),
   };
 }

@@ -113,6 +113,10 @@
                 "name": "tmp"
               },
               {
+                "mountPath": "/skills",
+                "name": "skills"
+              },
+              {
                 "mountPath": "/run/nylorun/join",
                 "name": "join",
                 "readOnly": true
@@ -180,6 +184,10 @@
           {
             "emptyDir": {},
             "name": "tmp"
+          },
+          {
+            "emptyDir": {},
+            "name": "skills"
           },
           {
             "name": "join",

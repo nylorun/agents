@@ -3,6 +3,7 @@ import { SANDBOX_INSTRUCTIONS, createSandboxTools } from "./sandbox-tools.js";
 import { tool } from "./helpers.js";
 import { ToolError } from "./tool-error.js";
 import { SANDBOX_WORKSPACE } from "../utils/sandbox.js";
+import { SKILLS_MOUNT } from "../utils/definition-files.js";
 import { normalizedSchemasFor } from "./schema.js";
 import { copyJsonObject } from "../utils/immutable.js";
 import type { CapabilityManifest, SandboxManifest, ToolManifest } from "../types/manifest.js";
@@ -85,6 +86,8 @@ export function sandboxCapabilityManifest(
   options: {
     /** The workspace path the backend uses, named in the tools' text. Default `/workspace`. */
     readonly workspace?: string;
+    /** The agent's skills, whose files the sandbox holds under `/skills/<name>/`. */
+    readonly skills?: readonly string[];
   } = {}
 ): CapabilityManifest {
   const workspace = options.workspace ?? SANDBOX_WORKSPACE;
@@ -103,7 +106,16 @@ export function sandboxCapabilityManifest(
   return {
     id: SANDBOX_CAPABILITY_ID,
     type: "agent",
-    instructions: [text(SANDBOX_INSTRUCTIONS)],
+    instructions: [
+      text(SANDBOX_INSTRUCTIONS),
+      ...(options.skills?.length
+        ? [
+            `Each skill's files are in the sandbox, read-only, under ${SKILLS_MOUNT}/<name>/ (${options.skills
+              .map((name) => `${SKILLS_MOUNT}/${name}/`)
+              .join(", ")}): read them there and run their scripts with bash.`,
+          ]
+        : []),
+    ],
     tools,
     sandbox: copyJsonObject(spec as unknown as JsonObject, "sandbox") as SandboxManifest,
   };

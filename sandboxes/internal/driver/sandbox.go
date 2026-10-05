@@ -252,10 +252,13 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 		map[string]any{"name": VolumeName, "mountPath": "/workspace", "subPath": "workspace"},
 		map[string]any{"name": VolumeName, "mountPath": "/harness", "subPath": "harness"},
 		map[string]any{"name": "tmp", "mountPath": "/tmp"},
+		// The engine writes the session's skills here, read-only by mode (track R2 M4).
+		map[string]any{"name": "skills", "mountPath": "/skills"},
 		map[string]any{"name": "join", "mountPath": JoinDir, "readOnly": true},
 	}
 	volumes := []any{
 		map[string]any{"name": "tmp", "emptyDir": map[string]any{}},
+		map[string]any{"name": "skills", "emptyDir": map[string]any{}},
 		map[string]any{"name": "join", "secret": map[string]any{
 			"secretName": name + "-join", "optional": true, "defaultMode": int64(0o440)}},
 	}

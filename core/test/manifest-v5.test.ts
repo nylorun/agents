@@ -41,58 +41,73 @@ it("round-trips a v5 capability and a named streamable-http server", () => {
   expect(restored.toJSON()).toEqual(restored.manifest);
 });
 
-it("accepts a skill name and description and rejects file contents", () => {
-  const skill = manifest([
+const SKILL_MD = `sha256:${"a".repeat(64)}`;
+const LABELS = `sha256:${"b".repeat(64)}`;
+
+function skillManifest(files: unknown, extra: Record<string, unknown> = {}) {
+  return manifest([
     {
       id: "docs",
       type: "agent-plugin",
       skills: {
-        triage: {
-          name: "triage",
-          description: "Triage an issue.",
-        },
+        triage: { name: "triage", description: "Triage an issue.", files, ...extra },
       },
     },
   ]);
+}
+
+it("accepts a skill's files by hash and rejects file contents", () => {
+  const skill = skillManifest({ "SKILL.md": SKILL_MD, "references/labels.md": LABELS });
   expect(AgentManifestSchema.safeParse(skill).success).toBe(true);
   const restored = Agent.from(skill, { docs: {} });
   expect(restored.manifest.capabilities[0]?.skills?.triage).toEqual({
     name: "triage",
     description: "Triage an issue.",
+    files: { "SKILL.md": SKILL_MD, "references/labels.md": LABELS },
   });
+  // The Runtime serves the skill tools; the build attaches them from the manifest's skills.
+  expect(restored.getBinding().tools.map((tool) => tool.name)).toEqual([
+    "load_skill",
+    "read_skill_resource",
+  ]);
+
   expect(
-    restored.getBinding().tools.some((tool) => tool.name === "load_skill")
+    AgentManifestSchema.safeParse(skillManifest({ "SKILL.md": SKILL_MD }, { instructions: "Body" }))
+      .success,
   ).toBe(false);
+  expect(
+    AgentManifestSchema.safeParse(
+      skillManifest({ "SKILL.md": SKILL_MD }, { resources: { "references/labels.md": "# Labels\n" } }),
+    ).success,
+  ).toBe(false);
+});
 
-  const withBody = manifest([
-    {
-      id: "docs",
-      type: "agent-plugin",
-      skills: {
-        triage: {
-          name: "triage",
-          description: "Triage an issue.",
-          instructions: "Body",
-        },
-      },
-    },
-  ]);
-  expect(AgentManifestSchema.safeParse(withBody).success).toBe(false);
+it("validates a skill's file paths, hashes and count", () => {
+  const issue = (files: unknown) => {
+    const parsed = AgentManifestSchema.safeParse(skillManifest(files));
+    return parsed.success ? undefined : parsed.error.issues.map((item) => item.message).join("; ");
+  };
+  expect(issue({ "SKILL.md": SKILL_MD, "scripts/run.py": LABELS, "assets/logo.png": LABELS })).toBeUndefined();
+  expect(issue({ "notes.md": LABELS })).toContain("files must include SKILL.md");
+  expect(issue(undefined)).toBeDefined();
+  for (const path of ["../escape.md", "/etc/passwd", "a\\b.md", "a//b.md", "./a.md", "a/../b.md", "x".repeat(513)])
+    expect(issue({ "SKILL.md": SKILL_MD, [path]: LABELS }), path).toContain("file path");
+  expect(issue({ "SKILL.md": "sha256:ABC" })).toContain("sha256:<64 lowercase hex>");
+  expect(issue({ "SKILL.md": "a".repeat(64) })).toContain("sha256:<64 lowercase hex>");
+  const many: Record<string, string> = { "SKILL.md": SKILL_MD };
+  for (let index = 0; index < 500; index += 1) many[`f${index}.txt`] = LABELS;
+  expect(issue(many)).toContain("a skill may have at most 500");
+  expect(() => Agent.from(skillManifest({ "notes.md": LABELS }), { docs: {} })).toThrow(
+    /skill 'triage' files must include SKILL.md/,
+  );
+});
 
-  const withResources = manifest([
-    {
-      id: "docs",
-      type: "agent-plugin",
-      skills: {
-        triage: {
-          name: "triage",
-          description: "Triage an issue.",
-          resources: { "references/labels.md": "# Labels\n" },
-        },
-      },
-    },
-  ]);
-  expect(AgentManifestSchema.safeParse(withResources).success).toBe(false);
+it("reserves functions", () => {
+  const reserved = { ...manifest([]), functions: {} };
+  const parsed = AgentManifestSchema.safeParse(reserved);
+  expect(parsed.success).toBe(false);
+  expect(parsed.error?.issues.map((item) => item.message)).toContain("Functions are not available yet");
+  expect(() => Agent.from(reserved, {})).toThrow("Functions are not available yet");
 });
 
 it("rejects a server key that differs from name and a duplicate server", () => {

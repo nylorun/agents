@@ -174,7 +174,7 @@ export function localBackend(options: LocalBackendOptions): SandboxBackend {
       return { entries, truncated: !complete };
     },
     async writeFile(path, content) {
-      await writeFile(path, content, "utf8");
+      await (typeof content === "string" ? writeFile(path, content, "utf8") : writeFile(path, content));
     },
     async stop() {},
   };
