@@ -63,6 +63,8 @@ export interface HarnessServiceOptions {
    * opens remote servers through the Tool Gate, and refuses them without one.
    */
   readonly authorize?: ConstructorParameters<typeof McpPool>[0]["authorize"];
+  /** How remote MCP servers opened in this process are reached (`TenantConfig.delivery`). */
+  readonly delivery?: ConstructorParameters<typeof McpPool>[0]["policy"];
   /** Default: the virtual backend under `paths.sandboxes`. */
   readonly sandboxBackends?: readonly SandboxBackend[];
   /** Delete the workspaces on stop (an ephemeral Runtime's loopback harness). */
@@ -114,6 +116,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       (async () => {
         throw new Error("This harness opens remote MCP servers only through the gates service");
       }),
+    ...(options.delivery ? { policy: options.delivery } : {}),
     ...(options.toolGate.openMcp ? { openRemote: (server) => options.toolGate.openMcp!(server) } : {}),
   });
   const sweep = setInterval(() => void pool.sweep().catch(() => undefined), MCP_SWEEP_MS);

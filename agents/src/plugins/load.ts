@@ -243,11 +243,11 @@ function loadMcp(
   const servers: Record<string, McpServerManifest> = {};
   for (const [name, value] of Object.entries(parsed.mcpServers)) {
     const server = validateServer(name, value, root, pluginData);
-    if (!server) {
+    if (typeof server === "string") {
       diagnostics.push({
         severity: "warning",
         code: "plugin.mcp-server-skipped",
-        message: `Skipped invalid MCP server '${name}'`,
+        message: `Skipped invalid MCP server '${name}': ${server}`,
         path: location,
       });
       continue;
@@ -258,17 +258,19 @@ function loadMcp(
   return servers;
 }
 
+/** The server, or why it is skipped. */
 function validateServer(
   name: string,
   value: unknown,
   root: string,
   pluginData: string
-): McpServerManifest | undefined {
-  if (!isRecord(value) || typeof value.type !== "string") return undefined;
-  if (value.type === "stdio") return validateStdio(name, value, root, pluginData);
+): McpServerManifest | string {
+  if (!isRecord(value) || typeof value.type !== "string") return "it has no type";
+  if (value.type === "stdio")
+    return validateStdio(name, value, root, pluginData) ?? "it is not a valid stdio declaration";
   if (value.type === "streamable-http" || value.type === "sse")
     return validateRemote(name, value);
-  return undefined;
+  return `type '${value.type}' is not stdio, streamable-http or sse`;
 }
 
 function validateStdio(
@@ -323,20 +325,23 @@ function validateStdio(
 function validateRemote(
   name: string,
   value: Record<string, unknown>
-): McpServerManifest | undefined {
+): McpServerManifest | string {
   const allowed = new Set(["type", "url", "headers"]);
-  if (Object.keys(value).some((key) => !allowed.has(key))) return undefined;
-  if (typeof value.url !== "string" || !isRemoteUrl(value.url)) return undefined;
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) return `${value.type} servers take only type, url and headers, not ${unknown.join(", ")}`;
+  if (typeof value.url !== "string") return "url must be a string";
+  const problem = remoteUrlProblem(value.url);
+  if (problem) return problem;
   let headers: Record<string, string> | undefined;
   if (value.headers !== undefined) {
-    if (!isRecord(value.headers)) return undefined;
+    if (!isRecord(value.headers)) return "headers must be an object";
     const seen = new Set<string>();
     headers = {};
     for (const [key, item] of Object.entries(value.headers)) {
       if (typeof item !== "string" || !isHeaderName(key) || /[\r\n\0]/.test(item))
-        return undefined;
+        return `header '${key}' is not a valid header`;
       const folded = key.toLowerCase();
-      if (seen.has(folded)) return undefined;
+      if (seen.has(folded)) return `header '${key}' is repeated`;
       seen.add(folded);
       headers[key] = item;
     }
@@ -371,17 +376,23 @@ function isCwdForm(cwd: string): boolean {
   );
 }
 
-function isRemoteUrl(value: string): boolean {
+/**
+ * Why `value` is not a remote server URL: https, or plain http to this machine's loopback (a
+ * local Tenant in Docker reaches it on the Docker host). No credentials or fragment.
+ */
+function remoteUrlProblem(value: string): string | undefined {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return false;
+    return `url '${value}' is not a URL`;
   }
-  if (url.username || url.password || url.hash) return false;
-  if (url.protocol === "https:") return true;
-  if (url.protocol !== "http:") return false;
-  return isLoopback(url.hostname);
+  if (url.username || url.password) return "url must not carry credentials; use headers";
+  if (url.hash) return "url must not have a fragment";
+  if (url.protocol === "https:") return undefined;
+  if (url.protocol !== "http:") return `url must be https, not ${url.protocol.slice(0, -1)}`;
+  if (isLoopback(url.hostname)) return undefined;
+  return `plain http is allowed only for localhost, 127.0.0.1 or [::1]; use https for ${url.hostname}`;
 }
 
 function isLoopback(hostname: string): boolean {

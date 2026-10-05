@@ -35,6 +35,22 @@ test("labels workflow LiveEvent types", () => {
 });
 
 
+test("summarizes each MCP server's outcome", () => {
+  assert.equal(eventLabel({ type: "mcp.discovered" }), "MCP servers");
+  assert.equal(
+    eventSummary({
+      type: "mcp.discovered",
+      payload: {
+        servers: [
+          { capabilityId: "mcp", serverName: "docs", outcome: "connected", message: "Connected", tools: 2 },
+          { capabilityId: "mcp", serverName: "local", outcome: "failed", message: "connect ECONNREFUSED 127.0.0.1:3002", tools: 0 },
+        ],
+      },
+    }),
+    "docs: 2 tools · local failed: connect ECONNREFUSED 127.0.0.1:3002",
+  );
+});
+
 test("summarizes message and action payloads", () => {
   assert.equal(
     eventSummary({

@@ -95,6 +95,7 @@ export async function startLoopbackHarness(
     ...(ctx.toolGate.openMcp
       ? {}
       : { authorize: (sessionId: string, request: { url: string; serverName: string; agentId?: string }) => authorize(ctx, sessionId, request) }),
+    ...(ctx.config.delivery ? { delivery: ctx.config.delivery } : {}),
     ...(options.sandboxBackends ? { sandboxBackends: options.sandboxBackends } : {}),
     logger: quietLogger(ctx),
     name: "loopback",

@@ -1,3 +1,4 @@
+import type { EventPayload } from "@nylorun/core/contracts";
 import type { JsonObject } from "@nylorun/core/define";
 import { delegateManifest, type AgentManifest } from "@nylorun/core/define";
 import type { DurableSessionTool, HostEffect } from "@nylorun/harness/run";
@@ -28,6 +29,28 @@ export interface McpDiagnostic {
   readonly outcome: "connected" | "refused" | "failed";
   readonly message: string;
   readonly credentialIds?: readonly string[];
+}
+
+/** The `mcp.discovered` payload: each server's outcome, with the tools it added to the snapshot. */
+export function mcpDiscovered(
+  snapshot: McpSnapshot,
+  diagnostics: readonly McpDiagnostic[]
+): EventPayload<"mcp.discovered"> {
+  const key = (item: { agentId?: string; capabilityId: string; serverName: string }) =>
+    JSON.stringify([item.agentId ?? null, item.capabilityId, item.serverName]);
+  const tools = new Map<string, number>();
+  for (const tool of snapshot.mcpTools) tools.set(key(tool), (tools.get(key(tool)) ?? 0) + 1);
+  return {
+    servers: diagnostics.map((item) => ({
+      ...(item.agentId === undefined ? {} : { agentId: item.agentId }),
+      capabilityId: item.capabilityId,
+      serverName: item.serverName,
+      outcome: item.outcome,
+      message: item.message,
+      tools: tools.get(key(item)) ?? 0,
+      ...(item.credentialIds === undefined ? {} : { credentialIds: [...item.credentialIds] }),
+    })),
+  };
 }
 
 export function modelToolName(serverName: string, serverToolName: string): string {

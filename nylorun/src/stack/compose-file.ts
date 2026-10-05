@@ -186,7 +186,7 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
       # unset by default. Set both in the shell that runs \`nylorun start\`.
@@ -251,7 +251,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Agent turns, MCP servers and workspaces run in the harness container, which connects to
       # this listener with NYLORUN_HARNESS_TOKEN. NYLORUN_HARNESS=in-process in .env rolls back.

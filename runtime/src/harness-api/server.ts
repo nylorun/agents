@@ -46,7 +46,7 @@ import {
 import type { ActionOutcome } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
-import { sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
+import { mcpDiscovered, sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
 import { sandboxWorkspaceKey, workspacePrefix } from "../sandbox/records.js";
 import type { RunOf } from "../tenant/run-grants.js";
 import { abortKind } from "../tenant/worker.js";
@@ -340,8 +340,8 @@ export function createHarnessApiServer(
 
   /**
    * What a harness found readying the run's MCP servers: the first snapshot recorded for the
-   * session wins; diagnostics replace those of the same server. Answers the session's snapshot
-   * and the tools the engine advertises.
+   * session wins, with `mcp.discovered` in its log; diagnostics replace those of the same server.
+   * Answers the session's snapshot and the tools the engine advertises.
    */
   const recordMcp = (run: Run, params: ParamsOf<"session.mcp">) =>
     ctx.store.tx(async (t) => {
@@ -355,6 +355,7 @@ export function createHarnessApiServer(
         current.mcpSnapshot = snapshot;
         current.mcpDiagnostics = diagnostics;
         await t.put("sessions", current.id, current);
+        await t.event(current.id, run.grant.turnId, "mcp.discovered", mcpDiscovered(snapshot, diagnostics));
       } else if (diagnostics.length > 0) {
         const prior = [...(current.mcpDiagnostics ?? [])];
         for (const item of diagnostics) {
