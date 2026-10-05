@@ -273,8 +273,17 @@ try {
       assert.equal(home.headers.get("location"), `/tenants/${tenantId}`);
       assert.equal(
         (await fetch(`${studio.origin}/_studio/hello`)).status,
+        200,
+        "Studio on its loopback address needs no sign-in",
+      );
+      assert.equal(
+        (
+          await fetch(`${studio.origin}/_studio/hello`, {
+            headers: { authorization: "Bearer forged" },
+          })
+        ).status,
         401,
-        "Studio refuses requests without a session",
+        "Studio refuses a forged credential",
       );
       assert.equal(
         (await fetch(studioUrl, { redirect: "manual" })).status,
