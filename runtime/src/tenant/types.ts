@@ -12,7 +12,9 @@ import type { HostAuthority } from "../sandbox/join.js";
 import type { SessionStore } from "../store/types.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import type { TenantCause } from "./cause.js";
+import type { OperatorKeys } from "./operator-keys.js";
 import type { OutboundPolicy } from "./outbound.js";
+import type { ResolverConfig } from "../vault/sources.js";
 import type { TenantWorker } from "./worker.js";
 
 export type TenantMode = "shared" | "ephemeral" | "test";
@@ -85,6 +87,23 @@ export interface TenantConfig {
    */
   flowEnv?: Readonly<Record<string, string | undefined>>;
   vaultFetch?: typeof fetch;
+  /**
+   * The trusted issuers whose JWTs the Tenant API accepts (Host feature `trusted-issuers`), from
+   * the identity file (`NYLORUN_IDENTITY_FILE`). Absent: none.
+   */
+  issuers?: import("./issuers.js").TrustedIssuers;
+  /**
+   * The operator's credential resolver (F9 C1), asked for a person's MCP credential when the
+   * session's vaults hold none. Used where this process authorizes MCP calls itself (embedding,
+   * the ephemeral Runtime, tests); the gateway takes `NYLORUN_RESOLVER_*` instead.
+   */
+  resolver?: ResolverConfig;
+  /**
+   * The URL browsers reach this Tenant API at (`NYLORUN_PUBLIC_URL`, no trailing slash): the
+   * base of the MCP OAuth callback, `<publicUrl>/v1/oauth/callback` (F9 C2). Absent (embedding,
+   * tests): the origin the start request was sent to.
+   */
+  publicUrl?: string;
   logger: Logger;
 }
 
@@ -133,6 +152,8 @@ export interface TenantHandle {
   attachHarness?(channel: HarnessChannel, peer: HarnessPeer): () => void;
   /** The Tenant's side of a sandbox pod's join (F7.2); absent without sandbox pods. */
   hostAuthority?(): HostAuthority | undefined;
+  /** The Tenant's operator keys, for the Admin API (`/v1/admin/keys`, F9 I1). */
+  operatorKeys?(): OperatorKeys;
 }
 
 /**

@@ -44,17 +44,3 @@ export async function signalSessionsReset(
   const signal: ControlSignal = { type: "sessions.reset", generation };
   await streams.append(basin, CONTROL_STREAM, [signal]);
 }
-
-/**
- * Appends a `subject.revoked` signal: every process with the Tenant open ends the subject's
- * streams opened with a token older than `epoch`.
- */
-export async function signalSubjectRevoked(
-  streams: DurableStreams,
-  basin: string,
-  subject: string,
-  epoch: number,
-): Promise<void> {
-  const signal: ControlSignal = { type: "subject.revoked", subject, epoch };
-  await streams.append(basin, CONTROL_STREAM, [signal]);
-}

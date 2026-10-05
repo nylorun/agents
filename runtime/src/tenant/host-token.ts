@@ -17,7 +17,7 @@
  * The host token is accepted only by the Harness API listener (a connection serving that one
  * sandbox, and `host.renew`); the egress token only by egress-gate, as the proxy credential
  * (`Proxy-Authorization`). Neither is a bearer anywhere else: the Tenant API's bearer check
- * accepts subject tokens only, and the gates run tokens only.
+ * accepts trusted issuers' and delivery tokens only, and the gates run tokens only.
  *
  * Verification reads the key row on every call (a revoked key refuses at once) and, with
  * `currentHost`, the sandbox's row (one indexed read): the epoch must be the sandbox's, the
@@ -25,7 +25,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { errors, importJWK, jwtVerify } from "jose";
-import { subjectTokenIssuer } from "@nylorun/core/contracts";
+import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import type { Keys } from "../keys/keys.js";
 import type { SessionStore } from "../store/types.js";
 import { CLOCK_TOLERANCE_SECONDS, tokenKeyId } from "./jwt.js";
@@ -92,7 +92,7 @@ export async function mintEgressToken(
   const { token } = await signer.keys.sign({
     typ: EGRESS_TOKEN_TYP,
     claims: {
-      iss: subjectTokenIssuer(tenantId),
+      iss: tenantTokenIssuer(tenantId),
       aud: EGRESS_TOKEN_AUD,
       sbx: sandboxId,
       epc: epoch,
@@ -117,7 +117,7 @@ export async function mintHostTokens(
     signer.keys.sign({
       typ: HOST_TOKEN_TYP,
       claims: {
-        iss: subjectTokenIssuer(tenantId),
+        iss: tenantTokenIssuer(tenantId),
         aud: HOST_TOKEN_AUD,
         sub: host.sandboxId,
         sbx: host.sandboxId,
@@ -185,7 +185,7 @@ export async function verifyHostToken(
   try {
     const verified = await jwtVerify(raw, key, {
       algorithms: ["ES256"],
-      issuer: subjectTokenIssuer(tenantId),
+      issuer: tenantTokenIssuer(tenantId),
       audience: aud,
       typ,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,

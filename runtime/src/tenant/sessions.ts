@@ -65,7 +65,7 @@ export async function listDefinitions(ctx: TenantContext) {
 }
 
 /**
- * The agents a subject token or publishable key may see: id, name and description only, never
+ * The agents a token caller may see: id, name and description only, never
  * instructions, tools or MCP servers, and only the agents allowed.
  */
 export async function listAgentsPublic(
@@ -164,7 +164,7 @@ export async function putSession(
      */
     createOnly?: boolean;
     /**
-     * The sandboxes the caller reaches (a subject token's `sbx`, `sandboxGrantsOf`); undefined
+     * The sandboxes the caller reaches (a token caller's grants, `sandboxGrantsOf`); undefined
      * reaches every one. `sandbox: { id }` must name one of them.
      */
     sandboxGrants?: readonly string[];

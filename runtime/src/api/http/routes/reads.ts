@@ -9,7 +9,7 @@ import {
   ModelCallExportPage,
 } from "../../components.js";
 import { readAccess, readStoreOf } from "../../../reads/access.js";
-import { requireApplication } from "../../../tenant/auth.js";
+import { requireApplication, requirePrincipal } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
 import { sandboxGrantsOf } from "../../../tenant/sandboxes.js";
 import type { TenantEnv } from "../app.js";
@@ -79,14 +79,16 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
         },
       },
     },
-    async (c) =>
-      jsonResponse(
+    async (c) => {
+      requirePrincipal(c.get("scope"));
+      return jsonResponse(
         200,
         await readStoreOf(c.env.tenant).manifest(
           c.req.param("sessionId")!,
           readAccess(c.get("scope")),
         ),
-      ),
+      );
+    },
   );
   for (const kind of ["usage", "calls/model"] as const) {
     const query =
@@ -122,6 +124,7 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
         },
       },
       async (c) => {
+        requirePrincipal(c.get("scope"));
         const store = readStoreOf(c.env.tenant),
           access = readAccess(c.get("scope")),
           id = c.req.param("sessionId")!;
@@ -165,6 +168,7 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
+      requirePrincipal(c.get("scope"));
       const q = parseQuery(exportQuery, c.req.query());
       return jsonResponse(200, await readStoreOf(c.env.tenant).exportModel(q.after, q.limit));
     },

@@ -29,7 +29,7 @@ import { loadSession, sessionOf, type TenantContext } from "../../../tenant/cont
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
 import { sandboxGrantsOf } from "../../../tenant/sandboxes.js";
-import { readHistory, requestCursor, streamSessionEvents } from "../../../tenant/session-streams.js";
+import { readHistory, requestCursor, streamHolderOf, streamSessionEvents } from "../../../tenant/session-streams.js";
 import {
   listAgentsPublic,
   listDefinitions,
@@ -47,7 +47,6 @@ import { jsonResponse } from "../respond.js";
 const OWN_SESSIONS: RouteAccess = {
   credentials: ["application", "subject", "token"],
   scopes: ["sessions:own"],
-  browser: true,
 };
 
 const json = (schema: z.ZodType, description: string) => ({
@@ -89,9 +88,8 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
     {
-      credentials: ["application", "subject", "token", "publishable"],
+      credentials: ["application", "subject", "token"],
       scopes: ["agents:read", "agents:write"],
-      browser: true,
     },
     {
       method: "get",
@@ -99,7 +97,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "List agents",
       description:
-        "With an application key, every definition, manifest included. With a subject token or a publishable key, only the agents it may use, by name.",
+        "With an application key, every definition, manifest included. With a trusted issuer's token, only the agents it may use, by name.",
       responses: {
         200: json(
           z.union([ListAgentsResponse, ListPublicAgentsResponse]),
@@ -110,8 +108,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const scope = c.get("scope");
       const ctx = c.env.tenant;
-      if (scope.kind === "publishable")
-        return jsonResponse(200, await listAgentsPublic(ctx, scope.agents));
       return jsonResponse(
         200,
         scope.kind === "token"
@@ -188,7 +184,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       const request = PutSessionRequestSchema.parse(await readJson(c.req.raw));
       // Agent code may trust `info`: only an app server sets it.
       if (scope.kind === "token" && request.info !== undefined)
-        fail(403, "A subject token cannot set session info", { code: "scope_required" });
+        fail(403, "A token caller cannot set session info", { code: "scope_required" });
       const grants = sandboxGrantsOf(scope);
       const session = await putSession(
         ctx,
@@ -262,7 +258,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Follow a session's events",
       description:
-        "Server-sent events, each with its type as `event` and its cursor as `id`, from the cursor on. Events are on the `nylorun.event/2` envelope, typed by `SessionEvent`; a client ignores a type it does not know. A subject token's stream ends with `event: nylorun.closed` when the token expires or the subject is revoked. A `: keepalive` comment every 15 seconds.",
+        "Server-sent events, each with its type as `event` and its cursor as `id`, from the cursor on. Events are on the `nylorun.event/2` envelope, typed by `SessionEvent`; a client ignores a type it does not know. A trusted issuer's token's stream ends with `event: nylorun.closed` when the token expires. A `: keepalive` comment every 15 seconds.",
       request: { params: sessionId, query: resume },
       responses: {
         200: {
@@ -287,9 +283,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
         outgoing,
         id,
         cursor,
-        scope.kind === "token"
-          ? { subject: scope.subject, epoch: scope.epoch, expiresAt: scope.expiresAt }
-          : undefined,
+        streamHolderOf(scope),
       );
       return RESPONSE_ALREADY_SENT;
     },

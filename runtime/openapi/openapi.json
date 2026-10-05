@@ -3,10 +3,10 @@
   "info": {
     "title": "Nylorun Runtime: Tenant API",
     "version": "0.0.0",
-    "description": "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials`, `x-nylorun-scopes` (the subject scopes that reach it) and `x-nylorun-browser` fields.",
+    "description": "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 6,
+      "max": 7,
       "features": [
         "runtime-tenants",
         "admin-status",
@@ -15,15 +15,14 @@
         "artifacts",
         "tenant-fixture-model",
         "transcript-events",
-        "derived-principals",
         "subject-headers",
-        "subject-tokens",
-        "browser-access",
         "ag-ui-endpoint",
         "a2a-endpoint",
         "action-endpoints",
         "sandboxes",
         "sandbox-pods",
+        "trusted-issuers",
+        "operator-keys",
         "session-reads",
         "calls-export"
       ]
@@ -45,25 +44,19 @@
       "applicationKey": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An application key of the Tenant, or a key derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes."
+        "description": "An application key of the Tenant: an operator key (`PUT /v1/admin/keys/{id}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`)."
       },
-      "subjectToken": {
+      "issuerToken": {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "A subject token (`POST /v1/tokens`): one person and one role of the access policy, for at most 15 minutes."
+        "description": "A JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`): one person, with the issuer's scopes, agents and sandbox grants, until it expires. Accepted from servers and browsers alike; CORS is the operator's proxy's."
       },
       "deliveryToken": {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "The delivery token the Runtime signs each Action delivery with (`Nylorun-Signature`), sent back by the Action endpoint. It reaches only that Action's heartbeat, result and sandbox routes, while that delivery is current, for at most 15 minutes."
-      },
-      "publishableKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "Nylorun-Key",
-        "description": "A publishable key, sent by a browser page on one of its origins. Public by design: it grants the access policy's anonymous scopes."
       }
     },
     "schemas": {
@@ -6289,6 +6282,10 @@
               "placement_refused",
               "sandbox_lost",
               "sandbox_expired",
+              "issuer_unavailable",
+              "oauth_client_required",
+              "oauth_state_invalid",
+              "oauth_failed",
               "internal_error"
             ]
           },
@@ -17322,8 +17319,7 @@
           "reason": {
             "type": "string",
             "enum": [
-              "token_expired",
-              "revoked"
+              "token_expired"
             ]
           }
         },
@@ -20161,6 +20157,13 @@
             "type": "string",
             "minLength": 1
           },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "installation"
+            ]
+          },
           "ownerUserId": {
             "type": "string",
             "minLength": 1
@@ -20175,8 +20178,7 @@
         "required": [
           "requestId",
           "idempotencyKey",
-          "name",
-          "ownerUserId"
+          "name"
         ],
         "additionalProperties": false
       },
@@ -20588,6 +20590,47 @@
         ],
         "additionalProperties": false
       },
+      "StartOAuthResponse": {
+        "type": "object",
+        "properties": {
+          "authorizeUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizeUrl",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "StartOAuthRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "server": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "url",
+          "server"
+        ],
+        "additionalProperties": false
+      },
       "Jwks": {
         "type": "object",
         "properties": {
@@ -20645,404 +20688,6 @@
         },
         "required": [
           "keys"
-        ],
-        "additionalProperties": false
-      },
-      "CreateTokenResponse": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string",
-            "minLength": 1
-          },
-          "expiresAt": {
-            "type": "string",
-            "minLength": 1
-          },
-          "subject": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "scopes": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "agents:read",
-                "sessions:own",
-                "vaults:own",
-                "sandboxes:write"
-              ]
-            }
-          },
-          "agents": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "*"
-                ]
-              },
-              {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            ]
-          },
-          "sandboxes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "keyId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "token",
-          "expiresAt",
-          "subject",
-          "role",
-          "scopes",
-          "agents",
-          "keyId"
-        ],
-        "additionalProperties": false
-      },
-      "CreateTokenRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "subject": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
-          },
-          "scopes": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "agents:read",
-                "sessions:own",
-                "vaults:own",
-                "sandboxes:write"
-              ]
-            },
-            "minItems": 1
-          },
-          "agents": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "sandboxes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 16
-          },
-          "ttlSeconds": {
-            "type": "integer",
-            "minimum": 60,
-            "maximum": 900
-          }
-        },
-        "required": [
-          "requestId",
-          "subject",
-          "role"
-        ],
-        "additionalProperties": false
-      },
-      "AccessPolicyResponse": {
-        "type": "object",
-        "properties": {
-          "policy": {
-            "type": "object",
-            "properties": {
-              "version": {
-                "type": "number",
-                "enum": [
-                  1
-                ]
-              },
-              "roles": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "object",
-                  "properties": {
-                    "scopes": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "agents:read",
-                          "sessions:own",
-                          "vaults:own",
-                          "sandboxes:write"
-                        ]
-                      },
-                      "minItems": 1
-                    },
-                    "agents": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "*"
-                          ]
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      ]
-                    },
-                    "limits": {
-                      "type": "object",
-                      "properties": {
-                        "turnsPerHour": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 100000
-                        },
-                        "concurrentTurns": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 1000
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "scopes",
-                    "agents"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "anon": {
-                "type": "object",
-                "properties": {
-                  "scopes": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "agents:read"
-                      ]
-                    }
-                  },
-                  "agents": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "*"
-                        ]
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "scopes",
-                  "agents"
-                ],
-                "additionalProperties": false
-              },
-              "tokens": {
-                "type": "object",
-                "properties": {
-                  "maxTtlSeconds": {
-                    "type": "integer",
-                    "minimum": 60,
-                    "maximum": 900
-                  }
-                },
-                "required": [
-                  "maxTtlSeconds"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "version",
-              "roles",
-              "anon",
-              "tokens"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "policy"
-        ],
-        "additionalProperties": false
-      },
-      "PutAccessPolicyRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "policy": {
-            "type": "object",
-            "properties": {
-              "version": {
-                "type": "number",
-                "enum": [
-                  1
-                ]
-              },
-              "roles": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "object",
-                  "properties": {
-                    "scopes": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "agents:read",
-                          "sessions:own",
-                          "vaults:own",
-                          "sandboxes:write"
-                        ]
-                      },
-                      "minItems": 1
-                    },
-                    "agents": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "*"
-                          ]
-                        },
-                        {
-                          "type": "array",
-                          "items": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      ]
-                    },
-                    "limits": {
-                      "type": "object",
-                      "properties": {
-                        "turnsPerHour": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 100000
-                        },
-                        "concurrentTurns": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 1000
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "scopes",
-                    "agents"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "anon": {
-                "type": "object",
-                "properties": {
-                  "scopes": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "agents:read"
-                      ]
-                    }
-                  },
-                  "agents": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "*"
-                        ]
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "scopes",
-                  "agents"
-                ],
-                "additionalProperties": false
-              },
-              "tokens": {
-                "type": "object",
-                "properties": {
-                  "maxTtlSeconds": {
-                    "type": "integer",
-                    "minimum": 60,
-                    "maximum": 900
-                  }
-                },
-                "required": [
-                  "maxTtlSeconds"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "version",
-              "roles",
-              "anon",
-              "tokens"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "requestId",
-          "policy"
         ],
         "additionalProperties": false
       },
@@ -21293,173 +20938,60 @@
         ],
         "additionalProperties": false
       },
-      "ListPublishableKeysResponse": {
+      "MeResponse": {
         "type": "object",
         "properties": {
-          "keys": {
+          "subject": {
+            "type": "string",
+            "description": "The person the request acts for; absent for an application key alone"
+          },
+          "scopes": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "key": {
-                  "type": "string"
-                },
-                "origins": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "createdAt": {
-                  "type": "string"
-                },
-                "revokedAt": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
+              "type": "string",
+              "enum": [
+                "agents:read",
+                "agents:write",
+                "sessions:own",
+                "tenant:settings",
+                "sandboxes:write",
+                "studio"
+              ]
+            }
+          },
+          "agents": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "*"
+                ]
               },
-              "required": [
-                "id",
-                "name",
-                "key",
-                "origins",
-                "createdAt",
-                "revokedAt"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "keys"
-        ],
-        "additionalProperties": false
-      },
-      "PublishableKey": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "key": {
-            "type": "string"
-          },
-          "origins": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "revokedAt": {
-            "type": [
-              "string",
-              "null"
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             ]
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "key",
-          "origins",
-          "createdAt",
-          "revokedAt"
-        ],
-        "additionalProperties": false
-      },
-      "CreatePublishableKeyRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
           },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "origins": {
+          "sandboxes": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "maxItems": 100
-          }
-        },
-        "required": [
-          "requestId",
-          "name",
-          "origins"
-        ],
-        "additionalProperties": false
-      },
-      "UpdatePublishableKeyRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
+            "description": "A token caller's sandbox grants (empty reaches none); absent when no grant limits the caller"
+          },
+          "via": {
             "type": "string",
-            "minLength": 1
-          },
-          "origins": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 100
+            "description": "How the caller authenticated: `application:<principalId>`, `subject` or `issuer:<name>`"
           }
         },
         "required": [
-          "requestId",
-          "origins"
-        ],
-        "additionalProperties": false
-      },
-      "RevokeSubjectResponse": {
-        "type": "object",
-        "properties": {
-          "subject": {
-            "type": "string"
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": [
-          "subject",
-          "epoch"
-        ],
-        "additionalProperties": false
-      },
-      "RevokeSubjectRequest": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "subject": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "requestId",
-          "subject"
+          "scopes",
+          "agents",
+          "via"
         ],
         "additionalProperties": false
       },
@@ -21924,7 +21456,6 @@
           "delivery"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -21953,10 +21484,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21996,7 +21527,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22057,7 +21588,6 @@
           "delivery"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -22070,10 +21600,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22100,7 +21630,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22157,7 +21687,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -22168,7 +21698,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -22181,10 +21710,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22241,7 +21770,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22251,7 +21780,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22279,16 +21808,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -22322,15 +21841,14 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22357,7 +21875,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22413,15 +21931,14 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22458,7 +21975,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22516,7 +22033,6 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -22529,10 +22045,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22559,7 +22075,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22610,7 +22126,6 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -22623,10 +22138,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22653,7 +22168,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22707,7 +22222,6 @@
           "delivery"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -22720,10 +22234,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22760,7 +22274,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22811,37 +22325,32 @@
           "Agents"
         ],
         "summary": "List agents",
-        "description": "With an application key, every definition, manifest included. With a subject token or a publishable key, only the agents it may use, by name.",
+        "description": "With an application key, every definition, manifest included. With a trusted issuer's token, only the agents it may use, by name.",
         "security": [
           {
             "applicationKey": []
           },
           {
-            "subjectToken": []
-          },
-          {
-            "publishableKey": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
           "application",
           "subject",
-          "token",
-          "publishable"
+          "token"
         ],
         "x-nylorun-scopes": [
           "agents:read",
           "agents:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22863,16 +22372,6 @@
             "required": false,
             "description": "The subject's space-separated scopes; required with a subject",
             "name": "Nylorun-Scopes",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "A publishable key, from a browser page on an allowed origin"
-            },
-            "required": false,
-            "description": "A publishable key, from a browser page on an allowed origin",
-            "name": "Nylorun-Key",
             "in": "header"
           }
         ],
@@ -22905,7 +22404,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22915,7 +22414,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22940,16 +22439,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -22985,7 +22474,6 @@
         "x-nylorun-scopes": [
           "agents:write"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -22998,10 +22486,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23058,7 +22546,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23112,7 +22600,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -23123,7 +22611,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -23189,10 +22676,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23246,7 +22733,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23256,7 +22743,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23281,16 +22768,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -23320,7 +22797,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -23331,7 +22808,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -23344,10 +22820,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23404,7 +22880,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23414,7 +22890,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23446,16 +22922,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -23478,7 +22944,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -23489,7 +22955,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -23502,10 +22967,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23552,7 +23017,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23562,7 +23027,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23591,16 +23056,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -23625,7 +23080,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -23636,7 +23091,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -23679,10 +23133,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23736,7 +23190,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23746,7 +23200,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23775,16 +23229,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -23804,13 +23248,13 @@
           "Sessions"
         ],
         "summary": "Follow a session's events",
-        "description": "Server-sent events, each with its type as `event` and its cursor as `id`, from the cursor on. Events are on the `nylorun.event/2` envelope, typed by `SessionEvent`; a client ignores a type it does not know. A subject token's stream ends with `event: nylorun.closed` when the token expires or the subject is revoked. A `: keepalive` comment every 15 seconds.",
+        "description": "Server-sent events, each with its type as `event` and its cursor as `id`, from the cursor on. Events are on the `nylorun.event/2` envelope, typed by `SessionEvent`; a client ignores a type it does not know. A trusted issuer's token's stream ends with `event: nylorun.closed` when the token expires. A `: keepalive` comment every 15 seconds.",
         "security": [
           {
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -23821,7 +23265,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -23844,10 +23287,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23997,7 +23440,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24007,7 +23450,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24032,16 +23475,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -24075,7 +23508,6 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -24104,10 +23536,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -24147,7 +23579,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24198,13 +23630,13 @@
           "Sandboxes"
         ],
         "summary": "List sandboxes",
-        "description": "Every sandbox with all the labels asked for. A subject token sees only the sandboxes its grants reach.",
+        "description": "Every sandbox with all the labels asked for. A token caller sees only the sandboxes its grants reach.",
         "security": [
           {
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -24216,7 +23648,6 @@
           "sessions:own",
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -24259,10 +23690,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24316,7 +23747,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24326,7 +23757,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24351,16 +23782,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -24390,7 +23811,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -24401,7 +23822,6 @@
         "x-nylorun-scopes": [
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -24416,10 +23836,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24476,7 +23896,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24486,7 +23906,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24518,16 +23938,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -24551,7 +23961,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -24563,7 +23973,6 @@
           "sessions:own",
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -24578,10 +23987,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24628,7 +24037,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24638,7 +24047,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24667,16 +24076,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -24700,7 +24099,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -24711,7 +24110,6 @@
         "x-nylorun-scopes": [
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -24726,10 +24124,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24776,7 +24174,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24786,7 +24184,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24818,16 +24216,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -24853,7 +24241,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -24865,7 +24253,6 @@
           "sessions:own",
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -24890,10 +24277,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24940,7 +24327,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24950,7 +24337,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24975,16 +24362,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -25014,7 +24391,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25025,7 +24402,6 @@
         "x-nylorun-scopes": [
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25040,10 +24416,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25083,7 +24459,7 @@
             "description": "The sandbox is virtual"
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25093,7 +24469,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25121,16 +24497,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -25160,7 +24526,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25171,7 +24537,6 @@
         "x-nylorun-scopes": [
           "sandboxes:write"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25186,10 +24551,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25229,7 +24594,7 @@
             "description": "The sandbox is virtual"
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25239,7 +24604,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25271,16 +24636,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -25306,7 +24661,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25317,7 +24672,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25362,10 +24716,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25424,7 +24778,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25434,7 +24788,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25466,16 +24820,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -25499,7 +24843,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25510,7 +24854,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25525,10 +24868,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25575,7 +24918,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25585,7 +24928,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25610,16 +24953,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -25649,7 +24982,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25660,7 +24993,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25673,10 +25005,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25735,7 +25067,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25745,7 +25077,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25777,16 +25109,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -25812,7 +25134,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25823,7 +25145,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25836,10 +25157,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25886,7 +25207,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25896,7 +25217,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25925,16 +25246,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -25958,7 +25269,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -25969,7 +25280,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -25982,10 +25292,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26032,7 +25342,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26042,7 +25352,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26067,16 +25377,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -26106,7 +25406,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -26117,7 +25417,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -26140,10 +25439,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26254,7 +25553,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26264,7 +25563,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26296,16 +25595,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -26331,7 +25620,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -26342,7 +25631,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -26365,10 +25653,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26415,7 +25703,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26425,7 +25713,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26450,16 +25738,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -26489,7 +25767,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -26500,7 +25778,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -26533,10 +25810,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26647,7 +25924,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26657,7 +25934,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26689,16 +25966,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -26724,7 +25991,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -26735,7 +26002,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -26768,10 +26034,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26818,7 +26084,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26828,7 +26094,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26853,16 +26119,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -26892,7 +26148,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -26903,7 +26159,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -26926,10 +26181,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26977,7 +26232,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26987,7 +26242,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27012,16 +26267,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -27051,7 +26296,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -27062,7 +26307,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -27075,10 +26319,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27135,7 +26379,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27145,7 +26389,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27170,16 +26414,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -27209,21 +26443,16 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
-          },
-          {
-            "publishableKey": []
+            "issuerToken": []
           },
           {}
         ],
         "x-nylorun-credentials": [
           "application",
           "subject",
-          "token",
-          "publishable"
+          "token"
         ],
         "x-nylorun-scopes": "any",
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -27236,10 +26465,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": false,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27261,16 +26490,6 @@
             "required": false,
             "description": "The subject's space-separated scopes; required with a subject",
             "name": "Nylorun-Scopes",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "A publishable key, from a browser page on an allowed origin"
-            },
-            "required": false,
-            "description": "A publishable key, from a browser page on an allowed origin",
-            "name": "Nylorun-Key",
             "in": "header"
           }
         ],
@@ -27360,7 +26579,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27370,7 +26589,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27398,16 +26617,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -27443,15 +26652,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27498,7 +26706,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27557,15 +26765,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27622,7 +26829,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27682,15 +26889,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -27737,7 +26943,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27795,15 +27001,14 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -27840,7 +27045,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27898,15 +27103,14 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -27943,7 +27147,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28004,15 +27208,14 @@
           "tenant:settings",
           "agents:write"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28059,7 +27262,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28119,15 +27322,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28174,7 +27376,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28233,15 +27435,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28298,7 +27499,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28359,7 +27560,6 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -28401,10 +27601,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28451,7 +27651,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28511,15 +27711,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28566,7 +27765,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28625,15 +27824,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28690,7 +27888,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28751,15 +27949,14 @@
           "tenant:settings",
           "agents:write"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28806,7 +28003,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28866,15 +28063,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -28921,7 +28117,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -28979,15 +28175,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29044,7 +28239,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29104,15 +28299,14 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29169,7 +28363,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29217,52 +28411,25 @@
           "Vaults"
         ],
         "summary": "Create a vault",
+        "description": "With `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach; or a vault of one person (`ownerUserId`), which only that person's sessions attach.",
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -29297,18 +28464,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29340,16 +28497,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -29366,63 +28513,36 @@
         "tags": [
           "Vaults"
         ],
-        "summary": "List a person's vaults",
+        "summary": "List vaults",
+        "description": "The installation vaults, after the vaults of `ownerUserId` when it names a person.",
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "Whose vaults; required with an application key acting for no one"
+              "description": "Also list this person's vaults"
             },
             "required": false,
-            "description": "Whose vaults; required with an application key acting for no one",
+            "description": "Also list this person's vaults",
             "name": "ownerUserId",
             "in": "query"
           },
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -29447,18 +28567,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29483,16 +28593,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -29519,20 +28619,12 @@
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -29545,31 +28637,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -29594,18 +28666,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29630,16 +28692,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -29664,20 +28716,12 @@
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -29690,31 +28734,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -29739,18 +28763,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29779,16 +28793,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -29808,24 +28812,16 @@
           "Vaults"
         ],
         "summary": "Add a credential",
-        "description": "A bearer token or OAuth tokens, bound to the URLs a tool may send them to. A subject token cannot store OAuth refresh credentials.",
+        "description": "A bearer token or OAuth tokens, bound to the URLs a tool may send them to.",
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -29838,31 +28834,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -29897,18 +28873,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29933,16 +28899,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -29967,20 +28923,12 @@
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -29993,31 +28941,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -30042,18 +28970,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30078,16 +28996,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -30114,20 +29022,12 @@
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -30148,31 +29048,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -30197,18 +29077,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30237,16 +29107,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -30267,20 +29127,12 @@
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -30301,31 +29153,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -30360,18 +29192,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30403,16 +29225,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -30433,20 +29245,12 @@
         "security": [
           {
             "applicationKey": []
-          },
-          {
-            "subjectToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "vaults:own"
-        ],
-        "x-nylorun-browser": true,
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -30467,31 +29271,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -30516,18 +29300,8 @@
               }
             }
           },
-          "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30556,8 +29330,8 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -30565,6 +29339,109 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/vaults/{vaultId}/oauth/start": {
+      "post": {
+        "tags": [
+          "Vaults"
+        ],
+        "summary": "Start an MCP OAuth connect",
+        "description": "Signs the installation in to the remote MCP server at `url` (declared as `server`) and stores its OAuth credential, bound to `url`, in this installation vault. The Runtime discovers the server's authorization server (RFC 9728, RFC 8414), registers itself (RFC 7591) unless `clientId` names a registered client, and answers the URL to open in a browser; the sign-in returns to `GET /v1/oauth/callback` within `expiresAt`. The callback URL is `NYLORUN_PUBLIC_URL` + `/v1/oauth/callback`, or this request's own origin when the Host has no public URL. Application keys acting for no one only. `oauth_client_required` when the server offers no registration and no `clientId` was given.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "vaultId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `7`"
+            },
+            "required": true,
+            "description": "The protocol version, `7`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartOAuthRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Where to send the browser",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartOAuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The authorization server, or its discovery, failed or refused (`oauth_failed`)"
           },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
@@ -30579,41 +29456,60 @@
         }
       }
     },
-    "/v1/access/jwks": {
+    "/v1/oauth/callback": {
       "get": {
         "tags": [
-          "Access"
+          "Vaults"
         ],
-        "summary": "Get the public keys subject and delivery tokens are signed with",
-        "description": "A JSON Web Key Set, to verify a subject token or a delivery token without calling the Runtime. No credential is needed.",
+        "summary": "Finish an MCP OAuth connect",
+        "description": "Where the authorization server sends the browser back with `code` and `state` (or `error`). Exchanges the code once and stores the credential; answers a small HTML page. Needs no credential and no `Nylorun-Protocol`. A `state` is used once, for ten minutes (`oauth_state_invalid`).",
         "security": [
           {
             "applicationKey": []
           },
           {
-            "subjectToken": []
-          },
-          {
-            "publishableKey": []
+            "issuerToken": []
           },
           {}
         ],
         "x-nylorun-credentials": [
           "application",
           "subject",
-          "token",
-          "publishable"
+          "token"
         ],
         "x-nylorun-scopes": "any",
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
+              "type": "string"
             },
-            "required": true,
-            "description": "The protocol version, `6`",
+            "required": false,
+            "name": "code",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "state",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "error",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `7`"
+            },
+            "required": false,
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30636,15 +29532,136 @@
             "description": "The subject's space-separated scopes; required with a subject",
             "name": "Nylorun-Scopes",
             "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connected",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The authorization server refused the code (`oauth_failed`)"
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/access/jwks": {
+      "get": {
+        "tags": [
+          "Access"
+        ],
+        "summary": "Get the public keys delivery tokens are signed with",
+        "description": "A JSON Web Key Set, to verify a delivery token without calling the Runtime. No credential is needed.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          },
+          {}
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": "any",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `7`"
+            },
+            "required": true,
+            "description": "The protocol version, `7`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
           },
           {
             "schema": {
               "type": "string",
-              "description": "A publishable key, from a browser page on an allowed origin"
+              "description": "The person an application key acts for"
             },
             "required": false,
-            "description": "A publishable key, from a browser page on an allowed origin",
-            "name": "Nylorun-Key",
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -30670,7 +29687,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30680,312 +29697,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/tokens": {
-      "post": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Mint a subject token",
-        "description": "A token for one person and one role of the access policy, for their browser or app to call the Runtime with. At most 15 minutes.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTokenRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The token, its scopes and expiry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateTokenResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/policy": {
-      "get": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Get the access policy",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Roles, the anonymous grant and token lifetime",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AccessPolicyResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Set the access policy",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PutAccessPolicyRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The policy now in force",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AccessPolicyResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31042,15 +29754,14 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -31077,7 +29788,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31125,7 +29836,7 @@
           "Access"
         ],
         "summary": "Rotate the signing keys",
-        "description": "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding token.",
+        "description": "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding delivery token and capability link.",
         "security": [
           {
             "applicationKey": []
@@ -31135,15 +29846,14 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -31180,7 +29890,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31240,7 +29950,6 @@
           "application"
         ],
         "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -31253,10 +29962,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -31293,7 +30002,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31338,41 +30047,66 @@
         }
       }
     },
-    "/v1/access/publishable-keys": {
+    "/v1/me": {
       "get": {
         "tags": [
           "Access"
         ],
-        "summary": "List publishable keys",
+        "summary": "Get who the caller is",
+        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), or a trusted issuer's token (`via: issuer:<name>`).",
         "security": [
           {
             "applicationKey": []
+          },
+          {
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "application",
+          "subject",
+          "token"
         ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
+        "x-nylorun-scopes": "any",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
         "responses": {
           "200": {
-            "description": "The keys, revoked ones included",
+            "description": "The caller",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListPublishableKeysResponse"
+                  "$ref": "#/components/schemas/MeResponse"
                 }
               }
             }
@@ -31387,99 +30121,8 @@
               }
             }
           },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Create a publishable key",
-        "description": "A key a browser page on one of the origins sends as `Nylorun-Key`. Public by design; it grants the policy's anonymous scopes.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePublishableKeyRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The key",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublishableKey"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
+          "401": {
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31489,321 +30132,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A key with this name exists"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/publishable-keys/{keyId}": {
-      "put": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Set a publishable key's origins",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "keyId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdatePublishableKeyRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The key",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublishableKey"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Revoke a publishable key",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "keyId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The key, revoked (again: unchanged)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublishableKey"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/revocations": {
-      "post": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Revoke a subject",
-        "description": "Ends every token minted for the subject so far, and their open streams on every process. Turns in progress continue.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "x-nylorun-browser": false,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `6`"
-            },
-            "required": true,
-            "description": "The protocol version, `6`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RevokeSubjectRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The subject's new epoch",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RevokeSubjectResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31851,13 +30180,13 @@
           "AG-UI"
         ],
         "summary": "Run an agent",
-        "description": "For a person, named by a subject token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); `resume` answers interrupts. A busy session or a turn limit is a `RUN_ERROR` in the stream.",
+        "description": "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); `resume` answers interrupts. A busy session is a `RUN_ERROR` in the stream.",
         "security": [
           {
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -31867,7 +30196,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -31880,10 +30208,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31940,7 +30268,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31950,7 +30278,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31979,16 +30307,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -32013,7 +30331,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -32023,7 +30341,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -32044,10 +30361,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32097,7 +30414,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32107,7 +30424,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32132,16 +30449,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -32171,7 +30478,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -32181,7 +30488,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -32220,10 +30526,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32273,7 +30579,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32283,7 +30589,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32312,16 +30618,6 @@
               }
             }
           },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
           "503": {
             "description": "The Tenant's storage or streams are unavailable",
             "content": {
@@ -32346,7 +30642,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -32356,7 +30652,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": true,
         "parameters": [
           {
             "schema": {
@@ -32377,10 +30672,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32420,7 +30715,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32430,7 +30725,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32455,16 +30750,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -32497,7 +30782,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -32509,7 +30794,6 @@
           "agents:read",
           "sessions:own"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -32522,10 +30806,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32572,7 +30856,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32582,7 +30866,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32607,16 +30891,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -32650,7 +30924,7 @@
             "applicationKey": []
           },
           {
-            "subjectToken": []
+            "issuerToken": []
           }
         ],
         "x-nylorun-credentials": [
@@ -32660,7 +30934,6 @@
         "x-nylorun-scopes": [
           "sessions:own"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -32683,10 +30956,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32743,7 +31016,7 @@
             }
           },
           "401": {
-            "description": "The subject token expired or was revoked (`token_expired`)",
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32753,7 +31026,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32778,16 +31051,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "The subject's turn limits are reached (`limit_exceeded`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }
@@ -32824,7 +31087,6 @@
           "agents:read",
           "agents:write"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -32837,10 +31099,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32887,7 +31149,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32947,7 +31209,6 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -32968,10 +31229,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -33018,7 +31279,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -33078,7 +31339,6 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -33118,10 +31378,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -33168,7 +31428,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -33228,7 +31488,6 @@
         "x-nylorun-scopes": [
           "tenant:settings"
         ],
-        "x-nylorun-browser": false,
         "parameters": [
           {
             "schema": {
@@ -33252,10 +31511,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `6`"
+              "description": "The protocol version, `7`"
             },
             "required": true,
-            "description": "The protocol version, `6`",
+            "description": "The protocol version, `7`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -33302,7 +31561,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential, subject scope or origin",
+            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {

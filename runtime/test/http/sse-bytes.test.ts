@@ -14,6 +14,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
+import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
 
 const TENANT = `tn_${"0".repeat(22)}sse0`;
@@ -22,6 +23,7 @@ const SUBJECT = "app:ann";
 
 let root: string;
 let rt: EphemeralRuntime;
+let issuer: TestIssuer;
 
 const app = {
   "nylorun-protocol": "4",
@@ -114,7 +116,9 @@ function open(
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-sse-bytes-"));
+  issuer = await testIssuer();
   rt = await startEphemeralRuntime({
+    issuers: issuer.configs,
     database: testPool(),
     hostRoot: root,
     tenantId: TENANT,
@@ -128,15 +132,6 @@ beforeAll(async () => {
   });
   await call("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
   await call("PUT", "/v1/sessions/s2", { requestId: "s2", agentId: "bot", ownerUserId: SUBJECT });
-  await call("PUT", "/v1/access/policy", {
-    requestId: "policy",
-    policy: {
-      version: 1,
-      roles: { user: { scopes: ["sessions:own"], agents: "*" } },
-      anon: { scopes: [], agents: [] },
-      tokens: { maxTtlSeconds: 600 },
-    },
-  });
 });
 
 afterAll(async () => {
@@ -165,12 +160,8 @@ describe("session events", () => {
     }
   });
 
-  it("ends a subject token's stream with the nylorun.closed frame when the subject is revoked", async () => {
-    const { token } = await call("POST", "/v1/tokens", {
-      requestId: "token",
-      subject: SUBJECT,
-      role: "user",
-    });
+  it("ends an issuer token's stream with the nylorun.closed frame when the token expires", async () => {
+    const token = await issuer.sign(SUBJECT, "sessions:own", { ttlSeconds: 2 });
     const stream = await open("GET", "/v1/sessions/s2/events", {
       "nylorun-protocol": "4",
       "nylorun-tenant": TENANT,
@@ -178,11 +169,10 @@ describe("session events", () => {
     });
     try {
       expect(stream.status).toBe(200);
-      await say("s2", "before revocation");
+      await say("s2", "before expiry");
       await stream.until((text) => text.includes("\n\n"));
-      await call("POST", "/v1/access/revocations", { requestId: "revoke", subject: SUBJECT });
       const text = await stream.until((received) => received.includes("nylorun.closed"));
-      expect(text.endsWith('event: nylorun.closed\ndata: {"reason":"revoked"}\n\n')).toBe(true);
+      expect(text.endsWith('event: nylorun.closed\ndata: {"reason":"token_expired"}\n\n')).toBe(true);
     } finally {
       stream.close();
     }

@@ -1,294 +1,320 @@
 {
   "POST /v1/actions/act-missing/sandbox/bash": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/actions/act-missing/heartbeat": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/endpoints": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/endpoints": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "DELETE /v1/endpoints/ghost": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/endpoints/ghost/ping": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/actions/act-missing/result": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/sessions/s1/commands": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/agents": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/agents/bot": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sessions": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/sessions/s2": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sessions/s1": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sessions/missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sessions/s1/items": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sessions/s1/events": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/sessions/s1/sandbox/bash": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sandboxes": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sandboxes?label=project=acme": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/sandboxes/team%2Fsbx-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sandboxes/team%2Fsbx-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sandboxes/team%2Fsbx-missing/events": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "DELETE /v1/sandboxes/team%2Fsbx-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/artifacts?name=&sessionId=s1": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/artifacts/af_00000000000000000000000000/versions": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts?sessionId=s1": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts/af_00000000000000000000000000": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/content": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/tree": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/1/files/app%2Findex.html": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/2/diff?from=1": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/zip": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/artifacts/af_00000000000000000000000000/links": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "DELETE /v1/artifacts/af_00000000000000000000000000": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/artifact-links/not-a-token": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/artifacts": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/artifacts": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/tenant/reset": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/config/seed": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/models": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/sandbox": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/sandbox": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/providers": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/usage?scope=agent&id=bot&period=month": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/budgets": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/budgets": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/tenant/model": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/model": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PUT /v1/tenant/model/selection": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/vaults": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/vaults?ownerUserId=app:ann": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/vaults/<vault>": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "DELETE /v1/vaults/vlt-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/vaults/<vault>/credentials": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/vaults/<vault>/credentials": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "DELETE /v1/vaults/<vault>/credentials/crd-missing": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/vaults/<vault>/oauth/start": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/oauth/callback?state=matrix-state&code=matrix-code": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/access/jwks": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/tokens": {
-    "status": 403
-  },
-  "GET /v1/access/policy": {
-    "status": 403
-  },
-  "PUT /v1/access/policy": {
-    "status": 403
+  "GET /v1/me": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/access/signing-keys": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/access/signing-keys/rotate": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/access/signing-keys/kid-missing/revoke": {
-    "status": 403
-  },
-  "GET /v1/access/publishable-keys": {
-    "status": 403
-  },
-  "POST /v1/access/publishable-keys": {
-    "status": 403
-  },
-  "PUT /v1/access/publishable-keys/pk-missing": {
-    "status": 403
-  },
-  "DELETE /v1/access/publishable-keys/pk-missing": {
-    "status": 403
-  },
-  "POST /v1/access/revocations": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/ag-ui/agents/bot": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/ag-ui/agents/bot/threads/t1/messages": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/ag-ui/agents/bot/threads/t1/events": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/ag-ui/agents/bot/threads/t1/cancel": {
     "status": 204,
-    "allowOrigin": "https://app.example.com"
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/a2a/agents/bot": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/a2a/agents/bot/card": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/sessions/s1/unknown": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "POST /v1/vaults/v1/unknown/deeper": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /v1/ag-ui/anything": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "PATCH /v1/sessions/s1": {
-    "status": 403
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
   "GET /health": {
     "status": 403
   },
   "GET /v1/admin/tenants": {
     "status": 403
+  },
+  "no Origin: OPTIONS /v1/agents": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
   }
 }

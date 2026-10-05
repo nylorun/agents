@@ -18,7 +18,7 @@ npx @nylorun/cli status               # the linked Tenant
 nylo status [--json]                  # the Tenant, its checks and counts
 nylo reset [--sessions|--sandboxes|--all] [--yes]
 nylo endpoints [--json]|ping <agent>  # the registered Action endpoints and their health
-nylo access …                         # access policy, publishable and signing keys, subject tokens
+nylo access signing-keys …            # the Tenant's signing keys: list, rotate, revoke
 nylo configure                        # set or replace the Tenant's model provider
 nylo env                              # export lines for the linked Project
 nylo doctor sandbox [--json]          # sandbox backend via the Tenant API
@@ -55,8 +55,7 @@ not in a terminal. The Project link and credentials are kept.
 
 - `.nylorun/link.json`: `{ format: 3, tenant, hostUrl, hostId, tenantId }`
   (`tenant` is the local Tenant's name; `tenantId` is information)
-- `.nylorun/credentials.json`: the key of the derived principal `project` and
-  its id (0600)
+- `.nylorun/credentials.json`: the operator key `project` and its id (0600)
 - `.nylorun/.gitignore` containing `*`
 
 A link from an older nylorun (format 0 to 2): `nylo` refuses it and says to run

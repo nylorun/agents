@@ -5,9 +5,8 @@
  * "snake_case"`, here, in `db.ts` and in `drizzle.config.ts`).
  *
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables, Action
- *   endpoints, principals, vaults and credentials, signing keys, publishable keys, subject
- *   epochs and usage, settings, the model usage ledger, the model budgets, the Tool Gate's
- *   crossings and file artifacts with their versions.
+ *   endpoints, principals, vaults and credentials, signing keys, settings, the model usage
+ *   ledger, the model budgets, the Tool Gate's crossings and file artifacts with their versions.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -221,12 +220,16 @@ export const vaults = nylorun.table(
     /** JSON text, or null. */
     metadataJson: text(),
     createdAt: textC().notNull(),
-    scope: text({ enum: ["user", "host"] }).notNull().default("user"),
+    /**
+     * `user`: one person's (owner `ownerUserId`); `installation`: the installation's own,
+     * attachable to any session (owner `installation`); `host`: the model vault, never attached.
+     */
+    scope: text({ enum: ["user", "installation", "host"] }).notNull().default("user"),
   },
   (t) => [
     index("vaults_owner").on(t.ownerUserId, t.createdAt, t.id),
     uniqueIndex("vaults_one_host").on(t.scope).where(sql`scope = 'host'`),
-    check("vaults_scope_check", sql`scope IN ('user', 'host')`),
+    check("vaults_scope_check", sql`scope IN ('user', 'installation', 'host')`),
   ],
 );
 
@@ -282,12 +285,54 @@ export const vaultIdempotency = nylorun.table("vault_idempotency", {
   response: text().notNull(),
 });
 
+/**
+ * An MCP OAuth connect between its start and its callback (F9 C2): found by the SHA-256 of its
+ * `state`, used once, for ten minutes. The PKCE verifier and any client secret are sealed under
+ * the vault key (`sealBytes`), which only the keys module holds.
+ */
+export const oauthPending = nylorun.table(
+  "oauth_pending",
+  {
+    stateHash: text().primaryKey(),
+    vaultId: text().notNull(),
+    /** The MCP server's name in the agent, the credential's name. */
+    server: text().notNull(),
+    /** The MCP server's URL (normalized): the credential's binding. */
+    url: text().notNull(),
+    tokenEndpoint: text().notNull(),
+    clientId: text().notNull(),
+    /** How the client authenticates at the token endpoint: `none`, `client_secret_basic` or `client_secret_post`. */
+    tokenEndpointAuth: text({ enum: ["none", "client_secret_basic", "client_secret_post"] }).notNull(),
+    /** The RFC 8707 resource indicator sent with the authorization request, if any. */
+    resource: text(),
+    kekId: text().notNull(),
+    /** Sealed; null for a public client. */
+    clientSecret: bytes(),
+    /** Sealed. */
+    codeVerifier: bytes().notNull(),
+    redirectUri: text().notNull(),
+    expiresAt: textC().notNull(),
+    createdAt: textC().notNull(),
+  },
+  (t) => [
+    foreignKey({
+      name: "oauth_pending_vault_id_fkey",
+      columns: [t.vaultId],
+      foreignColumns: [vaults.id],
+    }).onDelete("cascade"),
+    index("oauth_pending_expires").on(t.expiresAt),
+  ],
+);
+
 export const tenantSettings = nylorun.table("tenant_settings", {
   key: text().primaryKey(),
   value: text().notNull(),
 });
 
-/** The Tenant's signing keys (subject tokens): the private half sealed, the public JWK not. */
+/**
+ * The Tenant's signing keys (delivery tokens, capability links, run and host tokens): the
+ * private half sealed, the public JWK not.
+ */
 export const signingKeys = nylorun.table(
   "signing_keys",
   {
@@ -316,31 +361,6 @@ export const signingKeys = nylorun.table(
     uniqueIndex("signing_keys_one_previous").on(t.state).where(sql`state = 'previous'`),
   ],
 );
-
-/** Each subject's revocation epoch. */
-export const subjectEpochs = nylorun.table("subject_epochs", {
-  subject: textC().primaryKey(),
-  epoch: bigint({ mode: "number" }).notNull(),
-  revokedAt: text().notNull(),
-});
-
-/** Each subject's turn bucket: tokens left and when they were last refilled. */
-export const subjectUsage = nylorun.table("subject_usage", {
-  subject: textC().primaryKey(),
-  turnTokens: doublePrecision().notNull(),
-  refilledAt: text().notNull(),
-});
-
-/** Publishable keys (Host feature `browser-access`): public by design. */
-export const publishableKeys = nylorun.table("publishable_keys", {
-  id: textC().primaryKey(),
-  key: textC().notNull().unique("publishable_keys_key_key"),
-  name: text().notNull().unique("publishable_keys_name_key"),
-  /** JSON array of allowed origins. */
-  originsJson: text().notNull(),
-  createdAt: text().notNull(),
-  revokedAt: text(),
-});
 
 /**
  * Action endpoints: where the Runtime delivers each agent's Actions over HTTP, and the health
@@ -634,9 +654,8 @@ export type VaultRow = typeof vaults.$inferSelect;
 export type VaultCredentialRow = typeof vaultCredentials.$inferSelect;
 export type VaultAuditRow = Omit<typeof vaultAudit.$inferSelect, "ord">;
 export type VaultIdempotencyRow = typeof vaultIdempotency.$inferSelect;
+export type OAuthPendingRow = typeof oauthPending.$inferSelect;
 export type SigningKeyRow = typeof signingKeys.$inferSelect;
-export type SubjectUsageRow = typeof subjectUsage.$inferSelect;
-export type PublishableKeyRow = typeof publishableKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;

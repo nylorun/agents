@@ -16,6 +16,7 @@ import { authenticateCaller, declaredRoute, pathSegments, type RouteAccess } fro
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
 import { endpointRoutes } from "./routes/endpoints.js";
+import { meRoutes } from "./routes/me.js";
 import { actionRoutes } from "./routes/actions.js";
 import { sandboxRoutes } from "./routes/sandboxes.js";
 import { artifactRoutes } from "./routes/artifacts.js";
@@ -72,6 +73,7 @@ function build(): OpenAPIHono<TenantEnv> {
   tenantRoutes(api);
   vaultRoutes(api);
   accessRoutes(api);
+  meRoutes(api);
   agUiRoutes(api);
   a2aRoutes(api);
   api.notFound(notFound);

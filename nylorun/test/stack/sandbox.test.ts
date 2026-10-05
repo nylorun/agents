@@ -1,18 +1,15 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
 import { stackPaths } from "../../src/stack/paths.js";
 import { sandboxCommand } from "../../src/stack/sandbox.js";
-import { deriveTenantKey, PROJECT_PRINCIPAL_ID } from "../../src/project/derived-key.js";
 import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.js";
 
 const TENANT_ID = "tn_01TESTSTACK000000000000001";
 
 const hostId = (home: string) =>
   (JSON.parse(readFileSync(stackPaths(home).config, "utf8")) as { hostId: string }).hostId;
-const adminKey = (home: string) =>
-  (JSON.parse(readFileSync(stackPaths(home).credentials, "utf8")) as { adminKey: string })
-    .adminKey;
+const CLI_KEY = "c".repeat(64);
 
 const psUp = {
   code: 0,
@@ -61,6 +58,12 @@ async function running(options: { up?: boolean } = {}) {
       return json({ tenant: { id: TENANT_ID, name: "home-root", state: "open", envelope: null } });
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
+    if (path === "/v1/admin/keys/cli" && init?.method === "PUT")
+      return json({ id: "cli", role: "application", createdAt: "2026-10-04T00:00:00.000Z", key: CLI_KEY, rotated: false });
+    if (path === "/v1/tenant")
+      return new Headers(init?.headers).get("authorization") === `Bearer ${CLI_KEY}`
+        ? json({ tenant: { id: TENANT_ID } })
+        : json({ status: "rejected", code: "not_found", message: "Not found" }, 404);
     if (path === "/v1/sandboxes") return json({ sandboxes: SANDBOXES });
     if (path === "/v1/sandboxes/team-a%2Fproj-42" && init?.method === "DELETE")
       return json({ id: "team-a/proj-42", deleted: true });
@@ -77,7 +80,7 @@ async function running(options: { up?: boolean } = {}) {
 }
 
 describe("nylorun sandbox", () => {
-  it("ls lists the Tenant's sandboxes as the Project principal", async () => {
+  it("ls lists the Tenant's sandboxes with the operator key cli, put once and kept in the Host root", async () => {
     const { home, deps, fetch } = await running();
     expect(await sandboxCommand(deps, ["ls", "--label", "project=acme"])).toBe(0);
     expect(deps.lines).toEqual([
@@ -88,10 +91,18 @@ describe("nylorun sandbox", () => {
     const request = fetch.requests.find((item) => item.url.includes("/v1/sandboxes"))!;
     expect(new URL(request.url).searchParams.getAll("label")).toEqual(["project=acme"]);
     const headers = new Headers(request.init?.headers);
-    expect(headers.get("authorization")).toBe(
-      `Bearer ${deriveTenantKey(adminKey(home), TENANT_ID, PROJECT_PRINCIPAL_ID)}`,
-    );
-    expect(headers.get("nylorun-protocol")).toBe("6");
+    expect(headers.get("authorization")).toBe(`Bearer ${CLI_KEY}`);
+    expect(headers.get("nylorun-protocol")).toBe("7");
+    const file = stackPaths(home).cliCredentials;
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+      format: 1,
+      applicationKey: CLI_KEY,
+      principalId: "cli",
+    });
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // A later command reuses the kept key: no second put.
+    expect(await sandboxCommand(deps, ["ls"])).toBe(0);
+    expect(fetch.requests.filter((item) => item.url.endsWith("/v1/admin/keys/cli"))).toHaveLength(1);
   });
 
   it("ls --json prints the sandboxes", async () => {

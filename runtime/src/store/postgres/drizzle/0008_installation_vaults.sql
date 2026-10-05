@@ -1,0 +1,2 @@
+ALTER TABLE "nylorun"."vaults" DROP CONSTRAINT "vaults_scope_check";--> statement-breakpoint
+ALTER TABLE "nylorun"."vaults" ADD CONSTRAINT "vaults_scope_check" CHECK (scope IN ('user', 'installation', 'host'));

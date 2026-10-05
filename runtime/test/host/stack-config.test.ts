@@ -125,7 +125,7 @@ describe("parseStackConfig", () => {
     expect(config).toEqual({
       services: new Set(["core", "loop"]),
       endpoints: {},
-      tenant: { name: "default", derivedPrincipals: ["project"] },
+      tenant: { name: "default" },
     });
   });
 
@@ -177,7 +177,7 @@ describe("parseStackConfig", () => {
         s2Token: "ignored",
         workspaceStoreUrl: "file:///workspaces",
       },
-      tenant: { name: "default", derivedPrincipals: ["project"] },
+      tenant: { name: "default" },
     });
   });
 
@@ -285,7 +285,7 @@ describe("parseStackConfig", () => {
     ).toEqual({
       services: new Set(["core", "loop"]),
       endpoints: {},
-      tenant: { name: "default", derivedPrincipals: ["project"] },
+      tenant: { name: "default" },
     });
   });
 });
@@ -343,6 +343,35 @@ describe("parseStackConfig for --service gates", () => {
     expect(
       parseStackConfig({ NYLORUN_GATES_LISTEN_HOST: "bad host" }, ["--service", "core,loop"]).gates,
     ).toBeUndefined();
+  });
+
+  it("reads the credential resolver, both settings or neither, and treats empty as unset", () => {
+    const resolver = {
+      NYLORUN_RESOLVER_URL: "http://resolver.internal:8080/resolve",
+      NYLORUN_RESOLVER_TOKEN: "resolver-token",
+    };
+    expect(parseStackConfig({ ...gateway, ...resolver }, ["--service", "gates,keys"]).gates?.resolver).toEqual({
+      url: "http://resolver.internal:8080/resolve",
+      token: "resolver-token",
+    });
+    // Compose's `${NYLORUN_RESOLVER_URL:-}` passes empty strings when unset.
+    expect(
+      parseStackConfig(
+        { ...gateway, NYLORUN_RESOLVER_URL: "", NYLORUN_RESOLVER_TOKEN: "" },
+        ["--service", "gates"],
+      ).gates,
+    ).not.toHaveProperty("resolver");
+    expect(() =>
+      parseStackConfig({ ...gateway, NYLORUN_RESOLVER_URL: resolver.NYLORUN_RESOLVER_URL }, ["--service", "gates"]),
+    ).toThrow(/NYLORUN_RESOLVER_TOKEN is required/);
+    expect(() =>
+      parseStackConfig({ ...gateway, NYLORUN_RESOLVER_TOKEN: "t" }, ["--service", "gates"]),
+    ).toThrow(/without NYLORUN_RESOLVER_URL/);
+    expect(() =>
+      parseStackConfig({ ...gateway, ...resolver, NYLORUN_RESOLVER_URL: "ftp://x" }, ["--service", "gates"]),
+    ).toThrow(/NYLORUN_RESOLVER_URL must use http or https/);
+    // Core never reads it: remote MCP calls are authorized in the gateway.
+    expect(parseStackConfig({ ...resolver }, ["--service", "core,loop"]).gates).toBeUndefined();
   });
 });
 
@@ -427,17 +456,10 @@ describe("isAllowedRequestHost with an explicit allowlist", () => {
   });
 });
 
-describe("NYLORUN_BROWSER_ACCESS", () => {
-  it("is absent by default and on or off when set", () => {
-    expect(parseStackConfig({}, []).browserAccess).toBeUndefined();
-    expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: "on" }, []).browserAccess).toBe(true);
-    expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: "off" }, []).browserAccess).toBe(false);
-  });
-
-  it("rejects anything else", () => {
-    expect(() => parseStackConfig({ NYLORUN_BROWSER_ACCESS: "yes" }, [])).toThrow(
-      StackConfigError
-    );
+describe("NYLORUN_BROWSER_ACCESS (protocol 7)", () => {
+  it("is gone: browsers need no toggle, and an old value changes nothing", () => {
+    for (const value of ["on", "off", "yes"])
+      expect(parseStackConfig({ NYLORUN_BROWSER_ACCESS: value }, [])).not.toHaveProperty("browserAccess");
   });
 });
 
@@ -652,41 +674,38 @@ describe("NYLORUN_ENDPOINT_*", () => {
 });
 
 describe("the Host's Tenant", () => {
-  it("defaults to a new id, the name default and the project derived principal", () => {
-    expect(parseStackConfig({}, []).tenant).toEqual({
-      name: "default",
-      derivedPrincipals: ["project"],
-    });
+  it("defaults to a new id and the name default", () => {
+    expect(parseStackConfig({}, []).tenant).toEqual({ name: "default" });
     // The gates service creates no Tenant.
     const gates = { NYLORUN_GATES_TOKEN: "ab".repeat(32), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
     expect(parseStackConfig(gates, ["--service", "gates"]).tenant).toBeUndefined();
   });
 
-  it("reads NYLORUN_TENANT_ID, NYLORUN_TENANT_NAME and NYLORUN_DERIVED_PRINCIPALS", () => {
+  it("reads NYLORUN_TENANT_ID and NYLORUN_TENANT_NAME, and ignores NYLORUN_DERIVED_PRINCIPALS (protocol 7)", () => {
     expect(
       parseStackConfig(
         {
           NYLORUN_TENANT_ID: "tn_0123456789abcdefghjkmnpqrs",
           NYLORUN_TENANT_NAME: "my-app",
-          NYLORUN_DERIVED_PRINCIPALS: "project, babai,project",
+          NYLORUN_DERIVED_PRINCIPALS: "project, backend,project",
         },
         [],
       ).tenant,
     ).toEqual({
       id: "tn_0123456789abcdefghjkmnpqrs",
       name: "my-app",
-      derivedPrincipals: ["project", "babai"],
     });
   });
 
-  it("rejects a malformed Tenant id and reserved or malformed principal ids, naming the variable", () => {
+  it("reads NYLORUN_IDENTITY_FILE, and an empty value as none", () => {
+    expect(
+      parseStackConfig({ NYLORUN_IDENTITY_FILE: " /nylorun/identity.yaml " }, []).tenant?.identityFile,
+    ).toBe("/nylorun/identity.yaml");
+    expect(parseStackConfig({ NYLORUN_IDENTITY_FILE: "" }, []).tenant).not.toHaveProperty("identityFile");
+  });
+
+  it("rejects a malformed Tenant id, naming the variable", () => {
     expect(() => parseStackConfig({ NYLORUN_TENANT_ID: "tn_nope" }, [])).toThrow(/NYLORUN_TENANT_ID/);
-    expect(() => parseStackConfig({ NYLORUN_DERIVED_PRINCIPALS: "studio" }, [])).toThrow(
-      /NYLORUN_DERIVED_PRINCIPALS/,
-    );
-    expect(() => parseStackConfig({ NYLORUN_DERIVED_PRINCIPALS: "Bad_Id" }, [])).toThrow(
-      /NYLORUN_DERIVED_PRINCIPALS/,
-    );
   });
 });
 

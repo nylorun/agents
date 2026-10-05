@@ -4,7 +4,7 @@
  */
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { isPrivateAddress, post, refusal } from "../src/tenant/outbound.js";
+import { guardedFetch, isPrivateAddress, OutboundFailed, OutboundRefused, post, refusal } from "../src/tenant/outbound.js";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -104,5 +104,62 @@ describe("requests", () => {
     });
     // host.docker.internal does not resolve outside Docker, so nothing was sent.
     expect(result.kind).toBe("not_sent");
+  });
+});
+
+describe("guardedFetch (F9 C2)", () => {
+  it("sends a form or JSON body with its headers and answers a Response", async () => {
+    const seen: { method?: string; type?: string; body: string; host?: string }[] = [];
+    const port = await serve((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen.push({ method: req.method, type: req.headers["content-type"], body, host: req.headers.host });
+        res.writeHead(201, { "content-type": "application/json", "set-cookie": ["a=1", "b=2"] }).end('{"ok":true}');
+      });
+    });
+    const fetchFn = guardedFetch({});
+    const form = await fetchFn(`http://localhost:${port}/token`, {
+      method: "POST",
+      headers: new Headers({ accept: "application/json" }),
+      body: new URLSearchParams({ grant_type: "x", code: "c" }),
+    });
+    expect(form.status).toBe(201);
+    expect(await form.json()).toEqual({ ok: true });
+    expect(form.headers.get("set-cookie")).toContain("a=1");
+    const get = await fetchFn(new URL(`http://localhost:${port}/meta`), { headers: { "mcp-protocol-version": "x" } });
+    expect(get.ok).toBe(true);
+    expect(seen).toEqual([
+      { method: "POST", type: "application/x-www-form-urlencoded;charset=UTF-8", body: "grant_type=x&code=c", host: `localhost:${port}` },
+      { method: "GET", body: "", host: `localhost:${port}` },
+    ]);
+  });
+
+  it("refuses private addresses, literal or resolved, with OutboundRefused and connects to nothing", async () => {
+    let hits = 0;
+    const port = await serve((_req, res) => {
+      hits += 1;
+      res.end("{}");
+    });
+    const fetchFn = guardedFetch({ privateAddresses: "refuse" });
+    await expect(fetchFn(`http://127.0.0.1:${port}/a`)).rejects.toBeInstanceOf(OutboundRefused);
+    await expect(fetchFn(`http://localhost:${port}/a`)).rejects.toBeInstanceOf(OutboundRefused);
+    await expect(guardedFetch({ allowHttp: false })(`http://localhost:${port}/a`)).rejects.toThrow(/only https/);
+    expect(hits).toBe(0);
+  });
+
+  it("never follows a redirect, and bounds the answer", async () => {
+    const port = await serve((req, res) => {
+      if (req.url === "/redirect") res.writeHead(302, { location: "http://169.254.169.254/" }).end();
+      else res.end("x".repeat(2048));
+    });
+    await expect(guardedFetch({})(`http://localhost:${port}/redirect`)).rejects.toMatchObject({
+      name: "OutboundFailed",
+      code: "REDIRECT",
+    });
+    await expect(guardedFetch({}, { maxResponseBytes: 1024 })(`http://localhost:${port}/big`)).rejects.toBeInstanceOf(
+      OutboundFailed,
+    );
+    await expect(guardedFetch({})(`http://localhost:1/closed`)).rejects.toBeInstanceOf(OutboundFailed);
   });
 });

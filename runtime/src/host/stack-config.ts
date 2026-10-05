@@ -15,6 +15,8 @@
  * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
  * process must never hold a model credential. `egress` (egress-gate, F7.2) joins gates and keys
  * in the gateway and parses its listener (`NYLORUN_EGRESS_LISTEN_*`, default `0.0.0.0:4200`).
+ * Only gates reads the operator's credential resolver (`NYLORUN_RESOLVER_URL`,
+ * `NYLORUN_RESOLVER_TOKEN`, F9 C1): remote MCP calls are authorized in the gateway.
  *
  * `harness` (F6.2) runs alone: it holds the harness credential and nothing else. It connects to
  * core's Harness API listener (`NYLORUN_HARNESS_URL`, `NYLORUN_HARNESS_TOKEN`), calls models and
@@ -34,9 +36,9 @@
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
  * `infra/*` builds the clients from them. So is the Object store (`NYLORUN_OBJECT_STORE_*`),
  * which every service may read; `host/main.ts` builds the `BlobStore` from it. So is who the Host's Tenant is when its database
- * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, `NYLORUN_DERIVED_PRINCIPALS`).
+ * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`).
  */
-import { DERIVED_PRINCIPAL_ID_PATTERN, isTenantId } from "@nylorun/core/compatibility";
+import { isTenantId } from "@nylorun/core/compatibility";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 
 /** A Runtime service this release has. */
@@ -135,6 +137,11 @@ export interface GatesConfig {
   listen: ContainerListen;
   /** `NYLORUN_GATES_TOKEN`: the bearer the loop presents; at least 32 bytes as hex. */
   token: string;
+  /**
+   * The operator's credential resolver (`NYLORUN_RESOLVER_URL`, `NYLORUN_RESOLVER_TOKEN`), asked
+   * for a person's MCP credential when the session's vaults hold none (F9 C1). Absent: vaults only.
+   */
+  resolver?: { url: string; token: string };
 }
 
 /** egress-gate's listener (`NYLORUN_EGRESS_LISTEN_HOST`, `NYLORUN_EGRESS_LISTEN_PORT`). */
@@ -255,11 +262,6 @@ export interface StackConfig {
    */
   publicUrl?: string;
   /**
-   * `NYLORUN_BROWSER_ACCESS` (`on` or `off`): whether browser requests may reach Tenant
-   * routes. Absent means the Host's default (on in container mode).
-   */
-  browserAccess?: boolean;
-  /**
    * The operator listener in container mode (`NYLORUN_ADMIN_LISTEN_PORT`, `…_HOST`,
    * `…_ALLOWED_HOSTS`). Absent: one listener serves the Admin API and the Tenant API.
    */
@@ -308,10 +310,10 @@ export interface TenantSettings {
   /** `NYLORUN_TENANT_NAME`. Default `default`. */
   name: string;
   /**
-   * `NYLORUN_DERIVED_PRINCIPALS`: comma-separated application principals whose keys the admin
-   * key derives (`deriveTenantKey`). Default `project`.
+   * `NYLORUN_IDENTITY_FILE`: the identity file listing the trusted issuers (Host feature
+   * `trusted-issuers`), read once at boot (`host/main.ts`). Absent: no issuer is trusted.
    */
-  derivedPrincipals: readonly string[];
+  identityFile?: string;
 }
 
 export class StackConfigError extends Error {
@@ -593,11 +595,6 @@ export function parseStackConfig(
   const restateIdentityKeys = parseIdentityKeys(env);
   if (restateIdentityKeys) endpoints.restateIdentityKeys = restateIdentityKeys;
   const publicUrl = parseUrl(env, "NYLORUN_PUBLIC_URL", http)?.replace(/\/+$/, "");
-  const rawBrowser = read(env, "NYLORUN_BROWSER_ACCESS");
-  if (rawBrowser !== undefined && rawBrowser !== "on" && rawBrowser !== "off")
-    throw new StackConfigError(
-      `NYLORUN_BROWSER_ACCESS must be on or off, not ${rawBrowser}`,
-    );
   const harnessMode = servesApi ? parseHarnessMode(env) : undefined;
   const sandboxes = servesApi ? parseSandboxes(env) : undefined;
   // Pods connect to the Harness API listener even when the Tenant runs its own harness.
@@ -626,7 +623,6 @@ export function parseStackConfig(
     ...(listen ? { listen } : {}),
     endpoints,
     ...(publicUrl ? { publicUrl } : {}),
-    ...(rawBrowser === undefined ? {} : { browserAccess: rawBrowser === "on" }),
     ...(harnessMode ? { harnessMode } : {}),
     ...(harnessListener ? { harnessListener } : {}),
     ...(sandboxes ? { sandboxes } : {}),
@@ -673,17 +669,11 @@ function parseTenant(env: EnvSnapshot): TenantSettings {
     throw new StackConfigError(
       `NYLORUN_TENANT_ID must be a Tenant id (tn_ and 26 Crockford characters), not ${id}`,
     );
-  const raw = read(env, "NYLORUN_DERIVED_PRINCIPALS");
-  const derivedPrincipals = raw === undefined ? ["project"] : raw.split(",").map((entry) => entry.trim());
-  for (const principal of derivedPrincipals)
-    if (!DERIVED_PRINCIPAL_ID_PATTERN.test(principal) || principal === "studio")
-      throw new StackConfigError(
-        `NYLORUN_DERIVED_PRINCIPALS has '${principal}': each entry must match ${DERIVED_PRINCIPAL_ID_PATTERN} and not be studio`,
-      );
+  const identityFile = read(env, "NYLORUN_IDENTITY_FILE");
   return {
     ...(id ? { id } : {}),
     name: read(env, "NYLORUN_TENANT_NAME") ?? "default",
-    derivedPrincipals: [...new Set(derivedPrincipals)],
+    ...(identityFile ? { identityFile } : {}),
   };
 }
 
@@ -866,10 +856,31 @@ function parseGates(env: EnvSnapshot): GatesConfig {
     );
   if (!GATES_TOKEN.test(token))
     throw new StackConfigError("NYLORUN_GATES_TOKEN must be at least 32 bytes as hex");
+  const resolver = parseResolver(env);
   return {
     listen: { host, port, allowedHosts: [...new Set([...explicit, ...loopbackForms(port)])] },
     token,
+    ...(resolver ? { resolver } : {}),
   };
+}
+
+/** `GatesConfig.resolver` from `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN`: both or neither. */
+function parseResolver(env: EnvSnapshot): { url: string; token: string } | undefined {
+  const url = parseUrl(env, "NYLORUN_RESOLVER_URL", ["http:", "https:"]);
+  const token = read(env, "NYLORUN_RESOLVER_TOKEN");
+  if (url === undefined) {
+    if (token !== undefined)
+      throw new StackConfigError(
+        "NYLORUN_RESOLVER_TOKEN is set without NYLORUN_RESOLVER_URL: set the URL of your credential resolver",
+      );
+    return undefined;
+  }
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_RESOLVER_TOKEN is required with NYLORUN_RESOLVER_URL: the bearer the gateway presents to your credential resolver",
+    );
+  if (/\s/.test(token)) throw new StackConfigError("NYLORUN_RESOLVER_TOKEN cannot contain whitespace");
+  return { url, token };
 }
 
 /** `StackConfig.egress` from `NYLORUN_EGRESS_LISTEN_*`. CONNECT has no Host header to check. */

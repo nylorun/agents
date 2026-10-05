@@ -19,6 +19,10 @@ export function configForFactory(options: {
   model?: TenantConfig["model"];
   /** How Tenants may call Action endpoints (`StackConfig.delivery`). */
   delivery?: TenantConfig["delivery"];
+  /** The trusted issuers of the identity file (`NYLORUN_IDENTITY_FILE`). */
+  issuers?: TenantConfig["issuers"];
+  /** `NYLORUN_PUBLIC_URL`: the base of the MCP OAuth callback (F9 C2). */
+  publicUrl?: string;
 }): (id: string) => TenantConfig {
   const { baseline } = options;
   return (id: string): TenantConfig => {
@@ -31,6 +35,8 @@ export function configForFactory(options: {
       sandbox: { backend: sandboxBackend },
       model: options.model ?? { kind: "vault" },
       ...(options.delivery ? { delivery: options.delivery } : {}),
+      ...(options.issuers ? { issuers: options.issuers } : {}),
+      ...(options.publicUrl ? { publicUrl: options.publicUrl } : {}),
       childEnv: tenantChildEnvironment(
         baseline,
         options.hostConfig,

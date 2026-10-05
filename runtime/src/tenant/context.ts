@@ -15,7 +15,7 @@
  */
 import type { SessionHistory } from "./history.js";
 import type {
-  RoleLimits,
+  IssuerScope,
   SubjectScope,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
@@ -32,6 +32,7 @@ import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import type { Keys } from "../keys/keys.js";
 import type { VaultService } from "../vault/service.js";
+import type { CredentialSources } from "../vault/sources.js";
 import type { McpPool } from "../mcp/pool.js";
 import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { HarnessApiServer } from "../harness-api/server.js";
@@ -103,22 +104,24 @@ export interface Session {
 export type AuthScope =
   | { kind: "application"; principalId: string }
   /**
-   * A subject token (Host feature `subject-tokens`): one subject, the role's scopes and agents
-   * narrowed by the token, until `expiresAt` (ms) or the subject's epoch moves past `epoch`.
+   * A trusted issuer's token (Host feature `trusted-issuers`, F9-D12): one subject, with the
+   * issuer's scopes, agents and sandbox grants, until `expiresAt` (ms). Only its expiry ends it.
    */
   | {
       kind: "token";
+      /** The identity file's issuer that signed it. */
+      issuer: string;
       subject: string;
-      scopes: ReadonlySet<SubjectScope>;
+      /** The issuer's scopes the token holds, which may add `studio`. */
+      scopes: ReadonlySet<IssuerScope>;
       agents: ReadonlySet<string> | "*";
-      role: string;
-      limits?: RoleLimits;
-      /** The token's `sbx` grants: the sandboxes it reaches. Absent reaches none. */
+      /** The sandboxes it reaches: exact ids or `p/*` prefixes. Absent or empty reaches none. */
       sandboxes?: readonly string[];
-      epoch: number;
       expiresAt: number;
+      /** The token's `jti`, or a hash of it. */
       tokenId: string;
-      keyId: string;
+      /** The issuer key's `kid`, when it has one. */
+      keyId?: string;
     }
   /** An application principal acting for `subject` (`Nylorun-Subject`), narrowed to `scopes`. */
   | {
@@ -141,16 +144,6 @@ export type AuthScope =
       expiresAt: number;
       tokenId: string;
       keyId: string;
-    }
-  /**
-   * A publishable key with no bearer (Host feature `browser-access`): what the policy grants
-   * `anon`, at most `agents:read`. It owns no session or vault.
-   */
-  | {
-      kind: "publishable";
-      keyId: string;
-      scopes: ReadonlySet<SubjectScope>;
-      agents: ReadonlySet<string> | "*";
     };
 
 export interface TenantContext {
@@ -159,6 +152,11 @@ export interface TenantContext {
   readonly envelope: TenantEnvelope;
   readonly store: SessionStore;
   readonly vault: VaultService;
+  /**
+   * A session's MCP credentials, for the in-process MCP pool: its attached vaults, then the
+   * operator's credential resolver (`TenantConfig.resolver`, F9 C1).
+   */
+  readonly credentials: CredentialSources;
   /**
    * The MCP pool of the Tenant's in-process harness. Absent when harnesses run elsewhere
    * (`NYLORUN_HARNESS=remote`): each keeps its own (F6.2).
@@ -216,7 +214,7 @@ export interface TenantContext {
   readonly work: WorkState;
   /** Live delivery over Durable Streams: one `SessionStream` per observed session, and the streams wiring. */
   readonly sessionStreams: SessionStreams;
-  /** The Tenant's signing keys for subject tokens. */
+  /** The Tenant's signing keys: delivery tokens, capability links, run and host tokens. */
   readonly signingKeys: SigningKeys;
   /** The Worker id this process writes as session `owner` (§10.6). */
   readonly workerId: string;
@@ -257,8 +255,8 @@ export interface TenantContext {
 }
 
 /**
- * What a request acting for a person may reach: that person's sessions and vaults, and, for a
- * subject token, only sessions of the agents its role allows. Undefined means the whole Tenant.
+ * What a request acting for a person may reach: that person's sessions, and, for a token
+ * caller, only sessions of the agents its issuer allows. Undefined means the whole Tenant.
  */
 export interface SessionAccess {
   readonly owner: string;

@@ -102,7 +102,11 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
         const connection = await open({
           server: manifest,
           authorize: (url) =>
-            vault.authorizeMcp(server.sessionId, { url, serverName: server.serverName }),
+            vault.authorizeMcp(server.sessionId, {
+              url,
+              serverName: server.serverName,
+              ...(server.agentId === undefined ? {} : { agentId: server.agentId }),
+            }),
           pluginData: "",
         });
         const entry: Live = { connection, lastUsedAt: now(), active: 0 };

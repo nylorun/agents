@@ -91,12 +91,26 @@ export async function writeProjectLink(
   });
 }
 
+/** An application key and its principal: `credentials.json`'s content (format 1). */
+export interface KeyCredentials {
+  applicationKey: string;
+  principalId: string;
+}
+
 /** The Project's application key and principal, or undefined when absent or unreadable. */
 export async function readProjectCredentials(
   projectRoot: string,
-): Promise<{ applicationKey: string; principalId: string } | undefined> {
+): Promise<KeyCredentials | undefined> {
+  return await readCredentialsFile(credentialsPath(projectRoot));
+}
+
+/**
+ * A credentials file (`{ format: 1, applicationKey, principalId }`): the Project's, or one the
+ * nylorun commands keep in the Host root. Undefined when absent or unreadable.
+ */
+export async function readCredentialsFile(path: string): Promise<KeyCredentials | undefined> {
   try {
-    const value = JSON.parse(await readFile(credentialsPath(projectRoot), "utf8")) as {
+    const value = JSON.parse(await readFile(path, "utf8")) as {
       applicationKey?: unknown;
       principalId?: unknown;
     };
@@ -111,10 +125,18 @@ export async function readProjectCredentials(
 /** `.nylorun/credentials.json` (format 1, mode 0600). */
 export async function writeProjectCredentials(
   projectRoot: string,
-  credentials: { applicationKey: string; principalId: string },
+  credentials: KeyCredentials,
 ): Promise<void> {
   await ensureProjectDir(projectRoot);
-  await writePrivate(credentialsPath(projectRoot), {
+  await writeCredentialsFile(credentialsPath(projectRoot), credentials);
+}
+
+/** A credentials file (format 1), written atomically with mode 0600. */
+export async function writeCredentialsFile(
+  path: string,
+  credentials: KeyCredentials,
+): Promise<void> {
+  await writePrivate(path, {
     format: 1,
     applicationKey: credentials.applicationKey,
     principalId: credentials.principalId,

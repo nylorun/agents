@@ -61,8 +61,29 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1791098088544,
-      "tag": "0008_session_reads",
+      "when": 1791099626069,
+      "tag": "0008_installation_vaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791102046691,
+      "tag": "0009_oauth_pending",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791107553412,
+      "tag": "0010_oss_auth_removals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791180493778,
+      "tag": "0011_session_reads",
       "breakpoints": true
     }
   ]

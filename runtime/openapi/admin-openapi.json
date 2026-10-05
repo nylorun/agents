@@ -3,10 +3,10 @@
   "info": {
     "title": "Nylorun Runtime: Admin API",
     "version": "0.0.0",
-    "description": "The Host's status, its Tenant's state and shutdown, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
+    "description": "The Host's status, its Tenant's state, shutdown and the Tenant's operator keys, with the admin key. Served on the operator listener when the Host has one; the public listener answers these routes with the opaque 404.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 6,
+      "max": 7,
       "features": [
         "runtime-tenants",
         "admin-status",
@@ -15,15 +15,14 @@
         "artifacts",
         "tenant-fixture-model",
         "transcript-events",
-        "derived-principals",
         "subject-headers",
-        "subject-tokens",
-        "browser-access",
         "ag-ui-endpoint",
         "a2a-endpoint",
         "action-endpoints",
         "sandboxes",
         "sandbox-pods",
+        "trusted-issuers",
+        "operator-keys",
         "session-reads",
         "calls-export"
       ]
@@ -342,6 +341,10 @@
               "placement_refused",
               "sandbox_lost",
               "sandbox_expired",
+              "issuer_unavailable",
+              "oauth_client_required",
+              "oauth_state_invalid",
+              "oauth_failed",
               "internal_error"
             ]
           },
@@ -420,6 +423,93 @@
         },
         "required": [
           "status"
+        ],
+        "additionalProperties": false
+      },
+      "ListOperatorKeysResponse": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "createdAt": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "role",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "additionalProperties": false
+      },
+      "PutOperatorKeyResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "rotated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "createdAt",
+          "key",
+          "rotated"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteOperatorKeyResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
         ],
         "additionalProperties": false
       }
@@ -556,6 +646,216 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/keys": {
+      "get": {
+        "summary": "List the Tenant's keys",
+        "description": "Every application key of the Tenant by name, with its role and when it was issued. Keys themselves are never shown again.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The keys, by id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOperatorKeysResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, or the public listener",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant is not open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/keys/{id}": {
+      "put": {
+        "summary": "Create or rotate a key",
+        "description": "Issues a new key named `id` and returns it this once. A key of that name is replaced: the old one stops authenticating at once. `studio` is refused.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio`"
+            },
+            "required": true,
+            "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio`",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new key, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutOperatorKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a key name, or `studio`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found: an unknown admin key, or the public listener",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant is not open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a key",
+        "description": "The key stops authenticating at once. `studio` is refused.",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "adminKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio`"
+            },
+            "required": true,
+            "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio`",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The key is deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteOperatorKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a key name, or `studio`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No key of that name; or an unknown admin key, or the public listener",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant is not open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
                 }
               }
             }

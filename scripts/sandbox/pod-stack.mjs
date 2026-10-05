@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { subjectTokenIssuer } from "@nylorun/core/contracts";
+import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import { run } from "../lib/repo.mjs";
 import { ensureImages, runtimeHeaders, withStack } from "../lib/stack.mjs";
 
@@ -182,7 +182,7 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
         return answer.result.token;
       };
       const iat = () => Math.floor(Date.now() / 1000);
-      const issuer = subjectTokenIssuer(tenant.id);
+      const issuer = tenantTokenIssuer(tenant.id);
       /** An egress token as core mints it at join (`mintEgressToken`), with `overrides`. */
       const egressToken = (overrides = {}) =>
         sign(EGRESS_TOKEN_TYP, {

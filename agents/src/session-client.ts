@@ -1,7 +1,6 @@
 /**
- * The Tenant API client classes, with no Node-only imports so a browser bundle can load them
- * (`@nylorun/agents/browser`). `client.ts` adds `createClient`, which resolves the
- * connection from the environment or the Project link.
+ * The Tenant API client classes, with no Node-only imports. `client.ts` adds `createClient`,
+ * which resolves the connection from the environment or the Project link.
  */
 import type {
   AgentManifest,
@@ -40,7 +39,7 @@ import {
   type VaultInfo,
 } from "@nylorun/core/contracts";
 import { CallsReadClient, SessionsReadClient } from "./reads.js";
-import { AccessClient, TokensClient } from "./access.js";
+import { AccessClient } from "./access.js";
 import { SandboxesClient } from "./sandboxes.js";
 import { ArtifactsClient } from "./artifacts.js";
 import { Transport, id, segment, type Destination } from "./http.js";
@@ -184,14 +183,7 @@ export class AgentsClient {
       subject,
     });
   }
-  /**
-   * Mints subject tokens for signed-in people (Host feature `subject-tokens`), so their
-   * browser or app calls the Runtime directly. Application key only.
-   */
-  get tokens(): TokensClient {
-    return new TokensClient(this.transport);
-  }
-  /** The access policy, signing keys and revocations (Host feature `subject-tokens`). */
+  /** The signing keys and the public keys that verify delivery tokens. Application key only. */
   get access(): AccessClient {
     return new AccessClient(this.transport);
   }
@@ -295,24 +287,35 @@ export class AgentsClient {
     });
     return this.session(sessionId);
   }
-  createVault(options: {
-    name: string;
-    ownerUserId: string;
-    metadata?: Record<string, string>;
-    idempotencyKey: string;
-    requestId?: string;
-  }): Promise<VaultInfo> {
+  /**
+   * Creates a vault: the installation's own (`scope: "installation"`), which any session may
+   * attach, or one person's (`ownerUserId`), which only that person's sessions attach. Vault
+   * routes take the application key acting for no one (protocol 7): not a client made with `as`.
+   */
+  createVault(
+    options: {
+      name: string;
+      metadata?: Record<string, string>;
+      idempotencyKey: string;
+      requestId?: string;
+    } & ({ scope: "installation"; ownerUserId?: undefined } | { scope?: "user"; ownerUserId: string }),
+  ): Promise<VaultInfo> {
     return this.transport.json("/v1/vaults", "POST", {
       requestId: options.requestId ?? id(),
       idempotencyKey: options.idempotencyKey,
       name: options.name,
-      ownerUserId: options.ownerUserId,
+      ...(options.scope === "installation"
+        ? { scope: "installation" }
+        : { ownerUserId: options.ownerUserId }),
       ...(options.metadata ? { metadata: options.metadata } : {}),
     });
   }
-  listVaults(ownerUserId: string, signal?: AbortSignal): Promise<{ vaults: VaultInfo[] }> {
+  /** The installation vaults, after the vaults of `ownerUserId` when it is given. */
+  listVaults(ownerUserId?: string, signal?: AbortSignal): Promise<{ vaults: VaultInfo[] }> {
     return this.transport.json(
-      `/v1/vaults?ownerUserId=${encodeURIComponent(ownerUserId)}`,
+      ownerUserId === undefined
+        ? "/v1/vaults"
+        : `/v1/vaults?ownerUserId=${encodeURIComponent(ownerUserId)}`,
       "GET",
       undefined,
       signal,
@@ -692,11 +695,6 @@ export class SessionClient {
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
-export {
-  AccessClient,
-  PublishableKeysClient,
-  SigningKeysClient,
-  TokensClient,
-} from "./access.js";
+export { AccessClient, SigningKeysClient } from "./access.js";
 export { SandboxesClient } from "./sandboxes.js";
 export type { ForSessionOptions, SandboxSpec, SessionSandboxHandle } from "./sandboxes.js";

@@ -15,8 +15,7 @@ import { PINNED_IMAGES } from "./images.js";
  * database with C collation (`--locale=C`) and runs with `wal_level=logical`: the stream
  * relay feeds s2-lite from the record over logical replication (Durable Streams), and
  * `max_slot_wal_keep_size` caps the WAL a stuck relay can hold. The Runtime creates the
- * Tenant on its first start, with its name (`NYLORUN_TENANT_NAME`) and the derived
- * principals of `NYLORUN_DERIVED_PRINCIPALS` (`project` for the Project link).
+ * Tenant on its first start, with its name (`NYLORUN_TENANT_NAME`).
  *
  * Restate signs requests to the Worker endpoint with the private key in
  * `docker/restate-identity.pem`, mounted read-only; the Runtime gets the public
@@ -70,13 +69,22 @@ import { PINNED_IMAGES } from "./images.js";
  * `default` carries egress and the published ports (runtime, gateway, Studio, sandboxes).
  * Restate's admin port (its UI, unauthenticated) is published, and Restate joins `default`,
  * only with `restateUi` (`nylorun start --restate-ui`).
+ *
+ * With `identity` (when `<Host root>/identity.yaml` exists) the runtime reads its trusted issuers
+ * from it, through the Host root mount (NYLORUN_IDENTITY_FILE=/nylorun/identity.yaml).
  */
 export function renderComposeFile(
   project: string,
   name: string,
-  options: { sandboxes?: true; harness?: "remote" | "in-process"; restateUi?: true } = {},
+  options: {
+    sandboxes?: true;
+    harness?: "remote" | "in-process";
+    restateUi?: true;
+    identity?: true;
+  } = {},
 ): string {
   const sandboxes = options.sandboxes === true;
+  const identity = options.identity === true;
   const remote = (options.harness ?? "remote") === "remote";
   const restateUi = options.restateUi === true;
   return `# Written by \`nylorun start\`; rewritten on every start. Settings live in .env.
@@ -179,7 +187,11 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
       # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
-      NYLORUN_ENDPOINT_LOOPBACK: docker-host${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
+      NYLORUN_ENDPOINT_LOOPBACK: docker-host
+      # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
+      # unset by default. Set both in the shell that runs \`nylorun start\`.
+      NYLORUN_RESOLVER_URL: \${NYLORUN_RESOLVER_URL:-}
+      NYLORUN_RESOLVER_TOKEN: \${NYLORUN_RESOLVER_TOKEN:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
     volumes:
@@ -211,7 +223,6 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
       NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
-      NYLORUN_DERIVED_PRINCIPALS: \${NYLORUN_DERIVED_PRINCIPALS:-project}
       # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
       # or the vault key.
@@ -247,7 +258,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_HARNESS: \${NYLORUN_HARNESS:-remote}
       NYLORUN_HARNESS_LISTEN_PORT: "4200"
       NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200${sandboxes ? SANDBOXES_HARNESS_HOST : ""}
-      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}
+      NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
@@ -292,10 +303,13 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       # Browsers share cookies across ports of one host: a cookie per Tenant keeps the
       # sessions of two Studios on localhost apart.
       NYLORUN_STUDIO_SESSION_COOKIE: nylorun_studio_${name}
-      # Exact origins that may frame Studio (Babai Desktop); kept in .env.
+      # Exact origins that may frame Studio (none by default: embedding is opt-in); kept in .env.
       NYLORUN_STUDIO_FRAME_ANCESTORS: \${NYLORUN_STUDIO_FRAME_ANCESTORS:-}
       # Studio's anonymous usage analytics; empty when telemetry is off.
       NYLORUN_STUDIO_ANALYTICS_ID: \${NYLORUN_STUDIO_ANALYTICS_ID:-}
+      # Extra Host values Studio serves behind a sign-in proxy (studio.acme.dev),
+      # comma-separated; from the environment of nylorun start.
+      NYLORUN_STUDIO_ALLOWED_HOSTS: \${NYLORUN_STUDIO_ALLOWED_HOSTS:-}
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
     networks: [default]
@@ -382,6 +396,11 @@ function harnessService(project: string): string {
  * The runtime reaches the sandboxes service on the Compose network with its token, and serves
  * the Harness API to sandbox pods (F7.2) on the Docker host's address.
  */
+/** The identity file (`<Host root>/identity.yaml`): the trusted issuers, read at boot. */
+const IDENTITY_RUNTIME_ENV = `
+      # Trusted issuers (<Host root>/identity.yaml): JWTs from the operator's identity provider.
+      NYLORUN_IDENTITY_FILE: /nylorun/identity.yaml`;
+
 const SANDBOXES_RUNTIME_ENV = `
       # The sandboxes service (nylorun sandbox enable): pods on the Tenant's cluster.
       NYLORUN_SANDBOXES_URL: http://sandboxes:4300

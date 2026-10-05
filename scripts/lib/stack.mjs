@@ -249,7 +249,7 @@ export async function createStack({
       const { createAdmin } = await import(module);
       return createAdmin({ home });
     },
-    /** The Tenant's id and `project` key (see `hostTenant`). */
+    /** The Tenant's id and the checks' operator key (see `hostTenant`). */
     async tenant(module) {
       return hostTenant(await stack.admin(module));
     },
@@ -339,18 +339,31 @@ export async function eventually(check, { timeout = 60_000, interval = 250, mess
   }
 }
 
+/** The operator key the checks use; `project` stays the linked projects' own. */
+export const CHECKS_KEY_ID = "checks";
+/** The checks key per Admin API URL and Tenant id, put once in this process. */
+const checksKeys = new Map();
+
 /**
- * The Host's one Tenant from `admin.status()`, once it is open, with the key
- * of its `project` principal (what `nylorun start` writes to a project's
- * credentials).
- * @param {{ status(): Promise<{ tenant: { id: string | null, state: string } }>, deriveTenantKey(tenantId: string, principalId: string): string }} admin
+ * The Host's one Tenant from `admin.status()`, once it is open, with a key for
+ * the checks: the operator key `checks` (F9 I1), put through `admin.keys.put`
+ * once per Tenant in this process and reused after. Putting it again would
+ * rotate it, and a linked project's `project` key is never touched.
+ * @param {{ adminUrl: string, status(): Promise<{ tenant: { id: string | null, state: string } }>, keys: { put(id: string): Promise<{ key: string }> } }} admin
  * @returns {Promise<{ id: string, key: string }>}
  */
 export async function hostTenant(admin) {
   const { tenant } = await admin.status();
   if (tenant.state !== "open" || !tenant.id)
     throw new Error(`The Host's Tenant is not open (${tenant.state}${tenant.id ? `, ${tenant.id}` : ""}).`);
-  return { id: tenant.id, key: admin.deriveTenantKey(tenant.id, "project") };
+  const cached = `${admin.adminUrl} ${tenant.id}`;
+  let key = checksKeys.get(cached);
+  if (!key) {
+    key = admin.keys.put(CHECKS_KEY_ID).then((put) => put.key);
+    checksKeys.set(cached, key);
+    key.catch(() => checksKeys.delete(cached));
+  }
+  return { id: tenant.id, key: await key };
 }
 
 export const PROTOCOL = "5";

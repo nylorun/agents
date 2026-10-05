@@ -95,3 +95,28 @@ function unwrapKey(kek: Buffer, wrapped: Buffer): Buffer {
     throw new VaultCryptoError();
   }
 }
+
+/** The wrapped DEK's length: its nonce, the 32-byte key and the tag. */
+const WRAPPED_DEK_BYTES = IV_BYTES + 32 + TAG_BYTES;
+
+/**
+ * `encryptSecret` in one column: nonce, wrapped DEK, then ciphertext and tag. For rows that
+ * seal several short secrets under one `kekId` (`oauth_pending`, F9 C2).
+ */
+export function sealBytes(kek: Buffer, aad: Buffer, plaintext: Buffer): Buffer {
+  const sealed = encryptSecret(kek, aad, plaintext);
+  return Buffer.concat([sealed.nonce, sealed.wrappedDek, sealed.ciphertext]);
+}
+
+/** Opens what `sealBytes` sealed; `VaultCryptoError` when it cannot. */
+export function openBytes(kek: Buffer, aad: Buffer, sealed: Buffer, expectedKekId: string): Buffer {
+  if (sealed.length < IV_BYTES + WRAPPED_DEK_BYTES + TAG_BYTES) throw new VaultCryptoError();
+  return decryptSecret(
+    kek,
+    aad,
+    sealed.subarray(0, IV_BYTES),
+    sealed.subarray(IV_BYTES + WRAPPED_DEK_BYTES),
+    sealed.subarray(IV_BYTES, IV_BYTES + WRAPPED_DEK_BYTES),
+    expectedKekId,
+  );
+}

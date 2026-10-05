@@ -574,7 +574,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             {location.pathname === "/settings"
               ? "Model Settings"
               : location.pathname === "/vault"
-                ? "Vault"
+                ? "Connections"
                 : (agent?.name ?? "Nylorun Studio")}
           </strong>
           {embedded() ? null : (

@@ -9,8 +9,8 @@
  * Execution and Durable Streams from the endpoints; `createHostExecution`
  * builds the process's execution; the Host serves the one Tenant its Postgres
  * database holds (`NYLORUN_DATABASE_URL`, required), and creates it there on
- * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`,
- * `NYLORUN_DERIVED_PRINCIPALS`; tenancy.md §4); with S2, a process running core
+ * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`; tenancy.md §4), trusting the issuers of the identity file
+ * `NYLORUN_IDENTITY_FILE` names (Host feature `trusted-issuers`); with S2, a process running core
  * runs the stream relay, which feeds the Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); `/ready` reports
  * the Tenant and the infrastructure checks. With an Object store
@@ -29,6 +29,8 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { hostPaths } from "../tenant/paths.js";
 import { createTenantModule } from "../tenant/module.js";
+import { parseIdentityFile } from "../tenant/identity-file.js";
+import { createTrustedIssuers, type TrustedIssuers } from "../tenant/issuers.js";
 import { hostPrincipals } from "../tenant/principals.js";
 import { createPostgresTenantOpener } from "../tenant/store-pg.js";
 import { openTenantRuntime } from "../tenant/runtime.js";
@@ -77,6 +79,23 @@ function coreVersion(): string {
 
 function loadJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
+}
+
+/**
+ * The trusted issuers of the identity file (`NYLORUN_IDENTITY_FILE`, Host feature
+ * `trusted-issuers`). A missing or malformed file stops the boot, naming the issuer and field;
+ * an issuer's JWKS is fetched only when a token needs it, so one that is down does not.
+ */
+function loadIssuers(path: string): TrustedIssuers {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw new Error(
+      `NYLORUN_IDENTITY_FILE names ${path}, which cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return createTrustedIssuers(parseIdentityFile(text, path));
 }
 
 function resolveHostRoot(): string {
@@ -149,6 +168,8 @@ async function runGates(stack: StackConfig): Promise<void> {
     ...(stack.packing ? { packing: stack.packing } : {}),
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "none",
+    // Never the resolver's URL or token: only whether one is set (F9 C1).
+    resolver: stack.gates?.resolver ? "configured" : "none",
   });
   const database = createDatabase(stack);
   const servers: { close(): Promise<void> }[] = [];
@@ -229,7 +250,14 @@ export async function main(): Promise<void> {
 
   const config = loadJson<HostConfigFile>(paths.config);
   const credentials = loadJson<HostCredentialsFile>(paths.credentials);
+  const identityFile = stack.tenant?.identityFile;
+  const issuers = identityFile ? loadIssuers(identityFile) : undefined;
   const logger = createHostLogger();
+  if (issuers)
+    logger.info("trusted_issuers", {
+      file: identityFile,
+      issuers: issuers.issuers.map((issuer) => issuer.config.name),
+    });
   if (stack.deprecatedRole)
     logger.warn("deprecated_flag", {
       flag: "--role",
@@ -259,6 +287,8 @@ export async function main(): Promise<void> {
     logger,
     baseline,
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
+    ...(issuers ? { issuers } : {}),
+    ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
   });
 
   // The process's Durable Session Execution: Restate when its endpoints are set, else the
@@ -327,7 +357,7 @@ export async function main(): Promise<void> {
         harnessImage: stack.sandboxes.harnessImage,
       }
     : undefined;
-  const tenantSettings = stack.tenant ?? { name: "default", derivedPrincipals: ["project"] };
+  const tenantSettings = stack.tenant ?? { name: "default" };
   const module = createTenantModule({
     open: createPostgresTenantOpener({
       hostRoot,
@@ -335,10 +365,7 @@ export async function main(): Promise<void> {
       create: {
         ...(tenantSettings.id ? { tenantId: tenantSettings.id } : {}),
         name: tenantSettings.name,
-        principals: hostPrincipals({
-          adminKey: credentials.adminKey,
-          derived: tenantSettings.derivedPrincipals,
-        }),
+        principals: hostPrincipals({ adminKey: credentials.adminKey }),
       },
       configFor,
       logger,
@@ -373,10 +400,6 @@ export async function main(): Promise<void> {
     coreVersion: coreVersion(),
     ...(stack.listen ? { listen: stack.listen } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
-    // Container mode (the local stack) allows browsers unless told not to; a Host started
-    // from host.json only when it says so. Without publishable keys nothing is reachable.
-    browserAccess:
-      stack.browserAccess ?? (stack.listen ? true : config.browserAccess === true),
     // The Admin API on its own listener: from the container environment, or from host.json
     // (loopback, on the same host) when the Host runs outside a container.
     ...(stack.operator

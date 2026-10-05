@@ -5,8 +5,8 @@
  * person, so the Runtime keeps one person out of another's threads and does all the protocol
  * work. The browser never sees the Tenant key, the Runtime's URL or the Tenant id.
  *
- * The same threads are reachable directly from a browser with a subject token: each thread is
- * one session per subject, agent and thread on both paths.
+ * The same threads are reachable directly from a browser with a trusted issuer's token (through
+ * the operator's proxy): each thread is one session per subject, agent and thread on both paths.
  */
 import { parseSubjectHeaders, type SubjectScope } from "@nylorun/core/contracts";
 import type { BuiltWorkflow } from "@nylorun/core/define";
@@ -42,10 +42,7 @@ export interface AgUiHandlerOptions {
   basePath?: string;
   /** Application client. Default: `createClient()`, from the environment or the Project link. */
   client?: AgentsClient | Promise<AgentsClient>;
-  /**
-   * What each subject may do through this endpoint. Default `["sessions:own"]`; add
-   * `vaults:own` if `session()` attaches the person's vaults.
-   */
+  /** What each subject may do through this endpoint. Default `["sessions:own"]`. */
   scopes?: readonly SubjectScope[];
   /** Optional per-session parameters, e.g. the person's vault for connected accounts. */
   session?(

@@ -7,6 +7,16 @@ export {
   type StartEphemeralRuntimeOptions,
   type EphemeralRuntime,
 } from "./tenant/ephemeral.js";
+export {
+  parseIdentityFile,
+  IdentityFileError,
+  type TrustedIssuerConfig,
+} from "./tenant/identity-file.js";
+export {
+  createTrustedIssuers,
+  type TrustedIssuers,
+  type TrustedIssuersOptions,
+} from "./tenant/issuers.js";
 export type {
   TenantConfig,
   TenantHandle,
@@ -15,6 +25,7 @@ export type {
   OpenTenantRuntime,
 } from "./tenant/types.js";
 export { scriptedModel, gatewayModel, type ModelProvider } from "./core/provider.js";
+export type { ResolverConfig } from "./vault/sources.js";
 export type { RuntimeAgent } from "./contracts.js";
 export {
   IMAGE_MEDIA_TYPES,

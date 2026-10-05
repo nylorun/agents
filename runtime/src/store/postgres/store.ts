@@ -111,8 +111,6 @@ import type {
   StoreCounts,
   StoreHealth,
   SigningKeyRow,
-  PublishableKeyRow,
-  SubjectUsageRow,
   ModelBudgetRow,
   ModelUsageQuery,
   ModelUsageRow,
@@ -127,6 +125,7 @@ import type {
   VaultCredentialRow,
   VaultIdempotencyRow,
   VaultRow,
+  OAuthPendingRow,
 } from "../types.js";
 import { database, driverError, type Database, type Transaction } from "./db.js";
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
@@ -145,7 +144,6 @@ import {
   modelBudgets,
   modelUsage,
   principals,
-  publishableKeys,
   sandboxes,
   sandboxEvents,
   sandboxResources,
@@ -155,14 +153,13 @@ import {
   toJson,
   toolCrossings,
   signingKeys,
-  subjectEpochs,
-  subjectUsage,
   tenant,
   tenantSettings,
   vaultAudit,
   vaultCredentials,
   vaultIdempotency,
   vaults,
+  oauthPending,
 } from "./schema.js";
 
 export interface PostgresSessionStoreOptions extends SessionStoreOptions {
@@ -1106,6 +1103,33 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.tokenHash);
   }
 
+  async listPrincipals(): Promise<PrincipalRow[]> {
+    this.check();
+    return await this.db.select().from(principals).orderBy(principals.id);
+  }
+
+  async putPrincipal(id: string, tokenHash: string, createdAt: string): Promise<PrincipalRow> {
+    this.check();
+    const [row] = await this.db
+      .insert(principals)
+      .values({ id, role: "application", tokenHash, idempotencyKey: null, createdAt })
+      .onConflictDoUpdate({
+        target: principals.id,
+        set: { tokenHash, createdAt, idempotencyKey: null },
+      })
+      .returning();
+    return row!;
+  }
+
+  async deletePrincipal(id: string): Promise<boolean> {
+    this.check();
+    const rows = await this.db
+      .delete(principals)
+      .where(eq(principals.id, id))
+      .returning({ id: principals.id });
+    return rows.length > 0;
+  }
+
   // --- vault ---------------------------------------------------------------
 
   async insertVault(row: VaultRow): Promise<void> {
@@ -1125,6 +1149,15 @@ class PostgresTx implements Tx {
       .select()
       .from(vaults)
       .where(and(eq(vaults.ownerUserId, ownerUserId), eq(vaults.scope, "user")))
+      .orderBy(vaults.createdAt, vaults.id);
+  }
+
+  async installationVaults(): Promise<VaultRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(vaults)
+      .where(eq(vaults.scope, "installation"))
       .orderBy(vaults.createdAt, vaults.id);
   }
 
@@ -1239,7 +1272,27 @@ class PostgresTx implements Tx {
     await this.db.insert(vaultIdempotency).values(row);
   }
 
-  // --- subject tokens ------------------------------------------------------
+  async insertOAuthPending(row: OAuthPendingRow): Promise<void> {
+    this.check();
+    await this.db.insert(oauthPending).values(row);
+  }
+
+  async takeOAuthPending(stateHash: string): Promise<OAuthPendingRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .delete(oauthPending)
+      .where(eq(oauthPending.stateHash, stateHash))
+      .returning();
+    return row;
+  }
+
+  async deleteExpiredOAuthPending(now: string): Promise<number> {
+    this.check();
+    const result = await this.db.delete(oauthPending).where(lt(oauthPending.expiresAt, now));
+    return result.count;
+  }
+
+  // --- signing keys --------------------------------------------------------
 
   async lockSigningKeys(): Promise<void> {
     this.check();
@@ -1288,120 +1341,6 @@ class PostgresTx implements Tx {
     this.check();
     const [row] = await this.db.select({ n: count() }).from(signingKeys);
     return row!.n;
-  }
-
-  async subjectEpoch(subject: string): Promise<number> {
-    this.check();
-    const [row] = await this.db
-      .select({ epoch: subjectEpochs.epoch })
-      .from(subjectEpochs)
-      .where(eq(subjectEpochs.subject, subject));
-    return row?.epoch ?? 0;
-  }
-
-  async subjectEpochs(subjects: readonly string[]): Promise<Map<string, number>> {
-    this.check();
-    if (subjects.length === 0) return new Map();
-    const rows = await this.db
-      .select({ subject: subjectEpochs.subject, epoch: subjectEpochs.epoch })
-      .from(subjectEpochs)
-      .where(inArray(subjectEpochs.subject, subjects));
-    return new Map(rows.map((row) => [row.subject, row.epoch]));
-  }
-
-  async bumpSubjectEpoch(subject: string, at: string): Promise<number> {
-    this.check();
-    const [row] = await this.db
-      .insert(subjectEpochs)
-      .values({ subject, epoch: 1, revokedAt: at })
-      .onConflictDoUpdate({
-        target: subjectEpochs.subject,
-        set: { epoch: sql`${subjectEpochs.epoch} + 1`, revokedAt: excluded("revoked_at") },
-      })
-      .returning({ epoch: subjectEpochs.epoch });
-    return row!.epoch;
-  }
-
-  async lockSubjectUsage(initial: SubjectUsageRow): Promise<SubjectUsageRow> {
-    this.check();
-    await this.db.insert(subjectUsage).values(initial).onConflictDoNothing();
-    const [row] = await this.db
-      .select()
-      .from(subjectUsage)
-      .where(eq(subjectUsage.subject, initial.subject))
-      .for("update");
-    return row!;
-  }
-
-  async putSubjectUsage(row: SubjectUsageRow): Promise<void> {
-    this.check();
-    await this.db
-      .insert(subjectUsage)
-      .values(row)
-      .onConflictDoUpdate({
-        target: subjectUsage.subject,
-        set: { turnTokens: excluded("turn_tokens"), refilledAt: excluded("refilled_at") },
-      });
-  }
-
-  async countOwnerSessions(
-    ownerUserId: string,
-    statuses: readonly string[],
-  ): Promise<number> {
-    this.check();
-    const [row] = await this.db
-      .select({ n: count() })
-      .from(sessions)
-      .where(and(eq(sessions.ownerUserId, ownerUserId), inArray(sessions.status, statuses)));
-    return row!.n;
-  }
-
-  // --- publishable keys ----------------------------------------------------
-
-  async insertPublishableKey(row: PublishableKeyRow): Promise<void> {
-    this.check();
-    await this.db.insert(publishableKeys).values(row);
-  }
-
-  async publishableKeyByKey(key: string): Promise<PublishableKeyRow | undefined> {
-    this.check();
-    const [row] = await this.db
-      .select()
-      .from(publishableKeys)
-      .where(eq(publishableKeys.key, key));
-    return row;
-  }
-
-  async publishableKey(id: string): Promise<PublishableKeyRow | undefined> {
-    this.check();
-    const [row] = await this.db
-      .select()
-      .from(publishableKeys)
-      .where(eq(publishableKeys.id, id));
-    return row;
-  }
-
-  async publishableKeys(): Promise<PublishableKeyRow[]> {
-    this.check();
-    return this.db
-      .select()
-      .from(publishableKeys)
-      .orderBy(publishableKeys.createdAt, publishableKeys.id);
-  }
-
-  async updatePublishableKey(
-    id: string,
-    patch: Partial<Pick<PublishableKeyRow, "originsJson" | "revokedAt">>,
-  ): Promise<boolean> {
-    this.check();
-    if (patch.originsJson === undefined && patch.revokedAt === undefined)
-      return (await this.publishableKey(id)) !== undefined;
-    const rows = await this.db
-      .update(publishableKeys)
-      .set(patch)
-      .where(eq(publishableKeys.id, id))
-      .returning({ id: publishableKeys.id });
-    return rows.length === 1;
   }
 
   // --- model usage ---------------------------------------------------------
@@ -1664,7 +1603,6 @@ class PostgresTx implements Tx {
     const db = this.db;
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await db.delete(table);
-      await db.delete(subjectUsage);
       await db.delete(toolCrossings);
       // A session's artifacts go with it (their versions by cascade).
       await db.delete(artifacts).where(isNotNull(artifacts.sessionId));

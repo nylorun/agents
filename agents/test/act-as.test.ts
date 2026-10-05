@@ -66,7 +66,7 @@ function recording() {
 describe("AgentsClient.as", () => {
   it("sends Nylorun-Subject and Nylorun-Scopes on JSON and SSE routes", async () => {
     const { client, seen } = recording();
-    const ada = client.as("app:42", { scopes: ["sessions:own", "vaults:own"] });
+    const ada = client.as("app:42", { scopes: ["sessions:own", "agents:read"] });
     expect(ada.subject).toBe("app:42");
     await ada.listSessions();
     await ada.session("s1").history();
@@ -82,7 +82,7 @@ describe("AgentsClient.as", () => {
     ]);
     for (const { headers } of seen) {
       expect(headers.get("nylorun-subject")).toBe("app:42");
-      expect(headers.get("nylorun-scopes")).toBe("sessions:own vaults:own");
+      expect(headers.get("nylorun-scopes")).toBe("sessions:own agents:read");
       expect(headers.get("authorization")).toBe(`Bearer ${KEY}`);
     }
   });

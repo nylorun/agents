@@ -16,20 +16,11 @@ import {
   ModelCallExportPageSchema,
   SandboxPageSchema,
   JwksSchema,
-  CreateTokenRequestSchema,
-  CreateTokenResponseSchema,
-  AccessPolicyResponseSchema,
-  PutAccessPolicyRequestSchema,
   SigningKeyListSchema,
   SigningKeyViewSchema,
   RotateSigningKeysRequestSchema,
   RevokeSigningKeyRequestSchema,
-  ListPublishableKeysResponseSchema,
-  PublishableKeySchema,
-  CreatePublishableKeyRequestSchema,
-  UpdatePublishableKeyRequestSchema,
-  RevokeSubjectRequestSchema,
-  RevokeSubjectResponseSchema,
+  MeResponseSchema,
   TenantStatusSchema,
   ResetTenantRequestSchema,
   ResetTenantResponseSchema,
@@ -52,6 +43,8 @@ import {
   CredentialInfoSchema,
   ListCredentialsResponseSchema,
   RotateCredentialRequestSchema,
+  StartOAuthRequestSchema,
+  StartOAuthResponseSchema,
   DeletedResponseSchema,
   ListAgentsResponseSchema,
   ListPublicAgentsResponseSchema,
@@ -91,6 +84,10 @@ import {
   SessionCommandSchema,
   AdminStatusSchema,
   HostShutdownResponseSchema,
+  ListOperatorKeysResponseSchema,
+  PutOperatorKeyResponseSchema,
+  DeleteOperatorKeyResponseSchema,
+  OperatorKeySchema,
   ProtocolRejectedResponseSchema,
   RejectedResponseSchema,
   EVENT_SCHEMAS,
@@ -106,6 +103,16 @@ export const Rejected = named("Rejected", RejectedResponseSchema);
 export const ProtocolRejected = named("ProtocolRejected", ProtocolRejectedResponseSchema);
 export const AdminStatus = named("AdminStatus", AdminStatusSchema);
 export const HostShutdownResponse = named("HostShutdownResponse", HostShutdownResponseSchema);
+export const OperatorKey = named("OperatorKey", OperatorKeySchema);
+export const ListOperatorKeysResponse = named(
+  "ListOperatorKeysResponse",
+  ListOperatorKeysResponseSchema,
+);
+export const PutOperatorKeyResponse = named("PutOperatorKeyResponse", PutOperatorKeyResponseSchema);
+export const DeleteOperatorKeyResponse = named(
+  "DeleteOperatorKeyResponse",
+  DeleteOperatorKeyResponseSchema,
+);
 
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
 export const PutSandboxRequest = named("PutSandboxRequest", PutSandboxRequestSchema);
@@ -204,24 +211,15 @@ export const CreateCredentialRequest = named("CreateCredentialRequest", CreateCr
 export const CredentialInfo = named("CredentialInfo", CredentialInfoSchema);
 export const ListCredentialsResponse = named("ListCredentialsResponse", ListCredentialsResponseSchema);
 export const RotateCredentialRequest = named("RotateCredentialRequest", RotateCredentialRequestSchema);
+export const StartOAuthRequest = named("StartOAuthRequest", StartOAuthRequestSchema);
+export const StartOAuthResponse = named("StartOAuthResponse", StartOAuthResponseSchema);
 export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
 
 export const Jwks = named("Jwks", JwksSchema);
-export const CreateTokenRequest = named("CreateTokenRequest", CreateTokenRequestSchema);
-export const CreateTokenResponse = named("CreateTokenResponse", CreateTokenResponseSchema);
-export const AccessPolicyResponse = named("AccessPolicyResponse", AccessPolicyResponseSchema);
-export const PutAccessPolicyRequest = named("PutAccessPolicyRequest", PutAccessPolicyRequestSchema);
 export const SigningKeyList = named("SigningKeyList", SigningKeyListSchema);
 export const SigningKeyView = named("SigningKeyView", SigningKeyViewSchema);
 export const RotateSigningKeysRequest = named("RotateSigningKeysRequest", RotateSigningKeysRequestSchema);
 export const RevokeSigningKeyRequest = named("RevokeSigningKeyRequest", RevokeSigningKeyRequestSchema);
-export const ListPublishableKeysResponse = named("ListPublishableKeysResponse", ListPublishableKeysResponseSchema);
-export const PublishableKey = named("PublishableKey", PublishableKeySchema);
-export const CreatePublishableKeyRequest = named("CreatePublishableKeyRequest", CreatePublishableKeyRequestSchema);
-export const UpdatePublishableKeyRequest = named("UpdatePublishableKeyRequest", UpdatePublishableKeyRequestSchema);
-export const RevokeSubjectRequest = named("RevokeSubjectRequest", RevokeSubjectRequestSchema);
-export const RevokeSubjectResponse = named("RevokeSubjectResponse", RevokeSubjectResponseSchema);
-
 export const SessionListItem = named("SessionListItem", SessionListItemSchema);
 export const ModelCall = named("ModelCall", ModelCallSchema);
 export const SessionPage = named("SessionPage", SessionPageSchema.extend({ sessions: z.array(SessionListItem) }));
@@ -231,3 +229,4 @@ export const SessionUsageTotals = named("SessionUsageTotals", SessionUsageTotals
 export const ModelCallsPage = named("ModelCallsPage", ModelCallsPageSchema.extend({ calls: z.array(ModelCall) }));
 export const ModelCallExportPage = named("ModelCallExportPage", ModelCallExportPageSchema.extend({ calls: z.array(ModelCall) }));
 export const SandboxPage = named("SandboxPage", SandboxPageSchema.extend({ sandboxes: z.array(SandboxView) }));
+export const MeResponse = named("MeResponse", MeResponseSchema);

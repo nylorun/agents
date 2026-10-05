@@ -57,8 +57,7 @@ it("documents every Tenant operation once, with who may call it", () => {
   expect(Object.keys(document.components?.securitySchemes ?? {}).sort()).toEqual([
     "applicationKey",
     "deliveryToken",
-    "publishableKey",
-    "subjectToken",
+    "issuerToken",
   ]);
 });
 

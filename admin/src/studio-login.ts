@@ -7,8 +7,8 @@ import { AdminError } from "./errors.js";
 
 /**
  * Mints a single-use Studio login token with the admin key (`POST
- * /_studio/login-tokens`, Studio §8.4). An app that embeds Studio, such as
- * Babai, calls this from its backend and hands only the token to its page,
+ * /_studio/login-tokens`, Studio §8.4). An app that embeds Studio calls this
+ * from its backend and hands only the token to its page,
  * which passes it to the framed Studio in `init`.
  *
  * - `tenant` names the Host's one Tenant, for embedders that pass it (the embed

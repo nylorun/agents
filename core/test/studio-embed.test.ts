@@ -26,7 +26,7 @@ describe("StudioEmbedMessageSchema", () => {
     { kind: "token.expiring", expiresAt: null },
     { kind: "route.changed", route: "/tenants/ten_1/vault" },
     { kind: "open.external", url: "https://docs.nylorun.com" },
-    { kind: "open.babai", sessionId: "s1" },
+    { kind: "open.session", sessionId: "s1" },
     { kind: "error", code: "token_invalid", message: "expired" },
   ];
 

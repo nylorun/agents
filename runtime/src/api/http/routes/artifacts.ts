@@ -66,15 +66,13 @@ import { jsonResponse } from "../respond.js";
 const OWN: RouteAccess = {
   credentials: ["application", "subject", "token"],
   scopes: ["sessions:own"],
-  browser: true,
 };
 /** An upload: the same callers, with the file's bytes as the body. */
 const UPLOAD: RouteAccess = { ...OWN, bytes: true };
 /** A capability link: no credential, no protocol header; the token in the path is the grant. */
 const LINK: RouteAccess = {
-  credentials: ["application", "subject", "token", "publishable"],
+  credentials: ["application", "subject", "token"],
   scopes: "any",
-  browser: true,
   anonymous: true,
   unversioned: true,
 };

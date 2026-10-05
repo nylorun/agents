@@ -25,11 +25,7 @@ npx nylorun start writes, or NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY):
   reset [--sessions|--sandboxes|--all] [--yes]
                                           clear the Tenant's sessions, sandboxes or all its data
   endpoints [--json]|ping <agent>         the registered Action endpoints and their health
-  access policy get|set <file>|init       the access policy for subject tokens (nylo access --help)
-  access keys list|create|set-origins|revoke  publishable keys for web pages and apps
-  access signing-keys list|rotate|revoke  the Tenant's token signing keys
-  access revoke <subject>                 end a subject's tokens and open streams
-  access token --subject <s> --role <r>   mint a subject token for trying the API
+  access signing-keys list|rotate|revoke  the Tenant's token signing keys (nylo access --help)
   configure                               set the linked Tenant's model provider
   env                                     print the linked Project's NYLORUN_* variables as exports
   doctor sandbox [--json]                 show which sandbox backend this Tenant's Host offers

@@ -40,7 +40,6 @@ function registerComponents(api: OpenAPIHono<TenantEnv>): void {
 const FOR_A_PERSON: RouteAccess = {
   credentials: ["subject", "token"],
   scopes: ["sessions:own"],
-  browser: true,
 };
 const events = (description: string) => ({
   description,
@@ -67,7 +66,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: TAGS,
       summary: "Run an agent",
       description:
-        "For a person, named by a subject token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); `resume` answers interrupts. A busy session or a turn limit is a `RUN_ERROR` in the stream.",
+        "For a person, named by a trusted issuer's token or by `Nylorun-Subject`. The thread is one session per person, agent and thread, created on its first run with `forwardedProps.nylorun.session`. The trailing user message starts a turn (its id is the idempotency key); `resume` answers interrupts. A busy session is a `RUN_ERROR` in the stream.",
       request: {
         params: agentId,
         body: {

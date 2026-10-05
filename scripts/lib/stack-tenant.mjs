@@ -4,8 +4,8 @@
  * Reset through the Tenant API (`POST /v1/tenant/reset`, scope `all`, active
  * work cancelled: what `nylo reset --all` does), seeded with the Tenant-level
  * fixture model (no model credential), handed to `fn` as NYLORUN_RUNTIME_URL
- * and NYLORUN_SERVER_KEY (the `project` key; no Project link is written), and
- * reset again afterwards.
+ * and NYLORUN_SERVER_KEY (the checks' operator key, see `hostTenant`; no
+ * Project link is written), and reset again afterwards.
  */
 import { randomUUID } from "node:crypto";
 import { hostTenant, runtimeHeaders } from "./stack.mjs";
@@ -29,7 +29,7 @@ export async function resetStackTenant({ runtimeUrl, key }) {
 }
 
 /**
- * @param {{ admin: { url: string, status(): Promise<{ tenant: { id: string | null, state: string } }>, deriveTenantKey(tenantId: string, principalId: string): string }, name: string, log?: (line: string) => void }} options
+ * @param {{ admin: { url: string, adminUrl: string, status(): Promise<{ tenant: { id: string | null, state: string } }>, keys: { put(id: string): Promise<{ key: string }> } }, name: string, log?: (line: string) => void }} options
  * @param {(tenant: { id: string, key: string, env: Record<string, string> }) => Promise<T>} fn
  * @template T
  */

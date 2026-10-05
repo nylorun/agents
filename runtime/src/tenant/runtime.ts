@@ -28,6 +28,7 @@ import type { SessionStore } from "../store/types.js";
 import { createKekFile, readVaultKek } from "../vault/kek.js";
 import { SigningKeys } from "./signing-keys.js";
 import { VaultService, type AuthorizeResult } from "../vault/service.js";
+import { CredentialSources } from "../vault/sources.js";
 import { McpPool } from "../mcp/pool.js";
 import { SandboxManager } from "../sandbox/manager.js";
 import { storeSandboxRecords } from "../sandbox/records.js";
@@ -73,6 +74,7 @@ import {
 } from "./worker.js";
 import { authorize } from "./effects.js";
 import { inProcessToolGate, type ToolGate } from "../gates/tool-gate.js";
+import { guardedFetch } from "./outbound.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import type { RunGrants } from "./run-grants.js";
 import { tenantApi } from "../api/http/app.js";
@@ -99,6 +101,7 @@ import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
 import type { TenantPods } from "./context.js";
 import { sandboxWorkspaceReader } from "../artifacts/workspace.js";
+import { operatorKeys, type OperatorKeys } from "./operator-keys.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -270,7 +273,12 @@ export class TenantRuntime implements TenantHandle {
       const vault = new VaultService({
         store: opened,
         kek: ensureKek,
-        fetch: config.vaultFetch ?? globalThis.fetch,
+        // OAuth refresh and connect follow the Host's address policy (F9 C2).
+        fetch: config.vaultFetch ?? guardedFetch(config.delivery ?? {}),
+      });
+      const credentials = new CredentialSources({
+        vault,
+        ...(config.resolver ? { resolver: config.resolver } : {}),
       });
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
@@ -380,6 +388,7 @@ export class TenantRuntime implements TenantHandle {
         reads: hooks.reads,
         store: opened,
         vault,
+        credentials,
         ...(mcp ? { mcp } : {}),
         sandbox,
         flowLimits,
@@ -491,7 +500,7 @@ export class TenantRuntime implements TenantHandle {
 
   authorize(
     sessionId: string,
-    request: { url: string; serverName?: string }
+    request: { url: string; serverName?: string; agentId?: string }
   ): Promise<AuthorizeResult> {
     return authorize(this.ctx, sessionId, request);
   }
@@ -539,6 +548,11 @@ export class TenantRuntime implements TenantHandle {
 
   attachHarness(channel: HarnessChannel, peer: HarnessPeer): () => void {
     return this.ctx.harness.attach(channel, peer);
+  }
+
+  /** The Tenant's operator keys (F9 I1), over its store. */
+  operatorKeys(): OperatorKeys {
+    return operatorKeys(this.ctx.store);
   }
 
 

@@ -1,5 +1,5 @@
 {
-  "id": "b416ce66-cbc2-4b57-8b51-0e23569c986d",
+  "id": "62bbc4fd-d450-47c1-8a23-e118473260a0",
   "prevId": "b74a56db-c167-4258-9585-7dc5316e4caf",
   "version": "7",
   "dialect": "postgresql",
@@ -841,25 +841,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "tokens_reported": {
-          "name": "tokens_reported",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cost_known": {
-          "name": "cost_known",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "txid": {
-          "name": "txid",
-          "type": "xid8",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "pg_current_xact_id()"
-        },
         "session_id": {
           "name": "session_id",
           "type": "text COLLATE \"C\"",
@@ -946,54 +927,6 @@
         }
       },
       "indexes": {
-        "model_usage_session": {
-          "name": "model_usage_session",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "model_usage_export": {
-          "name": "model_usage_export",
-          "columns": [
-            {
-              "expression": "txid",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "model_usage_effect": {
           "name": "model_usage_effect",
           "columns": [
@@ -1547,13 +1480,6 @@
             "type": "stored"
           }
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        },
         "owner": {
           "name": "owner",
           "type": "text",
@@ -1595,27 +1521,6 @@
         }
       },
       "indexes": {
-        "sessions_created": {
-          "name": "sessions_created",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "first"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "sessions_status": {
           "name": "sessions_status",
           "columns": [
@@ -2423,7 +2328,7 @@
       "checkConstraints": {
         "vaults_scope_check": {
           "name": "vaults_scope_check",
-          "value": "scope IN ('user', 'host')"
+          "value": "scope IN ('user', 'installation', 'host')"
         }
       },
       "isRLSEnabled": false

@@ -10,8 +10,25 @@ export interface StackPaths {
   credentials: string;
   /** host-state.json: written only by a launcher-managed Runtime. */
   state: string;
+  /**
+   * cli-credentials.json: the operator key `cli` that `nylorun` commands use outside a linked
+   * project (`nylorun sandbox`), mode 0600.
+   */
+  cliCredentials: string;
+  /**
+   * project-credentials.json: the operator key `project` that `nylorun start` gives every
+   * project it links to this Tenant (a copy of their `.nylorun/credentials.json`), mode 0600.
+   */
+  projectCredentials: string;
+  /** operator-keys.lock: held while a command puts one of the keys above. */
+  keysLock: string;
   /** tenant.json: the Tenant's name and the project it was created for. */
   record: string;
+  /**
+   * identity.yaml: the trusted issuers (F9 I2), written by the operator. When it exists the
+   * runtime reads it at boot (`NYLORUN_IDENTITY_FILE`).
+   */
+  identity: string;
   /** The Tenant directory: homes, sandboxes, plugin data, logs. */
   tenant: string;
   /**
@@ -46,7 +63,11 @@ export function stackPaths(hostRoot: string): StackPaths {
     config: join(root, "host.json"),
     credentials: join(root, "host-credentials.json"),
     state: join(root, "host-state.json"),
+    cliCredentials: join(root, "cli-credentials.json"),
+    projectCredentials: join(root, "project-credentials.json"),
+    keysLock: join(root, "operator-keys.lock"),
     record: join(root, "tenant.json"),
+    identity: join(root, "identity.yaml"),
     tenant: join(root, "tenant"),
     harness: {
       sandboxes: join(root, "tenant", "sandboxes"),

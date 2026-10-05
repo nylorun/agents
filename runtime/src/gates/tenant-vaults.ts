@@ -19,10 +19,12 @@ import { tenantPaths } from "../tenant/paths.js";
 import { readVaultKek } from "../vault/kek.js";
 import { HostModelVault } from "../vault/host-model.js";
 import { VaultService, type AuthorizeResult, type HostModelSecret } from "../vault/service.js";
+import { CredentialSources, type McpCredentialRequest, type ResolverConfig } from "../vault/sources.js";
 import type { SessionStore } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
 import { inProcessKeys, type Keys } from "../keys/keys.js";
 import { SigningKeys } from "../tenant/signing-keys.js";
+import { guardedFetch, type OutboundPolicy } from "../tenant/outbound.js";
 
 /** The Tenant, as a model call needs it. */
 export interface TenantVault {
@@ -37,10 +39,14 @@ export interface TenantVault {
   /** A session, for the remote MCP servers its pinned manifest declares (F4.1). */
   session(sessionId: string): Promise<Session | undefined>;
   /**
-   * The vault authorization of one request to a session's remote MCP server: its credential
-   * from the session's attached vaults, refreshed when due (F4.1).
+   * The authorization of one request to a session's remote MCP server: its credential from the
+   * session's attached vaults, refreshed when due (F4.1), else from the operator's credential
+   * resolver (F9 C1).
    */
-  authorizeMcp(sessionId: string, request: { url: string; serverName: string }): Promise<AuthorizeResult>;
+  authorizeMcp(
+    sessionId: string,
+    request: { url: string; serverName: string; agentId?: string },
+  ): Promise<AuthorizeResult>;
   /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */
   keys(): Keys;
 }
@@ -65,6 +71,13 @@ export interface TenantVaultsOptions {
   readonly sql: PostgresClient;
   /** The Host root; the gate reads `keys/vault-kek` and `tenant/home` under it. */
   readonly hostRoot: string;
+  /** The operator's credential resolver (`NYLORUN_RESOLVER_*`, F9 C1). */
+  readonly resolver?: ResolverConfig;
+  /**
+   * The Host's address policy (`NYLORUN_ENDPOINT_*`): OAuth refresh and MCP OAuth connect call
+   * authorization servers through `guardedFetch` under it (F9 C2).
+   */
+  readonly delivery?: OutboundPolicy;
 }
 
 export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
@@ -88,7 +101,15 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       return kek;
     };
     const vault = new HostModelVault({ store, kek: readKek });
-    const credentials = new VaultService({ store, kek: readKek, fetch: globalThis.fetch });
+    const credentials = new VaultService({
+      store,
+      kek: readKek,
+      fetch: guardedFetch(options.delivery ?? {}),
+    });
+    const sources = new CredentialSources({
+      vault: credentials,
+      ...(options.resolver ? { resolver: options.resolver } : {}),
+    });
     const keys = inProcessKeys({
       store,
       vault: credentials,
@@ -105,7 +126,7 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       writeHostCredential: (credential) => vault.updateHostCredential(credential),
       session,
       authorizeMcp: (sessionId, request) =>
-        authorizeSessionMcp(credentials, session, sessionId, request),
+        authorizeSessionMcp(sources, session, sessionId, request),
       keys: () => keys,
     };
   }
@@ -149,22 +170,17 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
 }
 
 /**
- * A request to a session's remote MCP server, authorized from the session's attached vaults:
- * what the loop did in its own process before F4.1 (`tenant/effects.ts` `authorize`).
+ * A request to a session's remote MCP server, authorized from the session's attached vaults,
+ * else the operator's credential resolver: what the loop does in its own process
+ * (`tenant/effects.ts` `authorize`). The owner and turn come from the session row.
  */
 export async function authorizeSessionMcp(
-  credentials: VaultService,
+  sources: CredentialSources,
   session: (sessionId: string) => Promise<Session | undefined>,
   sessionId: string,
-  request: { url: string; serverName: string },
+  request: McpCredentialRequest,
 ): Promise<AuthorizeResult> {
   const found = await session(sessionId);
   if (!found) throw new Error(`Session ${sessionId} not found`);
-  return credentials.authorize({
-    sessionId,
-    vaultIds: found.vaultIds ?? [],
-    credentialSelections: found.credentialSelections ?? [],
-    url: request.url,
-    serverName: request.serverName,
-  });
+  return sources.authorize({ ...found, id: sessionId }, request);
 }

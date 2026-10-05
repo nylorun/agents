@@ -2,9 +2,9 @@
  * Capability links (protocol 6): a short-lived URL that opens one artifact version with no
  * other credential, for UIs, `<img>` tags and sharing. The token in the path is an ES256 JWT
  * (`typ: nylorun-artifact+jwt`) signed with the Tenant's current signing key by the keys
- * service, like subject and delivery tokens: `sub` is the artifact, `ver` the version, `aud`
- * `nylorun-artifact`, and it lives at most `ARTIFACT_LINK_MAX_TTL_SECONDS` (the subject-token
- * maximum, so a key rotation never revokes a live link). A link opens nothing once its artifact
+ * service, like delivery tokens: `sub` is the artifact, `ver` the version, `aud`
+ * `nylorun-artifact`, and it lives at most `ARTIFACT_LINK_MAX_TTL_SECONDS` (`TOKEN_TTL_MAX_SECONDS`,
+ * so a key rotation never revokes a live link). A link opens nothing once its artifact
  * is deleted. A folder's link (F8.2) opens its zip, or with a `path` claim one of its files.
  */
 import { randomUUID } from "node:crypto";
@@ -13,7 +13,7 @@ import {
   ARTIFACT_LINK_DEFAULT_TTL_SECONDS,
   ARTIFACT_LINK_MAX_TTL_SECONDS,
   ARTIFACT_LINK_TOKEN_TYPE,
-  subjectTokenIssuer,
+  tenantTokenIssuer,
 } from "@nylorun/core/contracts";
 import { isArtifactId } from "@nylorun/core/compatibility";
 import type { TenantContext } from "../tenant/context.js";
@@ -50,7 +50,7 @@ export async function mintArtifactLink(
   const { token } = await ctx.keys.sign({
     typ: ARTIFACT_LINK_TOKEN_TYPE,
     claims: {
-      iss: subjectTokenIssuer(ctx.config.tenantId),
+      iss: tenantTokenIssuer(ctx.config.tenantId),
       aud: ARTIFACT_LINK_AUDIENCE,
       sub: link.artifactId,
       ver: link.version,
@@ -85,7 +85,7 @@ export async function verifyArtifactLink(
   try {
     const verified = await jwtVerify(raw, await ctx.signingKeys.publicKey(row), {
       algorithms: ["ES256"],
-      issuer: subjectTokenIssuer(ctx.config.tenantId),
+      issuer: tenantTokenIssuer(ctx.config.tenantId),
       audience: ARTIFACT_LINK_AUDIENCE,
       typ: ARTIFACT_LINK_TOKEN_TYPE,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,

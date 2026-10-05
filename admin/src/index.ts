@@ -1,4 +1,10 @@
-import type { AdminStatus, HostTenant, TenantEnvelope } from "@nylorun/core/contracts";
+import type {
+  AdminStatus,
+  HostTenant,
+  OperatorKey,
+  PutOperatorKeyResponse,
+  TenantEnvelope,
+} from "@nylorun/core/contracts";
 import {
   ERROR_CODES,
   PROTOCOL_FEATURES,
@@ -7,22 +13,21 @@ import {
 } from "@nylorun/core/compatibility";
 import {
   AdminClient,
+  OPERATOR_KEYS_FEATURE,
   resolveAdminConnection,
   tenantHostRoot,
   type AdminConnectionOptions,
+  type AdminKeys,
 } from "./client.js";
-import {
-  PROJECT_PRINCIPAL_ID,
-  deriveStudioToken,
-  deriveTenantKey,
-} from "./derived-credentials.js";
+import { deriveStudioToken } from "./derived-credentials.js";
 import { AdminError } from "./errors.js";
 
 export { ERROR_CODES, PROTOCOL_FEATURES, compareVersions };
 export type { ErrorCode };
 export { AdminError };
-export { PROJECT_PRINCIPAL_ID, deriveStudioToken, deriveTenantKey, tenantHostRoot };
+export { deriveStudioToken, tenantHostRoot };
 export { mintStudioLoginToken } from "./studio-login.js";
+export { OPERATOR_KEYS_FEATURE };
 
 export interface Admin {
   /** The Host's Tenant API URL. */
@@ -33,11 +38,10 @@ export interface Admin {
   /** The Host's status, with the one Tenant it serves (`status.tenant`). */
   status(): Promise<AdminStatus>;
   /**
-   * The key of a derived principal on the Host's Tenant, from this client's admin key. The
-   * Host registers the principals it is configured with (`NYLORUN_DERIVED_PRINCIPALS`, default
-   * `project`) when it creates its Tenant.
+   * The Tenant's operator keys (Host feature `operator-keys`): revocable application keys by
+   * name. `keys.put("backend")` creates or rotates a key and returns it once.
    */
-  deriveTenantKey(tenantId: string, principalId: string): string;
+  readonly keys: AdminKeys;
 }
 
 /**
@@ -49,4 +53,12 @@ export function createAdmin(options?: AdminConnectionOptions): Admin {
   return new AdminClient(resolveAdminConnection(options));
 }
 
-export type { AdminConnectionOptions, AdminStatus, HostTenant, TenantEnvelope };
+export type {
+  AdminConnectionOptions,
+  AdminKeys,
+  AdminStatus,
+  HostTenant,
+  OperatorKey,
+  PutOperatorKeyResponse,
+  TenantEnvelope,
+};

@@ -47,6 +47,12 @@ Do not reuse the old Hono, Worker, Vercel, or exported-fetch recipes with the
 new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
 
+To run an installation for a team with your own identity provider and secret
+store, read [SELF_HOSTING.md](./SELF_HOSTING.md): the front doors, operator
+keys, the identity file, credentials, Studio behind a sign-in proxy, CORS,
+private addresses and backups, with a runnable stack in
+[examples/self-host](./examples/self-host/README.md).
+
 ## Serving people through an app server
 
 To put agents in front of people, run your own **app server** (vocabulary in
@@ -56,7 +62,9 @@ key, and calls the Runtime for each person with
 ([agents/README.md](./agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
 [examples](./examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
-enforces the scopes and each subject's ownership of sessions and vaults itself.
+enforces the scopes and each subject's ownership of sessions itself. Vaults
+are the installation's: only an application key acting for no one manages them
+([Credentials](#credentials)).
 
 - Keep the Runtime off the network. An app server on the same machine calls
   `http://localhost:<port>` (the URL `nylorun up` prints). An app server
@@ -65,45 +73,121 @@ enforces the scopes and each subject's ownership of sessions and vaults itself.
   machine reaches it through a reverse proxy:
   [Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine).
 - Never publish the Runtime, Studio or Restate ports beyond loopback, and keep
-  Studio for operators (loopback or an SSH tunnel). Restate's UI is not
+  Studio for operators (loopback, an SSH tunnel, or
+  [a sign-in proxy](#studio-behind-a-sign-in-proxy)). Restate's UI is not
   published at all unless you ask for it (`nylorun start --restate-ui`). Leave
-  `NYLORUN_STUDIO_FRAME_ANCESTORS` unset on servers: no page may frame Studio.
+  `NYLORUN_STUDIO_FRAME_ANCESTORS` empty on servers (the default): no page may
+  frame Studio. Embedding is opt-in: `nylorun start --studio-embed-origin
+  <origin>` lists the exact origins of the app that frames it.
 - The app server drops every `Nylorun-*` header its own clients send, never
   forwards `Origin` (the Runtime refuses Tenant keys from browsers), and
   terminates TLS for its clients.
 - The admin key and any application keys stay on the server; clients get
-  nothing. A server that holds the admin key can derive its Tenant key instead
-  of storing one (`admin.deriveTenantKey`, derived principals).
+  nothing. Give each server its own operator key (`npx nylorun key put <name>`,
+  or `admin.keys.put(name)` in `@nylorun/admin`), so you can rotate or delete
+  one without touching the others; the Runtime keeps only its hash. No key is
+  derived from the admin key but Studio's: an earlier Host's derived keys are no
+  longer registered, and those already in a database keep working as ordinary
+  keys until you replace them with operator keys.
 - Removing a person is the app server's decision: it stops acting for them and
-  closes their open streams. If it also minted subject tokens for them, it
-  revokes them too (`app.access.revokeSubject`).
+  closes their open streams.
 
 ## Calling the Runtime from browsers and apps
 
 A browser or a mobile app can call the Runtime itself, without carrying its
-requests through your app server (optional features `subject-tokens` and
-`browser-access`). Your app server keeps signing people in and mints a
-short-lived subject token for each; the page ships a publishable key.
+requests through your app server: it presents the JWT your identity provider
+gave the person, and the Runtime trusts that provider through the identity
+file ([Trusted issuers](#trusted-issuers)). There is no toggle and no browser
+key: a request with an `Origin` and a trusted issuer's token is served like a
+server's. Application keys and delivery tokens are server secrets, refused with
+an `Origin` (`403 origin_rejected`).
 
-1. Write the access policy once: which roles exist, which agents each may use,
-   and their limits (`npx @nylorun/cli access policy init`, then
-   `access policy set <file>`).
-2. Create a publishable key per app, listing the origins that serve it:
-   `npx @nylorun/cli access keys create --name web --origin https://app.example.com`.
-   Use `--origin http://localhost:*` for development; an app with no web
-   origin gets none.
-3. Add a token route to your app server (`createTokenEndpoint` from
-   `@nylorun/agents`): same-origin `POST`, behind your sign-in, no CORS.
-4. In the page, `createBrowserClient` from `@nylorun/agents/browser` takes the
-   Runtime URL, the publishable key and a function that calls the token route.
+The Runtime sends no CORS headers. Put it behind a reverse proxy that answers
+preflights and adds `Access-Control-Allow-Origin` for your app's origins only
+([Reaching the Runtime from another machine](#reaching-the-runtime-from-another-machine));
+an `OPTIONS` request that reaches the Runtime gets `204` with no CORS header,
+so a page talking to it directly fails its preflight. A page served over HTTPS
+can only call a Runtime served over HTTPS. Turn and rate limits per person
+belong at the proxy too.
 
-A local Tenant allows browser requests (`NYLORUN_BROWSER_ACCESS`, on by
-default there; `off` refuses every `Origin`). A Host started from
-`host.json` allows them only with `"browserAccess": true`. With no publishable
-key, every request with an `Origin` is still refused. CORS headers come from the
-Runtime after it checks the key and its origins; a reverse proxy passes
-`OPTIONS`, `Origin` and `Nylorun-Key` through and never adds its own. A page
-served over HTTPS can only call a Runtime served over HTTPS.
+## Trusted issuers
+
+The Runtime can accept JWTs from your own identity provider (Keycloak, Auth0,
+Entra ID…) as bearers, from servers and browsers alike, with no Nylorun token
+to mint (optional feature `trusted-issuers`). List the issuers in
+`<Host root>/identity.yaml`; `nylorun start` then points the runtime at it
+(`NYLORUN_IDENTITY_FILE=/nylorun/identity.yaml`). Elsewhere, set
+`NYLORUN_IDENTITY_FILE` to the file's path. A change takes a restart.
+
+```yaml
+issuers:
+  - name: keycloak
+    issuer: https://sso.acme.dev/realms/eng      # the tokens' iss, exactly
+    audience: nylorun                            # the aud they must carry
+    jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs  # or keys: [<PEM>, …]
+    subject: "u:{sub}"                           # the owner of the person's sessions; scalar claims only
+    scopes: { claim: nylorun_scopes }            # or { fixed: [sessions:own, agents:read] }
+    allowedScopes: [agents:read, sessions:own, sandboxes:write, studio]
+    agents: [support]                            # optional; absent reaches every agent
+    sandboxes: ["{org_id}/*"]                    # optional grant templates; absent reaches none
+    maxLifetime: 15m                             # the longest exp - iat accepted
+```
+
+- Tokens must be RS256, ES256 or EdDSA, at most 16 KiB, with `exp` and `iat`.
+  Their scopes are the claim's, limited to `allowedScopes` (`agents:read`,
+  `sessions:own`, `sandboxes:write`, and `studio`, an operator scope for
+  Studio). A sandbox grant whose
+  claim is missing, or is not one id segment, reaches nothing.
+- A malformed file stops the runtime, naming the issuer and the field; a
+  subject template must reference a claim, or everyone would be one person.
+- The runtime fetches only the configured JWKS URLs, without following
+  redirects, and caches the keys. While a JWKS is unreachable, cached keys keep
+  working and a token with a new `kid` gets `401 issuer_unavailable`; an
+  unreachable JWKS never stops the boot.
+- From a browser, the Runtime adds no CORS headers: your reverse proxy answers
+  CORS. Only a token's expiry ends it (an open event stream ends then too);
+  keep them short-lived, and revoke people at your identity provider.
+- `GET /v1/me` shows what a token renders to (`via: issuer:<name>`), for any
+  credential.
+
+## Studio behind a sign-in proxy
+
+Studio serves operators on loopback. To open it to a team, put a sign-in proxy
+such as [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) in front
+of it, signed in against an issuer from the identity file
+([Trusted issuers](#trusted-issuers)).
+
+1. Give the people who may use Studio the `studio` scope: list `studio` in the
+   issuer's `allowedScopes`, and put it in their tokens' scope claim (or in
+   `fixed`). Studio admits only tokens that carry it.
+2. Run the proxy on the Studio machine, with Studio's published port as its
+   upstream (`NYLORUN_STUDIO_PORT` in the Tenant's `docker/.env`) and the
+   access token passed on:
+
+   ```sh
+   oauth2-proxy --provider=keycloak-oidc --oidc-issuer-url=https://sso.acme.dev/realms/eng \
+     --upstream=http://127.0.0.1:<studio port> --pass-access-token=true \
+     --pass-host-header=true --http-address=0.0.0.0:4180 …
+   ```
+
+   `--pass-access-token` sends the token as `X-Forwarded-Access-Token`; the
+   token must be a JWT whose `iss` and `aud` match the identity file. When your
+   provider's access tokens are opaque, pass the ID token with
+   `--pass-authorization-header` instead and set the issuer's `audience` to the
+   client id.
+3. Start the Tenant with the proxy's host name, comma-separated if there are
+   several: `NYLORUN_STUDIO_ALLOWED_HOSTS=studio.acme.dev nylorun start`. Studio
+   then accepts that `Host` beside `localhost` and `127.0.0.1`; the proxy must
+   pass the browser's `Host` through. Set it on every start: it is read from
+   the environment, not kept.
+
+Studio sends each forwarded token to the Runtime's `GET /v1/me` before it trusts
+it. A token with the `studio` scope gets Studio's usual session cookie, which
+names the person for Studio's log of state changes and ends no later than the
+token; nothing else is kept. Without the scope Studio answers `403`; a token
+the Runtime refuses gets `401`. Admitted people see the whole Tenant, as an
+operator does. The cookie is `Secure` when the proxy sends
+`X-Forwarded-Proto: https`; serve the proxy over HTTPS.
 
 ## Reaching the Runtime from another machine
 
@@ -120,7 +204,8 @@ way in. Nothing in the Runtime changes.
 | Forward to the Runtime port only (`NYLORUN_PORT`); never the operator port (`NYLORUN_ADMIN_PORT`), Studio or Restate | The Admin API is on its own port and stays on the machine |
 | Answer `/v1/admin/*` with `403` anyway | Defense in depth: the Runtime port already answers admin routes with `404`, and a Runtime without an operator listener still serves them there |
 | Forward only `/health`, `/ready` and `/v1/*` | Nothing else is the Tenant API |
-| Pass every other header through, and every method including `OPTIONS`: `Authorization`, `Nylorun-Key`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime decides browser access itself: it refuses Tenant keys with an `Origin` and answers CORS only for a publishable key's listed origins, so the proxy never adds CORS headers |
+| Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses application keys sent with an `Origin` |
+| Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 
@@ -166,8 +251,9 @@ On the app server's machine:
 - Use an **application key**, never the admin key. On the Runtime's machine,
   `npx nylorun start` in the app's project starts the app's installation and
   links it; `npx @nylorun/cli env` there prints the key
-  (`NYLORUN_SERVER_KEY`, the derived `project` key). Keep the key in the app
-  server's secret store.
+  (`NYLORUN_SERVER_KEY`, the operator key `project`). Better, give the app
+  server a key of its own: `npx nylorun key put app-server` prints one once.
+  Keep the key in the app server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
   for the client and the Action endpoint's `register`; keep
   `NYLORUN_SERVER_KEY` as printed. Register the app's
@@ -311,10 +397,80 @@ the runtime container never holds an MCP credential or calls a tool's server:
   restart a call that was in flight is `uncertain`: it may have run, and it is
   never run again.
 
+### Credentials
+
+A session's MCP credential comes from two places, in this order:
+
+1. **The session's attached vaults.** An installation vault (`POST /v1/vaults`
+   with `scope: "installation"`, application keys only; Studio's Connections
+   page creates these) holds the installation's own credentials: shared tool
+   keys and the operator's MCP connections. Any session may attach one. Vault
+   routes take only an application key acting for no one (protocol 7): a
+   request acting for a person, or a trusted issuer's token, gets
+   `403 scope_required`. A person's vault (owner `ownerUserId`) still attaches
+   only to that person's sessions.
+2. **Your credential resolver**, for a person's own credentials, which Nylorun
+   never stores. Set `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` on the
+   gateway (a local Tenant passes them from the shell that runs `nylorun
+   start`). When the attached vaults hold nothing for the server's URL, the
+   gateway asks:
+
+   ```text
+   POST <NYLORUN_RESOLVER_URL>
+   Authorization: Bearer <NYLORUN_RESOLVER_TOKEN>
+   { "owner": "u:priya", "session": "s_…", "turn": "t_…" | null,
+     "target": { "kind": "mcp", "server": "github", "agent": "support", "url": "https://…/mcp" } }
+
+   200 { "headers": { "authorization": "Bearer …" }, "expiresAt"?: "<ISO time>" }
+   404                                      the call goes without a credential
+   anything else, or no answer within 5 s   the server is refused: credential_unavailable
+   ```
+
+   `owner` and `turn` come from the session, never from the agent. Answers are
+   kept per owner and URL until `expiresAt`, at most 5 minutes (60 s without
+   one), so a revoked credential can work for up to 5 minutes. Keep the
+   resolver on a private network: the gateway allows private addresses for it,
+   and never follows a redirect.
+
+### Connecting a remote MCP server with OAuth
+
+An MCP server that signs clients in with OAuth (MCP authorization: RFC 9728
+discovery, then RFC 8414 metadata) can be connected once for the whole
+installation; the credential goes into an installation vault:
+
+```sh
+nylorun mcp connect https://mcp.example.com/mcp --server linear
+# a server without dynamic client registration (RFC 7591): register a client
+# with it, its redirect URI the callback below, and pass the client's id
+nylorun mcp connect https://mcp.example.com/mcp --server linear --client-id <id>
+```
+
+The command creates the installation vault `mcp` unless `--vault <id>` names
+another, prints the sign-in URL and opens the browser, and waits (up to 10
+minutes) for the credential: an `oauth` credential bound to the URL, named
+after `--server`, refreshed by the gateway when it expires. Connecting again
+rotates it. Sessions use it when they attach the vault (`vaultIds`). An app
+server does the same with `POST /v1/vaults/{vaultId}/oauth/start` and an
+application key.
+
+The gateway's `keys` service does every OAuth step: discovery, registration,
+the PKCE code exchange and refresh. Tokens, the PKCE verifier and any client
+secret never reach the runtime container, which only routes the start and the
+callback. The authorization server sends the browser back to
+`NYLORUN_PUBLIC_URL` + `/v1/oauth/callback` (`http://localhost:<port>` for a
+local Tenant); a server reached through a proxy sets `NYLORUN_PUBLIC_URL` to
+its public address. Without one, the callback is the start request's own
+origin. A sign-in must finish within 10 minutes, and its `state` works once.
+
+These requests follow the `NYLORUN_ENDPOINT_*` settings, like Action
+deliveries: no redirects, and a local Tenant may reach an OAuth server on this
+machine. On a server, set `NYLORUN_ENDPOINT_PRIVATE=refuse` on the gateway so
+a discovery document cannot point it at a private address.
+
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
-credential, setting and selecting the host model) and signs every token
-(subject tokens, Action deliveries, signing-key rotation). The runtime reaches
+credential, setting and selecting the host model, MCP OAuth connect) and signs every token
+(Action deliveries, capability links, run and host tokens, signing-key rotation). The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
 never reads the key: Compose covers `keys/` and `docker/` in the runtime
 container with empty read-only mounts. While the gateway is down, those

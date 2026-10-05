@@ -9,12 +9,13 @@
  * @nylorun/core, @nylorun/agents, @nylorun/admin, nylorun and @nylorun/cli.
  *
  * A1  three subjects (admin, builder, member) on one Tenant, each acting
- *     through `app.as(...)`: a vault, a session and a turn that pauses for
- *     approval and completes
+ *     through `app.as(...)`: a session with the person's vault (created by the
+ *     application key: vault routes take no subject, protocol 7) and a turn
+ *     that pauses for approval and completes
  * A2  concurrent event streams: each subject receives only its own events
  * A3  every Tenant route, called by each subject against the others'
- *     resources, answers the 404 or 403 of the scope and owner tables, and no
- *     body names another subject's ids
+ *     resources, answers the 404 or 403 of the scope and owner tables (vault
+ *     routes: 403 for every subject), and no body names another subject's ids
  * A4  a stub app server strips the Nylorun-* headers its client sends; the
  *     Runtime sees the signed-in person
  */
@@ -28,9 +29,9 @@ import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stac
 import { withResetTenant } from "../lib/stack-tenant.mjs";
 
 const SUBJECTS = {
-  admin: ["tenant:settings", "agents:write", "sessions:own", "vaults:own"],
-  builder: ["agents:write", "sessions:own", "vaults:own"],
-  member: ["agents:read", "sessions:own", "vaults:own"],
+  admin: ["tenant:settings", "agents:write", "sessions:own"],
+  builder: ["agents:write", "sessions:own"],
+  member: ["agents:read", "sessions:own"],
 };
 
 const results = [];
@@ -69,18 +70,18 @@ function subjectHeaders(as) {
   return as ? { "Nylorun-Subject": as.name, "Nylorun-Scopes": as.scopes.join(" ") } : {};
 }
 
-/** A1: each subject's own vault, session and approved turn. */
+/** A1: each subject's own vault (the application's to create), session and approved turn. */
 async function a1(runtime, tenant, app) {
   const people = {};
   for (const [role, scopes] of Object.entries(SUBJECTS)) {
     const name = `app:${role}`;
     const client = app.as(name, { scopes });
-    const vault = await client.createVault({
+    const vault = await app.createVault({
       name: `${role}'s vault`,
       ownerUserId: name,
       idempotencyKey: `vault-${role}`,
     });
-    const credential = await client.createCredential(vault.id, {
+    const credential = await app.createCredential(vault.id, {
       name: "token",
       idempotencyKey: `cred-${role}`,
       auth: { type: "bearer", url: "https://mcp.example.com/tools", token: `secret-${role}` },
@@ -139,13 +140,14 @@ function crossRoutes(other) {
     ["POST", `${s}/commands`, 404, command({ type: "approve", interactionId: "i", approved: true })],
     ["POST", `${s}/commands`, 404, command({ type: "respond", interactionId: "i", value: 1 })],
     ["POST", `${s}/commands`, 404, command({ type: "cancel" })],
-    ["GET", v, 404],
-    ["DELETE", v, 404],
-    ["GET", `${v}/credentials`, 404],
+    // Vault routes take no subject (protocol 7): refused before anything is read.
+    ["GET", v, 403],
+    ["DELETE", v, 403],
+    ["GET", `${v}/credentials`, 403],
     [
       "POST",
       `${v}/credentials`,
-      404,
+      403,
       {
         requestId: randomUUID(),
         idempotencyKey: randomUUID(),
@@ -153,8 +155,8 @@ function crossRoutes(other) {
         auth: { type: "bearer", url: "https://mcp.example.com/tools", token: "x" },
       },
     ],
-    ["GET", c, 404],
-    ["DELETE", c, 404],
+    ["GET", c, 403],
+    ["DELETE", c, 403],
   ];
 }
 
@@ -218,12 +220,7 @@ async function a3(runtime, tenant, people) {
       [caller.sessionId],
       `${caller.role} lists only its session`,
     );
-    const vaults = await call(caller, "GET", "/v1/vaults");
-    assert.deepEqual(
-      JSON.parse(vaults.text).vaults.map((v) => v.id),
-      [caller.vaultId],
-      `${caller.role} lists only its vault`,
-    );
+    assert.equal((await call(caller, "GET", "/v1/vaults")).status, 403, `${caller.role} lists no vaults`);
     for (const other of others)
       assert.equal(
         (await call(caller, "GET", `/v1/vaults?ownerUserId=${encodeURIComponent(other.name)}`)).status,
@@ -236,10 +233,10 @@ async function a3(runtime, tenant, people) {
       checked += 1;
     }
   }
-  // Every session and vault is still there for its owner.
+  // Every session is still there for its owner, and every vault for the application.
   for (const person of everyone) {
     assert.equal((await call(person, "GET", `/v1/sessions/${person.sessionId}`)).status, 200);
-    assert.equal((await call(person, "GET", `/v1/vaults/${person.vaultId}`)).status, 200);
+    assert.equal((await call(undefined, "GET", `/v1/vaults/${person.vaultId}`)).status, 200);
   }
   return checked;
 }

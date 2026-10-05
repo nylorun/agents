@@ -50,14 +50,7 @@ export interface CreateHostOptions {
    */
   publicUrl?: string;
   /**
-   * Browser access (Host feature `browser-access`): requests with an `Origin` may reach Tenant
-   * routes, where the publishable key's origin allowlist decides. Off by default: every
-   * `Origin` is `403 origin_rejected`, as before. Admin routes, `/health` and `/ready` refuse
-   * `Origin` either way.
-   */
-  browserAccess?: boolean;
-  /**
-   * The operator listener: the Admin API (and the Tenant API, never with browser access) on
+   * The operator listener: the Admin API (and the Tenant API, never to browsers) on
    * its own address, kept off the network that reaches the Tenant API. When set, the main
    * listener is public and answers admin routes with the opaque 404. Absent: one listener
    * serves everything, as before.
@@ -91,8 +84,8 @@ export interface OperatorListen {
 }
 
 /**
- * What a listener serves. `combined`: everything (one port). `public`: the Tenant API, with
- * browser access when enabled; admin routes are the opaque 404. `operator`: the Admin API and
+ * What a listener serves. `combined`: everything (one port). `public`: the Tenant API, to
+ * servers and to browsers with a trusted issuer's token; admin routes are the opaque 404. `operator`: the Admin API and
  * the Tenant API, never to browsers.
  */
 export type ListenerRole = "combined" | "public" | "operator";
@@ -157,6 +150,10 @@ export function createHost(options: CreateHostOptions): HostServer {
     status: adminStatusBody,
     shutdown: () => void close(),
     document: adminDocument,
+    operatorKeys: async () => {
+      const resolved = await module.resolve();
+      return resolved.kind === "open" ? resolved.handle.operatorKeys?.() : undefined;
+    },
   });
 
   const app = createHostApp({
@@ -166,7 +163,6 @@ export function createHost(options: CreateHostOptions): HostServer {
     adminKey: credentials.adminKey,
     coreVersion,
     pid,
-    browserAccess: options.browserAccess === true,
     ...(options.readiness ? { readiness: options.readiness } : {}),
     listening: () =>
       Boolean(server?.listening) && (!operator || Boolean(operatorServer?.listening)),

@@ -1,7 +1,7 @@
 /**
  * Embedding end to end (Studio §8), in Chromium and WebKit: a fixture embedder
  * on another origin frames the real dashboard, gets login tokens from a stub
- * "Babai service" that holds the admin key, and speaks the message protocol.
+ * embedder backend that holds the admin key, and speaks the message protocol.
  *
  * Run with `npm run test:embed` (builds first). Not part of `npm run check`:
  * it needs Playwright's browsers (`npx playwright install chromium webkit`).
@@ -59,7 +59,7 @@ async function fakeRuntime({ listsMissing = false } = {}) {
       return res.end(
         JSON.stringify({
           status: "ok",
-          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES, "derived-principals"] },
+          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
         }),
       );
     if (path === "/v1/admin/status")

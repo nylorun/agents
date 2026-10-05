@@ -1,6 +1,6 @@
 /**
  * The Runtime's AG-UI endpoint (Host feature `ag-ui-endpoint`): the Tenant's agents served to
- * AG-UI clients, for a person named by a subject token (a browser or app) or by subject headers
+ * AG-UI clients, for a person named by a trusted issuer's token (a browser or app) or by subject headers
  * (an app server's `createAgUiHandler`, which forwards here). One implementation for both, so
  * a thread is the same session whichever way it is reached.
  *
@@ -15,8 +15,8 @@
  * idempotency key, approvals become interrupts resumed through `resume`, and the last AG-UI
  * event made from each Runtime event carries its cursor as the SSE id. A run's session is
  * created on its first run with the options in `forwardedProps.nylorun.session` and never
- * changed afterwards. A stream opened with a subject token ends at the token's expiry or
- * revocation with `CUSTOM nylorun.stream_closed`, and the client reattaches with a new token.
+ * changed afterwards. A stream opened with an issuer token ends at the token's expiry with
+ * `CUSTOM nylorun.stream_closed`, and the client reattaches with a new token.
  */
 import { randomUUID } from "node:crypto";
 import type { ServerResponse } from "node:http";
@@ -49,10 +49,11 @@ import {
   observeSession,
   readHistory,
   StreamClosed,
+  streamHolderOf,
   type StreamHolder,
 } from "../../tenant/session-streams.js";
 import { putSession, sessionView } from "../../tenant/sessions.js";
-import { mayUseAgent } from "../../tenant/tokens.js";
+import { mayUseAgent } from "../../tenant/auth.js";
 import { sandboxGrantsOf } from "../../tenant/sandboxes.js";
 
 const HEARTBEAT_MS = 15_000;
@@ -63,20 +64,18 @@ const TERMINAL = new Set([
   "turn.cancelled",
 ]);
 
-/** The person a request acts for: a subject token's subject, or `Nylorun-Subject`. */
+/** The person a request acts for: an issuer token's subject, or `Nylorun-Subject`. */
 function personOf(scope: AuthScope): string {
   if (scope.kind === "token" || scope.kind === "subject") return scope.subject;
   return fail(
     400,
-    "AG-UI runs act for a person: send a subject token, or Nylorun-Subject with the application key",
+    "AG-UI runs act for a person: send a trusted issuer's token, or Nylorun-Subject with the application key",
     { code: "invalid_request" }
   );
 }
 
 function holderOf(scope: AuthScope): StreamHolder | undefined {
-  return scope.kind === "token"
-    ? { subject: scope.subject, epoch: scope.epoch, expiresAt: scope.expiresAt }
-    : undefined;
+  return streamHolderOf(scope);
 }
 
 /** A refusal a client can act on, streamed as `RUN_ERROR` rather than an HTTP error. */
@@ -129,7 +128,7 @@ function sessionOptions(
     });
   // Agent code may trust `info`: only an app server sets it.
   if (scope.kind === "token" && parsed.data.info !== undefined)
-    return fail(403, "A subject token cannot set session info", {
+    return fail(403, "A token caller cannot set session info", {
       code: "scope_required",
     });
   return parsed.data as ReturnType<typeof sessionOptions>;
@@ -310,7 +309,7 @@ async function historyFrom(
 }
 
 /**
- * Who an AG-UI request acts for, once its agent is known: a person (a subject token's subject,
+ * Who an AG-UI request acts for, once its agent is known: a person (an issuer token's subject,
  * or `Nylorun-Subject`), who may use the agent; else 400, or the 404 of a missing agent.
  */
 export function agUiCaller(

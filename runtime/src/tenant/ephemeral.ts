@@ -28,7 +28,10 @@ import { createTenantLogger } from "./logger.js";
 import { hostPaths, tenantPaths } from "./paths.js";
 import { hostPrincipals } from "./principals.js";
 import { openTenantRuntime } from "./runtime.js";
+import type { TrustedIssuerConfig } from "./identity-file.js";
+import { createTrustedIssuers, type TrustedIssuers } from "./issuers.js";
 import type { Logger, TenantConfig, TenantModelConfig } from "./types.js";
+import type { ResolverConfig } from "../vault/sources.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -69,10 +72,19 @@ export interface StartEphemeralRuntimeOptions {
   sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
   retainRoot?: boolean;
-  /** Allow browser requests (an `Origin` with a publishable key). Default off. */
-  browserAccess?: boolean;
   /** Serve the Admin API on its own loopback listener (`adminUrl`). Default off. */
   operatorListener?: boolean;
+  /**
+   * Trusted issuers whose JWTs the Tenant API accepts (Host feature `trusted-issuers`): the
+   * issuers of an identity file (`parseIdentityFile`), or ones already built with
+   * `createTrustedIssuers`. Default none.
+   */
+  issuers?: readonly TrustedIssuerConfig[] | TrustedIssuers;
+  /**
+   * The operator's credential resolver (F9 C1): asked for a person's MCP credential when the
+   * session's vaults hold none. Default: none (vaults only).
+   */
+  resolver?: ResolverConfig;
   logger?: Logger;
   /**
    * The Postgres database of the Tenant (one Tenant per database): a pool, which the caller
@@ -137,6 +149,12 @@ export async function startEphemeralRuntime(
   const model: TenantModelConfig =
     options.model ?? ({ kind: "scripted", output: "ok" } as const);
 
+  const issuers =
+    options.issuers === undefined
+      ? undefined
+      : Array.isArray(options.issuers)
+        ? createTrustedIssuers(options.issuers as readonly TrustedIssuerConfig[])
+        : (options.issuers as TrustedIssuers);
   const configFor = (tenantId: string): TenantConfig => {
     const tenant = tenantPaths(hostRoot);
     // A seeded `sandbox.backend` setting overrides this when the Tenant opens.
@@ -147,6 +165,8 @@ export async function startEphemeralRuntime(
       paths: tenant,
       sandbox: { backend: sandboxBackend },
       model,
+      ...(issuers ? { issuers } : {}),
+      ...(options.resolver ? { resolver: options.resolver } : {}),
       childEnv: Object.freeze({
         ...baseline,
         HOME: tenant.home,
@@ -217,7 +237,6 @@ export async function startEphemeralRuntime(
       credentials,
       logger,
       coreVersion: coreVersion(),
-      browserAccess: options.browserAccess === true,
       ...(options.operatorListener
         ? { operator: { host: "127.0.0.1", port: 0 } }
         : {}),

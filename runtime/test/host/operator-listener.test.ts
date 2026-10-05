@@ -32,7 +32,6 @@ beforeAll(async () => {
     database: testPool(),
     hostRoot: root,
     operatorListener: true,
-    browserAccess: true,
     model: { kind: "fixture" },
   });
   combined = await startEphemeralRuntime({ database: testPool(), hostRoot: combinedRoot, model: { kind: "fixture" } });

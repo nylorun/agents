@@ -289,10 +289,11 @@ export function VaultModule({ tenantId }: Readonly<{ tenantId: string }>) {
     <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Vault</h1>
+          <h1 className="text-2xl font-semibold">Connections</h1>
           <p className="mt-2 text-muted-foreground">
-            Manage URL-bound credentials for MCP and other outbound calls.
-            Secrets stay in the Runtime vault; Studio never keeps a copy.
+            The installation's own URL-bound credentials for MCP and other
+            outbound calls, which any session may use. Secrets stay in the
+            Runtime vault; Studio never keeps a copy.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -21,7 +21,7 @@ it("documents the session reads with the same privileged credentials as serving"
     const op = operation("get", path);
     expect(op.security).toEqual([{ applicationKey: [] }]);
     expect(op["x-nylorun-credentials"]).toEqual(["application", "subject"]);
-    expect(op["x-nylorun-browser"]).toBe(false);
+    expect(op["x-nylorun-browser"]).toBeUndefined();
     expect(op["x-nylorun-scopes"]).toEqual(path.endsWith("manifest") ? ["agents:read", "agents:write"] : ["tenant:settings"]);
   }
   for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/sandboxes"]) {
@@ -59,9 +59,8 @@ it("documents an Action's callbacks for its delivery token only", () => {
 it("documents session commands for every caller that sends them, with their headers", () => {
   const op = operation("post", "/v1/sessions/{sessionId}/commands");
   expect(op.deprecated).toBeUndefined();
-  expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+  expect(op.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
   expect(op["x-nylorun-scopes"]).toEqual(["sessions:own"]);
-  expect(op["x-nylorun-browser"]).toBe(true);
   expect(op.requestBody.content["application/json"].schema).toEqual({
     $ref: "#/components/schemas/SessionCommand",
   });
@@ -77,14 +76,15 @@ it("documents session commands for every caller that sends them, with their head
     "Nylorun-Scopes": false,
   });
   expect(Object.keys(op.responses)).toEqual(
-    expect.arrayContaining(["200", "400", "401", "403", "404", "409", "426", "429", "503"]),
+    expect.arrayContaining(["200", "400", "401", "403", "404", "409", "426", "503"]),
   );
+  // Turn limits per role are gone (protocol 7): the operator's proxy limits requests.
+  expect(op.responses["429"]).toBeUndefined();
 });
 
 it("documents session events as server-sent catalog events, ending with the closed frame", () => {
   const op = operation("get", "/v1/sessions/{sessionId}/events");
-  expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
-  expect(op["x-nylorun-browser"]).toBe(true);
+  expect(op.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
   expect(op.responses["200"].content["text/event-stream"].itemSchema).toEqual({
     anyOf: [
       ...EVENT_TYPES.map((type) => ({
@@ -108,11 +108,10 @@ it("publishes one component per event type, on the nylorun.event/2 envelope", ()
   });
 });
 
-it("documents the agent list for publishable keys too, and agent puts for application keys", () => {
+it("documents the agent list for issuer tokens too, and agent puts for application keys", () => {
   expect(operation("get", "/v1/agents").security).toEqual([
     { applicationKey: [] },
-    { subjectToken: [] },
-    { publishableKey: [] },
+    { issuerToken: [] },
   ]);
   expect(operation("put", "/v1/agents/{agentId}").security).toEqual([{ applicationKey: [] }]);
   expect(operation("post", "/v1/sessions/{sessionId}/sandbox/{tool}")["x-nylorun-scopes"]).toBe(
@@ -120,16 +119,16 @@ it("documents the agent list for publishable keys too, and agent puts for applic
   );
 });
 
-it("documents vaults for a person's own credentials, and Tenant settings for application keys", () => {
+it("documents vaults and Tenant settings for application keys (protocol 7)", () => {
   for (const [method, path] of [
     ["post", "/v1/vaults"],
+    ["get", "/v1/vaults"],
     ["get", "/v1/vaults/{vaultId}/credentials/{credentialId}"],
     ["delete", "/v1/vaults/{vaultId}"],
   ] as const) {
     const op = operation(method, path);
-    expect(op.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
-    expect(op["x-nylorun-scopes"]).toEqual(["vaults:own"]);
-    expect(op["x-nylorun-browser"]).toBe(true);
+    expect(op.security).toEqual([{ applicationKey: [] }]);
+    expect(op["x-nylorun-scopes"]).toBe("never");
   }
   expect(operation("post", "/v1/tenant/reset")["x-nylorun-scopes"]).toBe("never");
   expect(operation("get", "/v1/tenant/models")["x-nylorun-scopes"]).toEqual([
@@ -145,27 +144,37 @@ it("documents the public keys for every caller or none, and access management fo
   const jwks = operation("get", "/v1/access/jwks");
   expect(jwks["x-nylorun-scopes"]).toBe("any");
   // `{}`: no credential needed.
-  expect(jwks.security).toEqual([
-    { applicationKey: [] },
-    { subjectToken: [] },
-    { publishableKey: [] },
-    {},
-  ]);
+  expect(jwks.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }, {}]);
   for (const [method, path] of [
-    ["post", "/v1/tokens"],
-    ["put", "/v1/access/policy"],
+    ["get", "/v1/access/signing-keys"],
+    ["post", "/v1/access/signing-keys/rotate"],
     ["post", "/v1/access/signing-keys/{kid}/revoke"],
-    ["delete", "/v1/access/publishable-keys/{keyId}"],
-    ["post", "/v1/access/revocations"],
   ] as const) {
     expect(operation(method, path).security, `${method} ${path}`).toEqual([{ applicationKey: [] }]);
     expect(operation(method, path)["x-nylorun-scopes"]).toBe("never");
   }
 });
 
+it("documents no subject tokens, access policy, browser keys or revocations (protocol 7)", () => {
+  for (const [method, path] of [
+    ["post", "/v1/tokens"],
+    ["get", "/v1/access/policy"],
+    ["put", "/v1/access/policy"],
+    ["get", "/v1/access/publishable-keys"],
+    ["post", "/v1/access/publishable-keys"],
+    ["put", "/v1/access/publishable-keys/{keyId}"],
+    ["delete", "/v1/access/publishable-keys/{keyId}"],
+    ["post", "/v1/access/revocations"],
+  ] as const)
+    expect(operation(method, path), `${method} ${path}`).toBeUndefined();
+  const text = JSON.stringify(document);
+  for (const gone of ["Nylorun-Key", "x-nylorun-browser", "CreateTokenRequest", "AccessPolicy", "PublishableKey"])
+    expect(text).not.toContain(gone);
+});
+
 it("documents the AG-UI endpoint with AG-UI's own schemas", () => {
   const run = operation("post", "/v1/ag-ui/agents/{agentId}");
-  expect(run.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+  expect(run.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
   expect(run.requestBody.content["application/json"].schema).toEqual({
     $ref: "#/components/schemas/AgUiRunAgentInput",
   });
@@ -181,7 +190,7 @@ it("documents the AG-UI endpoint with AG-UI's own schemas", () => {
 
 it("documents the A2A endpoint's JSON-RPC envelope and links the specification", () => {
   const call = operation("post", "/v1/a2a/agents/{agentId}");
-  expect(call.security).toEqual([{ applicationKey: [] }, { subjectToken: [] }]);
+  expect(call.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
   expect(call.externalDocs.url).toMatch(/^https:\/\/a2a-protocol\.org\//);
   expect(call.requestBody.content["application/json"].schema).toEqual({
     $ref: "#/components/schemas/A2aJsonRpcRequest",

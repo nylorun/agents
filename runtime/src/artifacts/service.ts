@@ -11,7 +11,7 @@
  *   module, after re-checking the Tenant total under the quota lock. Until it commits the object
  *   is garbage, and a failed commit deletes it.
  * - **Access mirrors sessions.** An application principal reaches every artifact. A request acting
- *   for a person (a subject token or subject headers) reaches only artifacts of that person's
+ *   for a person (a trusted issuer's token or subject headers) reaches only artifacts of that person's
  *   sessions; another person's, or a Tenant-wide one, is the same 404 as a missing artifact.
  *
  * Lock order, the same in every write: the session, then the quota lock, then the artifact row.

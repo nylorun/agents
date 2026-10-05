@@ -200,8 +200,13 @@ try {
       const { tenant } = await admin.status();
       assert.equal(tenant.state, "open");
       assert.equal(tenant.id, link.tenantId, "the link names the Host's one Tenant");
+      // The operator key `project`, put by `nylorun start` and listed (never shown) by the Admin API.
       assert.equal(credentials.principalId, "project");
-      assert.equal(credentials.applicationKey, admin.deriveTenantKey(tenant.id, "project"));
+      assert.match(credentials.applicationKey, /^[0-9a-f]{64}$/);
+      assert.ok(
+        (await admin.keys.list()).some((key) => key.id === "project"),
+        "the Admin API lists the project key",
+      );
 
       const key = credentials.applicationKey;
       const tenantId = link.tenantId;

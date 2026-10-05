@@ -46,6 +46,10 @@ nylorun ls [--json]                # the Tenants on this machine, with their sta
 nylorun delete <tenant> --yes      # remove a Tenant: containers, volumes, Host root and vault key
 nylorun sandbox ls [--tenant <name>] [--label <key=value>]... [--json]   # the running Tenant's sandboxes
 nylorun sandbox rm <id> [--tenant <name>]   # delete a sandbox and its files
+nylorun key put <id> [--tenant <name>]      # create or rotate the Tenant's operator key <id>; prints it once
+nylorun key list [--tenant <name>] [--json] # the Tenant's keys: id, role, when issued
+nylorun key rm <id> [--tenant <name>]       # delete a key: it stops working at once
+nylorun mcp connect <url> --server <name> [--vault <id>] [--client-id <id>] [--tenant <name>] [--no-open]   # sign the Tenant in to a remote MCP server with OAuth
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun telemetry [status|enable|disable]   # Studio's anonymous usage analytics
 nylorun sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
@@ -137,8 +141,12 @@ its own `.gitignore` of `*`):
 - `link.json`: `{ "format": 3, "tenant", "tenantId", "hostUrl", "hostId" }`.
   `tenant` is the local Tenant's name; the Tenant id is information only:
   nothing in a request selects a Tenant.
-- `credentials.json` (mode 0600): the key of the derived principal `project`,
-  derived from the Tenant's admin key, and its id.
+- `credentials.json` (mode 0600): `{ "format": 1, "applicationKey",
+  "principalId" }`, the operator key `project`. A later `start` keeps the file
+  while its key still reaches the Tenant (one authenticated read); otherwise it
+  writes the Tenant's `project` key, which the Host root keeps in
+  `project-credentials.json` (mode 0600) so every checkout linked to the Tenant
+  shares one key, or puts a new one through the Admin API.
 
 Later starts reuse the Tenant and rewrite the link only when the Tenant's name,
 URL, Host or id changed (after `nylorun reset`, for example). When it writes a
@@ -154,9 +162,28 @@ both share it. `--no-link` starts a Tenant without linking the working
 directory (scripts). A link of an older nylorun (format 0 to 2) counts as no
 link: `start` replaces it.
 
-The Runtime registers the derived principals of `NYLORUN_DERIVED_PRINCIPALS`
-(comma-separated, from the environment of `nylorun start`, kept in the Tenant's
-`.env`) when it creates the Tenant; `project` is always among them.
+No key is derived from the admin key but Studio's. A project holds the operator
+key `project`; a key an older nylorun derived for it keeps working while it
+authenticates and is replaced by the operator key otherwise.
+
+## Operator keys
+
+`nylorun key put <id>` creates the running Tenant's key `<id>` (or rotates it:
+the previous key stops working at once) and prints it once on stdout.
+`nylorun key list [--json]` shows each key's id, role and when it was issued,
+never the keys; `nylorun key rm <id>` deletes one. Ids match
+`^[a-z][a-z0-9-]{0,31}$`; `studio` belongs to Studio and is refused. Give each
+app server its own key. `nylorun sandbox` and `nylorun mcp` use the linked
+project's key, or the key `cli` they put once and keep in
+`<Host root>/cli-credentials.json` (mode 0600).
+
+`nylorun mcp connect <url> --server <name>` signs the running Tenant in to a
+remote MCP server that uses OAuth: it opens the server's sign-in page in the
+browser and waits until the Runtime has stored the credential in the
+installation vault `mcp` (created if needed; `--vault <id>` picks another),
+which sessions attach with `vaultIds`. Pass `--client-id` when the server does
+not let clients register themselves. See
+[Connecting a remote MCP server with OAuth](../DEPLOYMENT.md#connecting-a-remote-mcp-server-with-oauth).
 
 ## The containers
 
@@ -212,14 +239,16 @@ out of another.
 
 ### Embedding Studio in a desktop app
 
-A desktop app such as Babai Desktop can show Studio inside its own window, in
-an iframe loaded from Studio's URL (`studio.url` in `nylorun status --json`).
-Only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
-`~/.nylorun/tenants/<name>/docker/.env`) may frame it. The default is Babai's
-`nylorun://localhost http://nylorun.localhost`; `nylorun status` lists them
-under `Embeds`. While building such an app, add its dev server once with
-`nylorun start --studio-embed-origin http://localhost:1420`; the list is kept
-across starts until `--studio-embed-origin-reset`. Wildcards are refused.
+A desktop or web app can show Studio inside its own window, in an iframe loaded
+from Studio's URL (`studio.url` in `nylorun status --json`). Embedding is
+opt-in: only exact origins listed in `NYLORUN_STUDIO_FRAME_ANCESTORS` (in
+`~/.nylorun/tenants/<name>/docker/.env`) may frame it, and the list is empty by
+default. Add the app's origins once with `nylorun start --studio-embed-origin
+<origin>` (for example `app://localhost`, or a dev server's
+`http://localhost:1420`); the list is kept across starts until
+`--studio-embed-origin-reset`, and `nylorun status` shows it under `Embeds`.
+Wildcards are refused. A Tenant started by an older nylorun keeps the origins it
+had.
 
 The app's backend mints a single-use login token for the Tenant with
 `mintStudioLoginToken` from `@nylorun/admin` (it needs the admin key), and its
@@ -279,8 +308,9 @@ The **Host root** is `~/.nylorun/tenants/<name>/`, or `NYLORUN_HOME`. It is
 bind-mounted into the Runtime and Studio containers, and holds `tenant.json`
 (`{ "format": 1, "name", "project"? }`: the Tenant's name and the project it
 was created for), `host.json` (the client-facing host and port),
-`host-credentials.json` (the admin key, mode 0600), the Docker Compose files in
-`docker/`, the Tenant directory `tenant/` (homes, logs) and `keys/vault-kek`,
+`host-credentials.json` (the admin key, mode 0600), `project-credentials.json`
+and `cli-credentials.json` (the operator keys `project` and `cli`, mode 0600, when
+they were put), the Docker Compose files in `docker/`, the Tenant directory `tenant/` (homes, logs) and `keys/vault-kek`,
 the Tenant's vault key, which only the gateway container mounts. The Tenant's data lives in its Postgres, Restate and S2 volumes.
 
 `nylorun reset` deletes the selected Tenant's volumes, `tenant/` and `keys/`, and keeps

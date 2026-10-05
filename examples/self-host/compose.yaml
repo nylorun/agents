@@ -1,0 +1,103 @@
+# The self-host example stack (README.md): Keycloak, oauth2-proxy in front of Studio, OpenBao
+# and a sample credential resolver, beside a Tenant that `nylorun start --tenant selfhost` runs.
+# Development settings throughout (fixed secrets, OpenBao in dev mode, plain HTTP on loopback):
+# never use them as they are on a server.
+#
+# Every service joins the Tenant's Compose network (nylorun-<tenant>), so the Tenant's runtime
+# reaches Keycloak's keys, its gateway reaches the resolver, and oauth2-proxy reaches Studio. Start
+# the Tenant first: the network must exist.
+name: nylorun-selfhost-example
+
+services:
+  keycloak: # the identity provider: realm nylorun, users ada (studio) and ben
+    image: quay.io/keycloak/keycloak:26.8.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Tokens carry iss http://localhost:8180/realms/nylorun however Keycloak is reached.
+      KC_HOSTNAME: http://localhost:8180
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-nylorun.json:/opt/keycloak/data/import/realm-nylorun.json:ro
+    ports:
+      - "127.0.0.1:8180:8080"
+    networks: [default, tenant]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/localhost/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  oauth2-proxy: # signs people in to Studio with Keycloak and passes their access token on
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
+    depends_on:
+      keycloak: { condition: service_healthy }
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=oidc
+      - --client-id=nylorun
+      - --client-secret=selfhost-example-client-secret
+      - --code-challenge-method=S256
+      - --scope=openid email profile
+      # The browser signs in at localhost:8180; the proxy redeems codes and fetches keys on the
+      # Compose network, so discovery (which would name localhost) is skipped.
+      - --oidc-issuer-url=http://localhost:8180/realms/nylorun
+      - --skip-oidc-discovery=true
+      - --login-url=http://localhost:8180/realms/nylorun/protocol/openid-connect/auth
+      - --redeem-url=http://keycloak:8080/realms/nylorun/protocol/openid-connect/token
+      - --oidc-jwks-url=http://keycloak:8080/realms/nylorun/protocol/openid-connect/certs
+      - --redirect-url=http://localhost:4180/oauth2/callback
+      - --email-domain=*
+      # Studio, on the Tenant's network. The browser's Host (localhost:4180) is passed through:
+      # start the Tenant with NYLORUN_STUDIO_ALLOWED_HOSTS=localhost:4180.
+      - --upstream=${NYLORUN_STUDIO_UPSTREAM:-http://studio:3000}
+      - --pass-host-header=true
+      # Studio verifies this token with the Runtime's GET /v1/me and needs the studio scope.
+      - --pass-access-token=true
+      # Refresh the access token before it expires (5 minutes in this realm).
+      - --cookie-refresh=4m
+      # A request that already carries a Keycloak JWT (smoke.sh) is let through to Studio.
+      - --skip-jwt-bearer-tokens=true
+      - --cookie-secret=selfhost-example-cookie-secret-0
+      - --cookie-secure=false # plain HTTP on localhost only; serve the proxy over HTTPS elsewhere
+    ports:
+      - "127.0.0.1:4180:4180"
+    networks: [default, tenant]
+
+  openbao: # the secret store: KV v2 at secret/, dev mode (in memory, root token below)
+    image: openbao/openbao:2.7.1
+    command: ["server", "-dev"]
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: selfhost-example-root-token
+      BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    cap_add: [IPC_LOCK]
+    ports:
+      - "127.0.0.1:8200:8200"
+    networks: [default]
+
+  resolver: # answers the gateway's credential lookups from OpenBao (resolver/resolver.mjs)
+    image: node:24-alpine
+    command: ["node", "/app/resolver.mjs"]
+    depends_on: [openbao]
+    environment:
+      PORT: "8090"
+      # The same value as NYLORUN_RESOLVER_TOKEN in the shell that runs nylorun start.
+      RESOLVER_TOKEN: ${NYLORUN_RESOLVER_TOKEN:-selfhost-example-resolver-token}
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: selfhost-example-root-token
+    volumes:
+      - ./resolver/resolver.mjs:/app/resolver.mjs:ro
+    ports:
+      - "127.0.0.1:8090:8090" # for smoke.sh; the gateway uses http://resolver:8090
+    networks: [default, tenant]
+
+networks:
+  tenant: # the Tenant's own network, made by nylorun start
+    external: true
+    name: ${NYLORUN_TENANT_NETWORK:-nylorun-selfhost}

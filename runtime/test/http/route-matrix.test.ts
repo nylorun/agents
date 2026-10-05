@@ -16,6 +16,7 @@ import {
   startEphemeralRuntime,
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
+import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
 
 const TENANT = `tn_${"0".repeat(22)}mtrx`;
@@ -23,6 +24,7 @@ const APPLICATION_KEY = "matrix-application-key-0000000000";
 const ADMIN_KEY = "matrix-admin-key-00000000000000000";
 const ORIGIN = "https://app.example.com";
 const SUBJECT = "app:ann";
+/** Protocol 6 clients still send the retired `vaults:own`; it grants nothing. */
 const ALL_SCOPES = "agents:read agents:write sessions:own vaults:own tenant:settings";
 /** A body every schema rejects, so a write that gets past authorization changes nothing. */
 const INVALID = [] as const;
@@ -31,8 +33,8 @@ const MISSING_ARTIFACT = `af_${"0".repeat(26)}`;
 
 let root: string;
 let rt: EphemeralRuntime;
-let publishableKey: string;
-let subjectToken: string;
+let issuer: TestIssuer;
+let issuerToken: string;
 let vaultId: string;
 const secrets: [string, string][] = [];
 
@@ -40,18 +42,20 @@ type Caller =
   | "none"
   | "wrong"
   | "application"
+  | "application-browser"
   | "subject"
   | "subject-read"
   | "token"
-  | "publishable";
+  | "token-browser";
 const CALLERS: readonly Caller[] = [
   "none",
   "wrong",
   "application",
+  "application-browser",
   "subject",
   "subject-read",
   "token",
-  "publishable",
+  "token-browser",
 ];
 
 function callerHeaders(caller: Caller): Record<string, string> {
@@ -65,6 +69,9 @@ function callerHeaders(caller: Caller): Record<string, string> {
       return bearer("matrix-wrong-key-000000000000000000");
     case "application":
       return bearer(APPLICATION_KEY);
+    case "application-browser":
+      // An application key is a server secret: refused from a browser.
+      return { ...bearer(APPLICATION_KEY), origin: ORIGIN };
     case "subject":
       return {
         ...bearer(APPLICATION_KEY),
@@ -78,10 +85,11 @@ function callerHeaders(caller: Caller): Record<string, string> {
         "nylorun-scopes": "agents:read",
       };
     case "token":
-      return bearer(subjectToken);
-    case "publishable":
-      // A browser page: the key names the Tenant.
-      return { "nylorun-protocol": "4", "nylorun-key": publishableKey, origin: ORIGIN };
+      // A trusted issuer's token (F9 I2).
+      return bearer(issuerToken);
+    case "token-browser":
+      // The same token from a browser page: no toggle, no browser key (protocol 7).
+      return { ...bearer(issuerToken), origin: ORIGIN };
   }
 }
 
@@ -217,18 +225,14 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: `${vault}/credentials/crd-missing` },
     { method: "POST", path: `${vault}/credentials/crd-missing`, body: INVALID },
     { method: "DELETE", path: `${vault}/credentials/crd-missing` },
+    // MCP OAuth connect (F9 C2): an invalid body, and a state that was never issued.
+    { method: "POST", path: `${vault}/oauth/start`, body: INVALID },
+    { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
     { method: "GET", path: "/v1/access/jwks" },
-    { method: "POST", path: "/v1/tokens", body: INVALID },
-    { method: "GET", path: "/v1/access/policy" },
-    { method: "PUT", path: "/v1/access/policy", body: INVALID },
+    { method: "GET", path: "/v1/me" },
     { method: "GET", path: "/v1/access/signing-keys" },
     { method: "POST", path: "/v1/access/signing-keys/rotate", body: INVALID },
     { method: "POST", path: "/v1/access/signing-keys/kid-missing/revoke", body: INVALID },
-    { method: "GET", path: "/v1/access/publishable-keys" },
-    { method: "POST", path: "/v1/access/publishable-keys", body: INVALID },
-    { method: "PUT", path: "/v1/access/publishable-keys/pk-missing", body: INVALID },
-    { method: "DELETE", path: "/v1/access/publishable-keys/pk-missing" },
-    { method: "POST", path: "/v1/access/revocations", body: INVALID },
     { method: "POST", path: "/v1/ag-ui/agents/bot", body: INVALID },
     { method: "GET", path: "/v1/ag-ui/agents/bot/threads/t1/messages" },
     { method: "GET", path: "/v1/ag-ui/agents/bot/threads/t1/events" },
@@ -250,6 +254,15 @@ function edgeOperations(): Operation[] {
     { method: "GET", path: "/v1/executors/connect" },
     { method: "GET", path: "/v1/actions" },
     { method: "POST", path: "/v1/actions/act-missing/claim", body: INVALID },
+    // Subject tokens, the access policy, browser keys and revocations (protocol 7): gone.
+    { method: "POST", path: "/v1/tokens", body: INVALID },
+    { method: "GET", path: "/v1/access/policy" },
+    { method: "PUT", path: "/v1/access/policy", body: INVALID },
+    { method: "GET", path: "/v1/access/publishable-keys" },
+    { method: "POST", path: "/v1/access/publishable-keys", body: INVALID },
+    { method: "PUT", path: "/v1/access/publishable-keys/pk-missing", body: INVALID },
+    { method: "DELETE", path: "/v1/access/publishable-keys/pk-missing" },
+    { method: "POST", path: "/v1/access/revocations", body: INVALID },
     { method: "GET", path: "/v1/sessions/missing/unknown" },
     { method: "GET", path: "/v1/sessions/" },
     { method: "GET", path: "/v1//sessions" },
@@ -269,14 +282,15 @@ function edgeOperations(): Operation[] {
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "nylorun-route-matrix-"));
+  issuer = await testIssuer();
   rt = await startEphemeralRuntime({
     database: testPool(),
     hostRoot: root,
     tenantId: TENANT,
     applicationKey: APPLICATION_KEY,
     adminKey: ADMIN_KEY,
-    browserAccess: true,
     operatorListener: true,
+    issuers: issuer.configs,
     model: { kind: "fixture" },
   });
   const app = async (method: string, path: string, body: unknown) => {
@@ -294,28 +308,7 @@ beforeAll(async () => {
     manifest: Agent({ id: "bot", name: "Bot", description: "Helps" }).build().manifest,
     implementationVersion: "dev",
   });
-  await app("PUT", "/v1/access/policy", {
-    requestId: "policy",
-    policy: {
-      version: 1,
-      roles: {
-        user: { scopes: ["sessions:own", "agents:read", "vaults:own"], agents: "*" },
-      },
-      anon: { scopes: ["agents:read"], agents: "*" },
-      tokens: { maxTtlSeconds: 600 },
-    },
-  });
-  publishableKey = String(
-    (await app("POST", "/v1/access/publishable-keys", {
-      requestId: "key",
-      name: "web",
-      origins: [ORIGIN],
-    })).key,
-  );
-  subjectToken = String(
-    (await app("POST", "/v1/tokens", { requestId: "token", subject: SUBJECT, role: "user" }))
-      .token,
-  );
+  issuerToken = await issuer.sign(SUBJECT, "sessions:own agents:read", { ttlSeconds: 900 });
   await app("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
   vaultId = String(
     (await app("POST", "/v1/vaults", {
@@ -326,8 +319,7 @@ beforeAll(async () => {
     })).id,
   );
   secrets.push(
-    [publishableKey, "<publishable-key>"],
-    [subjectToken, "<subject-token>"],
+    [issuerToken, "<issuer-token>"],
     [vaultId, "<vault>"],
     [TENANT, "<tenant>"],
   );
@@ -386,6 +378,13 @@ describe("route matrix", { timeout: 60_000 }, () => {
       { method: "GET", path: "/v1//admin/tenants" },
       { method: "HEAD", path: "/v1/admin/status" },
       { method: "PUT", path: "/v1/admin/status" },
+      // Operator keys (F9 I1): only refusals and misses, so nothing changes.
+      { method: "GET", path: "/v1/admin/keys" },
+      { method: "PUT", path: "/v1/admin/keys/studio" },
+      { method: "PUT", path: "/v1/admin/keys/Not_A_Key" },
+      { method: "DELETE", path: "/v1/admin/keys/studio" },
+      { method: "DELETE", path: "/v1/admin/keys/missing-key" },
+      { method: "POST", path: "/v1/admin/keys" },
     ];
     const matrix: Record<string, Record<string, Observed>> = {};
     for (const [listener, base] of [
@@ -410,8 +409,8 @@ describe("route matrix", { timeout: 60_000 }, () => {
     );
   });
 
-  it("answers browser preflights from the route alone, as recorded", async () => {
-    const preflights: Record<string, Observed> = {};
+  it("answers OPTIONS without CORS headers: the operator's proxy answers preflights", async () => {
+    const preflights: Record<string, Observed & { allow?: string }> = {};
     const requests: [string, string, string?][] = [
       ...tenantOperations().map(({ method, path }): [string, string] => [method, path]),
       ["GET", "/v1/sessions/s1/unknown"],
@@ -429,15 +428,24 @@ describe("route matrix", { timeout: 60_000 }, () => {
           origin: ORIGIN,
           "access-control-request-method": method,
           "access-control-request-headers":
-            requestHeaders ?? "authorization, content-type, nylorun-key, nylorun-protocol",
+            requestHeaders ?? "authorization, content-type, nylorun-protocol",
         },
       });
       await response.arrayBuffer();
-      const observed: Observed = { status: response.status };
+      const observed: Observed & { allow?: string } = { status: response.status };
       const allowOrigin = response.headers.get("access-control-allow-origin");
       if (allowOrigin) observed.allowOrigin = allowOrigin;
+      const allow = response.headers.get("allow");
+      if (allow) observed.allow = allow;
       preflights[stable(`${method} ${path}`)] = observed;
     }
+    // Without `Origin` too: an OPTIONS request is never routed to the Tenant.
+    const plain = await fetch(`${rt.url}/v1/agents`, { method: "OPTIONS" });
+    await plain.arrayBuffer();
+    preflights["no Origin: OPTIONS /v1/agents"] = {
+      status: plain.status,
+      ...(plain.headers.get("allow") ? { allow: plain.headers.get("allow")! } : {}),
+    };
     await expect(`${JSON.stringify(preflights, null, 2)}\n`).toMatchFileSnapshot(
       "./__fixtures__/preflight-matrix.json",
     );

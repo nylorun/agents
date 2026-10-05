@@ -97,14 +97,14 @@ it("creates the Tenant on first open, with its principals, and finds it again af
       name: "renamed",
       principals: () => [
         { id: "studio", credentialHash: hex("c") },
-        { id: "babai", credentialHash: hex("d") },
+        { id: "backend", credentialHash: hex("d") },
       ],
     },
   });
   expect(again.created).toBe(false);
   expect(again.envelope).toEqual(first.envelope);
   expect(await principals(sql)).toEqual([
-    { id: "babai", token_hash: hex("d") },
+    { id: "backend", token_hash: hex("d") },
     { id: "project", token_hash: hex("b") },
     { id: "studio", token_hash: hex("a") },
   ]);

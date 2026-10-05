@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { deriveTenantKey } from "@nylorun/admin";
+import { deriveStudioToken } from "@nylorun/admin";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { AdminStatusSchema } from "@nylorun/core/contracts";
 import { MemoryExecution } from "../../src/execution/memory.js";
@@ -165,7 +165,7 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     const tenantId = status.tenant.id!;
     const tenant = await getJson(`${host.url}/v1/tenant`, {
       headers: {
-        authorization: `Bearer ${deriveTenantKey(ADMIN_KEY, tenantId, "project")}`,
+        authorization: `Bearer ${deriveStudioToken(ADMIN_KEY, tenantId)}`,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       },
     });

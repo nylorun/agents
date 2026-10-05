@@ -1,6 +1,6 @@
 /**
  * `nylorun sandbox ls | rm`: the running local Tenant's sandbox resources (Host feature
- * `sandboxes`), through its Tenant API as the Project's derived principal. Neither starts the
+ * `sandboxes`), through its Tenant API with an operator key (`runningTenantApi`). Neither starts the
  * Tenant. `nylorun sandbox enable|disable|status` (sandbox pods on a cluster, F7.2) live in
  * `../sandbox/commands.ts`.
  */

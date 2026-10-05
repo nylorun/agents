@@ -9,8 +9,8 @@
 // any project (no Project link), checks `nylorun status --json` and the Runtime's /ready
 // (Postgres, Restate, S2), checks that Studio is printed without a login
 // token, that the Admin API reports the Host's one open Tenant, mints a Studio
-// login that lands on it, embeds Studio the way Babai does (frame allowlist, a
-// Tenant-limited token, a bearer session), links a Project with `nylorun
+// login that lands on it, embeds Studio the way an embedding app does (the origins it
+// sets with --studio-embed-origin, a Tenant-limited token, a bearer session), links a Project with `nylorun
 // start` in its directory (the same Tenant through NYLORUN_TENANT), runs
 // `nylorun down` and `nylorun up` (the Compose files and the Tenant's data are kept),
 // checks that every file in the Host root belongs to this user (the bind
@@ -187,7 +187,11 @@ try {
   const images = await ensureImages();
   await withStack({ name: "nylorun-smoke-stack", images, start: false }, async (stack) => {
     const { home } = stack;
-    const { runtimeUrl, studioUrl } = await stack.start();
+    // Embedding is opt-in: the app that frames Studio names its origins.
+    const embedOrigins = ["app://localhost", "http://localhost:1420"];
+    const { runtimeUrl, studioUrl } = await stack.start(
+      embedOrigins.flatMap((origin) => ["--studio-embed-origin", origin]),
+    );
     assert.match(studioUrl ?? "", /^http:\/\/localhost:\d+$/, "nylorun start prints Studio without a token");
 
     const status = JSON.parse((await stack.nylorun(["status", "--json"])).stdout);
@@ -272,7 +276,7 @@ console.log(JSON.stringify(found));
     const admin = await stack.admin();
     assert.equal((await admin.status()).host?.url, runtimeUrl, "admin status reports the public URL");
     const tenant = await hostTenant(admin);
-    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "the derived project key reaches the Tenant API");
+    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an operator key put through the Admin API reaches the Tenant API");
     assert.ok(!existsSync(join(home, ".nylorun")), "start outside a project writes no Project link");
 
     const studio = await studioSession(await stack.studioLogin());
@@ -280,9 +284,8 @@ console.log(JSON.stringify(found));
     const hello = await (await studio.get("/_studio/hello")).json();
     assert.equal(hello.tenant?.id, tenant.id, "Studio serves the Host's Tenant");
 
-    // Embedding (Studio §8): Babai's origins may frame the dashboard, and a
+    // Embedding (Studio §8): the origins set at start may frame the dashboard, and a
     // Tenant-limited token becomes a bearer session that reaches that Tenant only.
-    const embedOrigins = ["nylorun://localhost", "http://nylorun.localhost"];
     assert.deepEqual(status.studio.embedOrigins, embedOrigins, "status lists the embed origins");
     const shell = await fetch(`${studio.origin}/tenants/${tenant.id}?embed=1`);
     assert.equal(shell.status, 200, "the dashboard shell needs no session");
@@ -309,7 +312,7 @@ console.log(JSON.stringify(found));
     assert.equal(others.status, 404, "an embedded session reaches no other Tenant");
 
     // `nylorun start` in a project attaches it to the running Tenant (NYLORUN_TENANT)
-    // and links it to that Tenant with the derived project key.
+    // and links it to that Tenant with the operator key `project`.
     const project = await mkdtemp(join(tmpdir(), "nylorun-tenant-project-"));
     let link;
     let credentials;
@@ -328,7 +331,8 @@ console.log(JSON.stringify(found));
     assert.equal(link.hostUrl, runtimeUrl);
     assert.equal(link.tenantId, tenant.id);
     assert.equal(credentials.principalId, "project");
-    assert.equal(credentials.applicationKey, tenant.key);
+    assert.ok(await runtimeGet(runtimeUrl, credentials.applicationKey, "/v1/tenant"), "the project key reaches the Tenant API");
+    assert.ok((await admin.keys.list()).some((key) => key.id === "project"), "the Admin API lists the project key");
 
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
     // `up` reuses the Compose files it set up, and the stopped volumes keep the Tenant.

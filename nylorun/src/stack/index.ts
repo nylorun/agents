@@ -2,7 +2,9 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { runStackCommand, runStudioCommand, type StackDeps } from "./commands.js";
 import { spawnDocker } from "./docker.js";
+import { keyCommand as runKeyCommand } from "./keys.js";
 import { sandboxCommand as runSandboxCommand } from "./sandbox.js";
+import { mcpCommand as runMcpCommand } from "./mcp.js";
 import { pinnedVersion } from "./versions.js";
 import { loopbackPorts } from "./ports.js";
 
@@ -31,7 +33,6 @@ function browserCommand(env: Readonly<Record<string, string | undefined>>): stri
  */
 const STACK_ENV_OWNED = [
   "NYLORUN_TENANT_NAME",
-  "NYLORUN_DERIVED_PRINCIPALS",
   "NYLORUN_STUDIO_ANALYTICS_ID",
 ];
 
@@ -108,6 +109,24 @@ export async function sandboxCommand(
   return await runSandboxCommand(defaultStackDeps(env), args);
 }
 export { sandboxUsage } from "./sandbox.js";
+
+/** Entry for `nylorun mcp connect`. */
+export async function mcpCommand(
+  args: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<number> {
+  return await runMcpCommand(defaultStackDeps(env), args);
+}
+export { mcpUsage } from "./mcp.js";
+
+/** Entry for `nylorun key put|list|rm`. */
+export async function keyCommand(
+  args: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<number> {
+  return await runKeyCommand(defaultStackDeps(env), args);
+}
+export { keyUsage } from "./keys.js";
 
 /** `nylorun studio`, landing on `next` when given, else on the Tenant's page. */
 export async function studioCommand(
