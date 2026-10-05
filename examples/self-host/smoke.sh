@@ -110,7 +110,7 @@ check 'v.code === "origin_rejected"' "the operator key from a browser is origin_
 AGENT=self-host-smoke
 rt PUT "/v1/agents/$AGENT" "$KEY" -H "content-type: application/json" -d "$(json_of '{
   requestId: a[0], implementationVersion: "smoke",
-  manifest: { id: a[1], name: "Self-host smoke", manifestSchemaVersion: 4, capabilities: [] } }' "agent-$RUN" "$AGENT")"
+  manifest: { id: a[1], name: "Self-host smoke", manifestSchemaVersion: 5, capabilities: [] } }' "agent-$RUN" "$AGENT")"
 expect 200 "PUT /v1/agents/$AGENT with the operator key"
 
 OWN="smoke-$RUN-ben"

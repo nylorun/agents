@@ -6,13 +6,11 @@ import {
   Braces,
   Check,
   Copy,
-  Cpu,
   Info,
   LayoutList,
   Plug,
   Puzzle,
   Terminal,
-  Webhook,
   Workflow,
   Wrench,
   type LucideIcon,
@@ -35,7 +33,6 @@ import { cn } from "@/lib/utils";
 import {
   SANDBOX_TOOLS,
   isOutdated,
-  lifecycle,
   manifestStats,
   manifestView,
   shortHash,
@@ -47,8 +44,6 @@ import {
 } from "@/manifest/model";
 import { useSessionManifest } from "@/manifest/use-session-manifest";
 import type { AgentManifest } from "@/studio-types";
-
-export { hookFrequency } from "@/manifest/model";
 
 const TOOL_GROUPS: readonly {
   kinds: readonly ToolKind[];
@@ -85,13 +80,6 @@ function ViewToggle({
     </Tooltip>
   );
 }
-
-const HOOK_HELP: Record<string, string> = {
-  beforeTurn: "Patches the turn before its first model call.",
-  beforeModel: "Patches every model call.",
-  afterModel: "Decides on every model response before tools run.",
-  afterTurn: "Decides on the final answer.",
-};
 
 export function AgentManifestPanel({
   agent,
@@ -158,7 +146,6 @@ export function AgentManifestPanel({
               <Stat icon={Wrench} value={stats.tools} label="Tools" />
               <Stat icon={Bot} value={stats.subagents} label="Subagents" />
               <Stat icon={BookOpen} value={stats.skills} label="Skills" />
-              <Stat icon={Webhook} value={stats.hooks} label="Hooks" />
               <Stat icon={Plug} value={stats.mcpServers} label="MCP servers" />
               <Stat
                 icon={Terminal}
@@ -168,13 +155,9 @@ export function AgentManifestPanel({
               />
             </div>
 
-            <Section title="Turn lifecycle" hint="Where each hook runs in one turn.">
-              <Lifecycle stages={lifecycle(view)} />
-            </Section>
-
             <Section
               title="Capabilities"
-              hint="Applied in this order. Each bundles instructions, tools, skills and hooks."
+              hint="Applied in this order. Each bundles instructions, tools, skills and MCP servers."
             >
               {view.capabilities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">None declared</p>
@@ -290,44 +273,6 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
   return null;
 }
 
-function Lifecycle({ stages }: Readonly<{ stages: ReturnType<typeof lifecycle> }>) {
-  return (
-    <div className="flex flex-wrap items-stretch gap-1.5">
-      {stages.map((stage, index) => (
-        <Fragment key={stage.kind === "model" ? "model" : stage.method}>
-          {index > 0 ? <span className="self-center text-xs text-muted-foreground">→</span> : null}
-          {stage.kind === "model" ? (
-            <div className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground">
-              <Cpu className="size-3.5" />
-              Model call
-            </div>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs",
-                    stage.capabilityIds.length === 0 && "border-dashed text-muted-foreground",
-                  )}
-                >
-                  <div className="font-mono">{stage.method}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {stage.capabilityIds.length ? stage.capabilityIds.join(", ") : "none"}
-                  </div>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                {HOOK_HELP[stage.method]}{" "}
-                {stage.perModelCall ? "Runs on every model call." : "Runs once per turn."}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
 function capabilityIcon(capability: CapabilityView): LucideIcon {
   if (capability.type === "agent-plugin") return Puzzle;
   if (capability.id === "agent") return Bot;
@@ -347,7 +292,6 @@ function CapabilityItem({ capability }: Readonly<{ capability: CapabilityView }>
     capability.tools.length ? plural(capability.tools.length, "tool") : "",
     capability.skills.length ? plural(capability.skills.length, "skill") : "",
     capability.mcpServers.length ? plural(capability.mcpServers.length, "server") : "",
-    capability.hooks.length ? plural(capability.hooks.length, "hook") : "",
   ].filter(Boolean);
   return (
     <AccordionItem value={capability.id} className="px-3">

@@ -1,7 +1,7 @@
 /**
  * Harness API v1 (blueprint D37–D42): the messages between core and a harness. A run is a
  * lease on one session's segment; core records, the harness runs the engine. Who executes what:
- * the harness runs model, MCP and sandbox calls; core runs Actions, hooks, flow work, linked
+ * the harness runs model, MCP and sandbox calls; core runs Actions, flow work, linked
  * sessions, delegation journaling, settle and takeover.
  */
 import type { ActionOutcome } from "../contracts.js";
@@ -47,15 +47,10 @@ export interface EffectIntent {
   readonly turnId: string;
   readonly agentId: string;
   readonly manifestHash: string;
-  readonly kind: "model" | "tool" | "hook" | "delegation" | "agent" | "fn" | "verify";
+  readonly kind: "model" | "tool" | "delegation" | "agent" | "fn" | "verify";
   readonly agent?: AgentRef;
   readonly capabilityId?: string;
   readonly toolName?: string;
-  readonly hook?: {
-    readonly at: "before" | "after";
-    readonly scope: "turn" | "step";
-    readonly capabilityIds: readonly string[];
-  };
   readonly path?: string;
   readonly key?: string;
   readonly iterations?: string;

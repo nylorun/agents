@@ -155,7 +155,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Action endpoints",
     group: "Agents",
     description:
-      "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call, hook and workflow step to, signed with a delivery token your endpoint verifies with the public keys.",
+      "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call and workflow step to, signed with a delivery token your endpoint verifies with the public keys.",
     operations: [
       "PUT /v1/endpoints",
       "GET /v1/endpoints",

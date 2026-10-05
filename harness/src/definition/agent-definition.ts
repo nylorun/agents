@@ -3,7 +3,6 @@ import type { ToolRegistry } from "./registry.js";
 import type { TurnOutputContract } from "@nylorun/core/define";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { Implementations } from "@nylorun/core/define";
-import { localHookRunner, type HookRunner } from "../loop/step/hooks.js";
 
 export interface AgentDefinition {
   readonly id: string;
@@ -13,8 +12,6 @@ export interface AgentDefinition {
   readonly manifest: AgentManifest;
   readonly hash: string;
   readonly implementations: Implementations;
-  /** Runs one hook point. In-process by default; the durable host journals it as one effect. */
-  readonly runHooks: HookRunner;
 }
 
 export type { Implementations };
@@ -33,7 +30,6 @@ export function definitionFromBinding(binding: AgentBinding): AgentDefinition {
     hash: hashManifest(binding.manifest),
     middleware: binding.declarations,
     implementations: binding.implementations,
-    runHooks: localHookRunner(binding.implementations),
     registry: new Registry(binding.declarations, binding.tools),
     ...(binding.outputSchema ? { output: bindOutputContract(binding.outputSchema) } : {}),
   });

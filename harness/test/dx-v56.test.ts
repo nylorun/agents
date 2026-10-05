@@ -30,7 +30,7 @@ describe("DX v5.6 ergonomics", () => {
       ],
     });
     expect(agent.id).toBe("support");
-    expect(agent.manifest.manifestSchemaVersion).toBe(4);
+    expect(agent.manifest.manifestSchemaVersion).toBe(5);
     const extended = agent.use({ id: "extra", instructions: ["Extra."] });
     expect(extended).not.toBe(agent);
     expect(agent.build()).toBe(agent.build());

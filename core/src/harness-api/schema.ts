@@ -43,18 +43,10 @@ export const EffectIntentSchema = z
     turnId: id,
     agentId: id,
     manifestHash: z.string(),
-    kind: z.enum(["model", "tool", "hook", "delegation", "agent", "fn", "verify"]),
+    kind: z.enum(["model", "tool", "delegation", "agent", "fn", "verify"]),
     agent: z.object({ id: z.string(), path: z.string(), delegationId: z.string().optional() }).strict().optional(),
     capabilityId: z.string().optional(),
     toolName: z.string().optional(),
-    hook: z
-      .object({
-        at: z.enum(["before", "after"]),
-        scope: z.enum(["turn", "step"]),
-        capabilityIds: z.array(z.string()),
-      })
-      .strict()
-      .optional(),
     path: z.string().optional(),
     key: z.string().optional(),
     iterations: z.string().optional(),

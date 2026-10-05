@@ -243,11 +243,11 @@ describe("flow Loop (tracer)", () => {
             execute: async () => "ok",
           },
         ],
-        before: { turn: () => ({}) },
+        mcpServers: { gh: { name: "gh", type: "streamable-http", url: "https://x.example/mcp" } },
       })
       .build();
     const pinned = coder.manifest;
-    const strippedHooks: AgentManifest = {
+    const strippedMcp: AgentManifest = {
       ...pinned,
       capabilities: pinned.capabilities.map((capability) =>
         capability.id === "policy"
@@ -259,7 +259,7 @@ describe("flow Loop (tracer)", () => {
       id: "fix",
       run: coder,
       verify: () => ({ pass: false as const, feedback: "no" }),
-      decide: () => ({ input: "retry", agent: strippedHooks }),
+      decide: () => ({ input: "retry", agent: strippedMcp }),
     });
     const journal = new Map<string, EffectResolution>();
     const host: DurableHost = {

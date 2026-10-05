@@ -16,7 +16,7 @@ import type { CapabilityDynamics } from "./assemble.js";
 import { schemaFromJSON } from "./schema-json.js";
 import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 import type { BoundMiddleware } from "./bound.js";
-import { HOOK_POINTS, hasHook, hookListIssue } from "./hooks.js";
+import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./removed.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
 
 /** A tool that exists for one execution and is not part of the hashed manifest. */
@@ -51,7 +51,6 @@ export function agentFrom<Info = unknown>(
           );
         return live;
       });
-    assertHookImplementations(capability, impl);
     const handle: StepMiddleware =
       (impl.middleware as StepMiddleware | undefined) ??
       (async (request, next) => {
@@ -112,7 +111,6 @@ export function agentFrom<Info = unknown>(
               }
             : {}),
         }),
-        ...(capability.hooks === undefined ? {} : { hooks: capability.hooks }),
         manifestType: capability.type,
         ...(capability.metadata === undefined
           ? {}
@@ -128,11 +126,7 @@ export function agentFrom<Info = unknown>(
           : { skills: capability.skills }),
       })
     );
-    dynamics.set(capability.id, {
-      ...(impl.before ? { before: impl.before as any } : {}),
-      ...(impl.after ? { after: impl.after as any } : {}),
-      ...(impl.middleware ? { middleware: impl.middleware as any } : {}),
-    });
+    dynamics.set(capability.id, impl.middleware ? { middleware: impl.middleware as any } : {});
   }
 
   const outputSchema = manifest.outputSchema
@@ -215,26 +209,6 @@ function resolveTools(
   });
 }
 
-function assertHookImplementations(
-  capability: CapabilityManifest,
-  impl: Implementations<any>[string]
-): void {
-  for (const point of HOOK_POINTS) {
-    const declared = hasHook(capability.hooks, point.at, point.scope);
-    const live = impl[point.at]?.[point.scope] !== undefined;
-    if (declared && !live)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Missing ${point.at}("${point.scope}") implementation for capability '${capability.id}'`
-      );
-    if (live && !declared)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capability.id}' implements ${point.at}("${point.scope}") but the manifest does not declare it`
-      );
-  }
-}
-
 function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
   if (!json || typeof json !== "object" || Array.isArray(json))
     throw new HarnessError(
@@ -264,13 +238,8 @@ function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
       "agent.build-failed",
       "Manifest field schemaVersion was renamed to manifestSchemaVersion"
     );
-  if (value.manifestSchemaVersion !== 4)
-    throw new HarnessError(
-      "agent.build-failed",
-      value.manifestSchemaVersion === 3
-        ? "manifestSchemaVersion 3 is no longer supported; rebuild the agent with before/after hooks (see MIGRATION.md)"
-        : `Unsupported manifestSchemaVersion ${String(value.manifestSchemaVersion)}`
-    );
+  const versionIssue = manifestVersionIssue(value.manifestSchemaVersion);
+  if (versionIssue) throw new HarnessError("agent.build-failed", versionIssue);
   // Reject top-level model (Runtime-owned).
   if ("model" in value && value.model !== undefined)
     throw new HarnessError(
@@ -303,7 +272,7 @@ function normalizeManifest(json: AgentManifest | JsonObject): AgentManifest {
       servers.add(name);
     }
   return deepFreeze({
-    manifestSchemaVersion: 4 as const,
+    manifestSchemaVersion: 5 as const,
     id: value.id,
     ...(typeof value.name === "string" && value.name ? { name: value.name } : {}),
     ...(typeof value.description === "string"
@@ -364,20 +333,9 @@ function normalizeCapability(
       "agent.build-failed",
       `Capability '${capability.id}' type must be agent or agent-plugin`
     );
-  for (const legacy of ["beforeModelCall", "afterModelCall"])
-    if (legacy in raw)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capability.id}' field ${legacy} was replaced by hooks (see MIGRATION.md)`
-      );
-  if (capability.hooks !== undefined) {
-    const issue = hookListIssue(capability.hooks);
-    if (issue)
-      throw new HarnessError(
-        "agent.build-failed",
-        `Capability '${capability.id}' ${issue}`
-      );
-  }
+  for (const [field, message] of Object.entries(REMOVED_CAPABILITY_FIELDS))
+    if (field in raw)
+      throw new HarnessError("agent.build-failed", `Capability '${capability.id}': ${message}`);
   const metadata =
     capability.metadata === undefined
       ? undefined
@@ -406,15 +364,6 @@ function normalizeCapability(
           sandbox: deepFreeze(
             copyJsonObject(capability.sandbox as unknown as JsonObject, "sandbox")
           ) as CapabilityManifest["sandbox"],
-        }),
-    ...(capability.hooks === undefined
-      ? {}
-      : {
-          hooks: Object.freeze(
-            capability.hooks.map((hook) =>
-              Object.freeze({ at: hook.at, scope: hook.scope })
-            )
-          ),
         }),
   });
 }

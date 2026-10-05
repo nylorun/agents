@@ -1,6 +1,6 @@
 export { checkCompatibility } from "./definition/compatibility.js";
 export const CHECKPOINT_VERSION = 1;
-export const ENGINE_VERSION = "hosted-3";
+export const ENGINE_VERSION = "hosted-4";
 /**
  * Flow engine version pinned on workflow checkpoints. Workflow manifest v2 runs on
  * `flow-2`; v1 manifests keep running on `flow-1`, so in-flight v1 runs finish as they began.

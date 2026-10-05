@@ -10,7 +10,7 @@ import {
   parseSandboxDuration,
   parseSandboxSize,
 } from "./utils/sandbox.js";
-import { hookListIssue } from "./definition/hooks.js";
+import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./definition/removed.js";
 import { DELEGATE_INPUT_SCHEMA } from "./definition/delegate.js";
 import { canonical } from "./utils/canonical.js";
 export type { AgentManifest } from "./types/manifest.js";
@@ -117,23 +117,23 @@ const toolManifestSchema = z
       .optional(),
   })
   .strict();
-const hookPointSchema = z
-  .object({
-    at: z.enum(["before", "after"]),
-    scope: z.enum(["turn", "step"]),
-  })
-  .strict();
+/** A capability naming a field manifest v5 removed is refused with what replaces it. */
+const removedFieldError = (issue: { code?: string; keys?: readonly string[] }) => {
+  if (issue.code !== "unrecognized_keys") return undefined;
+  const removed = issue.keys?.find((key) => REMOVED_CAPABILITY_FIELDS[key] !== undefined);
+  return removed === undefined ? undefined : REMOVED_CAPABILITY_FIELDS[removed];
+};
 export const AgentManifestSchema = z
   .object({
-    manifestSchemaVersion: z.literal(4),
+    manifestSchemaVersion: z.literal(5, { error: (issue) => manifestVersionIssue(issue.input) }),
     id: z.string().min(1),
     name: z.string().min(1).optional(),
     description: z.string().optional(),
     metadata: jsonObject.optional(),
     outputSchema: jsonObject.optional(),
     capabilities: z.array(
-      z
-        .object({
+      z.strictObject(
+        {
           id: z.string().min(1),
           type: z.enum(["agent", "agent-plugin"]),
           name: z.string().min(1).optional(),
@@ -144,15 +144,9 @@ export const AgentManifestSchema = z
           tools: z.array(toolManifestSchema).optional(),
           mcpServers: z.record(z.string(), mcpServerSchema).optional(),
           sandbox: sandboxManifestSchema.optional(),
-          hooks: z
-            .array(hookPointSchema)
-            .optional()
-            .superRefine((hooks, ctx) => {
-              const issue = hooks === undefined ? undefined : hookListIssue(hooks);
-              if (issue) ctx.addIssue({ code: "custom", message: issue });
-            }),
-        })
-        .strict()
+        },
+        { error: removedFieldError }
+      )
     ),
     runtime: z.object({}).strict().optional(),
   })
@@ -1301,15 +1295,6 @@ const actionBase = {
   deadlineAt: z.string().nullable().optional(),
   agent: AgentRefSchema.optional(),
 };
-/** The hook point an action runs, and the capabilities that registered it (manifest order). */
-export const ActionHookSchema = z
-  .object({
-    at: z.enum(["before", "after"]),
-    scope: z.enum(["turn", "step"]),
-    capabilityIds: z.array(z.string().min(1)).min(1),
-  })
-  .strict();
-export type ActionHook = z.infer<typeof ActionHookSchema>;
 const agentToolActionSchema = z
   .object({
     ...actionBase,
@@ -1331,13 +1316,6 @@ const workflowToolActionSchema = z
     outputSchema: jsonObject.optional(),
   })
   .strict();
-const hookActionSchema = z
-  .object({
-    ...actionBase,
-    kind: z.literal("hook"),
-    hook: ActionHookSchema,
-  })
-  .strict();
 const fnActionSchema = z
   .object({
     ...actionBase,
@@ -1357,7 +1335,6 @@ const verifyActionSchema = z
 export const ActionSchema = z.union([
   agentToolActionSchema,
   workflowToolActionSchema,
-  hookActionSchema,
   fnActionSchema,
   verifyActionSchema,
 ]);

@@ -33,9 +33,7 @@ export const supportAgent = Agent({
   name: "Support",
   instructions: "You help customers with orders. Be brief.",
   tools: [lookup],
-})
-  .use(capability({ id: "policy", after: { step: ({ text }) => ({}) } }))
-  .before("turn", ({ info }) => ({ instructions: [`Tenant ${info?.tenantId}`] }));
+}).capability(capability({ id: "policy" }).instructions("Never promise a refund."));
 
 // Optional: .build() is a no-op facade
 const agent = supportAgent.build();
@@ -62,7 +60,7 @@ const result = await run({
 });
 ```
 
-This is a breaking beta: `agent.run()` has been removed. Application execution uses SDK sessions. Durable execution uses `createDurableCheckpoint` and `runDurable` with individually persisted model/tool/hook effects; a suspended checkpoint requires its effect journal.
+This is a breaking beta: `agent.run()` has been removed. Application execution uses SDK sessions. Durable execution uses `createDurableCheckpoint` and `runDurable` with individually persisted model and tool effects; a suspended checkpoint requires its effect journal.
 
 ## Tools
 
@@ -75,31 +73,8 @@ Prefer `input` / `output` / `run`. Legacy `inputSchema` / `execute` and tagged `
 
 Definitions must not import `@nylorun/runtime`.
 
-## Hooks
-
-Register a hook with `before(scope, fn)` / `after(scope, fn)` on the agent, or
-`before: { turn, step }` / `after: { step, turn }` on a capability. The scope says how
-often your code runs:
-
-| Hook             | Runs                                         | Returns                                            |
-| ---------------- | -------------------------------------------- | -------------------------------------------------- |
-| `before("turn")` | Once per turn, before the first model call   | `Patch`, applied to every model call in the turn   |
-| `before("step")` | Before every model call                      | `Patch` for that call, layered over the turn patch |
-| `after("step")`  | After every model response, before tools run | `Decision` (text/deny/approve/retry/block)         |
-| `after("turn")`  | Once, on the final answer                    | `TurnDecision` (text or output/retry/block)        |
-
-`Patch` is capabilities/tools/instructions/state/block, with no `model`. Registered
-hooks are listed in the manifest (`capabilities[].hooks`). In a Runtime each hook point
-is one delivery to your Action endpoint per turn or per model call, whatever the
-number of capabilities using it, so prefer `"turn"` when a decision does not change
-within a turn.
-
-Hooks may run more than once when a delivery is retried, so keep side effects in
-tools. `retry` is never capped by the engine: every `after` hook receives `attempt`,
-so bound it yourself, for example
-`attempt < 2 ? { retry: "Be specific" } : { block: "No usable answer" }`.
-
-Local explicit engine execution retains middleware. Durable manifests reject arbitrary middleware closures; use hooks.
+Local explicit engine execution retains middleware. Durable manifests reject middleware
+closures: a hosted agent is its manifest, and the Runtime never calls your code during a session.
 
 ## Checkpoint / durability
 

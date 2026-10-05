@@ -1,9 +1,8 @@
 import type { JsonObject } from "./shared.js";
-import type { HookManifest } from "./dynamics.js";
 import type { WorkflowManifestV2 } from "./workflow.js";
 
 /** Published manifest schema version (no top-level model — Runtime-owned). */
-export type ManifestSchemaVersion = 4;
+export type ManifestSchemaVersion = 5;
 
 export interface ToolManifest {
   readonly name: string;
@@ -82,8 +81,6 @@ export interface CapabilityManifest {
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   /** Present when this capability gives the agent a Runtime-owned sandbox. */
   readonly sandbox?: SandboxManifest;
-  /** Hook points this capability registered, in canonical order. */
-  readonly hooks?: readonly HookManifest[];
 }
 
 /** Reserved. Empty until later fields are defined. Omit `runtime` while it has no fields. */

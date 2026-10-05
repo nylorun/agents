@@ -3,7 +3,7 @@ import { agentFrom, hashManifest, schemaFromJSON } from "../src/define.js";
 
 it("keeps session tools out of the hashed manifest", () => {
   const manifest = {
-    manifestSchemaVersion: 4 as const,
+    manifestSchemaVersion: 5 as const,
     id: "bot",
     capabilities: [{ id: "issue-management", type: "agent" as const }],
   };

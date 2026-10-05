@@ -71,12 +71,6 @@ export type {
   ToolDefinition,
   ToolExecutionContext,
   ToolOutcome,
-  Patch,
-  Decision,
-  TurnDecision,
-  HookScope,
-  BeforeHook,
-  AfterHook,
   JsonValue,
   JsonObject,
 } from "@nylorun/core/define";

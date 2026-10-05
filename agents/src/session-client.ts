@@ -83,7 +83,7 @@ export interface AgentSource {
 }
 
 const middlewareClosure =
-  "Hosted definitions support declarative capabilities and before/after hooks, not middleware closures";
+  "Hosted definitions support declarative capabilities, not middleware closures";
 
 /** The agent's declarations, then those of each agent it uses as a tool, keyed `<child>/<capability>`. */
 function declarationsOf(agent: AgentSource) {

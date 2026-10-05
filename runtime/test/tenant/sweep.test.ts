@@ -83,9 +83,7 @@ function action(fields: Partial<Action> & Pick<Action, "actionId" | "kind">): Ac
     deadlineAt: new Date(Date.now() - 1000).toISOString(),
     ...(fields.kind === "tool"
       ? { capabilityId: "notes", toolName: "save" }
-      : fields.kind === "hook"
-        ? { hook: { at: "before", scope: "step", capabilityIds: ["x"] } }
-        : { path: "p", key: "p" }),
+      : { path: "p", key: "p" }),
     ...fields,
   } as Action;
 }
@@ -231,7 +229,7 @@ describe("on the Postgres store", () => {
       await t.put("actions", "tool-1", action({ actionId: "tool-1", kind: "tool" }));
       await t.put("effects", "tool-1", effect("tool-1", "s1", "t1", "pending"));
       await t.put("actions", "fn-1", action({ actionId: "fn-1", kind: "fn" }));
-      await t.put("actions", "hook-1", action({ actionId: "hook-1", kind: "hook" }));
+      await t.put("actions", "verify-1", action({ actionId: "verify-1", kind: "verify" }));
       await t.put(
         "actions",
         "live-1",
@@ -244,17 +242,17 @@ describe("on the Postgres store", () => {
       tool: await t.get<Action>("actions", "tool-1"),
       toolEffect: await t.get("effects", "tool-1"),
       fn: await t.get<Action>("actions", "fn-1"),
-      hook: await t.get<Action>("actions", "hook-1"),
+      verify: await t.get<Action>("actions", "verify-1"),
       live: await t.get<Action>("actions", "live-1"),
     }));
-    // A lost tool delivery is uncertain; a hook or fn goes back to pending and is sent again.
+    // A lost tool delivery is uncertain; an fn or verify goes back to pending and is sent again.
     expect(after.tool?.status).toBe("uncertain");
     expect(after.toolEffect.status).toBe("uncertain");
     expect(after.session.status).toBe("uncertain");
     expect(after.fn).toMatchObject({ status: "pending", deadlineAt: null });
-    expect(after.hook).toMatchObject({ status: "pending", deadlineAt: null });
+    expect(after.verify).toMatchObject({ status: "pending", deadlineAt: null });
     expect(after.live?.status).toBe("delivering");
-    expect(delivered.sort()).toEqual(["fn-1", "hook-1"]);
+    expect(delivered.sort()).toEqual(["fn-1", "verify-1"]);
     expect(await eventsOf(store, "s1")).toEqual(["action.uncertain"]);
     expect(await sweepDeliveries(ctx)).toBe(0);
   });
