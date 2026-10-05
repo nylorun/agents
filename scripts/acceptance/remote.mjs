@@ -3,14 +3,15 @@
  * Runtime on another machine through its reverse proxy, as DEPLOYMENT.md
  * "Reaching the Runtime from another machine" sets it up.
  *
- *   NYLORUN_RUNTIME_URL=https://runtime.example.com NYLORUN_SERVER_KEY=… \
+ *   NYLORUN_RUNTIME_URL=https://runtime.example.com NYLORUN_SERVER_KEY=… NYLORUN_MANAGEMENT_KEY=… \
  *   node scripts/acceptance/remote.mjs --placement lan --fixture-model \
  *     --actions-url https://tunnel.example.com/nylorun/actions --actions-port 3000
  *
  * Use an installation made for this check (on the Runtime's machine, `npx
  * nylorun start` in a project made for it; `npx @nylorun/cli env` there
- * prints its key): `--fixture-model` switches its Tenant's model calls to the
- * Runtime's deterministic fixture model.
+ * prints its application key, and `npx nylorun key put remote-check --management`
+ * prints a management key): `--fixture-model` switches its Tenant's model calls
+ * to the Runtime's deterministic fixture model through the Management API.
  * `--actions-url` is where the remote Runtime reaches this machine's Action
  * endpoint (a tunnel such as ngrok or Cloudflare Tunnel to `--actions-port`).
  *
@@ -24,7 +25,7 @@
  *     silence, with keepalives arriving unbuffered, and afterwards it carries
  *     a new turn and the Runtime delivers a tool call to this machine again
  *
- * Prints a summary to paste into the PR. It never prints the key.
+ * Prints a summary to paste into the PR. It never prints the keys.
  */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
@@ -56,8 +57,11 @@ assert.ok(Number.isFinite(idleMinutes) && idleMinutes >= 0, "--idle-minutes must
 
 const url = process.env.NYLORUN_RUNTIME_URL?.replace(/\/$/, "");
 const key = process.env.NYLORUN_SERVER_KEY;
-if (!url || !key)
-  throw new Error("Set NYLORUN_RUNTIME_URL (the reverse proxy) and NYLORUN_SERVER_KEY.");
+const managementKey = process.env.NYLORUN_MANAGEMENT_KEY;
+if (!url || !key || !managementKey)
+  throw new Error(
+    "Set NYLORUN_RUNTIME_URL (the reverse proxy), NYLORUN_SERVER_KEY and NYLORUN_MANAGEMENT_KEY.",
+  );
 const target = new URL(url);
 const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
 assert.ok(
@@ -88,8 +92,9 @@ function interruptOf(events) {
   return (finished?.interrupts ?? finished?.outcome?.interrupts ?? [])[0];
 }
 
-const runtimeHeaders = (extra = {}) => ({
-  authorization: `Bearer ${key}`,
+/** Headers with the application key, or `credential` (the management key for `/v1/tenant/*`). */
+const runtimeHeaders = (extra = {}, credential = key) => ({
+  authorization: `Bearer ${credential}`,
   "Nylorun-Protocol": String(PROTOCOL_VERSION),
   ...extra,
 });
@@ -179,7 +184,7 @@ async function main() {
   const version = await r1();
   const seed = await fetch(`${url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: runtimeHeaders({ "content-type": "application/json" }),
+    headers: runtimeHeaders({ "content-type": "application/json" }, managementKey),
     body: JSON.stringify({ requestId: randomUUID(), fixtureModel: true }),
   });
   assert.ok(seed.ok, `seeding the fixture model: ${seed.status} ${await seed.text()}`);

@@ -9,13 +9,15 @@
  * @nylorun/core, @nylorun/agents, @nylorun/admin, nylorun and @nylorun/cli.
  *
  * A1  three subjects (admin, builder, member) on one Tenant, each acting
- *     through `app.as(...)`: a session with the person's vault (created by the
- *     application key: vault routes take no subject, protocol 7) and a turn
+ *     through `app.as(...)`: a session with the person's vault (created with the
+ *     management key: vaults are the Management API, protocol 8) and a turn
  *     that pauses for approval and completes
  * A2  concurrent event streams: each subject receives only its own events
  * A3  every Tenant route, called by each subject against the others'
- *     resources, answers the 404 or 403 of the scope and owner tables (vault
- *     routes: 403 for every subject), and no body names another subject's ids
+ *     resources, answers the 404 or 403 of the scope and owner tables (the
+ *     Management API, `/v1/tenant/*` with its vaults: `403 key_role_mismatch`
+ *     for every subject), and no body names another subject's ids; the
+ *     management key acts for no subject and reaches no Runtime API route
  * A4  a stub app server strips the Nylorun-* headers its client sends; the
  *     Runtime sees the signed-in person
  */
@@ -23,13 +25,15 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { z } from "zod";
+import { createManagementClient } from "@nylorun/admin";
 import { Agent, createClient, tool } from "@nylorun/agents";
 import { serveActionEndpoint } from "../lib/action-endpoint.mjs";
 import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
 import { withResetTenant } from "../lib/stack-tenant.mjs";
 
+// No subject scope reaches the Management API (`tenant:settings` is retired, protocol 8).
 const SUBJECTS = {
-  admin: ["tenant:settings", "agents:write", "sessions:own"],
+  admin: ["agents:write", "sessions:own", "sandboxes:write"],
   builder: ["agents:write", "sessions:own"],
   member: ["agents:read", "sessions:own"],
 };
@@ -70,18 +74,19 @@ function subjectHeaders(as) {
   return as ? { "Nylorun-Subject": as.name, "Nylorun-Scopes": as.scopes.join(" ") } : {};
 }
 
-/** A1: each subject's own vault (the application's to create), session and approved turn. */
+/** A1: each subject's own vault (the operator's to create), session and approved turn. */
 async function a1(runtime, tenant, app) {
+  const management = createManagementClient({ url: runtime, key: tenant.managementKey });
   const people = {};
   for (const [role, scopes] of Object.entries(SUBJECTS)) {
     const name = `app:${role}`;
     const client = app.as(name, { scopes });
-    const vault = await app.createVault({
+    const vault = await management.vaults.create({
       name: `${role}'s vault`,
       ownerUserId: name,
       idempotencyKey: `vault-${role}`,
     });
-    const credential = await app.createCredential(vault.id, {
+    const credential = await management.vaults.credentials.create(vault.id, {
       name: "token",
       idempotencyKey: `cred-${role}`,
       auth: { type: "bearer", url: "https://mcp.example.com/tools", token: `secret-${role}` },
@@ -129,7 +134,7 @@ async function runTurns(runtime, tenant, people) {
 /** Every route a subject might call on `other`'s resources, and what it must answer. */
 function crossRoutes(other) {
   const s = `/v1/sessions/${other.sessionId}`;
-  const v = `/v1/vaults/${other.vaultId}`;
+  const v = `/v1/tenant/vaults/${other.vaultId}`;
   const c = `${v}/credentials/${other.credentialId}`;
   const command = (body) => ({ requestId: randomUUID(), idempotencyKey: randomUUID(), ...body });
   return [
@@ -140,7 +145,8 @@ function crossRoutes(other) {
     ["POST", `${s}/commands`, 404, command({ type: "approve", interactionId: "i", approved: true })],
     ["POST", `${s}/commands`, 404, command({ type: "respond", interactionId: "i", value: 1 })],
     ["POST", `${s}/commands`, 404, command({ type: "cancel" })],
-    // Vault routes take no subject (protocol 7): refused before anything is read.
+    // Vault routes are the Management API (protocol 8): an application key, acting for a
+    // subject or not, is refused before anything is read.
     ["GET", v, 403],
     ["DELETE", v, 403],
     ["GET", `${v}/credentials`, 403],
@@ -160,22 +166,27 @@ function crossRoutes(other) {
   ];
 }
 
-/** Routes whose answer depends only on the caller's scopes. */
+/**
+ * Routes whose answer depends only on the caller's scopes. No subject reaches the Management
+ * API (`/v1/tenant/*`): `403 key_role_mismatch`, whatever its scopes.
+ */
 const SCOPED = [
   ["GET", "/v1/agents", { admin: 200, builder: 200, member: 200 }],
-  ["GET", "/v1/tenant", { admin: 200, builder: 403, member: 403 }],
-  ["GET", "/v1/tenant/models", { admin: 200, builder: 200, member: 403 }],
-  ["GET", "/v1/tenant/providers", { admin: 200, builder: 200, member: 403 }],
-  ["GET", "/v1/tenant/model", { admin: 200, builder: 403, member: 403 }],
+  ["GET", "/v1/tenant", { admin: 403, builder: 403, member: 403 }],
+  ["GET", "/v1/tenant/models", { admin: 403, builder: 403, member: 403 }],
+  ["GET", "/v1/tenant/providers", { admin: 403, builder: 403, member: 403 }],
+  ["GET", "/v1/tenant/model", { admin: 403, builder: 403, member: 403 }],
   ["POST", "/v1/tenant/reset", { admin: 403, builder: 403, member: 403 }],
   ["PUT", "/v1/tenant/config/seed", { admin: 403, builder: 403, member: 403 }],
+  ["GET", "/v1/tenant/keys", { admin: 403, builder: 403, member: 403 }],
+  ["GET", "/v1/tenant/signing-keys", { admin: 403, builder: 403, member: 403 }],
   ["GET", "/v1/endpoints", { admin: 403, builder: 403, member: 403 }],
   ["PUT", "/v1/endpoints", { admin: 403, builder: 403, member: 403 }],
 ];
 
 async function a3(runtime, tenant, people) {
-  const key = tenant.env.NYLORUN_SERVER_KEY;
-  const call = async (as, method, path, body) => {
+  const management = createManagementClient({ url: runtime, key: tenant.managementKey });
+  const call = async (as, method, path, body, key = tenant.env.NYLORUN_SERVER_KEY) => {
     const response = await fetch(`${runtime}${path}`, {
       method,
       headers: runtimeHeaders(key, {
@@ -186,6 +197,11 @@ async function a3(runtime, tenant, people) {
       signal: AbortSignal.timeout(10_000),
     });
     return { status: response.status, text: await response.text() };
+  };
+  /** The Management API refuses an application key, for a subject or not, by its role. */
+  const roleRefused = (reply, what) => {
+    if (reply.status === 403 && what.includes(" /v1/tenant"))
+      assert.equal(JSON.parse(reply.text).code, "key_role_mismatch", `${what}: ${reply.text}`);
   };
   const everyone = Object.values(people);
   let checked = 0;
@@ -201,6 +217,7 @@ async function a3(runtime, tenant, people) {
         const reply = await call(caller, method, path, body);
         assert.equal(reply.status, expected, `${caller.role} ${method} ${path}: ${reply.text}`);
         clean(reply, `${method} ${path}`);
+        roleRefused(reply, `${caller.role} ${method} ${path}`);
         checked += 1;
       }
     // PUT on another subject's session id: 404, not 409.
@@ -220,23 +237,47 @@ async function a3(runtime, tenant, people) {
       [caller.sessionId],
       `${caller.role} lists only its session`,
     );
-    assert.equal((await call(caller, "GET", "/v1/vaults")).status, 403, `${caller.role} lists no vaults`);
+    const vaults = await call(caller, "GET", "/v1/tenant/vaults");
+    assert.equal(vaults.status, 403, `${caller.role} lists no vaults`);
+    roleRefused(vaults, `${caller.role} GET /v1/tenant/vaults`);
     for (const other of others)
       assert.equal(
-        (await call(caller, "GET", `/v1/vaults?ownerUserId=${encodeURIComponent(other.name)}`)).status,
+        (await call(caller, "GET", `/v1/tenant/vaults?ownerUserId=${encodeURIComponent(other.name)}`)).status,
         403,
       );
+    // A retired scope still parses and grants nothing: `tenant:settings` reaches no setting.
+    const retired = await call(
+      { name: caller.name, scopes: [...caller.scopes, "tenant:settings"] },
+      "GET",
+      "/v1/tenant/model",
+    );
+    assert.equal(retired.status, 403, `${caller.role} with tenant:settings: ${retired.text}`);
+    roleRefused(retired, `${caller.role} GET /v1/tenant/model`);
     for (const [method, path, expected] of SCOPED) {
       const reply = await call(caller, method, path);
       assert.equal(reply.status, expected[caller.role], `${caller.role} ${method} ${path}: ${reply.text}`);
       clean(reply, `${method} ${path}`);
+      roleRefused(reply, `${caller.role} ${method} ${path}`);
       checked += 1;
     }
   }
-  // Every session is still there for its owner, and every vault for the application.
+  // The application key alone reaches no Management API route either.
+  const unscoped = await call(undefined, "GET", "/v1/tenant/vaults");
+  assert.equal(unscoped.status, 403, unscoped.text);
+  roleRefused(unscoped, "the application key GET /v1/tenant/vaults");
+  // The management key acts as itself only, and only on the Management API.
+  const managementKey = tenant.managementKey;
+  const forSubject = await call(people.admin, "GET", "/v1/tenant/vaults", undefined, managementKey);
+  assert.equal(forSubject.status, 403, `a management key acting for a subject: ${forSubject.text}`);
+  assert.equal(JSON.parse(forSubject.text).code, "subject_invalid");
+  const onRuntime = await call(undefined, "GET", "/v1/sessions", undefined, managementKey);
+  assert.equal(onRuntime.status, 403, `a management key on the Runtime API: ${onRuntime.text}`);
+  assert.equal(JSON.parse(onRuntime.text).code, "key_role_mismatch");
+  checked += 3;
+  // Every session is still there for its owner, and every vault for the operator.
   for (const person of everyone) {
     assert.equal((await call(person, "GET", `/v1/sessions/${person.sessionId}`)).status, 200);
-    assert.equal((await call(undefined, "GET", `/v1/vaults/${person.vaultId}`)).status, 200);
+    assert.equal((await management.vaults.get(person.vaultId)).id, person.vaultId);
   }
   return checked;
 }
@@ -292,7 +333,8 @@ try {
   await withStack({ name: "nylorun-access", images, startArgs: ["--no-studio"] }, async (stack) => {
     const runtime = stack.runtimeUrl;
     const admin = await stack.admin();
-    await withResetTenant({ admin, name: "access" }, async (tenant) => {
+    const managementKey = await stack.managementKey();
+    await withResetTenant({ admin, managementKey, name: "access" }, async (tenant) => {
       const app = createClient({
         url: tenant.env.NYLORUN_RUNTIME_URL,
         key: tenant.env.NYLORUN_SERVER_KEY,

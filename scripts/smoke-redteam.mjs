@@ -29,15 +29,17 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { root, run } from "./lib/repo.mjs";
-import { ensureImages, eventually, hostTenant, runtimeGet, runtimeHeaders, withStack } from "./lib/stack.mjs";
+import { ensureImages, eventually, runtimeGet, runtimeHeaders, withStack } from "./lib/stack.mjs";
 import { startStubModel } from "./lib/stub-model.mjs";
 
 const SUITE = join(root, "runtime", "test", "redteam", "harness.mjs");
 
 async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) {
+  // `/v1/tenant/*` is the Management API: it takes the management key.
+  const key = path.startsWith("/v1/tenant/") ? tenant.managementKey : tenant.key;
   const response = await fetch(`${runtimeUrl}${path}`, {
     method,
-    headers: runtimeHeaders(tenant.key, body ? { "content-type": "application/json" } : {}),
+    headers: runtimeHeaders(key, body ? { "content-type": "application/json" } : {}),
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(15_000),
   });
@@ -54,7 +56,7 @@ try {
   const images = await ensureImages();
   await withStack({ name: "nylorun-smoke-redteam", images }, async (stack) => {
     const { runtimeUrl, home } = stack;
-    const tenant = await hostTenant(await stack.admin());
+    const tenant = await stack.tenant();
     const stub = await startStubModel(stack, images.runtime);
     try {
       await request(runtimeUrl, tenant, "/v1/tenant/model", {

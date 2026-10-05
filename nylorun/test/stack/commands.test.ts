@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { doctorStack } from "../../src/doctor.js";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -190,7 +191,7 @@ describe("start", () => {
     expect(deps.lines).toEqual(startLines(home, false));
     const admin = fetch.requests.find((r) => r.url.endsWith("/v1/admin/status"))!;
     expect(admin.url).toBe("http://localhost:8788/v1/admin/status");
-    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe("7");
+    expect((admin.init?.headers as Record<string, string>)["Nylorun-Protocol"]).toBe(String(PROTOCOL_VERSION));
     expect(fetch.requests.filter((request) => request.init?.method === "POST")).toEqual([]);
   });
 

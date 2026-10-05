@@ -51,7 +51,6 @@ import { randomUUID } from "node:crypto";
 import {
   ensureImages,
   eventually,
-  hostTenant,
   runtimeGet,
   runtimeHeaders,
   withStack,
@@ -132,9 +131,11 @@ const MCP_ALIAS = "failure-mcp";
 const docker = (args, options = {}) => run("docker", args, { capture: true, timeout: 120_000, ...options });
 
 async function request(runtimeUrl, tenant, path, { method = "GET", body } = {}) {
+  // `/v1/tenant/*` is the Management API: it takes the management key.
+  const key = path.startsWith("/v1/tenant/") ? tenant.managementKey : tenant.key;
   const response = await fetch(`${runtimeUrl}${path}`, {
     method,
-    headers: runtimeHeaders(tenant.key, body ? { "content-type": "application/json" } : {}),
+    headers: runtimeHeaders(key, body ? { "content-type": "application/json" } : {}),
     ...(body ? { body: JSON.stringify(body) } : {}),
     signal: AbortSignal.timeout(15_000),
   });
@@ -162,7 +163,7 @@ try {
       const stub = model.stats;
 
       // The Host's one Tenant; its state is in schema `nylorun`.
-      const tenant = await hostTenant(await stack.admin());
+      const tenant = await stack.tenant();
       const schema = "nylorun";
 
       await request(runtimeUrl, tenant, "/v1/tenant/model", {

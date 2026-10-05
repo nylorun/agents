@@ -98,13 +98,15 @@ async function harnessChecks(stack, images, status) {
   const pluginRoot = join(home, "plugins", "echo");
   await mkdir(pluginRoot, { recursive: true });
   await writeFile(join(pluginRoot, "server.cjs"), ECHO_SERVER);
-  const tenant = await hostTenant(await stack.admin());
+  const tenant = await stack.tenant();
   const stub = await startStubModel(stack, images.runtime);
   try {
     const call = async (path, method, body) => {
+      // `/v1/tenant/*` is the Management API: it takes the management key.
+      const key = path.startsWith("/v1/tenant/") ? tenant.managementKey : tenant.key;
       const response = await fetch(`${runtimeUrl}${path}`, {
         method,
-        headers: runtimeHeaders(tenant.key, { "content-type": "application/json" }),
+        headers: runtimeHeaders(key, { "content-type": "application/json" }),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15_000),
       });
@@ -276,7 +278,7 @@ console.log(JSON.stringify(found));
     const admin = await stack.admin();
     assert.equal((await admin.status()).host?.url, runtimeUrl, "admin status reports the public URL");
     const tenant = await hostTenant(admin);
-    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an operator key put through the Admin API reaches the Tenant API");
+    assert.ok(await runtimeGet(runtimeUrl, tenant.key, "/v1/agents"), "an application key put through the Admin API reaches the Runtime API");
     assert.ok(!existsSync(join(home, ".nylorun")), "start outside a project writes no Project link");
 
     const studio = await studioSession(await stack.studioLogin());
@@ -312,7 +314,8 @@ console.log(JSON.stringify(found));
     assert.equal(others.status, 404, "an embedded session reaches no other Tenant");
 
     // `nylorun start` in a project attaches it to the running Tenant (NYLORUN_TENANT)
-    // and links it to that Tenant with the operator key `project`.
+    // and links it to that Tenant with the application key `project` and the management
+    // key `project-management`.
     const project = await mkdtemp(join(tmpdir(), "nylorun-tenant-project-"));
     let link;
     let credentials;
@@ -331,7 +334,18 @@ console.log(JSON.stringify(found));
     assert.equal(link.hostUrl, runtimeUrl);
     assert.equal(link.tenantId, tenant.id);
     assert.equal(credentials.principalId, "project");
-    assert.ok(await runtimeGet(runtimeUrl, credentials.applicationKey, "/v1/tenant"), "the project key reaches the Tenant API");
+    assert.equal(credentials.managementPrincipalId, "project-management");
+    assert.ok(await runtimeGet(runtimeUrl, credentials.applicationKey, "/v1/agents"), "the project key reaches the Runtime API");
+    assert.ok(
+      await runtimeGet(runtimeUrl, credentials.managementKey, "/v1/tenant"),
+      "the project's management key reaches the Management API",
+    );
+    const refused = await fetch(`${runtimeUrl}/v1/tenant`, {
+      headers: runtimeHeaders(credentials.applicationKey),
+      signal: AbortSignal.timeout(10_000),
+    });
+    assert.equal(refused.status, 403, "the project's application key does not reach the Management API");
+    assert.equal((await refused.json()).code, "key_role_mismatch");
     assert.ok((await admin.keys.list()).some((key) => key.id === "project"), "the Admin API lists the project key");
 
     // `down` and `up` are the Compose spellings of `stop` and `start`: a second
