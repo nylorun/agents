@@ -1,6 +1,7 @@
 /**
- * Writes the Runtime's OpenAPI document into `dist/` after `tsc` (`dist/openapi.json`), from
- * the routes as built (`dist/api/openapi.js`).
+ * Writes the Runtime's OpenAPI documents into `dist/` after `tsc`: the Runtime API
+ * (`dist/openapi.json`) and the Management API (`dist/management-openapi.json`), from the routes
+ * as built (`dist/api/openapi.js`).
  *
  *   node scripts/build-openapi.mjs            write dist/
  *   node scripts/build-openapi.mjs --write    and update the snapshots in openapi/
@@ -16,8 +17,13 @@ const mode = process.argv[2];
 if (mode !== undefined && mode !== "--write" && mode !== "--check")
   throw new Error("Usage: build-openapi.mjs [--write|--check]");
 
-const { tenantDocument } = await import(new URL("dist/api/openapi.js", root).href);
-const documents = { "openapi.json": tenantDocument() };
+const { managementDocument, runtimeDocument } = await import(
+  new URL("dist/api/openapi.js", root).href
+);
+const documents = {
+  "openapi.json": runtimeDocument(),
+  "management-openapi.json": managementDocument(),
+};
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
 const stale = [];
