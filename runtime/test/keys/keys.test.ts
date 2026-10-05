@@ -47,7 +47,8 @@ async function boot(): Promise<Started> {
 async function call(runtime: Started, method: string, path: string, body?: unknown) {
   const response = await fetch(`${runtime.url}${path}`, {
     method,
-    headers,
+    // The Management API (`/v1/tenant/*`) takes the management key (protocol 8).
+    headers: path.startsWith("/v1/tenant") ? { ...headers, ...runtime.managementHeaders() } : headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -57,14 +58,14 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 describe("the Tenant API through the keys service", () => {
   it("creates and rotates a credential, and keeps a vault error's status", async () => {
     const runtime = await boot();
-    const vault = await call(runtime, "POST", "/v1/vaults", {
+    const vault = await call(runtime, "POST", "/v1/tenant/vaults", {
       requestId: "v1",
       idempotencyKey: "v1",
       name: "GitHub",
       ownerUserId: "ada",
     });
     expect(vault.status).toBe(200);
-    const created = await call(runtime, "POST", `/v1/vaults/${vault.body.id}/credentials`, {
+    const created = await call(runtime, "POST", `/v1/tenant/vaults/${vault.body.id}/credentials`, {
       requestId: "c1",
       idempotencyKey: "c1",
       name: "token",
@@ -75,12 +76,12 @@ describe("the Tenant API through the keys service", () => {
     const rotated = await call(
       runtime,
       "POST",
-      `/v1/vaults/${vault.body.id}/credentials/${created.body.id}`,
+      `/v1/tenant/vaults/${vault.body.id}/credentials/${created.body.id}`,
       { requestId: "r1", idempotencyKey: "r1", auth: { type: "bearer", token: "second-secret-value" } },
     );
     expect(rotated.status).toBe(200);
     // A vault error raised in the gateway keeps its status across the hop.
-    const missing = await call(runtime, "POST", `/v1/vaults/${vault.body.id}/credentials/cred_missing`, {
+    const missing = await call(runtime, "POST", `/v1/tenant/vaults/${vault.body.id}/credentials/cred_missing`, {
       requestId: "r2",
       idempotencyKey: "r2",
       auth: { type: "bearer", token: "x-secret-value" },
@@ -136,15 +137,15 @@ describe("the Tenant API through the keys service", () => {
 
   it("rotates signing keys, and keeps a refusal's code and details", async () => {
     const runtime = await boot();
-    expect((await call(runtime, "GET", "/v1/access/signing-keys")).status).toBe(200);
-    const first = await call(runtime, "POST", "/v1/access/signing-keys/rotate", { requestId: "k1" });
+    expect((await call(runtime, "GET", "/v1/tenant/signing-keys")).status).toBe(200);
+    const first = await call(runtime, "POST", "/v1/tenant/signing-keys/rotate", { requestId: "k1" });
     expect(first.status).toBe(200);
     expect(first.body.keys.map((key: { state: string }) => key.state).sort()).toEqual([
       "current",
       "previous",
       "standby",
     ]);
-    const second = await call(runtime, "POST", "/v1/access/signing-keys/rotate", { requestId: "k2" });
+    const second = await call(runtime, "POST", "/v1/tenant/signing-keys/rotate", { requestId: "k2" });
     expect(second.status).toBe(409);
     expect(second.body).toMatchObject({
       code: "request_rejected",

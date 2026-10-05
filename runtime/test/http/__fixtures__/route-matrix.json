@@ -59,6 +59,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/actions/act-missing/heartbeat": {
@@ -121,6 +133,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/endpoints": {
@@ -181,6 +205,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "PUT /v1/endpoints": {
@@ -243,6 +279,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "DELETE /v1/endpoints/ghost": {
@@ -305,6 +353,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/endpoints/ghost/ping": {
@@ -367,6 +427,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/actions/act-missing/result": {
@@ -429,6 +501,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/sessions/s1/commands": {
@@ -484,6 +568,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "[\n  {\n    \"code\": \"invalid_union\",\n    \"errors\": [\n      [\n        {\n          \"code\": \"invalid_union\",\n          \"errors\": [\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ],\n            [\n              {\n                \"expected\": \"object\",\n                \"code\": \"invalid_type\",\n                \"path\": [],\n                \"message\": \"Invalid input: expected object, received array\"\n              }\n            ]\n          ],\n          \"path\": [],\n          \"message\": \"Invalid input\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ],\n      [\n        {\n          \"expected\": \"object\",\n          \"code\": \"invalid_type\",\n          \"path\": [],\n          \"message\": \"Invalid input: expected object, received array\"\n        }\n      ]\n    ],\n    \"path\": [],\n    \"message\": \"Invalid input\"\n  }\n]"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/agents": {
@@ -524,6 +620,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "PUT /v1/agents/bot": {
@@ -589,6 +697,18 @@
           "agents:write"
         ]
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions": {
@@ -636,6 +756,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "PUT /v1/sessions/s2": {
@@ -691,6 +823,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions/s1": {
@@ -738,6 +882,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions/missing": {
@@ -793,6 +949,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Session not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions/s1/items": {
@@ -840,6 +1008,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions/s1/events": {
@@ -887,6 +1067,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "text/event-stream"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/sessions/s1/sandbox/bash": {
@@ -949,6 +1141,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sandboxes": {
@@ -997,6 +1201,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sandboxes?label=project=acme": {
@@ -1045,6 +1261,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "PUT /v1/sandboxes/team%2Fsbx-missing": {
@@ -1115,6 +1343,18 @@
           "sandboxes:write"
         ]
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sandboxes/team%2Fsbx-missing": {
@@ -1171,6 +1411,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Sandbox not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sandboxes/team%2Fsbx-missing/events": {
@@ -1223,6 +1475,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Sandbox not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "DELETE /v1/sandboxes/team%2Fsbx-missing": {
@@ -1291,6 +1555,18 @@
           "sandboxes:write"
         ]
       }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/artifacts?name=&sessionId=s1": {
@@ -1346,6 +1622,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "An artifact name is 1 to 255 characters, without '/', '\\' or control characters"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/artifacts/af_00000000000000000000000000/versions": {
@@ -1401,6 +1689,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts": {
@@ -1448,6 +1748,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts?sessionId=s1": {
@@ -1495,6 +1807,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts/af_00000000000000000000000000": {
@@ -1550,6 +1874,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/content": {
@@ -1605,6 +1941,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/tree": {
@@ -1660,6 +2008,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/1/files/app%2Findex.html": {
@@ -1715,6 +2075,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/2/diff?from=1": {
@@ -1770,6 +2142,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifacts/af_00000000000000000000000000/versions/latest/zip": {
@@ -1825,6 +2209,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/artifacts/af_00000000000000000000000000/links": {
@@ -1880,6 +2276,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "DELETE /v1/artifacts/af_00000000000000000000000000": {
@@ -1935,6 +2343,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Artifact not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/artifact-links/not-a-token": {
@@ -1985,6 +2405,18 @@
       "contentType": "application/json",
       "code": "not_found",
       "message": "Not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/tenant/artifacts": {
@@ -2001,8 +2433,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2011,41 +2445,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/tenant/artifacts": {
@@ -2062,10 +2499,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2074,43 +2511,46 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant": {
@@ -2127,8 +2567,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2137,41 +2579,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "POST /v1/tenant/reset": {
@@ -2188,10 +2633,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2202,20 +2647,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -2234,6 +2673,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/tenant/config/seed": {
@@ -2250,10 +2701,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2264,20 +2715,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -2296,6 +2741,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant/models": {
@@ -2312,8 +2769,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2322,44 +2781,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings or agents:write required",
-      "details": {
-        "scopes": [
-          "tenant:settings",
-          "agents:write"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings or agents:write required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings",
-          "agents:write"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings or agents:write required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings",
-          "agents:write"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant/sandbox": {
@@ -2376,8 +2835,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2386,41 +2847,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/tenant/sandbox": {
@@ -2437,10 +2901,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2449,43 +2913,46 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant/providers": {
@@ -2502,8 +2969,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2512,44 +2981,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings or agents:write required",
-      "details": {
-        "scopes": [
-          "tenant:settings",
-          "agents:write"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings or agents:write required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings",
-          "agents:write"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings or agents:write required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings",
-          "agents:write"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant/usage?scope=agent&id=bot&period=month": {
@@ -2566,8 +3035,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2576,41 +3047,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant/budgets": {
@@ -2627,8 +3101,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2637,41 +3113,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/tenant/budgets": {
@@ -2688,10 +3167,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2700,43 +3179,46 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/tenant/model": {
@@ -2753,8 +3235,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2763,41 +3247,44 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/tenant/model": {
@@ -2814,10 +3301,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2826,43 +3313,46 @@
       "message": "Application keys are not accepted from browsers"
     },
     "subject": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope tenant:settings required",
+      "message": "This route is not available when acting for a subject",
       "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
+        "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/tenant/model/selection": {
@@ -2879,75 +3369,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
-    },
-    "application-browser": {
       "status": 403,
       "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 400,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
-    },
-    "token-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope tenant:settings required",
-      "details": {
-        "scopes": [
-          "tenant:settings"
-        ]
-      }
-    }
-  },
-  "POST /v1/vaults": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
-      "status": 400,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -2958,20 +3383,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -2990,9 +3409,21 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
-  "GET /v1/vaults?ownerUserId=app:ann": {
+  "POST /v1/tenant/vaults": {
     "none": {
       "status": 404,
       "contentType": "application/json",
@@ -3006,9 +3437,145 @@
       "message": "Not found"
     },
     "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/tenant/vaults?ownerUserId=app:ann": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "management": {
       "status": 200,
       "contentType": "application/json"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/tenant/vaults/<vault>": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3018,20 +3585,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3050,25 +3611,37 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "GET /v1/vaults/<vault>": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 200,
       "contentType": "application/json"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "DELETE /v1/tenant/vaults/vlt-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3078,20 +3651,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3110,27 +3677,39 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "DELETE /v1/vaults/vlt-missing": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Vault not found"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "POST /v1/tenant/vaults/<vault>/credentials": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3140,20 +3719,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3172,27 +3745,39 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "POST /v1/vaults/<vault>/credentials": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/tenant/vaults/<vault>/credentials": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3202,20 +3787,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3234,25 +3813,37 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "GET /v1/vaults/<vault>/credentials": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 200,
       "contentType": "application/json"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/tenant/vaults/<vault>/credentials/crd-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3262,20 +3853,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3294,27 +3879,39 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "GET /v1/vaults/<vault>/credentials/crd-missing": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Credential not found"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "POST /v1/tenant/vaults/<vault>/credentials/crd-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3324,20 +3921,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3356,27 +3947,39 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "POST /v1/vaults/<vault>/credentials/crd-missing": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
     },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "DELETE /v1/tenant/vaults/<vault>/credentials/crd-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
     "application-browser": {
       "status": 403,
       "contentType": "application/json",
@@ -3386,20 +3989,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3418,71 +4015,21 @@
       "details": {
         "scopes": []
       }
-    }
-  },
-  "DELETE /v1/vaults/<vault>/credentials/crd-missing": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Credential not found"
     },
-    "application-browser": {
+    "management-subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "token-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
-  "POST /v1/vaults/<vault>/oauth/start": {
+  "POST /v1/tenant/vaults/<vault>/oauth/start": {
     "none": {
       "status": 404,
       "contentType": "application/json",
@@ -3496,10 +4043,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -3510,20 +4057,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3542,6 +4083,18 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/oauth/callback?state=matrix-state&code=matrix-code": {
@@ -3586,6 +4139,18 @@
       "status": 400,
       "contentType": "text/html; charset=utf-8",
       "message": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Sign-in failed · Nylorun</title>\n<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#1a1a1a;background:#fff}@media (prefers-color-scheme:dark){body{color:#eee;background:#111}}h1{font-size:1.25rem}</style>\n</head><body><h1>Sign-in failed</h1><p>This sign-in is unknown, already used or expired: start the connect again</p></body></html>\n"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/access/jwks": {
@@ -3624,6 +4189,16 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/me": {
@@ -3664,69 +4239,19 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
-    }
-  },
-  "GET /v1/access/signing-keys": {
-    "none": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
     },
-    "wrong": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "not_found",
-      "message": "Not found"
-    },
-    "application": {
+    "management": {
       "status": 200,
       "contentType": "application/json"
     },
-    "application-browser": {
+    "management-subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
-    },
-    "token-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
-  "POST /v1/access/signing-keys/rotate": {
+  "GET /v1/tenant/signing-keys": {
     "none": {
       "status": 404,
       "contentType": "application/json",
@@ -3740,10 +4265,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -3754,20 +4279,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3786,9 +4305,19 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
-  "POST /v1/access/signing-keys/kid-missing/revoke": {
+  "POST /v1/tenant/signing-keys/rotate": {
     "none": {
       "status": 404,
       "contentType": "application/json",
@@ -3802,10 +4331,10 @@
       "message": "Not found"
     },
     "application": {
-      "status": 400,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "application-browser": {
       "status": 403,
@@ -3816,20 +4345,14 @@
     "subject": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "This route is not available when acting for a subject",
-      "details": {
-        "scopes": []
-      }
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
     },
     "token": {
       "status": 403,
@@ -3848,6 +4371,86 @@
       "details": {
         "scopes": []
       }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "POST /v1/tenant/signing-keys/kid-missing/revoke": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "POST /v1/ag-ui/agents/bot": {
@@ -3903,6 +4506,18 @@
       "contentType": "application/json",
       "code": "invalid_request",
       "message": "Invalid RunAgentInput"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/ag-ui/agents/bot/threads/t1/messages": {
@@ -3952,6 +4567,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/ag-ui/agents/bot/threads/t1/events": {
@@ -4007,6 +4634,18 @@
       "contentType": "application/json",
       "code": "invalid_request",
       "message": "Last-Event-ID or ?cursor= is required"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/ag-ui/agents/bot/threads/t1/cancel": {
@@ -4062,6 +4701,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Session not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/a2a/agents/bot": {
@@ -4111,6 +4762,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/a2a/agents/bot/card": {
@@ -4151,6 +4814,18 @@
     "token-browser": {
       "status": 200,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "POST /v1/sessions/s1/commands/x": {
@@ -4201,6 +4876,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/sessions/s1/items/x": {
@@ -4251,6 +4938,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/sessions/s1/events/x": {
@@ -4301,6 +5000,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/actions/act-missing": {
@@ -4351,6 +5062,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/executors": {
@@ -4401,6 +5124,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/executors/connect": {
@@ -4451,6 +5186,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/actions": {
@@ -4501,6 +5248,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "POST /v1/actions/act-missing/claim": {
@@ -4551,6 +5310,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "POST /v1/tokens": {
@@ -4601,6 +5372,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/access/policy": {
@@ -4651,6 +5434,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/access/policy": {
@@ -4701,6 +5496,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/access/publishable-keys": {
@@ -4751,6 +5558,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "POST /v1/access/publishable-keys": {
@@ -4801,6 +5620,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PUT /v1/access/publishable-keys/pk-missing": {
@@ -4851,6 +5682,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "DELETE /v1/access/publishable-keys/pk-missing": {
@@ -4901,6 +5744,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "POST /v1/access/revocations": {
@@ -4951,6 +5806,452 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "POST /v1/vaults": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/vaults?ownerUserId=app:ann": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/vaults/vlt-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "DELETE /v1/vaults/vlt-missing": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "POST /v1/vaults/vlt-missing/oauth/start": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/access/signing-keys": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "POST /v1/access/signing-keys/rotate": {
+    "none": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "wrong": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "not_found",
+      "message": "Not found"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/sessions/missing/unknown": {
@@ -5001,6 +6302,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/sessions/": {
@@ -5051,6 +6364,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1//sessions": {
@@ -5101,6 +6426,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/agents/": {
@@ -5151,6 +6488,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v1/sessions/s%2F1": {
@@ -5206,6 +6555,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Session not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions/%E2%9C%93": {
@@ -5261,6 +6622,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Session not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
   "GET /v1/sessions/%E0%A4%A": {
@@ -5307,6 +6680,18 @@
       "message": "Malformed path"
     },
     "token-browser": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Malformed path"
+    },
+    "management-subject": {
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
@@ -5361,6 +6746,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "GET /v2/agents": {
@@ -5411,6 +6808,18 @@
       "contentType": "application/json",
       "code": "origin_rejected",
       "message": "Browser Origin headers are not accepted"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "PATCH /v1/sessions/s1": {
@@ -5461,6 +6870,18 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
     }
   },
   "HEAD /v1/agents": {
@@ -5494,6 +6915,14 @@
     },
     "token-browser": {
       "status": 404,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
       "contentType": "application/json"
     }
   },
@@ -5529,6 +6958,14 @@
     "token-browser": {
       "status": 404,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json"
     }
   },
   "HEAD /v1/sessions/s1/events": {
@@ -5563,6 +7000,14 @@
     "token-browser": {
       "status": 404,
       "contentType": "application/json"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json"
     }
   },
   "OPTIONS /v1/agents": {
@@ -5588,6 +7033,12 @@
       "status": 204
     },
     "token-browser": {
+      "status": 204
+    },
+    "management": {
+      "status": 204
+    },
+    "management-subject": {
       "status": 204
     }
   }

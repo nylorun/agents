@@ -145,11 +145,16 @@ async function boot(_directory: string, model?: ModelProvider) {
   });
 }
 
-async function createBearer(runtime: { url: string }, ownerUserId: string, url: string, token: string) {
+async function createBearer(
+  runtime: { url: string; managementHeaders(): Record<string, string> },
+  ownerUserId: string,
+  url: string,
+  token: string,
+) {
   const vault = await (
-    await fetch(`${runtime.url}/v1/vaults`, {
+    await fetch(`${runtime.url}/v1/tenant/vaults`, {
       method: "POST",
-      headers: serverHeaders,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({
         requestId: `vault-${ownerUserId}-${url}`,
         idempotencyKey: `vault-${ownerUserId}-${url}`,
@@ -159,9 +164,9 @@ async function createBearer(runtime: { url: string }, ownerUserId: string, url: 
     })
   ).json();
   const credential = await (
-    await fetch(`${runtime.url}/v1/vaults/${vault.id}/credentials`, {
+    await fetch(`${runtime.url}/v1/tenant/vaults/${vault.id}/credentials`, {
       method: "POST",
-      headers: serverHeaders,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({
         requestId: `cred-${token}`,
         idempotencyKey: `cred-${token}`,
@@ -407,6 +412,62 @@ it("refuses an ambiguous server and still discovers the other one", async () => 
   } finally {
     await runtime.close();
     await github.close();
+    await docs.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("records mcp.discovered once, on the first turn, with each server's outcome", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mcp-discovered-"));
+  const docs = await probe({ name: "docs", tool: "search" });
+  const down = await probe({ name: "down", tool: "never" });
+  await down.close();
+  const runtime = await boot(directory, async () => ({
+    output: [{ type: "text", text: "done" }],
+  }));
+  try {
+    const agent = Agent({ id: "bot", name: "Bot" })
+      .use({
+        id: "tools",
+        mcpServers: {
+          docs: { name: "docs", type: "streamable-http", url: docs.url },
+          down: { name: "down", type: "streamable-http", url: down.url },
+        },
+      })
+      .build();
+    await register(runtime, agent.manifest);
+    await openSession(runtime, "s1");
+    await say(runtime, "s1", "first");
+    expect((await until(runtime, "s1", ["completed", "failed", "uncertain"])).status).toBe("completed");
+    await say(runtime, "s1", "second");
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const history = await (await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })).json();
+      if (history.items.filter((item: { type: string }) => item.type === "turn.completed").length === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const history = await (await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers: serverHeaders })).json();
+    const types = history.items.map((item: { type: string }) => item.type);
+    expect(types.filter((type: string) => type === "turn.completed")).toHaveLength(2);
+    const discovered = history.items.filter((item: { type: string }) => item.type === "mcp.discovered");
+    expect(discovered).toHaveLength(1);
+    // Before the first turn's model call: the log says which tools the model has.
+    expect(types.indexOf("mcp.discovered")).toBeLessThan(types.indexOf("turn.completed"));
+    expect(discovered[0].turnId).toBe(history.items.find((item: { type: string }) => item.type === "turn.completed").turnId);
+    expect(discovered[0].payload.servers).toEqual(
+      expect.arrayContaining([
+        { capabilityId: "tools", serverName: "docs", outcome: "connected", message: "Connected", tools: 1 },
+        {
+          capabilityId: "tools",
+          serverName: "down",
+          outcome: "failed",
+          message: expect.stringMatching(/ECONNREFUSED/),
+          tools: 0,
+        },
+      ]),
+    );
+    expect(discovered[0].payload.servers).toHaveLength(2);
+  } finally {
+    await runtime.close();
     await docs.close();
     await rm(directory, { recursive: true, force: true });
   }

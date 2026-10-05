@@ -2,26 +2,28 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
+/** The Management API's vaults (protocol 8): Studio's key acts as itself there. */
+const VAULTS = "/v1/tenant/vaults";
 
 function isVaultRead(method: string, path: string): boolean {
   return (
     method === "GET" &&
-    (/^\/v1\/vaults$/.test(path) ||
-      /^\/v1\/vaults\/[^/]+$/.test(path) ||
-      /^\/v1\/vaults\/[^/]+\/credentials$/.test(path) ||
-      /^\/v1\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))
+    (/^\/v1\/tenant\/vaults$/.test(path) ||
+      /^\/v1\/tenant\/vaults\/[^/]+$/.test(path) ||
+      /^\/v1\/tenant\/vaults\/[^/]+\/credentials$/.test(path) ||
+      /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))
   );
 }
 
 function isVaultWrite(method: string, path: string): boolean {
   return (
     (method === "POST" &&
-      (/^\/v1\/vaults$/.test(path) ||
-        /^\/v1\/vaults\/[^/]+\/credentials$/.test(path) ||
-        /^\/v1\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))) ||
+      (/^\/v1\/tenant\/vaults$/.test(path) ||
+        /^\/v1\/tenant\/vaults\/[^/]+\/credentials$/.test(path) ||
+        /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path))) ||
     (method === "DELETE" &&
-      (/^\/v1\/vaults\/[^/]+$/.test(path) ||
-        /^\/v1\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path)))
+      (/^\/v1\/tenant\/vaults\/[^/]+$/.test(path) ||
+        /^\/v1\/tenant\/vaults\/[^/]+\/credentials\/[^/]+$/.test(path)))
   );
 }
 
@@ -39,7 +41,8 @@ export type StudioProxyOptions = {
 /**
  * Trusted Runtime proxy: forwards one allowlisted Tenant API request with the
  * given bearer. The Host serves one Tenant, so nothing names it. Credentials
- * stay in this process, not the browser.
+ * stay in this process, not the browser. It never sends `Nylorun-Subject` or
+ * `Nylorun-Scopes`: on `/v1/tenant/*` Studio's key acts as itself (AP15).
  */
 export async function proxyRuntime(
   request: IncomingMessage,
@@ -61,7 +64,7 @@ export async function proxyRuntime(
   const read =
     method === "GET" &&
     (/^\/v1\/(agents|sessions)$/.test(path) ||
-      /^\/v1\/sessions\/[^/]+(?:\/(items|events))?$/.test(path) ||
+      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest))?$/.test(path) ||
       path === "/v1/tenant/model" ||
       path === "/v1/tenant/models" ||
       path === "/v1/tenant/providers" ||
@@ -99,12 +102,10 @@ export async function proxyRuntime(
     }
     if (!value || typeof value !== "object" || Array.isArray(value))
       return fail(400, "JSON object required");
-    if (vaultWrite && path === "/v1/vaults" && method === "POST") {
-      // Studio's Connections are the installation's own vaults, which any session may use.
-      delete value.ownerUserId;
-      value.scope = "installation";
-    }
-    else if (!tenantWrite && !vaultWrite && method === "PUT")
+    if (vaultWrite && path === VAULTS && method === "POST") {
+      if (value.scope !== "installation" || value.ownerUserId !== undefined)
+        return fail(400, "Studio creates installation vaults only");
+    } else if (!tenantWrite && !vaultWrite && method === "PUT")
       value.ownerUserId = LOCAL_OWNER;
     else if (
       !tenantWrite &&
@@ -117,8 +118,8 @@ export async function proxyRuntime(
       );
     body = JSON.stringify(value);
   }
-  if (path === "/v1/vaults" && method === "GET")
-    incoming.searchParams.set("ownerUserId", LOCAL_OWNER);
+  if (path === VAULTS && method === "GET" && incoming.searchParams.has("ownerUserId"))
+    return fail(400, "Studio lists installation vaults only");
   const controller = new AbortController();
   response.on("close", () => controller.abort());
   try {

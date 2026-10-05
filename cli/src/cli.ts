@@ -9,7 +9,7 @@ import { putHostModel } from "./model/host-model.js";
 import { CliError } from "./errors.js";
 import { findProjectRoot } from "./project/root.js";
 import { printLinkedEnvExports } from "./project/env.js";
-import { linkedConnection } from "./project/connection.js";
+import { linkedConnection, managementClient } from "./project/connection.js";
 import { accessCommand } from "./access/commands.js";
 import {
   endpointsCommand,
@@ -20,7 +20,8 @@ import {
 const usage = `nylo <status|reset|endpoints|access|configure|env|doctor>
 
 Runtime client for the linked installation and its one Tenant (the Project link that
-npx nylorun start writes, or NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY):
+npx nylorun start writes, or NYLORUN_RUNTIME_URL with NYLORUN_SERVER_KEY, and
+NYLORUN_MANAGEMENT_KEY for status, reset, access, configure and doctor):
   status [--json]                         the Tenant, its checks and counts
   reset [--sessions|--sandboxes|--all] [--yes]
                                           clear the Tenant's sessions, sandboxes or all its data
@@ -139,6 +140,7 @@ async function main() {
     if (flags.rest.length) throw usageError(usage);
     const projectRoot = findProjectRoot() ?? process.cwd();
     const auth = await linkedConnection(projectRoot);
+    const admin = managementClient(auth);
     const controller = new AbortController();
     const cancel = (signal: "SIGINT" | "SIGTERM") =>
       controller.abort(new ConfigurationCancelled(signal));
@@ -150,12 +152,12 @@ async function main() {
         `No Runtime is listening at ${auth.url}. Start the local Tenant with "npx nylorun start".`,
         6,
       );
-    const catalog = await fetchModelCatalog({ url: auth.url, key: auth.key });
+    const catalog = await fetchModelCatalog(admin);
     const prompted = await configureProvider({
       signal: controller.signal,
       catalog,
     });
-    await putHostModel(auth.url, auth.key, prompted);
+    await putHostModel(admin, prompted);
     return;
   }
 

@@ -50,6 +50,6 @@ it("still checks a credential that is sent, and refuses an application key from 
 });
 
 it("serves nothing else without a credential", async () => {
-  for (const path of ["/v1/agents", "/v1/access/signing-keys", "/v1/endpoints", "/v1/sessions"])
+  for (const path of ["/v1/agents", "/v1/tenant/signing-keys", "/v1/endpoints", "/v1/sessions"])
     expect((await get(path)).status, path).toBe(404);
 });

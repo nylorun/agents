@@ -1,7 +1,9 @@
 /**
  * The scope table: every Tenant route, called acting for a subject without the scope it needs
  * (403 `scope_required`, before anything is read or written) and with it (never 403).
- * Operator routes and Action callbacks are closed to subjects whatever their scopes.
+ * Operator routes and Action callbacks are closed to subjects whatever their scopes; the
+ * Management API (`/v1/tenant/*`, protocol 8) turns the application key away first
+ * (`key_role_mismatch`).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SubjectScope } from "@nylorun/core/contracts";
@@ -38,6 +40,9 @@ interface Route {
   body?: (subject: string) => unknown;
 }
 
+/** The Management API's routes take no application key, with or without a subject. */
+const isManagement = (route: Route) => route.path.startsWith("/v1/tenant");
+
 const routes = (): Route[] => [
   { method: "GET", path: "/v1/agents", needs: ["agents:read", "agents:write"] },
   {
@@ -68,7 +73,7 @@ const routes = (): Route[] => [
   },
   {
     method: "POST",
-    path: "/v1/vaults",
+    path: "/v1/tenant/vaults",
     needs: "never",
     body: (subject) => ({
       requestId: "v",
@@ -77,36 +82,37 @@ const routes = (): Route[] => [
       ownerUserId: subject,
     }),
   },
-  { method: "GET", path: "/v1/vaults", needs: "never" },
-  { method: "GET", path: `/v1/vaults/${vaultId}`, needs: "never" },
-  { method: "DELETE", path: `/v1/vaults/${vaultId}`, needs: "never" },
-  { method: "GET", path: `/v1/vaults/${vaultId}/credentials`, needs: "never" },
-  { method: "POST", path: `/v1/vaults/${vaultId}/credentials`, needs: "never" },
+  { method: "GET", path: "/v1/tenant/vaults", needs: "never" },
+  { method: "GET", path: `/v1/tenant/vaults/${vaultId}`, needs: "never" },
+  { method: "DELETE", path: `/v1/tenant/vaults/${vaultId}`, needs: "never" },
+  { method: "GET", path: `/v1/tenant/vaults/${vaultId}/credentials`, needs: "never" },
+  { method: "POST", path: `/v1/tenant/vaults/${vaultId}/credentials`, needs: "never" },
   {
     method: "GET",
-    path: `/v1/vaults/${vaultId}/credentials/${credentialId}`,
+    path: `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
     needs: "never",
   },
   {
     method: "POST",
-    path: `/v1/vaults/${vaultId}/credentials/${credentialId}`,
+    path: `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
     needs: "never",
   },
   {
     method: "DELETE",
-    path: `/v1/vaults/${vaultId}/credentials/${credentialId}`,
+    path: `/v1/tenant/vaults/${vaultId}/credentials/${credentialId}`,
     needs: "never",
   },
-  { method: "GET", path: "/v1/tenant", needs: ["tenant:settings"] },
-  { method: "GET", path: "/v1/tenant/models", needs: ["tenant:settings", "agents:write"] },
-  { method: "GET", path: "/v1/tenant/providers", needs: ["tenant:settings", "agents:write"] },
-  { method: "GET", path: "/v1/tenant/sandbox", needs: ["tenant:settings"] },
-  { method: "GET", path: "/v1/tenant/model", needs: ["tenant:settings"] },
-  { method: "PUT", path: "/v1/tenant/model", needs: ["tenant:settings"], body: () => ({}) },
+  // `tenant:settings` is retired (protocol 8): no scope reaches the Tenant's settings.
+  { method: "GET", path: "/v1/tenant", needs: "never" },
+  { method: "GET", path: "/v1/tenant/models", needs: "never" },
+  { method: "GET", path: "/v1/tenant/providers", needs: "never" },
+  { method: "GET", path: "/v1/tenant/sandbox", needs: "never" },
+  { method: "GET", path: "/v1/tenant/model", needs: "never" },
+  { method: "PUT", path: "/v1/tenant/model", needs: "never", body: () => ({}) },
   {
     method: "PUT",
     path: "/v1/tenant/model/selection",
-    needs: ["tenant:settings"],
+    needs: "never",
     body: () => ({}),
   },
   {
@@ -147,7 +153,10 @@ describe("route declarations", () => {
       ["DELETE", "v1/agents/bot"],
       ["POST", "v1/sessions"],
       ["GET", "v1/sessions/s/items/extra"],
-      ["PATCH", "v1/vaults/v"],
+      ["PATCH", "v1/tenant/vaults/v"],
+      // The old vault and signing-key paths are gone (protocol 8).
+      ["GET", "v1/vaults"],
+      ["GET", "v1/access/signing-keys"],
       ["GET", "v1/tenant/unknown"],
       ["GET", "health"],
     ] as const)
@@ -165,6 +174,10 @@ it("refuses a route without its scope before reading the request", async () => {
     // No body: the refusal comes from the route alone.
     const reply = await tenant.call(route.method, route.path, { as });
     expect(reply.status, `${route.method} ${route.path}`).toBe(403);
+    if (isManagement(route)) {
+      expect(reply.body.code, `${route.method} ${route.path}`).toBe("key_role_mismatch");
+      continue;
+    }
     expect(reply.body.code).toBe("scope_required");
     expect(reply.body.details.scopes).toEqual(route.needs === "never" ? [] : route.needs);
   }
@@ -174,7 +187,11 @@ it("refuses a route without its scope before reading the request", async () => {
   expect((await tenant.call("GET", "/v1/sessions/fresh")).status).toBe(404);
   expect((await tenant.call("GET", "/v1/sessions/owned")).status).toBe(200);
   expect(
-    (await tenant.call("GET", "/v1/vaults?ownerUserId=app:probe")).body.vaults
+    (
+      await tenant.call("GET", "/v1/tenant/vaults?ownerUserId=app:probe", {
+        key: tenant.runtime.managementKey,
+      })
+    ).body.vaults
   ).toEqual([]);
 });
 

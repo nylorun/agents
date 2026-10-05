@@ -58,6 +58,7 @@ it("documents every Tenant operation once, with who may call it", () => {
     "applicationKey",
     "deliveryToken",
     "issuerToken",
+    "managementKey",
   ]);
 });
 

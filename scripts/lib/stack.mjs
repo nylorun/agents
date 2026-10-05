@@ -249,9 +249,34 @@ export async function createStack({
       const { createAdmin } = await import(module);
       return createAdmin({ home });
     },
-    /** The Tenant's id and the checks' operator key (see `hostTenant`). */
+    /**
+     * The checks' management key (`checks-management`): `nylorun key put --management` on the
+     * machine (the only way to issue one), once per Tenant in this process and reused after.
+     * Putting it again would rotate it; a linked project's `project-management` is never touched.
+     */
+    async managementKey() {
+      const cached = `${home} ${project}`;
+      let key = managementKeys.get(cached);
+      if (!key) {
+        key = stack
+          .nylorun(["key", "put", CHECKS_MANAGEMENT_KEY_ID, "--management"], { echo: false })
+          .then(({ stdout }) => {
+            const issued = stdout.trim();
+            assert.match(issued, /^\S+$/, "nylorun key put --management prints the key alone");
+            return issued;
+          });
+        managementKeys.set(cached, key);
+        key.catch(() => managementKeys.delete(cached));
+      }
+      return key;
+    },
+    /**
+     * The Tenant's id, the checks' application key (see `hostTenant`) and their management key
+     * (`managementKey`, for `/v1/tenant/*`).
+     */
     async tenant(module) {
-      return hostTenant(await stack.admin(module));
+      const tenant = await hostTenant(await stack.admin(module));
+      return { ...tenant, managementKey: await stack.managementKey() };
     },
     async logs(tail = 200) {
       if (!existsSync(join(home, "docker", "compose.yaml"))) return;
@@ -339,16 +364,25 @@ export async function eventually(check, { timeout = 60_000, interval = 250, mess
   }
 }
 
-/** The operator key the checks use; `project` stays the linked projects' own. */
+/** The application key the checks use; `project` stays the linked projects' own. */
 export const CHECKS_KEY_ID = "checks";
 /** The checks key per Admin API URL and Tenant id, put once in this process. */
 const checksKeys = new Map();
+/**
+ * The management key the checks use for the Management API (`/v1/tenant/*`), which takes no
+ * application key; `project-management` stays the linked projects' own.
+ */
+export const CHECKS_MANAGEMENT_KEY_ID = "checks-management";
+/** The checks' management key per Host root and Tenant, put once in this process. */
+const managementKeys = new Map();
 
 /**
  * The Host's one Tenant from `admin.status()`, once it is open, with a key for
- * the checks: the operator key `checks` (F9 I1), put through `admin.keys.put`
+ * the checks: the application key `checks` (F9 I1), put through `admin.keys.put`
  * once per Tenant in this process and reused after. Putting it again would
- * rotate it, and a linked project's `project` key is never touched.
+ * rotate it, and a linked project's `project` key is never touched. It reaches
+ * the Runtime API only; `/v1/tenant/*` takes the management key
+ * (`stack.managementKey()`, or `stack.tenant()` for both).
  * @param {{ adminUrl: string, status(): Promise<{ tenant: { id: string | null, state: string } }>, keys: { put(id: string): Promise<{ key: string }> } }} admin
  * @returns {Promise<{ id: string, key: string }>}
  */
@@ -368,7 +402,10 @@ export async function hostTenant(admin) {
 
 export const PROTOCOL = "5";
 
-/** Headers for the Tenant API: the Host's one Tenant, so nothing selects it. */
+/**
+ * Headers for the Tenant's APIs (an application key for the Runtime API, a management key for
+ * `/v1/tenant/*`): the Host's one Tenant, so nothing selects it.
+ */
 export function runtimeHeaders(key, extra = {}) {
   return {
     authorization: `Bearer ${key}`,
@@ -377,7 +414,7 @@ export function runtimeHeaders(key, extra = {}) {
   };
 }
 
-/** GET a Tenant API path as JSON (throws on a non-2xx status). */
+/** GET a path on the Tenant's APIs as JSON (throws on a non-2xx status). */
 export async function runtimeGet(runtimeUrl, key, path) {
   const response = await fetch(`${runtimeUrl}${path}`, {
     headers: runtimeHeaders(key),

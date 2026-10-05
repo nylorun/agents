@@ -417,7 +417,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     const status = await until(
       async () =>
         TenantStatusSchema.parse(
-          await (await fetch(`${runtime.url}/v1/tenant`, { headers: server })).json()
+          await (await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() })).json()
         ),
       (s) => s.execution?.stuckInvocations.some((i) => i.status === "paused") ?? false,
       "a paused invocation",

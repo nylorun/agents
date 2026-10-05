@@ -1,14 +1,12 @@
 /**
  * `nylo access`: the linked Tenant's signing keys, which sign delivery tokens and capability
- * links. Uses the Project's application key, like every other Tenant command. (Subject tokens,
- * the access policy, browser keys and revocations left the Runtime in protocol 7.)
+ * links, through the Management API with the Project's management key. (Subject tokens, the
+ * access policy, browser keys and revocations left the Runtime in protocol 7.)
  */
-import {
-  createClient,
-  resolveConnection,
-  type AgentsClient,
-} from "@nylorun/agents";
+import type { ManagementClient } from "@nylorun/admin";
 import { CliError } from "../errors.js";
+import { linkedConnection, managementClient } from "../project/connection.js";
+import { findProjectRoot } from "../project/root.js";
 
 export const accessUsage = `nylo access signing-keys <list|rotate|revoke>
 
@@ -18,25 +16,19 @@ export const accessUsage = `nylo access signing-keys <list|rotate|revoke>
 
 const usageError = (message = accessUsage) => new CliError(message, 2);
 
-async function linkedClient(): Promise<AgentsClient> {
-  let connection;
-  try {
-    connection = await resolveConnection();
-  } catch (error) {
-    throw new CliError(error instanceof Error ? error.message : String(error), 1);
-  }
-  return createClient({ url: connection.url, key: connection.key });
+async function linkedClient(): Promise<ManagementClient> {
+  return managementClient(await linkedConnection(findProjectRoot() ?? process.cwd()));
 }
 
 const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));
 
 export async function accessCommand(
   input: readonly string[],
-  client: () => Promise<AgentsClient> = linkedClient
+  client: () => Promise<ManagementClient> = linkedClient
 ): Promise<void> {
   const [topic, action, ...args] = input;
   if (topic === "signing-keys") {
-    const keys = async () => (await client()).access.signingKeys;
+    const keys = async () => (await client()).signingKeys;
     if (action === "list" && args.length === 0) return print(await (await keys()).list());
     if (action === "rotate") {
       const force = args[0] === "--force";

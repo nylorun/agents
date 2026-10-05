@@ -10,6 +10,7 @@
  * the same.
  */
 import { createHmac } from "node:crypto";
+import { BOOTSTRAP_KEY_ID } from "@nylorun/core/compatibility";
 import { hashToken } from "../core/bearer.js";
 import type { InitialPrincipal } from "../store/postgres/tenant.js";
 
@@ -18,9 +19,13 @@ export type { PrincipalRow } from "../store/types.js";
 /** Principal id of the Studio key derived from the admin key. */
 export const STUDIO_PRINCIPAL_ID = "studio";
 
-/** The Studio key of `tenantId`: HMAC-SHA256 of the admin key. */
-export function deriveStudioKey(adminKey: string, tenantId: string): string {
-  return hmac(adminKey, ["nylorun/studio/v1", tenantId]);
+/**
+ * The Studio key: HMAC-SHA256 of the admin key over `nylorun/studio/v2`. It names no Tenant
+ * (protocol 8): Studio derives it before it can learn the Tenant's id, and the admin key is
+ * already one per installation.
+ */
+export function deriveStudioKey(adminKey: string): string {
+  return hmac(adminKey, ["nylorun/studio/v2"]);
 }
 
 /**
@@ -32,8 +37,23 @@ export function hostPrincipals(options: {
   application?: { principalId: string; key: string };
   /** Registers `studio` with this hash instead of the admin key's derivation. */
   studioCredentialHash?: string;
+  /**
+   * The management key of `NYLORUN_MANAGEMENT_KEY_FILE`: registered as `bootstrap`, and
+   * replaced at the next start when the file changed.
+   */
+  bootstrapKey?: string;
 }): (tenantId: string) => InitialPrincipal[] {
-  return (tenantId) => [
+  return () => [
+    ...(options.bootstrapKey
+      ? [
+          {
+            id: BOOTSTRAP_KEY_ID,
+            role: "management" as const,
+            credentialHash: hashToken(options.bootstrapKey),
+            replace: true,
+          },
+        ]
+      : []),
     ...(options.application
       ? [
           {
@@ -44,9 +64,12 @@ export function hostPrincipals(options: {
       : []),
     {
       id: STUDIO_PRINCIPAL_ID,
-      credentialHash:
-        options.studioCredentialHash ??
-        hashToken(deriveStudioKey(options.adminKey, tenantId)),
+      // Studio runs sessions and edits the Tenant's settings: both APIs (protocol 8).
+      role: "studio" as const,
+      credentialHash: options.studioCredentialHash ?? hashToken(deriveStudioKey(options.adminKey)),
+      // Its key derives from the admin key: a database holding an older derivation (v1, with
+      // the Tenant id) takes this one at the next start.
+      replace: true,
     },
   ];
 }

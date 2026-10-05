@@ -6,7 +6,7 @@ R0–R4 of [Session Reads API](https://claude.ai/artifact/PJWYw6wB62AYhAAALPzeAa
 flowchart LR
     Studio[Studio authentication proxy] --> API[Runtime public API]
     CLI[CLI and custom clients] --> API
-    Warehouse[Cloud Insights or warehouse] --> API
+    Warehouse[Cloud Insights or warehouse] -->|management key| API
     API --> Engine[Existing session routes]
     API --> Reads[ReadStore projections]
     Engine --> WritePool[Existing Postgres pool]
@@ -20,9 +20,9 @@ flowchart LR
 | Read | Request | Access |
 | --- | --- | --- |
 | Pinned session manifest | `GET /v1/sessions/{id}/manifest` | Application; application acting for an owner with `agents:read` or `agents:write` |
-| Recorded session usage | `GET /v1/sessions/{id}/usage?turnId=…` | Application; application acting for an owner with `tenant:settings` |
+| Recorded session usage | `GET /v1/sessions/{id}/usage?turnId=…` | An application key, as itself; no subject scope reaches it |
 | Session model calls | `GET /v1/sessions/{id}/calls/model?limit=50&cursor=…&turnId=…` | Same as usage |
-| Unfiltered ledger export | `GET /v1/tenant/calls/model?limit=200&after=…` | Application; application acting for a person with `tenant:settings` |
+| Unfiltered ledger export | `GET /v1/tenant/calls/model?limit=200&after=…` | Management API: a management key, as itself (an application key is `403 key_role_mismatch`) |
 | Session page | `GET /v1/sessions?limit=50&cursor=…` | Existing ownership and allowed-agent restrictions |
 | Bounded history | `GET /v1/sessions/{id}/items?limit=50&cursor=…&agent=…` | Existing session ownership and allowed-agent restrictions |
 | Sandbox page | `GET /v1/sandboxes?limit=50&cursor=…&label=team=one` | Existing sandbox grants; related sessions are ownership filtered |
@@ -58,8 +58,11 @@ Quality is tri-state: true means reporting/pricing was known, false means explic
 Export orders by lossless `(txid, id)`, and serves only `txid < pg_snapshot_xmin(pg_current_snapshot())`. Its guarantee is **safe transaction order with no skipped committed rows**, provided the consumer resumes with `next`. This does not claim actual commit-time ordering. A held earlier transaction delays delivery of later rows, including transactions in other databases sharing the Postgres cluster. `caughtUp` means the safe horizon was drained at that read, not that no transaction is in flight. Rollbacks cause no delivered row. Legacy rows receive the migration transaction ID. Export is unfiltered; consumers perform warehouse computation downstream.
 
 ```ts
+import { createManagementClient } from "@nylorun/admin/client";
+
+const management = createManagementClient({ url, key: managementKey });
 let after = loadCheckpoint();
-for await (const page of client.calls.exportModel({ after, limit: 200 })) {
+for await (const page of management.models.exportCalls({ after, limit: 200 })) {
   await upsertByRowId(page.calls);
   await saveCheckpoint(page.next); // after successfully processing the page
 }
@@ -68,13 +71,13 @@ for await (const page of client.calls.exportModel({ after, limit: 200 })) {
 
 ## Persistence and readiness
 
-Migration `0011_session_reads` adds nullable session creation time, then its future-insert default, three indexes, nullable quality flags, and a non-null `xid8` ledger transaction ID assigned by Postgres. It does not invent legacy creation times or quality. It runs under the existing migration transaction and lock; existing ledger backfill and index construction can hold table locks, so large installations should account for startup migration duration. No activity write is added to turn transactions.
+Migration `0012_session_reads` adds nullable session creation time, then its future-insert default, three indexes, nullable quality flags, and a non-null `xid8` ledger transaction ID assigned by Postgres. It does not invent legacy creation times or quality. It runs under the existing migration transaction and lock; existing ledger backfill and index construction can hold table locks, so large installations should account for startup migration duration. No activity write is added to turn transactions.
 
 The read adapter uses Drizzle and a separate lazy pool of at most four connections per open Tenant. Transactions are READ ONLY; statements and idle transactions time out after two seconds. A statement timeout is a 503 `read_timeout`. Successful disposal and failed initialization close the read pool, including ephemeral Runtime composition. Reads have no dependency on advancement, commands, scheduler or engine projections; architecture checks enforce the seam. Database imports remain within `store/postgres`, and HTTP declarations remain within `api`.
 
-The merged baseline uses **protocol 7** (F9 open-source authentication). Session reads add no further protocol bump. Require Host features **`session-reads`** for the new session/sandbox/history reads and **`calls-export`** for ledger export. This branch builds from Runtime `0.17.0-beta`, core `0.13.0-beta`, SDK `0.14.0-beta`; those existing version numbers alone do not prove readiness. Feature discovery is authoritative until a release includes this PR. No release is published by this work.
+Session reads add no protocol bump on **protocol 8**. Require Host features **`session-reads`** for the new session/sandbox/history reads and **`calls-export`** for ledger export; feature discovery, not version numbers, is the readiness signal.
 
-SDK: `client.sessions.page()`, `session.manifest()`, `session.usage()`, `session.modelCalls()`, `session.history({ limit: 50 })`, `client.sandboxes.page()`, and `client.calls.exportModel()`. SDK list/page defaults are 50; export iterates resumable pages. `listSessions()` correctly returns summaries; `listAgents()` represents full/public variants, where public entries have no manifest.
+SDK: `client.sessions.page()`, `session.manifest()`, `session.usage()`, `session.modelCalls()`, `session.history({ limit: 50 })`, and `client.sandboxes.page()` in `@nylorun/agents`; the export is `models.exportCalls()` on `@nylorun/admin`'s Management API client. SDK list/page defaults are 50; export iterates resumable pages. `listSessions()` correctly returns summaries; `listAgents()` represents full/public variants, where public entries have no manifest.
 
 Studio can resume after API readiness is confirmed: sessions retain dedicated pages, agents and sandboxes use right-hand detail panes. Reuse existing sandbox detail/events and artifact APIs; sandbox events remain ordinary reads with no new polling or SSE. Tool calls, richer attempts, steering, snapshots, receipts and Cloud aggregation remain deferred.
 
@@ -82,7 +85,7 @@ Studio can resume after API readiness is confirmed: sessions retain dedicated pa
 
 Deterministic fixtures exercise HTTP and SDK contracts, pinned manifests after re-registration, legacy response shapes, timestamp ties including microseconds, nulls, filter/cursor errors, ownership changes, sandbox labels/grants, usage reconciliation and export resume. Postgres tests cover held transactions, out-of-order commits, rollback, legacy migration, lossless transaction positions, restart, write rejection, timeout and cleanup. The shared memory/S2 stream suite tests bounded history, internal records, concurrent handoff and reconnect on another node.
 
-[Recorded query plans and write timings](session-reads-evidence.json) use a disposable Postgres 17 fixture with 5,000 sessions (25 pages) and 20,000 ledger rows. The benchmark isolates a session-row update plus a real committed record append in one Drizzle transaction, with 20 warm-ups followed by 100 samples on each side of migration; it is not an end-to-end engine throughput benchmark. Refreshed after merging the protocol-7 baseline and appending migration `0011`: migration/open took 22 ms. Before/after median writes were 2.44/2.42 ms, p95 2.72/3.20 ms. These local shared-Docker timings are evidence, not a production performance guarantee. Session first/deep pages took 0.051/0.237 ms; ledger calls/export 0.050/0.055 ms. The all-rows usage aggregate took 2.39 ms. Calls/export use their new indexes; latest-event lookup uses a backward scan of the existing record primary key. Deep session pages can filter a creation-index prefix; usage cost grows with recorded rows and remains bounded by the statement timeout.
+[Recorded query plans and write timings](session-reads-evidence.json) use a disposable Postgres 17 fixture with 5,000 sessions (25 pages) and 20,000 ledger rows. The benchmark isolates a session-row update plus a real committed record append in one Drizzle transaction, with 20 warm-ups followed by 100 samples on each side of migration; it is not an end-to-end engine throughput benchmark. Recorded when the migration was `0011` (it is now `0012`, after `0011_key_roles`; the SQL is unchanged): migration/open took 22 ms. Before/after median writes were 2.44/2.42 ms, p95 2.72/3.20 ms. These local shared-Docker timings are evidence, not a production performance guarantee. Session first/deep pages took 0.051/0.237 ms; ledger calls/export 0.050/0.055 ms. The all-rows usage aggregate took 2.39 ms. Calls/export use their new indexes; latest-event lookup uses a backward scan of the existing record primary key. Deep session pages can filter a creation-index prefix; usage cost grows with recorded rows and remains bounded by the statement timeout.
 
 Reproduce evidence after building dependencies:
 

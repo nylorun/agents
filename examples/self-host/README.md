@@ -72,7 +72,7 @@ and naming the `studio` scope.
    person: it creates an agent, then a session for ben and one for another person with
    `Nylorun-Subject`. The same key sent with an `Origin` is `403 origin_rejected`.
 3. ben's token lists his session and not the other one, gets `404` for the other one, `403` for a
-   session owned by someone else, and `403` on `GET /v1/vaults`.
+   session owned by someone else, and `403` on `GET /v1/tenant/vaults` (the Management API).
 4. It writes a token for ben to OpenBao and calls the resolver on its contract: `200` with
    `{ headers: { authorization: "Bearer …" } }` for ben's `github`, `404` for a person with none,
    `401` with a wrong bearer. It checks that the gateway has `NYLORUN_RESOLVER_URL` and reaches

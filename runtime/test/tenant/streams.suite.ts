@@ -240,7 +240,8 @@ export function tenantStreamsSuite(
           applicationKey: APP,
           streams: probe,
           retireGraceMs: 50,
-          ...(first ? { hostRoot: first.root } : {}),
+          // One Tenant: every node keeps the first node's keys.
+          ...(first ? { hostRoot: first.root, managementKey: first.managementKey } : {}),
           ...(options.modelProvider
             ? { modelProvider: options.modelProvider }
             : {}),
@@ -376,7 +377,7 @@ export function tenantStreamsSuite(
       async function reset(node: Node, requestId = "reset-1") {
         const response = await fetch(`${node.url}/v1/tenant/reset`, {
           method: "POST",
-          headers: node.headers(),
+          headers: node.managementHeaders(),
           body: JSON.stringify({ requestId, scope: "sessions", activeWork: "cancel" }),
         });
         expect(response.status).toBe(200);

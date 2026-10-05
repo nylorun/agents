@@ -39,9 +39,21 @@ function singleHeader(request: IncomingMessage, name: string): string | undefine
   return values[0];
 }
 
+/**
+ * Which keys a route takes (protocol 8): an application key (alone or acting for a subject) on
+ * the Runtime API, a management key on the Management API. `/v1/me` takes both.
+ */
+export interface KeyAccess {
+  readonly application: boolean;
+  readonly management: boolean;
+}
+/** Every route that does not say otherwise is a Runtime API route. */
+export const RUNTIME_KEYS: KeyAccess = { application: true, management: false };
+
 export async function authenticate(
   ctx: TenantContext,
-  request: IncomingMessage
+  request: IncomingMessage,
+  keys: KeyAccess = RUNTIME_KEYS,
 ): Promise<AuthScope> {
   const header = request.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
@@ -97,6 +109,23 @@ export async function authenticate(
   // Read only after authentication, so an unknown caller sees the opaque 404 either way.
   const subject = singleHeader(request, SUBJECT_HEADER);
   const scopes = singleHeader(request, SCOPES_HEADER);
+  // A management key acts as itself on the Management API; Studio's key does too on a route
+  // that takes no application key. Neither acts for a subject there.
+  const asManagement =
+    principal.role === "management" || (principal.role === "studio" && !keys.application);
+  if (asManagement) {
+    if (!keys.management)
+      fail(403, "A management key reaches only the Management API (/v1/tenant/*)", {
+        code: "key_role_mismatch",
+      });
+    if (subject !== undefined || scopes !== undefined)
+      fail(403, "A management key acts as itself, never for a subject", SUBJECT_INVALID);
+    return { kind: "management", principalId: principal.id };
+  }
+  if (!keys.application)
+    fail(403, "This is the Management API: it takes a management key, not an application key", {
+      code: "key_role_mismatch",
+    });
   if (subject === undefined) {
     if (scopes !== undefined)
       fail(400, `${SCOPES_HEADER} requires ${SUBJECT_HEADER}`, SUBJECT_INVALID);
@@ -143,6 +172,9 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
   switch (scope.kind) {
     case "application":
       return undefined;
+    // A management key reaches the Management API only: no session is its.
+    case "management":
+      return fail(404, "Not found");
     case "subject":
       return { owner: scope.subject };
     case "token":

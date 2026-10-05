@@ -155,12 +155,15 @@ describe("compose.yaml", () => {
     expect(compose).toContain("host.docker.internal: host-gateway");
   });
 
-  it("serves the Admin API on the operator listener, which Studio uses", () => {
+  it("serves the Admin API on the operator listener, and Studio on the public listener", () => {
     expect(compose).toContain('NYLORUN_ADMIN_LISTEN_PORT: "4001"');
     expect(compose).toContain(
       "NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:${NYLORUN_ADMIN_PORT},127.0.0.1:${NYLORUN_ADMIN_PORT}",
     );
-    expect(compose).toContain("NYLORUN_RUNTIME_URL: http://runtime:4001");
+    // Studio reaches the Runtime and Management APIs where apps do; runtime:4000 is an allowed Host.
+    expect(compose).toContain("NYLORUN_RUNTIME_URL: http://runtime:4000");
+    expect(compose).toContain("NYLORUN_ALLOWED_HOSTS: runtime:4000,");
+    expect(compose).not.toContain("http://runtime:4001");
   });
 
   it("pins Postgres, Restate, s2 and RustFS (by digest) and takes the Runtime and Studio images from .env", () => {

@@ -7,7 +7,7 @@ import {
   PROTOCOL_FEATURES,
   PROTOCOL_VERSION,
 } from "@nylorun/core/compatibility";
-import { link3, project, writeProjectLink } from "./helpers/project.js";
+import { link3, MANAGEMENT_KEY, project, writeProjectLink } from "./helpers/project.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const roots: string[] = [];
@@ -78,6 +78,7 @@ it(
         MODEL_PROVIDER_API_KEY: "",
         NYLORUN_RUNTIME_URL: "",
         NYLORUN_SERVER_KEY: "",
+        NYLORUN_MANAGEMENT_KEY: "",
       },
     });
     let text = "";
@@ -96,9 +97,10 @@ it(
     });
     expect(text).toContain("0. Custom OpenAI-compatible provider");
     expect(text).toContain("1. OpenAI (openai)");
-    // The catalog request names no Tenant: the installation serves one.
+    // The catalog request names no Tenant: the installation serves one. It carries the
+    // Project's management key (the Management API's).
     expect(host.headers).toHaveLength(1);
-    expect(host.headers[0]!.authorization).toBe(`Bearer ${"ab".repeat(32)}`);
+    expect(host.headers[0]!.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
     expect(host.headers[0]!["nylorun-tenant"]).toBeUndefined();
     // SIGINT may surface as 130, 143, null, or 1 depending on timing.
     expect([0, 1, 130, 143, null]).toContain(code);

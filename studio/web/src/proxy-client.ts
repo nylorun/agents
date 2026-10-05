@@ -4,6 +4,7 @@
  * memory (`embed/session.ts`). The server adds every Runtime credential.
  */
 import { createClient } from "@nylorun/agents/client";
+import { createManagementClient } from "@nylorun/admin/client";
 import { embedSession } from "./embed/index.ts";
 
 export type StudioFetch = (
@@ -100,6 +101,22 @@ export function createTenantClient(
       headers.delete("authorization");
       return fetcher(input, { ...init, headers, credentials: "same-origin" });
     },
+  });
+}
+
+/**
+ * Management API client (`/v1/tenant/*`) for one Tenant through the Studio
+ * server. It sends no key: an embedded session's `fetch` adds its bearer, and
+ * the server adds Studio's key, which acts as itself there.
+ */
+export function createTenantManagementClient(
+  tenantId: string,
+  options?: Readonly<{ origin?: string; fetcher?: StudioFetch }>,
+) {
+  const fetcher = options?.fetcher ?? sessionFetch();
+  return createManagementClient({
+    url: (options?.origin ?? location.origin) + tenantRuntimePath(tenantId),
+    fetch: (input, init) => fetcher(input, { ...init, credentials: "same-origin" }),
   });
 }
 

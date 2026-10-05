@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 export const HOST_ID = "host_01habcdefghijklmnopqrstuvw";
 export const APPLICATION_KEY = "ab".repeat(32);
+export const MANAGEMENT_KEY = "cd".repeat(32);
 
 /** A temporary Project directory (with package.json); the caller removes it. */
 export async function project(prefix: string): Promise<string> {
@@ -20,6 +21,8 @@ export async function writeProjectLink(
     format: 1,
     applicationKey: APPLICATION_KEY,
     principalId: "project",
+    managementKey: MANAGEMENT_KEY,
+    managementPrincipalId: "project-management",
   },
 ): Promise<void> {
   const dir = join(root, ".nylorun");

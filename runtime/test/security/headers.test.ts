@@ -16,7 +16,7 @@ import {
 it("G5: a request without Nylorun-Tenant reaches the Host's Tenant", async () => {
   const host = await startSecurityHost();
   const { status, body } = await getJson(`${host.url}/v1/tenant`, {
-    headers: protocolHeaders({ authorization: `Bearer ${host.tenant.applicationKey}` }),
+    headers: protocolHeaders({ authorization: `Bearer ${host.tenant.managementKey}` }),
   });
   expect(status).toBe(200);
   expect(body).toMatchObject({ tenant: expect.objectContaining({ id: host.tenant.id }) });
@@ -52,7 +52,7 @@ it("G5: the Tenant cannot be named by query or body", async () => {
     `${host.url}/v1/tenant?${TENANT_HEADER}=${other}&tenant=${other}`,
     {
       method: "GET",
-      headers: a.headers(),
+      headers: a.managementHeaders(),
     },
   );
   expect(status).toBe(200);
@@ -63,7 +63,7 @@ it("G5: the Tenant cannot be named by query or body", async () => {
 
   const post = await getJson(`${host.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: a.headers(),
+    headers: a.managementHeaders(),
     body: JSON.stringify({
       requestId: "seed-header-override",
       tenant: other,
@@ -73,7 +73,7 @@ it("G5: the Tenant cannot be named by query or body", async () => {
   });
   expect([200, 400]).toContain(post.status);
   const aStatus = await getJson(`${host.url}/v1/tenant`, {
-    headers: a.headers(),
+    headers: a.managementHeaders(),
   });
   expect(aStatus.status).toBe(200);
   expect((aStatus.body as { tenant: { id: string } }).tenant.id).toBe(a.id);

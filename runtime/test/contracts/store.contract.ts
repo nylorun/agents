@@ -1076,7 +1076,6 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect(await t.principalByTokenHash("ha")).toEqual(app);
           expect(await t.principalById("studio")).toEqual(other);
           expect(await t.principalByTokenHash("nope")).toBeUndefined();
-          expect(await t.applicationTokenHashes()).toEqual(["ha"]);
         });
         await expect(store.tx((t) => t.insertPrincipal({ ...app, tokenHash: "new" }))).rejects.toThrow();
         await expect(store.tx((t) => t.insertPrincipal({ ...app, id: "pr_2" }))).rejects.toThrow();

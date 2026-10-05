@@ -38,15 +38,15 @@ type Seen = { method: string; path: string; headers: IncomingHttpHeaders; body: 
 type Reply = { status: number; headers: IncomingHttpHeaders; body: string };
 
 type FakeTenant = {
-  id: string | null;
-  name: string | null;
+  id: string;
+  name: string;
   state: "open" | "unavailable";
-  cause?: { code: string; message: string; repair: string };
 };
 
 /**
- * Fake Runtime: /health, the Admin API status with its one Tenant, `GET /v1/me`
- * for the bearers in `me` (any other is 401), and an echoing Tenant API.
+ * Fake Runtime: /health, `GET /v1/tenant` for Studio's key (the opaque 404
+ * while the Tenant is unavailable), `GET /v1/me` for the bearers in `me` (any
+ * other is 401), and an echoing Tenant API.
  */
 async function startFakeRuntime() {
   const seen: Seen[] = [];
@@ -70,19 +70,18 @@ async function startFakeRuntime() {
       );
       return;
     }
-    if (req.url === "/v1/admin/status") {
-      if (req.headers.authorization !== `Bearer ${ADMIN_KEY}`) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ code: "unauthorized", message: "no" }));
+    if (req.url === "/v1/tenant") {
+      if (
+        req.headers.authorization !== `Bearer ${deriveStudioToken(ADMIN_KEY)}` ||
+        tenant.state !== "open"
+      ) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ code: "not_found", message: "Not found" }));
         return;
       }
       res.end(
         JSON.stringify({
-          service: "nylorun-runtime",
-          version: "0.0.0-test",
-          protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
-          tenant: { ...tenant, envelope: null },
-          aggregate: { runningSessions: 0, inFlightDeliveries: 0, pendingActions: 0, uncertainEffects: 0 },
+          tenant: { id: tenant.id, name: tenant.name, createdAt: "t", updatedAt: "t", schemaVersion: 1 },
         }),
       );
       return;
@@ -220,7 +219,7 @@ function assertNoCors(reply: Reply) {
 function assertNoKeys(reply: Reply) {
   const text = JSON.stringify(reply.headers) + reply.body;
   assert.ok(!text.includes(ADMIN_KEY), "admin key leaked");
-  assert.ok(!text.includes(deriveStudioToken(ADMIN_KEY, TENANT_A)), "Studio key leaked");
+  assert.ok(!text.includes(deriveStudioToken(ADMIN_KEY)), "Studio key leaked");
 }
 
 test("login tokens need the admin key and are 256-bit, single-use", async () => {
@@ -269,6 +268,9 @@ test("login tokens expire after two minutes", async () => {
   });
 });
 
+/** A Host behind a sign-in proxy: unlike loopback, it needs a session. */
+const PROXIED = "studio.acme.dev";
+
 test("a session survives a Studio restart and lasts 30 days", async () => {
   const clock = { now: 1_000_000 };
   let cookie = "";
@@ -277,11 +279,12 @@ test("a session survives a Studio restart and lasts 30 days", async () => {
   }, { clock });
   // A new Studio process with the same admin key accepts the cookie.
   await withStudio(async ({ port }) => {
+    const hello = () => send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } });
     clock.now += SESSION_TTL_MS - 1;
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
+    assert.equal((await hello()).status, 200);
     clock.now += 1;
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 401);
-  }, { clock });
+    assert.equal((await hello()).status, 401);
+  }, { clock, allowedHosts: [PROXIED] });
 });
 
 test("a session ends when the admin key changes, and cannot be forged", async () => {
@@ -291,8 +294,8 @@ test("a session ends when the admin key changes, and cannot be forged", async ()
     cookie = await session(port);
   }, { clock });
   await withStudio(async ({ port }) => {
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 401);
-  }, { clock, adminKey: "b".repeat(64) });
+    assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } })).status, 401);
+  }, { clock, adminKey: "b".repeat(64), allowedHosts: [PROXIED] });
   await withStudio(async ({ port }) => {
     const [name, value] = cookie.split("=") as [string, string];
     const [version, issuedAt, nonce, signature] = value.split(".");
@@ -303,9 +306,9 @@ test("a session ends when the admin key changes, and cannot be forged", async ()
       `${name}=${version}.${clock.now + 10 * 60 * 1000}.${nonce}.${signature}`,
     ];
     for (const attempt of forged)
-      assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie: attempt } })).status, 401, attempt);
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
-  }, { clock });
+      assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie: attempt } })).status, 401, attempt);
+    assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } })).status, 200);
+  }, { clock, allowedHosts: [PROXIED] });
 });
 
 test("login redirects only to same-origin paths", async () => {
@@ -331,12 +334,13 @@ test("login redirects only to same-origin paths", async () => {
     assert.equal(safeNextPath(unsafe), "/", unsafe);
 });
 
-test("dashboard files need no session; every /_studio route does", async () => {
+test("dashboard files need no session; every /_studio route does, except on loopback", async () => {
   await withStudio(async ({ port }) => {
     for (const path of ["/_studio/hello", `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, "/_studio/unknown"]) {
-      const anonymous = await send(port, { path });
+      const anonymous = await send(port, { path, host: PROXIED });
       assert.equal(anonymous.status, 401, path);
-      const forged = await send(port, { path, headers: { cookie: `${SESSION_COOKIE}=${"x".repeat(43)}` } });
+      assert.match(JSON.parse(anonymous.body).message, /sign-in proxy/);
+      const forged = await send(port, { path, host: PROXIED, headers: { cookie: `${SESSION_COOKIE}=${"x".repeat(43)}` } });
       assert.equal(forged.status, 401, path);
     }
     // The shell carries no data; the dashboard shows its own sign-in page.
@@ -361,8 +365,55 @@ test("dashboard files need no session; every /_studio route does", async () => {
     const spa = await send(port, { path: `/tenants/${TENANT_A}/vault`, headers: { cookie: `other=1; ${cookie}` } });
     assert.equal(spa.status, 200);
     assert.match(spa.body, /studio-spa/);
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
-  });
+    assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } })).status, 200);
+  }, { allowedHosts: [PROXIED], log: () => {} });
+});
+
+test("Studio on loopback needs no sign-in: the whole Tenant, no subject (AP19)", async () => {
+  const entries: Readonly<Record<string, unknown>>[] = [];
+  await withStudio(async ({ port, runtime }) => {
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`]) {
+      const hello = await send(port, { path: "/_studio/hello", host });
+      assert.equal(hello.status, 200, host);
+      assert.equal(hello.headers["set-cookie"], undefined);
+      assert.deepEqual(JSON.parse(hello.body).tenant, { id: TENANT_A, name: "orders", state: "open" });
+      const agents = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, host });
+      assert.equal(agents.status, 200, host);
+      assertNoKeys(agents);
+    }
+    const upstream = runtime.seen.at(-1)!;
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
+    assert.equal(upstream.headers["nylorun-subject"], undefined);
+    assert.equal(upstream.headers["nylorun-scopes"], undefined);
+    // Any session, then another Tenant: the opaque answer.
+    assert.equal((await send(port, { path: `/_studio/tenants/${TENANT_B}/runtime/v1/agents` })).status, 404);
+
+    // State changes still need this origin's Origin header.
+    const write = (headers: Record<string, string>) =>
+      send(port, {
+        method: "PUT",
+        path: `/_studio/tenants/${TENANT_A}/runtime/v1/sessions/s1`,
+        body: JSON.stringify({ agentId: "a" }),
+        headers: { "content-type": "application/json", ...headers },
+      });
+    assert.equal((await write({})).status, 403);
+    assert.equal((await write({ origin: "http://evil.example" })).status, 403);
+    assert.equal((await write({ origin: `http://localhost:${port}` })).status, 200);
+
+    // A bearer that is not a Studio session is still refused, never widened to the loopback session.
+    const refused = await send(port, { path: "/_studio/hello", headers: { authorization: "Bearer v2.x.y" } });
+    assert.equal(refused.status, 401);
+    assert.match(JSON.parse(refused.body).message, /invalid or has expired/);
+
+    // Login links still work there; a used one says no sign-in is needed.
+    const { token } = await mint(port);
+    assert.equal((await send(port, { path: `/login?token=${token}` })).status, 303);
+    const used = await send(port, { path: `/login?token=${token}` });
+    assert.equal(used.status, 401);
+    assert.match(used.body, /needs no sign-in/);
+  }, { allowedHosts: [PROXIED], log: (entry) => entries.push(entry) });
+  // The loopback session has no subject: its writes are not logged.
+  assert.deepEqual(entries, []);
 });
 
 test("Host must be the published loopback address (DNS rebinding)", async () => {
@@ -424,7 +475,7 @@ test("the session cookie has the configured name, and only that name is read", a
     assert.match(cookie, new RegExp(`^${name}=v1\\.`));
     const value = cookie.slice(name.length + 1);
     // Another Studio's cookie on the same host is not this Studio's session.
-    const hello = (cookie: string) => send(port, { path: "/_studio/hello", headers: { cookie } });
+    const hello = (cookie: string) => send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } });
     assert.equal((await hello(`${SESSION_COOKIE}=${value}`)).status, 401);
     assert.equal((await hello(`nylorun_studio_api=${value}`)).status, 401);
     assert.equal((await hello(`nylorun_studio_api=x; ${cookie}`)).status, 200);
@@ -436,7 +487,7 @@ test("the session cookie has the configured name, and only that name is read", a
       headers: { cookie, origin: `http://localhost:${port}`, "content-type": "application/json" },
     });
     assert.equal(command.status, 200, command.body);
-  }, { sessionCookie: name });
+  }, { sessionCookie: name, allowedHosts: [PROXIED] });
 
   assert.equal(SESSION_COOKIE, "nylorun_studio_session");
   assert.equal(parseSessionCookieName(""), SESSION_COOKIE);
@@ -538,7 +589,7 @@ test("the proxy uses the Tenant's derived Studio key, names no Tenant, and never
     assertNoKeys(reply);
     const upstream = runtime.seen.at(-1)!;
     assert.equal(upstream.path, "/v1/agents");
-    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
     assert.equal(upstream.headers["nylorun-tenant"], undefined);
     assert.equal(upstream.headers[PROTOCOL_HEADER.toLowerCase()], String(PROTOCOL_VERSION));
     assert.equal(upstream.headers.cookie, undefined);
@@ -581,15 +632,18 @@ test("the proxy uses the Tenant's derived Studio key, names no Tenant, and never
   });
 });
 
-test("the Tenant comes from the Admin API status with the admin key", async () => {
+test("the Tenant comes from GET /v1/tenant with Studio's key, never the admin key", async () => {
   await withStudio(async ({ port, runtime }) => {
     const root = await send(port, { path: "/?embed=1" });
     assert.equal(root.status, 302);
     assert.equal(root.headers.location, `/tenants/${TENANT_A}?embed=1`);
     assert.equal(root.headers["cache-control"], "no-store");
     assertNoKeys(root);
-    const upstream = runtime.seen.find((s) => s.path === "/v1/admin/status")!;
-    assert.equal(upstream.headers.authorization, `Bearer ${ADMIN_KEY}`);
+    const upstream = runtime.seen.find((s) => s.path === "/v1/tenant")!;
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
+    assert.equal(upstream.headers["nylorun-subject"], undefined);
+    assert.ok(!runtime.seen.some((s) => s.path.startsWith("/v1/admin")));
+    assert.ok(!runtime.seen.some((s) => s.headers.authorization === `Bearer ${ADMIN_KEY}`));
     assert.equal(upstream.headers[PROTOCOL_HEADER.toLowerCase()], String(PROTOCOL_VERSION));
     assert.equal(upstream.headers["nylorun-tenant"], undefined);
     assert.equal((await send(port, { method: "HEAD", path: "/" })).status, 302);
@@ -614,32 +668,26 @@ test("the Tenant comes from the Admin API status with the admin key", async () =
   });
 });
 
-test("an unavailable Tenant is answered with its cause, and Studio asks again", async () => {
+test("an unavailable Tenant is answered clearly, and Studio asks again", async () => {
   await withStudio(async ({ port, runtime }) => {
-    runtime.tenant.id = null;
-    runtime.tenant.name = null;
+    // The Runtime answers the opaque 404 while its Tenant is not open.
     runtime.tenant.state = "unavailable";
-    runtime.tenant.cause = {
-      code: "schema-too-new",
-      message: "The database was written by a newer Runtime.",
-      repair: "Upgrade the Runtime.",
-    };
     const cookie = await session(port);
     const root = await send(port, { path: "/" });
     assert.equal(root.status, 503);
     assert.match(root.headers["content-type"] ?? "", /^text\/html/);
     assert.match(root.body, /Tenant unavailable/);
-    assert.match(root.body, /newer Runtime\. Upgrade the Runtime\./);
-    assert.match(root.body, /schema-too-new/);
+    assert.match(root.body, /did not open its Tenant to Studio \(HTTP 404\)/);
+    assert.match(root.body, /npx nylorun status/);
 
     const hello = JSON.parse((await send(port, { path: "/_studio/hello", headers: { cookie } })).body);
     assert.equal(hello.tenant.state, "unavailable");
     assert.equal(hello.tenant.id, null);
-    assert.match(hello.tenant.message, /schema-too-new/);
+    assert.match(hello.tenant.message, /npx nylorun status/);
 
     const proxied = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { cookie } });
     assert.equal(proxied.status, 503);
-    assert.match(JSON.parse(proxied.body).message, /newer Runtime/);
+    assert.match(JSON.parse(proxied.body).message, /did not open its Tenant/);
     assert.equal(runtime.seen.filter((s) => s.path === "/v1/agents").length, 0);
     const minted = await send(port, {
       method: "POST",
@@ -649,14 +697,6 @@ test("an unavailable Tenant is answered with its cause, and Studio asks again", 
     });
     assert.equal(minted.status, 503);
 
-    // Opening: known id, no cause yet.
-    runtime.tenant.id = TENANT_A;
-    runtime.tenant.name = "orders";
-    delete runtime.tenant.cause;
-    const opening = await send(port, { path: "/" });
-    assert.equal(opening.status, 503);
-    assert.match(opening.body, /not opened its Tenant yet/);
-
     // A failure is not remembered: once the Tenant opens, the next request reaches it.
     runtime.tenant.state = "open";
     const open = await send(port, { path: "/" });
@@ -664,6 +704,11 @@ test("an unavailable Tenant is answered with its cause, and Studio asks again", 
     assert.equal(open.headers.location, `/tenants/${TENANT_A}`);
     const after = await send(port, { path: `/_studio/tenants/${TENANT_A}/runtime/v1/agents`, headers: { cookie } });
     assert.equal(after.status, 200, after.body);
+
+    // Once known, the id is kept while the Tenant is unavailable again.
+    runtime.tenant.state = "unavailable";
+    const again = JSON.parse((await send(port, { path: "/_studio/hello", headers: { cookie } })).body);
+    assert.deepEqual({ id: again.tenant.id, state: again.tenant.state }, { id: TENANT_A, state: "unavailable" });
   });
 });
 
@@ -678,7 +723,8 @@ test("an unreachable Runtime is answered clearly, and no key leaks", async () =>
   try {
     const page = await send(studio.port, { path: "/" });
     assert.equal(page.status, 503);
-    assert.match(page.body, /Admin API is unavailable/);
+    assert.match(page.body, /cannot reach the Runtime/);
+    assert.match(page.body, /npx nylorun status/);
     assertNoKeys(page);
     const cookie = await session(studio.port);
     const hello = await send(studio.port, { path: "/_studio/hello", headers: { cookie } });
@@ -904,7 +950,7 @@ test("a Tenant-limited session reaches only its Tenant", async () => {
     assertNoKeys(own);
     const upstream = runtime.seen.at(-1)!;
     // The Runtime sees the derived Studio key, never the session token.
-    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
     assert.ok(!JSON.stringify(upstream.headers).includes(sessionToken));
     assert.equal(upstream.headers["nylorun-subject"], undefined);
 
@@ -1078,21 +1124,21 @@ test("a forwarded bearer with the studio scope signs in with Studio's cookie, fo
     });
     assert.equal(put.status, 200, put.body);
     const upstream = runtime.seen.at(-1)!;
-    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.equal(upstream.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
 
-    // The cookie ends with the token.
+    // The cookie ends with the token (seen on a Host that needs a session).
     clock.now += 599_000;
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 200);
+    assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } })).status, 200);
     clock.now += 1_000;
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie } })).status, 401);
+    assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie } })).status, 401);
 
     // A forged subject is refused.
     const [version, claims, signature] = cookie.split("=")[1]!.split(".") as [string, string, string];
     const decoded = JSON.parse(Buffer.from(claims, "base64url").toString("utf8"));
     const forged = `${SESSION_COOKIE}=${version}.${b64({ ...decoded, sub: "u:mallory", exp: decoded.exp + 10_000 })}.${signature}`;
     clock.now -= 600_000;
-    assert.equal((await send(port, { path: "/_studio/hello", headers: { cookie: forged } })).status, 401);
-  }, { clock, log: (entry) => entries.push(entry) });
+    assert.equal((await send(port, { path: "/_studio/hello", host: PROXIED, headers: { cookie: forged } })).status, 401);
+  }, { clock, allowedHosts: [PROXIED], log: (entry) => entries.push(entry) });
   assert.deepEqual(entries, [
     { msg: "studio proxy", subject: "u:alice", tenant: TENANT_A, method: "PUT", path: "/v1/sessions/s1", status: 200 },
   ]);
@@ -1110,7 +1156,7 @@ test("oauth2-proxy's X-Forwarded-Access-Token signs in, beside its Basic Authori
     assert.equal(reply.status, 200, reply.body);
     // A token that outlives Studio's cookie gets the usual 30 days.
     assert.match(cookieOf(reply), new RegExp(`Max-Age=${SESSION_TTL_MS / 1000}$`));
-    assert.equal(runtime.seen.at(-1)!.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY, TENANT_A)}`);
+    assert.equal(runtime.seen.at(-1)!.headers.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
     assert.equal(meCalls(runtime).length, 1);
   }, { clock });
 });

@@ -303,7 +303,7 @@ describe("Tenant status", () => {
     const runtime = await boot({ execution: created.tenantExecution });
     open.push(runtime);
     const status = TenantStatusSchema.parse(
-      await (await fetch(`${runtime.url}/v1/tenant`, { headers: server })).json()
+      await (await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() })).json()
     );
     expect(asked).toEqual([runtime.tenantId]);
     expect(status.execution).toEqual({
@@ -331,7 +331,7 @@ describe("Tenant status", () => {
     });
     const runtime = await boot({ execution: created.tenantExecution });
     open.push(runtime);
-    const response = await fetch(`${runtime.url}/v1/tenant`, { headers: server });
+    const response = await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() });
     expect(response.status).toBe(200);
     expect(TenantStatusSchema.parse(await response.json()).execution).toEqual({
       stuckInvocations: [],
@@ -343,7 +343,7 @@ describe("Tenant status", () => {
     const runtime = await boot({});
     open.push(runtime);
     const status = TenantStatusSchema.parse(
-      await (await fetch(`${runtime.url}/v1/tenant`, { headers: server })).json()
+      await (await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() })).json()
     );
     expect(status.execution).toBeUndefined();
   });

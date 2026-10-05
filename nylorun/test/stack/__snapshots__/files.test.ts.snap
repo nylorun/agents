@@ -158,7 +158,7 @@ services:
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
       # unset by default. Set both in the shell that runs \`nylorun start\`.
@@ -207,8 +207,8 @@ services:
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
       NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT} # reported by /v1/admin/status
-      # The Admin API on its own listener, published on loopback only; Studio reaches it on
-      # the Compose network. Port 4000 serves the Tenant API alone.
+      # The Admin API on its own listener, published on loopback only. Port 4000 serves the
+      # Runtime and Management APIs, to Studio too.
       NYLORUN_ADMIN_LISTEN_PORT: "4001"
       NYLORUN_ADMIN_ALLOWED_HOSTS: runtime:4001,localhost:\${NYLORUN_ADMIN_PORT},127.0.0.1:\${NYLORUN_ADMIN_PORT}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
@@ -223,7 +223,7 @@ services:
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints on this machine: \`localhost\` in a registered URL means the Docker host.
+      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Agent turns, MCP servers and workspaces run in the harness container, which connects to
       # this listener with NYLORUN_HARNESS_TOKEN. NYLORUN_HARNESS=in-process in .env rolls back.
@@ -267,7 +267,7 @@ services:
     depends_on:
       runtime: { condition: service_healthy }
     environment:
-      NYLORUN_RUNTIME_URL: http://runtime:4001 # the operator listener: Admin and Tenant API
+      NYLORUN_RUNTIME_URL: http://runtime:4000 # the public listener: Runtime and Management API
       NYLORUN_ADMIN_KEY_FILE: /run/nylorun/host-credentials.json
       PORT: "3000"
       # Studio's Host check accepts localhost/127.0.0.1 on the published port.

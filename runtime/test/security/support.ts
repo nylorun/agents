@@ -122,8 +122,12 @@ export interface SecurityTenant {
   id: string;
   name: string;
   applicationKey: string;
+  /** A management key (protocol 8): the Management API's (`/v1/tenant/*`). */
+  managementKey: string;
   principalId: string;
   headers(key?: string): Record<string, string>;
+  /** `headers` with the management key. */
+  managementHeaders(): Record<string, string>;
   paths: ReturnType<typeof tenantPaths>;
 }
 
@@ -291,6 +295,7 @@ export async function startSecurityHost(options?: {
   const id = newTenantId();
   const name = options?.tenantName ?? "alpha";
   const applicationKey = mintBearerToken();
+  const managementKey = mintBearerToken();
   const principalId = `principal_${randomBytes(8).toString("hex")}`;
   const tenantPath = tenantPaths(hostRoot);
   mkdirSync(tenantPath.root, { recursive: true });
@@ -305,6 +310,7 @@ export async function startSecurityHost(options?: {
         principals: hostPrincipals({
           adminKey,
           application: { principalId, key: applicationKey },
+          bootstrapKey: managementKey,
         }),
       },
       openRuntime,
@@ -320,10 +326,14 @@ export async function startSecurityHost(options?: {
     id,
     name,
     applicationKey,
+    managementKey,
     principalId,
     paths: tenantPath,
     headers(key?: string) {
       return tenantHeaders(key ?? applicationKey);
+    },
+    managementHeaders() {
+      return tenantHeaders(managementKey);
     },
   };
 

@@ -18,7 +18,6 @@ import {
   ResetTenantRequestSchema,
   SeedTenantConfigRequestSchema,
   SelectHostModelRequestSchema,
-  type SubjectScope,
 } from "@nylorun/core/contracts";
 import {
   HostModelCatalog,
@@ -63,11 +62,8 @@ import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 import { rearmPodTimers } from "../../../tenant/sandboxes.js";
 
-const settings = (scopes: readonly SubjectScope[] | "never"): RouteAccess => ({
-  credentials: scopes === "never" ? ["application"] : ["application", "subject"],
-  scopes,
-});
-const SETTINGS = settings(["tenant:settings"]);
+/** Every Management API route (`/v1/tenant/*`): a management key, acting as itself (protocol 8). */
+const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
 
 const json = (schema: z.ZodType, description: string) => ({
   description,
@@ -132,7 +128,7 @@ async function clusterOf(ctx: TenantContext) {
 export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant",
@@ -166,7 +162,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    settings("never"),
+    MANAGEMENT,
     {
       method: "post",
       path: "/v1/tenant/reset",
@@ -206,7 +202,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    settings("never"),
+    MANAGEMENT,
     {
       method: "put",
       path: "/v1/tenant/config/seed",
@@ -225,7 +221,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    settings(["tenant:settings", "agents:write"]),
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant/models",
@@ -241,7 +237,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant/sandbox",
@@ -254,7 +250,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "put",
       path: "/v1/tenant/sandbox",
@@ -280,7 +276,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant/usage",
@@ -316,7 +312,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant/budgets",
@@ -332,7 +328,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "put",
       path: "/v1/tenant/budgets",
@@ -356,7 +352,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    settings(["tenant:settings", "agents:write"]),
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant/providers",
@@ -369,7 +365,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "get",
       path: "/v1/tenant/model",
@@ -382,7 +378,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "put",
       path: "/v1/tenant/model",
@@ -402,7 +398,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    SETTINGS,
+    MANAGEMENT,
     {
       method: "put",
       path: "/v1/tenant/model/selection",

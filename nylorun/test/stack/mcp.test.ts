@@ -1,12 +1,21 @@
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
 import { mcpCommand } from "../../src/stack/mcp.js";
 import { stackPaths } from "../../src/stack/paths.js";
-import { fakeDocker, fakeFetch, json, temporaryHome, testDeps } from "./support.js";
+import {
+  bearerIn,
+  fakeDocker,
+  fakeFetch,
+  fakeOperate,
+  json,
+  temporaryHome,
+  testDeps,
+  type FakeKeys,
+} from "./support.js";
 
 const TENANT_ID = "tn_01TESTSTACK000000000000001";
-const CLI_KEY = "c".repeat(64);
 const MCP_URL = "https://mcp.example.com/mcp";
 const AUTHORIZE = "https://auth.example.com/authorize?client_id=client-1&state=s";
 
@@ -36,7 +45,9 @@ interface Fake {
 /** A running Tenant whose Runtime answers the vault routes, and whose sign-in finishes after a few polls. */
 async function running(fake: Fake) {
   const home = await temporaryHome();
-  const docker = fakeDocker({ respond: (args) => (args.includes("ps") ? psUp : undefined) });
+  const keys: FakeKeys = new Map();
+  const operate = fakeOperate(() => keys);
+  const docker = fakeDocker({ respond: (args) => (args.includes("ps") ? psUp : operate(args)) });
   let polls = 0;
   const fetch = fakeFetch((url, init) => {
     if (url.endsWith("/health")) return json({ status: "ok", version: "0.10.0-beta", hostId: hostId(home) });
@@ -45,27 +56,29 @@ async function running(fake: Fake) {
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
     const method = init?.method ?? "GET";
-    if (path === "/v1/admin/keys/cli" && method === "PUT")
-      return json({ id: "cli", role: "application", createdAt: "2026-10-04T00:00:00.000Z", key: CLI_KEY, rotated: false });
-    if (new Headers(init?.headers).get("authorization") !== `Bearer ${CLI_KEY}`)
-      return json({ status: "rejected", code: "not_found", message: "Not found" }, 404);
-    if (path === "/v1/tenant") return json({ tenant: { id: TENANT_ID } });
-    if (path === "/v1/vaults" && method === "GET") return json({ vaults: fake.vaults });
-    if (path === "/v1/vaults" && method === "POST") {
+    if (path === "/v1/me")
+      return bearerIn(keys.values(), init)
+        ? json({ kind: "application" })
+        : json({ status: "rejected", code: "not_found", message: "Not found" }, 404);
+    // The vault routes are the Management API's: the management key cli-management.
+    if (!bearerIn([keys.get("cli-management") ?? { key: "" }], init))
+      return json({ status: "rejected", code: "key_role_mismatch", message: "A management key" }, 403);
+    if (path === "/v1/tenant/vaults" && method === "GET") return json({ vaults: fake.vaults });
+    if (path === "/v1/tenant/vaults" && method === "POST") {
       const body = JSON.parse(String(init?.body)) as { name: string; scope: string };
       expect(body.scope).toBe("installation");
       const vault = { id: `vault-${fake.vaults.length + 1}`, name: body.name, ownerUserId: "installation", createdAt: "2026-10-04T00:00:00.000Z" };
       fake.vaults.push(vault);
       return json(vault);
     }
-    const start = /^\/v1\/vaults\/([^/]+)\/oauth\/start$/.exec(path);
+    const start = /^\/v1\/tenant\/vaults\/([^/]+)\/oauth\/start$/.exec(path);
     if (start && method === "POST") {
       fake.started = { vaultId: decodeURIComponent(start[1]!), ...JSON.parse(String(init?.body)) };
       if (fake.startStatus)
         return json({ status: "rejected", code: "oauth_client_required", message: "The authorization server offers no dynamic client registration" }, fake.startStatus);
       return json({ authorizeUrl: AUTHORIZE, expiresAt: new Date(Date.now() + 600_000).toISOString() });
     }
-    const list = /^\/v1\/vaults\/([^/]+)\/credentials$/.exec(path);
+    const list = /^\/v1\/tenant\/vaults\/([^/]+)\/credentials$/.exec(path);
     if (list && method === "GET") {
       const vaultId = decodeURIComponent(list[1]!);
       if (fake.started) {
@@ -86,13 +99,13 @@ async function running(fake: Fake) {
   deps.lines.length = 0;
   deps.errors.length = 0;
   deps.opened.length = 0;
-  return { deps, fetch };
+  return { deps, fetch, keys };
 }
 
 describe("nylorun mcp connect", () => {
   it("creates the installation vault mcp, starts the sign-in, opens the browser and waits for the credential", async () => {
     const fake: Fake = { vaults: [], credentials: [], finishAfter: 2 };
-    const { deps, fetch } = await running(fake);
+    const { deps, fetch, keys } = await running(fake);
     expect(await mcpCommand(deps, ["connect", "https://mcp.example.com:443/mcp", "--server", "linear"])).toBe(0);
     expect(fake.vaults).toEqual([expect.objectContaining({ id: "vault-1", name: "mcp", ownerUserId: "installation" })]);
     expect(fake.started).toEqual({ vaultId: "vault-1", url: MCP_URL, server: "linear" });
@@ -106,8 +119,8 @@ describe("nylorun mcp connect", () => {
     ]);
     const startRequest = fetch.requests.find((item) => item.url.endsWith("/oauth/start"))!;
     const headers = new Headers(startRequest.init?.headers);
-    expect(headers.get("authorization")).toBe(`Bearer ${CLI_KEY}`);
-    expect(headers.get("nylorun-protocol")).toBe("7");
+    expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli-management")!.key}`);
+    expect(headers.get("nylorun-protocol")).toBe(String(PROTOCOL_VERSION));
   });
 
   it("reuses the vault mcp, passes --client-id, and sees a reconnect rotate the credential", async () => {

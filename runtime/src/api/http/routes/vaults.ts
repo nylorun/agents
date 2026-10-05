@@ -38,8 +38,8 @@ import { readJson } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
 
-/** Every vault route, and starting an MCP OAuth connect: an application key acting for no one. */
-const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
+/** The Management API's vault routes (`/v1/tenant/vaults`): a management key. */
+const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
 /**
  * The OAuth callback: a browser sent back by the authorization server, with no credential and no
  * protocol header. The `state` it carries is the grant.
@@ -65,13 +65,14 @@ const body = (schema: z.ZodType) => ({
 const vaultId = z.object({ vaultId: z.string() });
 const credentialId = vaultId.extend({ credentialId: z.string() });
 
-export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
+/** The vault routes under `base` (`/v1/tenant/vaults`). */
+function vaultRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: RouteAccess): void {
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "post",
-      path: "/v1/vaults",
+      path: `${base}`,
       tags: ["Vaults"],
       summary: "Create a vault",
       description:
@@ -90,10 +91,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "get",
-      path: "/v1/vaults",
+      path: `${base}`,
       tags: ["Vaults"],
       summary: "List vaults",
       description:
@@ -119,10 +120,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "get",
-      path: "/v1/vaults/{vaultId}",
+      path: `${base}/{vaultId}`,
       tags: ["Vaults"],
       summary: "Get a vault",
       request: { params: vaultId },
@@ -135,10 +136,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "delete",
-      path: "/v1/vaults/{vaultId}",
+      path: `${base}/{vaultId}`,
       tags: ["Vaults"],
       summary: "Delete a vault and its credentials",
       request: { params: vaultId },
@@ -151,10 +152,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "post",
-      path: "/v1/vaults/{vaultId}/credentials",
+      path: `${base}/{vaultId}/credentials`,
       tags: ["Vaults"],
       summary: "Add a credential",
       description:
@@ -173,10 +174,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "get",
-      path: "/v1/vaults/{vaultId}/credentials",
+      path: `${base}/{vaultId}/credentials`,
       tags: ["Vaults"],
       summary: "List a vault's credentials",
       request: { params: vaultId },
@@ -191,10 +192,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "get",
-      path: "/v1/vaults/{vaultId}/credentials/{credentialId}",
+      path: `${base}/{vaultId}/credentials/{credentialId}`,
       tags: ["Vaults"],
       summary: "Get a credential",
       request: { params: credentialId },
@@ -210,10 +211,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "post",
-      path: "/v1/vaults/{vaultId}/credentials/{credentialId}",
+      path: `${base}/{vaultId}/credentials/{credentialId}`,
       tags: ["Vaults"],
       summary: "Rotate a credential's secret",
       request: { params: credentialId, body: body(RotateCredentialRequest) },
@@ -237,10 +238,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "delete",
-      path: "/v1/vaults/{vaultId}/credentials/{credentialId}",
+      path: `${base}/{vaultId}/credentials/{credentialId}`,
       tags: ["Vaults"],
       summary: "Delete a credential",
       request: { params: credentialId },
@@ -256,10 +257,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    APPLICATION,
+    access,
     {
       method: "post",
-      path: "/v1/vaults/{vaultId}/oauth/start",
+      path: `${base}/{vaultId}/oauth/start`,
       tags: ["Vaults"],
       summary: "Start an MCP OAuth connect",
       description:
@@ -288,6 +289,10 @@ export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
       );
     },
   );
+}
+
+export function vaultRoutes(api: OpenAPIHono<TenantEnv>): void {
+  vaultRoutesAt(api, "/v1/tenant/vaults", MANAGEMENT);
 
   tenantRoute(
     api,

@@ -56,7 +56,7 @@ async function tenant() {
   closers.push(() => runtime.close());
   const configured = await realFetch(`${runtime.url}/v1/tenant/model`, {
     method: "PUT",
-    headers: { ...runtime.headers(), "content-type": "application/json" },
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
     body: JSON.stringify({
       requestId: "model-1",
       idempotencyKey: "model-1",
@@ -72,7 +72,7 @@ async function tenant() {
     implementationVersion: "dev",
   });
   const usage = async (query = "") => {
-    const response = await realFetch(`${runtime.url}/v1/tenant/usage${query}`, { headers: runtime.headers() });
+    const response = await realFetch(`${runtime.url}/v1/tenant/usage${query}`, { headers: runtime.managementHeaders() });
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
   };
   return { client, usage };

@@ -1,6 +1,7 @@
 import { release } from "node:os";
-import { createClient, resolveConnection } from "@nylorun/agents";
 import { CliError } from "./errors.js";
+import { linkedConnection, managementClient } from "./project/connection.js";
+import { findProjectRoot } from "./project/root.js";
 
 export type SandboxReport = {
   preference: string;
@@ -32,20 +33,13 @@ function platformLine(): string {
   return `${os} (kernel ${release()}) · ${process.arch}`;
 }
 
-async function fetchSandboxReport(options?: {
-  url?: string;
-  key?: string;
-}): Promise<SandboxReport> {
-  const connection = await resolveConnection(options);
-  const client = createClient({ url: connection.url, key: connection.key });
-  return client.transport.json<SandboxReport>(
-    "/v1/tenant/sandbox",
-    "GET",
-    undefined,
-  );
+/** The Tenant's sandbox report (`GET /v1/tenant/sandbox`, Management API). */
+async function fetchSandboxReport(): Promise<SandboxReport> {
+  const connection = await linkedConnection(findProjectRoot() ?? process.cwd());
+  return (await managementClient(connection).settings.sandbox.get()) as SandboxReport;
 }
 
-/** `nylo doctor sandbox`: Tenant sandbox report via the Tenant API (F2-4). */
+/** `nylo doctor sandbox`: Tenant sandbox report via the Management API (F2-4). */
 export async function doctorSandbox(options: { json: boolean }): Promise<void> {
   let report: SandboxReport;
   try {

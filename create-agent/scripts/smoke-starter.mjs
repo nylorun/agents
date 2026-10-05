@@ -200,9 +200,11 @@ try {
       const { tenant } = await admin.status();
       assert.equal(tenant.state, "open");
       assert.equal(tenant.id, link.tenantId, "the link names the Host's one Tenant");
-      // The operator key `project`, put by `nylorun start` and listed (never shown) by the Admin API.
+      // The application key `project`, put by `nylorun start` and listed (never shown) by the Admin
+      // API, and the management key `project-management` beside it.
       assert.equal(credentials.principalId, "project");
       assert.match(credentials.applicationKey, /^[0-9a-f]{64}$/);
+      assert.equal(credentials.managementPrincipalId, "project-management");
       assert.ok(
         (await admin.keys.list()).some((key) => key.id === "project"),
         "the Admin API lists the project key",
@@ -245,8 +247,9 @@ try {
       await registered("Order assistant");
       await connected();
 
-      // No model: the starter's .env names none (step 9 seeds the fixture model).
-      const model = await runtimeGet(runtimeUrl, key, "/v1/tenant/model");
+      // No model: the starter's .env names none (step 9 seeds the fixture model). The
+      // Management API takes the project's management key, which `nylorun start` wrote too.
+      const model = await runtimeGet(runtimeUrl, credentials.managementKey, "/v1/tenant/model");
       assert.equal(model.configured, false, JSON.stringify(model));
 
       // 4. `nylorun studio` in the project reads the link and lands on its Tenant.
@@ -321,7 +324,8 @@ try {
 
       // 9. The Tenant, reset and seeded with the fixture model, runs a turn that
       // calls the starter's tool.
-      await withResetTenant({ admin, name: "starter-smoke" }, async (fixture) => {
+      const managementKey = await stack.managementKey();
+      await withResetTenant({ admin, managementKey, name: "starter-smoke" }, async (fixture) => {
         assert.equal(fixture.id, tenantId, "the Host's one Tenant");
         // The two variables take precedence over the Project link.
         const runner = group.start("dev-fixture", process.execPath, [npmCli(), "run", "dev"], {

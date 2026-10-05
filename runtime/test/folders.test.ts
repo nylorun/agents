@@ -302,7 +302,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
   expect(unzip(Buffer.from(await (await client.artifacts.zip(id)).arrayBuffer())).size).toBe(4);
 
   // The Tenant total counts each stored file once.
-  const usage = (await (await fetch(`${runtime.url}/v1/tenant/artifacts`, { headers: auth })).json()) as {
+  const usage = (await (await fetch(`${runtime.url}/v1/tenant/artifacts`, { headers: runtime.managementHeaders() })).json()) as {
     usedBytes: number;
   };
   expect(usage.usedBytes).toBe(
@@ -342,7 +342,7 @@ it("skips an export past the per-file limit with artifact.export.skipped, and th
   const runtime = await boot(turns([[bash("mkdir -p outputs && printf '0123456789abcdef' > outputs/big.bin")]]));
   const limits = await fetch(`${runtime.url}/v1/tenant/artifacts`, {
     method: "PUT",
-    headers: json,
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({ limits: { fileBytes: 8 } }),
   });
   expect(limits.status, await limits.clone().text()).toBe(200);
@@ -372,7 +372,7 @@ it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", asy
     { path: "site/index.html", sha256: sha("<p>hi</p>") },
   ]);
   // The workspace is the harness's: its compute record is in the harness's file, mirrored by core.
-  const status = (await (await fetch(`${runtime.url}/v1/tenant`, { headers: auth })).json()) as {
+  const status = (await (await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() })).json()) as {
     harness: { mode: string; workspace: boolean };
   };
   expect(status.harness).toMatchObject({ mode: "remote", workspace: true });

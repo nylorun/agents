@@ -17,12 +17,20 @@ const operation = (method: string, path: string) =>
   (document.paths?.[path] as Record<string, any> | undefined)?.[method];
 
 it("documents the session reads with the same privileged credentials as serving", () => {
-  for (const path of ["/v1/sessions/{sessionId}/manifest", "/v1/sessions/{sessionId}/usage", "/v1/sessions/{sessionId}/calls/model", "/v1/tenant/calls/model"]) {
+  const access = {
+    "/v1/sessions/{sessionId}/manifest": [["application", "subject"], ["agents:read", "agents:write"]],
+    "/v1/sessions/{sessionId}/usage": [["application"], "never"],
+    "/v1/sessions/{sessionId}/calls/model": [["application"], "never"],
+    "/v1/tenant/calls/model": [["management"], "never"],
+  } as const;
+  for (const [path, [credentials, scopes]] of Object.entries(access)) {
     const op = operation("get", path);
-    expect(op.security).toEqual([{ applicationKey: [] }]);
-    expect(op["x-nylorun-credentials"]).toEqual(["application", "subject"]);
+    expect(op.security).toEqual([
+      { [path.startsWith("/v1/tenant") ? "managementKey" : "applicationKey"]: [] },
+    ]);
+    expect(op["x-nylorun-credentials"]).toEqual(credentials);
     expect(op["x-nylorun-browser"]).toBeUndefined();
-    expect(op["x-nylorun-scopes"]).toEqual(path.endsWith("manifest") ? ["agents:read", "agents:write"] : ["tenant:settings"]);
+    expect(op["x-nylorun-scopes"]).toEqual(scopes);
   }
   for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/sandboxes"]) {
     expect(operation("get", path).parameters.find((p: {name: string}) => p.name === "limit").required).toBe(false);
@@ -119,40 +127,57 @@ it("documents the agent list for issuer tokens too, and agent puts for applicati
   );
 });
 
-it("documents vaults and Tenant settings for application keys (protocol 7)", () => {
+it("documents vaults and Tenant settings for management keys only (protocol 8)", () => {
+  for (const [method, path] of [
+    ["post", "/v1/tenant/vaults"],
+    ["get", "/v1/tenant/vaults"],
+    ["get", "/v1/tenant/vaults/{vaultId}/credentials/{credentialId}"],
+    ["delete", "/v1/tenant/vaults/{vaultId}"],
+    ["post", "/v1/tenant/vaults/{vaultId}/oauth/start"],
+    ["post", "/v1/tenant/reset"],
+    ["get", "/v1/tenant/models"],
+    ["get", "/v1/tenant/providers"],
+    ["put", "/v1/tenant/sandbox"],
+  ] as const) {
+    const op = operation(method, path);
+    expect(op.security, `${method} ${path}`).toEqual([{ managementKey: [] }]);
+    expect(op["x-nylorun-scopes"], `${method} ${path}`).toBe("never");
+  }
+  // The old vault paths are gone.
   for (const [method, path] of [
     ["post", "/v1/vaults"],
     ["get", "/v1/vaults"],
     ["get", "/v1/vaults/{vaultId}/credentials/{credentialId}"],
     ["delete", "/v1/vaults/{vaultId}"],
-  ] as const) {
-    const op = operation(method, path);
-    expect(op.security).toEqual([{ applicationKey: [] }]);
-    expect(op["x-nylorun-scopes"]).toBe("never");
-  }
-  expect(operation("post", "/v1/tenant/reset")["x-nylorun-scopes"]).toBe("never");
-  expect(operation("get", "/v1/tenant/models")["x-nylorun-scopes"]).toEqual([
-    "tenant:settings",
-    "agents:write",
-  ]);
+  ] as const)
+    expect(operation(method, path), `${method} ${path}`).toBeUndefined();
   expect(operation("put", "/v1/tenant/sandbox").requestBody.content["application/json"].schema).toEqual({
     $ref: "#/components/schemas/PutTenantSandboxRequest",
   });
+  // `tenant:settings` is retired: no route names it.
+  expect(JSON.stringify(document)).not.toContain("tenant:settings");
 });
 
-it("documents the public keys for every caller or none, and access management for application keys", () => {
+it("documents the public keys for every caller or none, and signing keys for management keys", () => {
   const jwks = operation("get", "/v1/access/jwks");
   expect(jwks["x-nylorun-scopes"]).toBe("any");
   // `{}`: no credential needed.
-  expect(jwks.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }, {}]);
+  expect(jwks.security).toEqual([{ applicationKey: [] }, { managementKey: [] }, { issuerToken: [] }, {}]);
+  for (const [method, path] of [
+    ["get", "/v1/tenant/signing-keys"],
+    ["post", "/v1/tenant/signing-keys/rotate"],
+    ["post", "/v1/tenant/signing-keys/{kid}/revoke"],
+  ] as const) {
+    expect(operation(method, path).security, `${method} ${path}`).toEqual([{ managementKey: [] }]);
+    expect(operation(method, path)["x-nylorun-scopes"]).toBe("never");
+  }
+  // The old signing-key paths are gone.
   for (const [method, path] of [
     ["get", "/v1/access/signing-keys"],
     ["post", "/v1/access/signing-keys/rotate"],
     ["post", "/v1/access/signing-keys/{kid}/revoke"],
-  ] as const) {
-    expect(operation(method, path).security, `${method} ${path}`).toEqual([{ applicationKey: [] }]);
-    expect(operation(method, path)["x-nylorun-scopes"]).toBe("never");
-  }
+  ] as const)
+    expect(operation(method, path), `${method} ${path}`).toBeUndefined();
 });
 
 it("documents no subject tokens, access policy, browser keys or revocations (protocol 7)", () => {

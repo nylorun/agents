@@ -3,6 +3,7 @@ import { Agent } from "@nylorun/core/define";
 import {
   HistoryPageSchema,
   ListSessionsResponseSchema,
+  ModelCallExportPageSchema,
   ModelCallsPageSchema,
   SessionManifestViewSchema,
   SessionPageSchema,
@@ -27,7 +28,7 @@ async function json(path: string, extra?: Record<string, string>) {
   expect(response.status, await response.clone().text()).toBe(200);
   return response.json();
 }
-const person = (name: string, scopes = "sessions:own agents:read tenant:settings") => ({
+const person = (name: string, scopes = "sessions:own agents:read agents:write") => ({
   "nylorun-subject": name,
   "nylorun-scopes": scopes,
 });
@@ -105,9 +106,11 @@ it("pins manifest A after registration B and exposes no session internals", asyn
   expect(a.implementationVersion).toBe("A");
   expect(JSON.stringify(a)).not.toMatch(/pluginRoots|checkpoint|credential/);
   expect((await request("/v1/sessions/s-a/manifest", undefined, person("bob"))).status).toBe(404);
-  expect(
-    (await request("/v1/sessions/s-a/usage", undefined, person("ann", "sessions:own"))).status,
-  ).toBe(403);
+  // Spend is the application's: no subject scope reaches usage or calls (protocol 8).
+  for (const suffix of ["usage", "calls/model"])
+    expect((await request(`/v1/sessions/s-a/${suffix}`, undefined, person("ann"))).status).toBe(
+      403,
+    );
 });
 
 it("reconciles all billed rows including duplicates, genuine zero and unknown quality", async () => {
@@ -161,17 +164,33 @@ it("reconciles all billed rows including duplicates, genuine zero and unknown qu
     "call-d",
   ]);
   expect(JSON.stringify(first)).not.toMatch(/effectKey|txid/);
-  const exported: string[] = [];
-  for await (const page of client.calls.exportModel({ limit: 1 }))
-    exported.push(...page.calls.map((c) => c.id));
-  expect(exported).toEqual(["call-a", "call-b", "call-c", "call-d"]);
-  expect(
-    (await request("/v1/tenant/calls/model", undefined, person("ann", "sessions:own"))).status,
-  ).toBe(403);
+  // The Tenant's export is the Management API's: a management key, never an application key.
+  // It serves rows below the cluster's snapshot horizon, which a transaction another test file
+  // holds open may delay: drain until the rows are past it.
+  const drain = async () => {
+    const exported: string[] = [];
+    let after: string | null = null;
+    for (let caughtUp = false; !caughtUp; ) {
+      const page = ModelCallExportPageSchema.parse(
+        await json(
+          `/v1/tenant/calls/model?limit=1${after === null ? "" : `&after=${after}`}`,
+          rt.managementHeaders(),
+        ),
+      );
+      exported.push(...page.calls.map((c) => c.id));
+      ({ next: after, caughtUp } = page);
+    }
+    return exported;
+  };
+  await expect.poll(drain, { timeout: 10_000 }).toEqual(["call-a", "call-b", "call-c", "call-d"]);
+  const appKey = await request("/v1/tenant/calls/model");
+  expect(appKey.status).toBe(403);
+  expect((await appKey.json()).code).toBe("key_role_mismatch");
+  expect((await request("/v1/tenant/calls/model", undefined, person("ann"))).status).toBe(403);
   expect((await request(`/v1/sessions/s-b/calls/model?cursor=${first.nextCursor}`)).status).toBe(
     400,
   );
-  expect((await request("/v1/sessions/s-a/usage", undefined, person("bob"))).status).toBe(404);
+  expect((await request("/v1/sessions/missing/usage")).status).toBe(404);
 });
 
 it("advances bounded history over internal events and reapplies ownership and filter binding", async () => {

@@ -100,9 +100,11 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
               cursor: z.string().optional(),
             })
             .strict();
+    // Spend is the application's to show: no subject scope reaches it (`tenant:settings`,
+    // which used to, is retired in protocol 8).
     tenantRoute(
       api,
-      { credentials: ["application", "subject"], scopes: ["tenant:settings"] },
+      { credentials: ["application"], scopes: "never" },
       {
         method: "get",
         path: `/v1/sessions/{sessionId}/${kind}`,
@@ -151,9 +153,10 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       limit: z.coerce.number().int().min(1).max(1000).default(200),
     })
     .strict();
+  // The whole Tenant's ledger is the Management API's (protocol 8): a management key, as itself.
   tenantRoute(
     api,
-    { credentials: ["application", "subject"], scopes: ["tenant:settings"] },
+    { credentials: ["management"], scopes: "never" },
     {
       method: "get",
       path: "/v1/tenant/calls/model",
@@ -168,7 +171,6 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      requirePrincipal(c.get("scope"));
       const q = parseQuery(exportQuery, c.req.query());
       return jsonResponse(200, await readStoreOf(c.env.tenant).exportModel(q.after, q.limit));
     },

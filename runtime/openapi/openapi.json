@@ -6,13 +6,14 @@
     "description": "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 7,
+      "max": 8,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
         "action-endpoints",
         "artifacts",
+        "management-api",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -45,6 +46,11 @@
         "type": "http",
         "scheme": "bearer",
         "description": "An application key of the Tenant: an operator key (`PUT /v1/admin/keys/{id}`), or Studio's key, derived from the admin key. With `Nylorun-Subject` and `Nylorun-Scopes`, it acts for that person, narrowed to those scopes. Never accepted from a browser (`Origin`)."
+      },
+      "managementKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A management key of the Tenant (role `management`): it reaches the Management API (`/v1/tenant/*`) and `/v1/me`, as itself, never for a subject. Issued only on the Tenant's machine (`nylorun-operate keys put <id> --role management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`. Never accepted from a browser (`Origin`)."
       },
       "issuerToken": {
         "type": "http",
@@ -6271,6 +6277,7 @@
               "incompatible_host",
               "subject_invalid",
               "scope_required",
+              "key_role_mismatch",
               "token_expired",
               "limit_exceeded",
               "request_rejected",
@@ -10892,6 +10899,9 @@
             "$ref": "#/components/schemas/DelegationCompletedEvent"
           },
           {
+            "$ref": "#/components/schemas/McpDiscoveredEvent"
+          },
+          {
             "$ref": "#/components/schemas/SandboxStateEvent"
           },
           {
@@ -10956,6 +10966,7 @@
             "effect.uncertain": "#/components/schemas/EffectUncertainEvent",
             "delegation.started": "#/components/schemas/DelegationStartedEvent",
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
+            "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
             "sandbox.state": "#/components/schemas/SandboxStateEvent",
             "sandbox.exec": "#/components/schemas/SandboxExecEvent",
             "sandbox.attached": "#/components/schemas/SandboxAttachedEvent",
@@ -14679,6 +14690,216 @@
             },
             "required": [
               "agent"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "McpDiscoveredEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mcp.discovered"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "servers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "capabilityId": {
+                      "type": "string"
+                    },
+                    "serverName": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "connected",
+                        "refused",
+                        "failed"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "tools": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "credentialIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "capabilityId",
+                    "serverName",
+                    "outcome",
+                    "message",
+                    "tools"
+                  ],
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": [
+              "servers"
             ],
             "additionalProperties": {}
           }
@@ -20111,6 +20332,93 @@
         ],
         "additionalProperties": false
       },
+      "ListOperatorKeysResponse": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "createdAt": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "role",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "additionalProperties": false
+      },
+      "PutOperatorKeyResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "rotated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "createdAt",
+          "key",
+          "rotated"
+        ],
+        "additionalProperties": false
+      },
+      "DeleteOperatorKeyResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "deleted": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
       "VaultInfo": {
         "type": "object",
         "properties": {
@@ -20953,7 +21261,6 @@
                 "agents:read",
                 "agents:write",
                 "sessions:own",
-                "tenant:settings",
                 "sandboxes:write",
                 "studio"
               ]
@@ -20985,7 +21292,7 @@
           },
           "via": {
             "type": "string",
-            "description": "How the caller authenticated: `application:<principalId>`, `subject` or `issuer:<name>`"
+            "description": "How the caller authenticated: `application:<principalId>`, `management:<principalId>`, `subject` or `issuer:<name>`"
           }
         },
         "required": [
@@ -21484,10 +21791,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21527,7 +21834,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21600,10 +21907,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21630,7 +21937,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21710,10 +22017,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21780,7 +22087,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21845,10 +22152,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21875,7 +22182,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21935,10 +22242,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21975,7 +22282,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22045,10 +22352,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22075,7 +22382,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22138,10 +22445,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22168,7 +22475,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22234,10 +22541,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22274,7 +22581,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22347,10 +22654,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22414,7 +22721,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22486,10 +22793,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22546,7 +22853,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22676,10 +22983,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22743,7 +23050,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22820,10 +23127,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22890,7 +23197,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22967,10 +23274,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23027,7 +23334,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23133,10 +23440,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23200,7 +23507,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23287,10 +23594,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23380,6 +23687,9 @@
                       "$ref": "#/components/schemas/DelegationCompletedEvent"
                     },
                     {
+                      "$ref": "#/components/schemas/McpDiscoveredEvent"
+                    },
+                    {
                       "$ref": "#/components/schemas/SandboxStateEvent"
                     },
                     {
@@ -23450,7 +23760,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23536,10 +23846,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -23579,7 +23889,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23690,10 +24000,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23757,7 +24067,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23836,10 +24146,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23906,7 +24216,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -23987,10 +24297,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24047,7 +24357,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24124,10 +24434,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24184,7 +24494,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24277,10 +24587,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24337,7 +24647,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24416,10 +24726,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24469,7 +24779,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24551,10 +24861,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24604,7 +24914,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24716,10 +25026,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24788,7 +25098,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -24868,10 +25178,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24928,7 +25238,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25005,10 +25315,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25077,7 +25387,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25157,10 +25467,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25217,7 +25527,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25292,10 +25602,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25352,7 +25662,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25439,10 +25749,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25563,7 +25873,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25653,10 +25963,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25713,7 +26023,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -25810,10 +26120,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25934,7 +26244,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26034,10 +26344,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26094,7 +26404,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26181,10 +26491,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26242,7 +26552,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26319,10 +26629,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26389,7 +26699,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26465,10 +26775,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": false,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26589,7 +26899,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26642,45 +26952,22 @@
         "summary": "Get the Tenant's artifact limits",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -26706,7 +26993,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -26755,45 +27042,22 @@
         "description": "The largest file one upload may store, and the most bytes all artifacts may hold. Unset limits take the defaults (100 MiB and 10 GiB).",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -26829,7 +27093,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -26879,45 +27143,22 @@
         "summary": "Get the Tenant's status",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -26943,7 +27184,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -26994,21 +27235,21 @@
         "description": "Deletes its sessions, its sandboxes, or both, after draining or cancelling the turns in progress. The Tenant stays open.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -27045,7 +27286,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27096,21 +27337,21 @@
         "description": "Sets each setting the Tenant does not have yet; keeps the ones it has.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -27147,7 +27388,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27197,46 +27438,22 @@
         "summary": "List model providers and models",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings",
-          "agents:write"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27262,7 +27479,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27312,45 +27529,22 @@
         "summary": "Get the Tenant's sandbox configuration",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27376,7 +27570,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27425,45 +27619,22 @@
         "description": "What a session gets when it names no sandbox, and the limits every session's sandbox must fit.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27499,7 +27670,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27550,16 +27721,13 @@
         "description": "Totals from the model usage ledger, which the model gate writes once per call: for the Tenant, one agent or one turn, over the current UTC day or month, or all time.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -27601,31 +27769,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27651,7 +27799,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27701,45 +27849,22 @@
         "summary": "Get the Tenant's model budgets",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27765,7 +27890,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27814,45 +27939,22 @@
         "description": "Replaces every budget. Before each model call the gate checks the scope's spend against its cap; once a cap is reached the call fails with `budget_exhausted` and the turn with `model.budget_exhausted`. An empty list removes every cap.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27888,7 +27990,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -27938,46 +28040,22 @@
         "summary": "List the model providers the Tenant has credentials for",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings",
-          "agents:write"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28003,7 +28081,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28053,45 +28131,22 @@
         "summary": "Get the Tenant's model",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28117,7 +28172,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28165,45 +28220,22 @@
         "summary": "Set a model provider's credentials",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28239,7 +28271,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28289,45 +28321,22 @@
         "summary": "Choose the provider and model",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28363,7 +28372,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28405,7 +28414,287 @@
         }
       }
     },
-    "/v1/vaults": {
+    "/v1/tenant/keys": {
+      "get": {
+        "tags": [
+          "Application keys"
+        ],
+        "summary": "List the Tenant's keys",
+        "description": "Every key of the Tenant by name, with its role (`application`, `management` or `studio`) and when it was issued. Keys themselves are never shown again.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The keys, by id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOperatorKeysResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/keys/{keyId}": {
+      "put": {
+        "tags": [
+          "Application keys"
+        ],
+        "summary": "Create or rotate an application key",
+        "description": "Issues a new application key named `keyId` and returns it this once. An application key of that name is replaced: the old one stops authenticating at once. A management key, `studio` and `bootstrap` are refused.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio` or `bootstrap`"
+            },
+            "required": true,
+            "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio` or `bootstrap`",
+            "name": "keyId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new key, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PutOperatorKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a key name, a reserved name, or a management key's name"
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Application keys"
+        ],
+        "summary": "Delete an application key",
+        "description": "The key stops authenticating at once. A management key, `studio` and `bootstrap` are refused.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio` or `bootstrap`"
+            },
+            "required": true,
+            "description": "The key's name: `^[a-z][a-z0-9-]{0,31}$`, never `studio` or `bootstrap`",
+            "name": "keyId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The key is deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteOperatorKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a key name, a reserved name, or a management key's name"
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/vaults": {
       "post": {
         "tags": [
           "Vaults"
@@ -28414,21 +28703,21 @@
         "description": "With `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach; or a vault of one person (`ownerUserId`), which only that person's sessions attach.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28465,7 +28754,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28517,11 +28806,11 @@
         "description": "The installation vaults, after the vaults of `ownerUserId` when it names a person.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -28538,10 +28827,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28568,7 +28857,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28610,7 +28899,7 @@
         }
       }
     },
-    "/v1/vaults/{vaultId}": {
+    "/v1/tenant/vaults/{vaultId}": {
       "get": {
         "tags": [
           "Vaults"
@@ -28618,11 +28907,11 @@
         "summary": "Get a vault",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -28637,10 +28926,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28667,7 +28956,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28715,11 +29004,11 @@
         "summary": "Delete a vault and its credentials",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -28734,10 +29023,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28764,7 +29053,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28806,7 +29095,7 @@
         }
       }
     },
-    "/v1/vaults/{vaultId}/credentials": {
+    "/v1/tenant/vaults/{vaultId}/credentials": {
       "post": {
         "tags": [
           "Vaults"
@@ -28815,11 +29104,11 @@
         "description": "A bearer token or OAuth tokens, bound to the URLs a tool may send them to.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -28834,10 +29123,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28874,7 +29163,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -28922,11 +29211,11 @@
         "summary": "List a vault's credentials",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -28941,10 +29230,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28971,7 +29260,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29013,7 +29302,7 @@
         }
       }
     },
-    "/v1/vaults/{vaultId}/credentials/{credentialId}": {
+    "/v1/tenant/vaults/{vaultId}/credentials/{credentialId}": {
       "get": {
         "tags": [
           "Vaults"
@@ -29021,11 +29310,11 @@
         "summary": "Get a credential",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -29048,10 +29337,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29078,7 +29367,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29126,11 +29415,11 @@
         "summary": "Rotate a credential's secret",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -29153,10 +29442,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29193,7 +29482,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29244,11 +29533,11 @@
         "summary": "Delete a credential",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -29271,10 +29560,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29301,7 +29590,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29343,7 +29632,7 @@
         }
       }
     },
-    "/v1/vaults/{vaultId}/oauth/start": {
+    "/v1/tenant/vaults/{vaultId}/oauth/start": {
       "post": {
         "tags": [
           "Vaults"
@@ -29352,11 +29641,11 @@
         "description": "Signs the installation in to the remote MCP server at `url` (declared as `server`) and stores its OAuth credential, bound to `url`, in this installation vault. The Runtime discovers the server's authorization server (RFC 9728, RFC 8414), registers itself (RFC 7591) unless `clientId` names a registered client, and answers the URL to open in a browser; the sign-in returns to `GET /v1/oauth/callback` within `expiresAt`. The callback URL is `NYLORUN_PUBLIC_URL` + `/v1/oauth/callback`, or this request's own origin when the Host has no public URL. Application keys acting for no one only. `oauth_client_required` when the server offers no registration and no `clientId` was given.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -29371,10 +29660,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29411,7 +29700,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29506,10 +29795,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": false,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29566,7 +29855,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -29623,6 +29912,9 @@
             "applicationKey": []
           },
           {
+            "managementKey": []
+          },
+          {
             "issuerToken": []
           },
           {}
@@ -29630,6 +29922,7 @@
         "x-nylorun-credentials": [
           "application",
           "subject",
+          "management",
           "token"
         ],
         "x-nylorun-scopes": "any",
@@ -29637,10 +29930,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -29697,7 +29990,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29739,7 +30032,7 @@
         }
       }
     },
-    "/v1/access/signing-keys": {
+    "/v1/tenant/signing-keys": {
       "get": {
         "tags": [
           "Access"
@@ -29747,21 +30040,21 @@
         "summary": "List signing keys",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29788,7 +30081,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29830,7 +30123,7 @@
         }
       }
     },
-    "/v1/access/signing-keys/rotate": {
+    "/v1/tenant/signing-keys/rotate": {
       "post": {
         "tags": [
           "Access"
@@ -29839,21 +30132,21 @@
         "description": "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding delivery token and capability link.",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29890,7 +30183,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -29935,7 +30228,7 @@
         }
       }
     },
-    "/v1/access/signing-keys/{kid}/revoke": {
+    "/v1/tenant/signing-keys/{kid}/revoke": {
       "post": {
         "tags": [
           "Access"
@@ -29943,11 +30236,11 @@
         "summary": "Revoke a signing key",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application"
+          "management"
         ],
         "x-nylorun-scopes": "never",
         "parameters": [
@@ -29962,10 +30255,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -30002,7 +30295,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -30053,10 +30346,13 @@
           "Access"
         ],
         "summary": "Get who the caller is",
-        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), or a trusted issuer's token (`via: issuer:<name>`).",
+        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), a management key (`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token (`via: issuer:<name>`).",
         "security": [
           {
             "applicationKey": []
+          },
+          {
+            "managementKey": []
           },
           {
             "issuerToken": []
@@ -30065,6 +30361,7 @@
         "x-nylorun-credentials": [
           "application",
           "subject",
+          "management",
           "token"
         ],
         "x-nylorun-scopes": "any",
@@ -30072,10 +30369,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30132,7 +30429,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -30208,10 +30505,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30278,7 +30575,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30361,10 +30658,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30424,7 +30721,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30526,10 +30823,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30589,7 +30886,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30672,10 +30969,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30725,7 +31022,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30806,10 +31103,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30866,7 +31163,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30956,10 +31253,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31026,7 +31323,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31099,10 +31396,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31149,7 +31446,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31203,12 +31500,9 @@
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -31229,31 +31523,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -31279,7 +31553,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31333,12 +31607,9 @@
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "application"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -31378,31 +31649,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -31428,7 +31679,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31478,16 +31729,13 @@
         "summary": "Export committed model calls in safe transaction order",
         "security": [
           {
-            "applicationKey": []
+            "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject"
+          "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -31511,31 +31759,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -31561,7 +31789,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {

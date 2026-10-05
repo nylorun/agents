@@ -46,7 +46,8 @@ test("SD-I5: browser sources exclude engine, host and Action execution", () => {
     /@nylorun\/harness/,
     /@nylorun\/runtime/,
     /@nylorun\/core/,
-    /@nylorun\/admin/,
+    // Only the Management client, which loads no Node modules.
+    /@nylorun\/admin(?!\/client["'])/,
     /agents\/(?:dist|src)\/(?:action-handler|execute-action)/,
     /from\s+["'][^"']*harness\/src\/flow/,
   ];

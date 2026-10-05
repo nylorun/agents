@@ -2,6 +2,12 @@
  * The Studio server that runs in the `studio` container of a Tenant's Compose project:
  * the dashboard and the trusted proxy on one origin, behind a cookie session.
  *
+ * - Studio on this machine needs no sign-in (AP19): a request on the
+ *   published loopback address (`localhost` or `127.0.0.1` at the published
+ *   port) with no Studio session acts as if signed in, for the whole Tenant
+ *   and no subject. Only that address, which Compose publishes on loopback,
+ *   is served this way; an allowed host and an embedded Studio keep their
+ *   sign-in.
  * - The CLI mints a single-use login token with the admin key
  *   (`POST /_studio/login-tokens`) and opens `/login?token=…`, which sets an
  *   `HttpOnly`, `SameSite=Strict` session cookie for `SESSION_TTL_MS`. The
@@ -11,9 +17,10 @@
  *   subject, passes it to the framed dashboard, which exchanges it at
  *   `POST /_studio/sessions` for a one-hour bearer session kept in memory. A
  *   session limited to a Tenant reaches only that Tenant.
- * - Every `/_studio/*` request needs a session, cookie or bearer, except the
- *   two that create one. The dashboard's static files carry no data and are
- *   served without one; only `frameAncestors` may frame them.
+ * - Every `/_studio/*` request needs a session (cookie, bearer, or the
+ *   loopback address's own), except the two that create one. The dashboard's
+ *   static files carry no data and are served without one; only
+ *   `frameAncestors` may frame them.
  * - Behind a sign-in proxy (oauth2-proxy), a request with no Studio session
  *   that carries a JWT (`X-Forwarded-Access-Token`, or an `Authorization`
  *   bearer that is not a Studio session) signs in when the Runtime's
@@ -24,10 +31,11 @@
  *   `127.0.0.1`, or one of `allowedHosts` (DNS rebinding); requests that
  *   change state must carry the request's own `Origin`; no CORS headers.
  * - Studio serves its installation's one Tenant, which it learns from the
- *   Admin API (`admin.status().tenant`): `/` redirects to `/tenants/<id>`, and
- *   a route or login token naming another Tenant is refused. Tenant API calls
- *   use the Tenant's Studio key, derived from the admin key in memory. No key
- *   ever reaches the browser.
+ *   Runtime's `GET /v1/tenant` with its own key: `/` redirects to
+ *   `/tenants/<id>`, and a route or login token naming another Tenant is
+ *   refused. Runtime calls use Studio's key (principal `studio`), derived
+ *   from the admin key in memory (`deriveStudioToken`). No key ever reaches
+ *   the browser.
  *
  * This module does not read the environment; `server-main.ts` does.
  */
@@ -38,12 +46,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import {
-  AdminError,
-  createAdmin,
-  deriveStudioToken,
-  type HostTenant,
-} from "@nylorun/admin";
+import { deriveStudioToken } from "@nylorun/admin";
 import {
   StudioLoginTokenRequestSchema,
   StudioSessionRequestSchema,
@@ -83,7 +86,7 @@ export const STUDIO_SCOPE = "studio";
 /** Issuer tokens are at most 16 KiB (the Runtime's cap). */
 const MAX_FORWARDED_TOKEN = 16 * 1024;
 const FORWARDED_TOKEN_HEADER = "x-forwarded-access-token";
-const ME_TIMEOUT_MS = 10_000;
+const RUNTIME_TIMEOUT_MS = 10_000;
 
 export type StudioServerOptions = Readonly<{
   /** Runtime base URL, e.g. `http://runtime:4000`. Non-loopback is allowed. */
@@ -137,7 +140,7 @@ export type StudioServer = Readonly<{
 
 /** The installation's one Tenant, as `/_studio/hello` reports it. */
 export type StudioTenantSummary = Readonly<{
-  /** Null until Studio has read it: the Host cannot read its Tenant, or the Admin API is unreachable. */
+  /** Null until Studio has read it: the Runtime is unreachable, or has not opened its Tenant. */
   id: string | null;
   name: string | null;
   state: "open" | "unavailable";
@@ -520,13 +523,17 @@ function page(
 
 const SIGN_IN =
   "Run <code>npx nylorun studio</code> in a terminal. It opens Studio in your browser, signed in for 30 days.";
+/** The published loopback address needs no sign-in (AP19). */
+const LOCAL_SIGN_IN = 'Studio on this machine needs no sign-in: <a href="/">open Studio</a>.';
 
-/** Why the Host's Tenant is not open, with the repair the Host names. */
-function unavailableMessage(tenant: HostTenant): string {
-  if (tenant.cause === undefined)
-    return "The Runtime has not opened its Tenant yet. Try again in a moment.";
-  return `${tenant.cause.message} ${tenant.cause.repair} (${tenant.cause.code})`;
-}
+const STATUS_HINT = "Run npx nylorun status to see why.";
+
+/** A session on the published loopback address with no other (AP19): the whole Tenant, no subject. */
+const LOCAL_SESSION: StudioSession = Object.freeze({
+  kind: "cookie",
+  tenant: null,
+  subject: null,
+});
 
 /** Starts the Studio server. The container entry is `server-main.ts`. */
 /** `frame-ancestors` sources for the allowlist; `'none'` when it is empty. */
@@ -570,7 +577,8 @@ export async function startStudioServer(
   const signingKey = sessionKey(adminKey);
   const webRoot = options.webRoot ?? packagedWebRoot();
   const now = options.now ?? Date.now;
-  const admin = createAdmin({ url: runtimeUrl, key: adminKey });
+  /** Studio's key (principal `studio`), derived from the admin key; in memory only. */
+  const studioKey = deriveStudioToken(adminKey);
   const frameAncestors = [...(options.frameAncestors ?? [])];
   const analyticsId = parseAnalyticsId(options.analyticsId ?? "");
   const sessionCookie = parseSessionCookieName(options.sessionCookie ?? "");
@@ -594,46 +602,57 @@ export async function startStudioServer(
   /**
    * The Host's Tenant id, once Studio has read it: an installation's Tenant
    * keeps its id. A failure to read it is not remembered, so a later request
-   * asks the Admin API again.
+   * asks the Runtime again.
    */
   let knownTenantId: string | undefined;
-  /** The Tenant's derived Studio key, in memory only. */
-  let studioKeyMemo: Readonly<{ tenantId: string; key: string }> | undefined;
 
   let boundPort = 0;
   let publicPort = 0;
   let publicHosts: ReadonlySet<string> = new Set();
 
-  const studioKey = (tenantId: string): string => {
-    if (studioKeyMemo?.tenantId !== tenantId)
-      studioKeyMemo = { tenantId, key: deriveStudioToken(adminKey, tenantId) };
-    return studioKeyMemo.key;
-  };
-
-  /** The Host's one Tenant, read from the Admin API (`admin.status().tenant`). */
+  /**
+   * The Host's one Tenant, read from the Runtime's `GET /v1/tenant` with
+   * Studio's key. The Runtime answers the opaque 404 while its Tenant is not
+   * open, so the cause is `nylorun status`'s to report.
+   */
   const hostTenant = async (): Promise<StudioTenantSummary> => {
+    const unavailable = (message: string): StudioTenantSummary => ({
+      id: knownTenantId ?? null,
+      name: null,
+      state: "unavailable",
+      message,
+    });
+    let reply: Response;
     try {
-      const { tenant } = await admin.status();
-      if (tenant.id !== null) knownTenantId = tenant.id;
-      return tenant.state === "open" && tenant.id !== null
-        ? { id: tenant.id, name: tenant.name, state: "open" }
-        : {
-            id: tenant.id,
-            name: tenant.name,
-            state: "unavailable",
-            message: unavailableMessage(tenant),
-          };
-    } catch (error) {
-      return {
-        id: knownTenantId ?? null,
-        name: null,
-        state: "unavailable",
-        message:
-          error instanceof AdminError
-            ? `The Runtime Admin API is unavailable: ${error.message}`
-            : "The Runtime Admin API is unavailable.",
-      };
+      reply = await fetch(`${runtimeUrl}/v1/tenant`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(RUNTIME_TIMEOUT_MS),
+        headers: {
+          authorization: `Bearer ${studioKey}`,
+          [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          accept: "application/json",
+        },
+      });
+    } catch {
+      return unavailable(`Studio cannot reach the Runtime. ${STATUS_HINT}`);
     }
+    let body: unknown;
+    try {
+      body = reply.ok ? await reply.json() : undefined;
+    } catch {
+      body = undefined;
+    }
+    const tenant = (body as { tenant?: { id?: unknown; name?: unknown } } | undefined)?.tenant;
+    if (typeof tenant?.id !== "string" || !TENANT_ID.test(tenant.id))
+      return unavailable(
+        `The Runtime did not open its Tenant to Studio (HTTP ${reply.status}). ${STATUS_HINT}`,
+      );
+    knownTenantId = tenant.id;
+    return {
+      id: tenant.id,
+      name: typeof tenant.name === "string" ? tenant.name : null,
+      state: "open",
+    };
   };
 
   /** The Tenant id routes and login tokens must name: remembered, or read now. */
@@ -662,7 +681,7 @@ export async function startStudioServer(
         response,
         503,
         "Tenant unavailable",
-        `${escapeHtml(tenant.message ?? "The Tenant is unavailable.")} Reload this page to try again; <code>npx nylorun status</code> reports the Tenant.`,
+        `${escapeHtml(tenant.message ?? "The Tenant is unavailable.")} Reload this page to try again.`,
         method,
       );
       return;
@@ -727,7 +746,7 @@ export async function startStudioServer(
     try {
       reply = await fetch(`${runtimeUrl}/v1/me`, {
         redirect: "error",
-        signal: AbortSignal.timeout(ME_TIMEOUT_MS),
+        signal: AbortSignal.timeout(RUNTIME_TIMEOUT_MS),
         headers: {
           authorization: `Bearer ${token}`,
           [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
@@ -890,7 +909,7 @@ export async function startStudioServer(
     json(response, 201, reply);
   };
 
-  const login = (url: URL, response: ServerResponse, secure: boolean): void => {
+  const login = (url: URL, response: ServerResponse, secure: boolean, proxied: boolean): void => {
     const entry = takeLoginToken(url.searchParams.get("token") ?? "");
     const at = now();
     // A token limited to a Tenant never becomes a Host-wide cookie.
@@ -899,7 +918,7 @@ export async function startStudioServer(
         response,
         401,
         "Login link expired",
-        `This login link is invalid, expired or already used. ${SIGN_IN}`,
+        `This login link is invalid, expired or already used. ${proxied ? SIGN_IN : LOCAL_SIGN_IN}`,
       );
       return;
     }
@@ -981,7 +1000,7 @@ export async function startStudioServer(
     if (pathname === "/login") {
       request.resume();
       if (method !== "GET") return fail(response, 405, "Method not allowed");
-      return login(url, response, secure);
+      return login(url, response, secure, proxied);
     }
     if (pathname === "/_studio/login-tokens") {
       request.resume();
@@ -1030,6 +1049,8 @@ export async function startStudioServer(
         session = await forwardedSignIn(forwarded, response, secure);
         if (session === undefined) return void request.resume();
       }
+      // The published loopback address needs no sign-in (AP19).
+      else if (!proxied) session = LOCAL_SESSION;
     }
     if (session === undefined || session === "refused") {
       request.resume();
@@ -1038,7 +1059,9 @@ export async function startStudioServer(
       return fail(
         response,
         401,
-        "Studio session required. Run npx nylorun studio to sign in.",
+        proxied
+          ? "Studio session required. Sign in through this Studio's sign-in proxy, or run npx nylorun studio."
+          : "This Studio session is invalid or has expired.",
       );
     }
 
@@ -1102,7 +1125,7 @@ export async function startStudioServer(
       return proxyRuntime(request, response, {
         origin,
         runtimeUrl,
-        serverKey: studioKey(tenantId),
+        serverKey: studioKey,
         prefix: `/_studio/tenants/${segment}/runtime`,
         allowedOrigins: sameOrigins,
       });

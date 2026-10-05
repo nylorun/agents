@@ -3,13 +3,14 @@ import {
   BrowserRouter,
   Routes,
   Route,
+  Navigate,
   useLocation,
   useNavigate,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ModelSettings } from "@/components/model-settings";
-import { VaultModule } from "@/components/vault";
+import { TenantSettings } from "@/components/tenant-settings";
+import { TenantOverview } from "@/components/tenant-overview";
 import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
@@ -57,6 +58,12 @@ import {
   tenantRuntime,
   tenantScope,
 } from "@/proxy-client";
+import {
+  NEW_SESSION,
+  asStudioDefinition,
+  definitionForSession,
+  isNewSessionState,
+} from "@/session-open";
 import type {
   AgentManifest,
   Connection,
@@ -71,36 +78,14 @@ import {
   rememberWorkflowLinks,
   treeFromManifest,
   type IterationRecord,
-  type WorkflowManifest,
   type WorkflowTreeNode,
 } from "@/workflow";
 
 export type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
 
-function asStudioDefinition(raw: {
-  manifest: Record<string, unknown> & { id: string; name?: string };
-}): StudioDefinition {
-  const manifest = raw.manifest;
-  if (manifest.kind === "workflow") {
-    return {
-      id: String(manifest.id),
-      name: String(manifest.name ?? manifest.id),
-      kind: "workflow",
-      manifest: manifest as WorkflowManifest,
-    };
-  }
-  const capabilities = Array.isArray(manifest.capabilities)
-    ? (manifest.capabilities as {
-        id: string;
-        tools?: { name: string; description?: string }[];
-        hooks?: { at: "before" | "after"; scope: "turn" | "step" }[];
-      }[])
-    : [];
-  return {
-    id: String(manifest.id),
-    name: String(manifest.name ?? manifest.id),
-    manifest: { capabilities },
-  };
+function hashOf(definition: object): string | undefined {
+  const hash = (definition as { manifestHash?: unknown }).manifestHash;
+  return typeof hash === "string" ? hash : undefined;
 }
 
 function studioClient(tenantId: string) {
@@ -367,134 +352,6 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
-/** A command with a copy button. */
-function CommandLine({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2">
-      <code className="flex-1 overflow-x-auto font-mono text-sm">{command}</code>
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        onClick={() =>
-          void navigator.clipboard.writeText(command).then(
-            () => setCopied(true),
-            () => setCopied(false),
-          )
-        }
-      >
-        {copied ? "Copied" : "Copy"}
-      </Button>
-    </div>
-  );
-}
-
-type ModelState =
-  | { kind: "loading" }
-  | { kind: "unknown" }
-  | { kind: "unset" }
-  | { kind: "set"; label: string };
-
-function useTenantModel(tenantId: string): ModelState {
-  const [state, setState] = useState<ModelState>({ kind: "loading" });
-  useEffect(() => {
-    let cancelled = false;
-    void tenantRuntime(tenantId)("/v1/tenant/model")
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status));
-        const body = (await response.json()) as {
-          configured?: boolean;
-          provider?: string;
-          model?: string;
-        };
-        if (cancelled) return;
-        setState(
-          body.configured
-            ? { kind: "set", label: `${body.provider ?? "?"} · ${body.model ?? "?"}` }
-            : { kind: "unset" },
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setState({ kind: "unknown" });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId]);
-  return state;
-}
-
-/**
- * Shown while a Tenant has no agents: the steps from an empty Tenant to an
- * agent in Studio. The Workspace polls, so the first agent replaces it.
- */
-function ConnectYourCode({ tenant }: { tenant: StudioTenantInfo }) {
-  const navigate = useNavigate();
-  const model = useTenantModel(tenant.id);
-  return (
-    <section className="mx-auto w-full max-w-3xl flex-1 space-y-6 overflow-auto p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Connect your code</h1>
-        <p className="mt-2 text-muted-foreground">
-          {tenant.name} has no agents yet. Agents appear here when your code
-          registers them.
-        </p>
-      </div>
-      <ol className="space-y-6">
-        <li className="space-y-2">
-          <h2 className="font-medium">1. Choose a model provider</h2>
-          {model.kind === "set" ? (
-            <p className="text-sm text-muted-foreground">
-              Using {model.label}.{" "}
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => void navigate("/settings")}
-              >
-                Change it
-              </button>
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {model.kind === "unset"
-                ? "This Tenant has no model provider yet. "
-                : "Agents call the Tenant's model provider. "}
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => void navigate("/settings")}
-              >
-                Open Model Settings
-              </button>
-            </p>
-          )}
-        </li>
-        <li className="space-y-2">
-          <h2 className="font-medium">2. Start your project's Tenant</h2>
-          <p className="text-sm text-muted-foreground">
-            In your project's directory, run:
-          </p>
-          <CommandLine command="npx nylorun start" />
-          <p className="text-sm text-muted-foreground">
-            It creates the project's Tenant and links the
-            project to it. No project yet? Create one with{" "}
-            <code className={code}>npm create @nylorun/agent@beta my-agent</code>,
-            then run the command above inside it.
-          </p>
-        </li>
-        <li className="space-y-2">
-          <h2 className="font-medium">3. Start it</h2>
-          <CommandLine command="npm run dev" />
-        </li>
-      </ol>
-      <p role="status" className="text-sm text-muted-foreground">
-        Waiting for an agent to register…
-      </p>
-    </section>
-  );
-}
-
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -535,6 +392,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               id: string;
               name?: string;
             },
+            // The Runtime sends it (ListAgentsResponse); the SDK's listAgents type omits it.
+            manifestHash: hashOf(a),
           }),
         ),
         sessionsByAgent: grouped,
@@ -557,6 +416,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     return () => window.clearInterval(timer);
   }, [waiting, refresh]);
   const agent = connection.agents.find((a) => a.id === agentId);
+  const settingsActive = location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/") || location.pathname === "/vault";
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
@@ -564,18 +425,13 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         tenant={tenant}
         activeAgentId={agentId}
         activeSessionId={sessionId}
-        settingsActive={location.pathname === "/settings"}
-        vaultActive={location.pathname === "/vault"}
+        settingsActive={settingsActive}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
           <strong>
-            {location.pathname === "/settings"
-              ? "Model Settings"
-              : location.pathname === "/vault"
-                ? "Connections"
-                : (agent?.name ?? "Nylorun Studio")}
+            {settingsActive ? "Tenant settings" : (agent?.name ?? "Nylorun Studio")}
           </strong>
           {embedded() ? null : (
             <Badge variant="outline" title={tenant.id}>
@@ -608,19 +464,28 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               sessionId={decodeURIComponent(sessionOnly[1]!)}
             />
           ) : location.pathname === "/settings" ? (
-            <ModelSettings tenantId={tenant.id} />
+            <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
           ) : location.pathname === "/vault" ? (
-            <VaultModule tenantId={tenant.id} />
+            <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
+          ) : settingsActive ? (
+            <TenantSettings tenant={tenant} />
+          ) : agentId && sessionId ? (
+            // Any session opens, also one whose agent is not registered (a
+            // flow's embedded agent); the session says which agent it runs.
+            connection.status === "Connecting" ? (
+              <p className="p-8 text-muted-foreground">Opening the session…</p>
+            ) : (
+              <SessionWorkspace
+                key={sessionId}
+                routeAgentId={agentId}
+                agents={connection.agents}
+                sessionId={sessionId}
+                tenantId={tenant.id}
+                refresh={refresh}
+              />
+            )
           ) : waiting ? (
-            <ConnectYourCode tenant={tenant} />
-          ) : agent && sessionId ? (
-            <SessionWorkspace
-              key={sessionId}
-              agent={agent}
-              sessionId={sessionId}
-              tenantId={tenant.id}
-              refresh={refresh}
-            />
+            <TenantOverview tenant={tenant} waitingForAgents />
           ) : (
             <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
               <h1 className="text-2xl font-semibold">
@@ -644,6 +509,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                     onClick={() =>
                       void navigate(
                         `/agents/${encodeURIComponent(a.id)}/sessions/${crypto.randomUUID()}`,
+                        { state: NEW_SESSION },
                       )
                     }
                   >
@@ -720,7 +586,98 @@ function SessionRedirect({
   );
 }
 
+type SessionLoad =
+  | { kind: "loading" }
+  | { kind: "ready"; agentId: string }
+  | { kind: "not-found" }
+  | { kind: "failed"; message: string };
+
+/**
+ * Opens a session by reading it. Only Studio's own "New session" creates one:
+ * a PUT with Studio's parameters would answer 409 for a session an application
+ * created with another owner, sandbox or info.
+ */
 function SessionWorkspace({
+  routeAgentId,
+  agents,
+  sessionId,
+  tenantId,
+  refresh,
+}: {
+  routeAgentId: string;
+  agents: readonly StudioDefinition[];
+  sessionId: string;
+  tenantId: string;
+  refresh: () => Promise<void>;
+}) {
+  const location = useLocation();
+  const create = isNewSessionState(location.state);
+  const routeAgent = agents.find((a) => a.id === routeAgentId);
+  const routeAgentKnown = routeAgent !== undefined;
+  const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
+  useEffect(() => {
+    const abort = new AbortController();
+    const sdk = studioClient(tenantId);
+    void (async () => {
+      try {
+        const view = await sdk.session(sessionId).inspect(abort.signal);
+        if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: view.agentId });
+      } catch (cause) {
+        if ((cause as { status?: unknown }).status !== 404) throw cause;
+        if (!create || !routeAgentKnown) {
+          if (!abort.signal.aborted) setLoad({ kind: "not-found" });
+          return;
+        }
+        await sdk.createSession({
+          id: sessionId,
+          agentId: routeAgentId,
+          ownerUserId: "local-developer",
+        });
+        if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
+      }
+    })().catch((cause: unknown) => {
+      if (!abort.signal.aborted)
+        setLoad({
+          kind: "failed",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+    });
+    return () => abort.abort();
+  }, [tenantId, sessionId, routeAgentId, routeAgentKnown, create]);
+
+  if (load.kind === "loading")
+    return <p className="p-8 text-muted-foreground">Opening the session…</p>;
+  if (load.kind !== "ready")
+    return (
+      <section className="mx-auto w-full max-w-3xl flex-1 p-8">
+        <h1 className="text-2xl font-semibold">
+          {load.kind === "not-found" ? "Session not found" : "Session unavailable"}
+        </h1>
+        <p role="alert" className="mt-2 text-muted-foreground">
+          {load.kind === "not-found" ? (
+            <>
+              This Tenant has no session <code className={code}>{sessionId}</code>.
+            </>
+          ) : (
+            load.message
+          )}
+        </p>
+      </section>
+    );
+  return (
+    <SessionView
+      agent={definitionForSession(load.agentId, agents, [
+        lookupWorkflowLink(sessionId)?.workflowAgentId,
+        routeAgentId,
+      ])}
+      sessionId={sessionId}
+      tenantId={tenantId}
+      refresh={refresh}
+    />
+  );
+}
+
+function SessionView({
   agent,
   sessionId,
   tenantId,
@@ -760,11 +717,6 @@ function SessionWorkspace({
     const sdk = studioClient(tenantId);
     const current = sdk.session(sessionId);
     void (async () => {
-      await sdk.createSession({
-        id: sessionId,
-        agentId: agent.id,
-        ownerUserId: "local-developer",
-      });
       const history = await current.history({ signal: abort.signal });
       if (abort.signal.aborted) return;
       const loaded = mergeStudioEvents(
@@ -1132,7 +1084,7 @@ function SessionWorkspace({
             value="manifest"
             className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
           >
-            <AgentManifestPanel agent={agent} />
+            <AgentManifestPanel agent={agent} tenantId={tenantId} sessionId={sessionId} />
           </TabsPrimitive.Content>
         </TabsPrimitive.Root>
       </ResizablePanel>

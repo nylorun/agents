@@ -32,7 +32,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { run } from "../lib/repo.mjs";
-import { ensureImages, eventually, hostTenant, runtimeHeaders, withStack } from "../lib/stack.mjs";
+import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
 
 const { values: options } = parseArgs({
   options: {
@@ -121,9 +121,11 @@ try {
     const docker = (args, extra = {}) => run("docker", args, { capture: true, timeout: 120_000, ...extra });
     let tenant;
     const api = async (method, path, body, { ok = true } = {}) => {
+      // `/v1/tenant/*` is the Management API: it takes the management key.
+      const key = path.startsWith("/v1/tenant/") ? tenant.managementKey : tenant.key;
       const response = await fetch(`${stack.runtimeUrl}${path}`, {
         method,
-        headers: runtimeHeaders(tenant.key, body ? { "content-type": "application/json" } : {}),
+        headers: runtimeHeaders(key, body ? { "content-type": "application/json" } : {}),
         ...(body ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(30_000),
       });
@@ -185,7 +187,7 @@ try {
       });
 
     try {
-      tenant = await hostTenant(await stack.admin());
+      tenant = await stack.tenant();
 
       step("stub model on the Compose network");
       // The API server's service address: the pod's NetworkPolicy must keep commands from it.
@@ -218,7 +220,7 @@ try {
       const enable = ["sandbox", "enable", "--context", context, "--no-pull"];
       if (options["host-address"]) enable.push("--host-address", options["host-address"]);
       await stack.nylorun(enable, { timeout: 900_000 });
-      tenant = await hostTenant(await stack.admin());
+      tenant = await stack.tenant();
       await api("PUT", "/v1/tenant/sandbox", {
         requestId: randomUUID(),
         limits: { idle: "10m", ttl: "2h" },
@@ -344,7 +346,7 @@ try {
 
       step("nylorun sandbox disable → kind pod is sandbox_unavailable");
       await stack.nylorun(["sandbox", "disable", "--delete-namespace"], { timeout: 600_000 });
-      tenant = await hostTenant(await stack.admin());
+      tenant = await stack.tenant();
       const unavailable = await api("PUT", "/v1/sandboxes/pods%2Fafter", { kind: "pod" }, { ok: false });
       assert.equal(unavailable.status, 409);
       assert.equal(unavailable.body.code, "sandbox_unavailable");

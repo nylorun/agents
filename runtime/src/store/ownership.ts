@@ -42,3 +42,15 @@ export function ownedTx<T, S extends SessionDoc = SessionDoc>(
 ): Promise<T> {
   return store.tx(async (t) => fn(t, await t.assertEpoch<S>(sessionId, epoch)));
 }
+
+/**
+ * `putPrincipal` on an id that holds another role (protocol 8): rotating a key never changes
+ * what it reaches, so an application key and a management key cannot share a name.
+ */
+export class PrincipalRoleConflict extends Error {
+  readonly code = "principal.role_conflict";
+  constructor(readonly id: string) {
+    super(`Key ${id} holds another role`);
+    this.name = "PrincipalRoleConflict";
+  }
+}

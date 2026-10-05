@@ -72,6 +72,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Reuse an existing Host root (restart tests). */
   hostRoot?: string;
   applicationKey?: string;
+  /** The `test-management` key (protocol 8). Default: a new key. */
+  managementKey?: string;
   principalId?: string;
   /** When true, close() does not delete the Host root. */
   retainRoot?: boolean;
@@ -154,9 +156,13 @@ export async function startTestTenant(
   url: string;
   tenantId: string;
   applicationKey: string;
+  /** A management key (protocol 8): the Management API's (`/v1/tenant/*`). */
+  managementKey: string;
   adminKey: string;
   principalId: string;
   headers(key?: string): Record<string, string>;
+  /** `headers` with the management key. */
+  managementHeaders(): Record<string, string>;
   root: string;
   handle: TenantHandle;
   /** The gates service, with `NYLORUN_TEST_MODEL_GATE=http`. */
@@ -182,12 +188,21 @@ export async function startTestTenant(
   const principalId =
     options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
   const credentialHash = hashToken(applicationKey);
+  const managementKey = options.managementKey ?? mintBearerToken();
   const logger =
     options.logger ?? createTenantLogger({ tenantId, logPath: paths.log });
 
   // A restart (same `tenantId`) finds its database again and keeps its principals.
   const result = await openTestTenant(tenantId, {
-    principals: [{ id: principalId, credentialHash }],
+    principals: [
+      { id: principalId, credentialHash },
+      {
+        id: "test-management",
+        role: "management",
+        credentialHash: hashToken(managementKey),
+        replace: true,
+      },
+    ],
     onError: (error) =>
       logger.error("post-commit step failed", {
         message: error instanceof Error ? error.message : String(error),
@@ -389,9 +404,11 @@ export async function startTestTenant(
     url,
     tenantId,
     applicationKey,
+    managementKey,
     adminKey,
     principalId,
     headers,
+    managementHeaders: () => headers(managementKey),
     root: hostRoot,
     handle,
     ...(gate ? { gate } : {}),

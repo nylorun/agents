@@ -1740,6 +1740,32 @@ export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
   .passthrough();
 
+/** What readying one declared MCP server found (`mcp.discovered`). */
+export const McpServerOutcomeSchema = z
+  .object({
+    /** The agent used as a tool that declares the server; absent for the session's root agent. */
+    agentId: z.string().optional(),
+    capabilityId: z.string(),
+    serverName: z.string(),
+    /** `refused`: the vault has no usable credential for it; `failed`: it could not be reached or listed. */
+    outcome: z.enum(["connected", "refused", "failed"]),
+    message: z.string(),
+    /** The tools it added to the session; 0 unless connected. */
+    tools: z.number().int().nonnegative(),
+    /** The credentials a refusal names. */
+    credentialIds: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;
+/**
+ * `mcp.discovered`: the session's first turn readied its MCP servers and pinned the tools they
+ * offer, one outcome per declared server. A server that did not connect adds no tools for the
+ * session's life, so this is where the model's missing tools show (also `mcpDiagnostics`).
+ */
+export const McpDiscoveredPayloadSchema = z
+  .object({ servers: z.array(McpServerOutcomeSchema) })
+  .passthrough();
+
 /**
  * The event catalog (Durable Streams §9.5): every session event type, its payload schema, its
  * payload schema version and who writes it. A type not listed here cannot be written. A type
@@ -1774,6 +1800,7 @@ export const EVENT_CATALOG = {
   "effect.uncertain": { payload: EffectUncertainPayloadSchema, source: "loop", version: 1 },
   "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
+  "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
   "sandbox.state": { payload: SandboxStatePayloadSchema, source: "loop", version: 1 },
   "sandbox.exec": { payload: SandboxExecPayloadSchema, source: "loop", version: 1 },
   "sandbox.attached": { payload: SandboxAttachedPayloadSchema, source: "api", version: 1 },
@@ -2118,11 +2145,17 @@ export const ProjectLinkFileSchema = z
   .passthrough();
 export type ProjectLinkFile = z.infer<typeof ProjectLinkFileSchema>;
 
+/**
+ * `.nylorun/credentials.json`: the Project's application key and, from protocol 8, its
+ * management key. Still format 1: readers that predate the management key ignore it.
+ */
 export const ProjectCredentialsFileSchema = z
   .object({
     format: z.union([z.literal(0), z.literal(1)]).default(0),
     applicationKey: z.string().regex(/^[0-9a-f]{64}$/),
     principalId: z.string().min(1),
+    managementKey: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    managementPrincipalId: z.string().min(1).optional(),
   })
   .passthrough();
 export type ProjectCredentialsFile = z.infer<
@@ -2292,15 +2325,15 @@ export const SUBJECT_SCOPES = [
   "agents:read",
   "agents:write",
   "sessions:own",
-  "tenant:settings",
   "sandboxes:write",
 ] as const;
 export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
 /**
- * Scopes protocol 7 retired: `Nylorun-Scopes` may still name them (protocol 6 clients do), and
- * they grant nothing.
+ * Retired scopes: `Nylorun-Scopes` may still name them (older clients do), and they grant
+ * nothing. `vaults:own` left in protocol 7; `tenant:settings` in protocol 8, when the Tenant's
+ * settings moved to the Management API, which no subject reaches.
  */
-const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own"];
+const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own", "tenant:settings"];
 
 /** 1–200 visible ASCII characters; spaces only inside. */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
@@ -2358,8 +2391,7 @@ export function parseSubjectHeaders(
 // --- token callers (Host feature `trusted-issuers`) ------------------------------------------
 
 /**
- * Scopes a token caller (a trusted issuer's token) may carry: never `agents:write` or
- * `tenant:settings`.
+ * Scopes a token caller (a trusted issuer's token) may carry: never `agents:write`.
  */
 export const TOKEN_SCOPES = [
   "agents:read",
@@ -2474,7 +2506,7 @@ export const MeResponseSchema = z
       }),
     via: z.string().meta({
       description:
-        "How the caller authenticated: `application:<principalId>`, `subject` or `issuer:<name>`",
+        "How the caller authenticated: `application:<principalId>`, `management:<principalId>`, `subject` or `issuer:<name>`",
     }),
   })
   .strict();

@@ -178,7 +178,7 @@ it("uses the Tenant default when the request omits the sandbox, and none for fal
   try {
     const saved = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
       method: "PUT",
-      headers: serverHeaders,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({ default: "virtual", limits: { idle: "5m" } }),
     });
     expect(saved.ok, await saved.clone().text()).toBe(true);
@@ -208,7 +208,7 @@ it("refuses to save a Tenant configuration whose default breaks its own limits",
   try {
     const refused = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
       method: "PUT",
-      headers: serverHeaders,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({
         default: { network: { allow: ["api.openai.com"] } },
         limits: { resources: { cpus: 2 }, defaultResources: { cpus: 3 } },

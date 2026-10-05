@@ -124,7 +124,8 @@ it("runs a turn with bash in a harness service with its own sandbox and no store
   const api = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(`${runtime.url}${path}`, {
       method,
-      headers: server,
+      // The Tenant's status is the Management API's (protocol 8).
+      headers: path.startsWith("/v1/tenant") ? runtime.managementHeaders() : server,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     return { status: response.status, body: (await response.json()) as any };

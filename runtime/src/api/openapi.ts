@@ -87,6 +87,13 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
   );
   registry.registerComponent(
     "securitySchemes",
+    "managementKey",
+    bearer(
+      "A management key of the Tenant (role `management`): it reaches the Management API (`/v1/tenant/*`) and `/v1/me`, as itself, never for a subject. Issued only on the Tenant's machine (`nylorun-operate keys put <id> --role management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`. Never accepted from a browser (`Origin`).",
+    ),
+  );
+  registry.registerComponent(
+    "securitySchemes",
     "issuerToken",
     bearer(
       "A JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`): one person, with the issuer's scopes, agents and sandbox grants, until it expires. Accepted from servers and browsers alike; CORS is the operator's proxy's.",

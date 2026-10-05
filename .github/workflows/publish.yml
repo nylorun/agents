@@ -37,16 +37,22 @@ jobs:
       - name: Validate commit input
         shell: bash
         run: '[[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]'
-      # The merge queue requires `ci` on the exact commit it lands, so every
-      # main commit already passed the full suite. Require that instead of
-      # re-running it; no check-run means no publication.
-      - name: Require merge-queue CI on this commit
+      # Require the full suite on this commit instead of re-running it; no
+      # check-run means no publication. A merged release PR changes the release
+      # plan, so the merge queue ran the full suite as `ci` on the exact commit
+      # it lands (ci.yml). A manual run may name a later main tip, which the
+      # queue checked with the fast tier only: require main's post-merge full
+      # run, `ci (push)`, instead.
+      - name: Require the full CI suite on this commit
         shell: bash
+        env:
+          CHECK: ${{ github.event_name == 'workflow_dispatch' && 'ci (push)' || 'ci' }}
         run: |
-          conclusion=$(gh api \
-            "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs?check_name=ci&filter=latest" \
+          conclusion=$(gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs" \
+            -f check_name="$CHECK" -f filter=latest \
             --jq '[.check_runs[] | select(.app.slug == "github-actions") | .conclusion] | first')
-          echo "ci on $RELEASE_SHA: $conclusion"
+          echo "$CHECK on $RELEASE_SHA: $conclusion"
           [[ "$conclusion" == success ]]
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:

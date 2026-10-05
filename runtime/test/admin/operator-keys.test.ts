@@ -45,10 +45,13 @@ async function startHost() {
     const response = await fetch(`${runtime.adminUrl}${path}`, { method, headers });
     return { status: response.status, body: (await response.json()) as unknown };
   };
-  /** A Tenant API read with `key`: 200, or the opaque 404 of an unknown key. */
+  /**
+   * A Runtime API read with `key`: 200, or the opaque 404 of an unknown key. (An application
+   * key reaches no `/v1/tenant/*` route since protocol 8.)
+   */
   const reads = async (key: string) =>
     (
-      await fetch(`${runtime.url}/v1/tenant`, {
+      await fetch(`${runtime.url}/v1/agents`, {
         headers: { authorization: `Bearer ${key}`, [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) },
       })
     ).status;
@@ -119,7 +122,7 @@ describe("operator keys", () => {
       expect(malformed.status, method).toBe(400);
       expect(RejectedResponseSchema.parse(malformed.body).code).toBe("invalid_request");
     }
-    expect(await host.reads(deriveStudioToken(host.adminKey, host.tenantId))).toBe(200);
+    expect(await host.reads(deriveStudioToken(host.adminKey))).toBe(200);
   });
 
   it("is reached through @nylorun/admin's keys methods", async () => {

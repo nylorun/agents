@@ -66,6 +66,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
+import type { KeyRole } from "@nylorun/core/compatibility";
 import type { Sql } from "postgres";
 import type {
   EventPayload,
@@ -78,7 +79,7 @@ import type {
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
 import { appendEvent, appendSandboxEvent } from "../../record/index.js";
-import { OwnershipLostError } from "../ownership.js";
+import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
   ActionDoc,
   ActionKind,
@@ -1093,32 +1094,30 @@ class PostgresTx implements Tx {
     return row;
   }
 
-  async applicationTokenHashes(): Promise<string[]> {
-    this.check();
-    const rows = await this.db
-      .select({ tokenHash: principals.tokenHash })
-      .from(principals)
-      .where(eq(principals.role, "application"))
-      .orderBy(principals.id);
-    return rows.map((row) => row.tokenHash);
-  }
-
   async listPrincipals(): Promise<PrincipalRow[]> {
     this.check();
     return await this.db.select().from(principals).orderBy(principals.id);
   }
 
-  async putPrincipal(id: string, tokenHash: string, createdAt: string): Promise<PrincipalRow> {
+  async putPrincipal(
+    id: string,
+    tokenHash: string,
+    createdAt: string,
+    role: KeyRole = "application",
+  ): Promise<PrincipalRow> {
     this.check();
     const [row] = await this.db
       .insert(principals)
-      .values({ id, role: "application", tokenHash, idempotencyKey: null, createdAt })
+      .values({ id, role, tokenHash, idempotencyKey: null, createdAt })
       .onConflictDoUpdate({
         target: principals.id,
         set: { tokenHash, createdAt, idempotencyKey: null },
+        // A key keeps its role: rotating never turns one kind of key into another.
+        setWhere: eq(principals.role, role),
       })
       .returning();
-    return row!;
+    if (!row) throw new PrincipalRoleConflict(id);
+    return row;
   }
 
   async deletePrincipal(id: string): Promise<boolean> {

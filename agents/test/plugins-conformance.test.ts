@@ -2,10 +2,11 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@nylorun/core/define";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { prepareStdioLaunch } from "../src/plugins/launch.js";
 import { loadPlugin, PluginError } from "../src/plugins/load.js";
 import { plugin } from "../src/plugins/plugin.js";
+import { Agent as FileAgent } from "../src/builder.js";
 
 const PLUGIN_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -138,6 +139,43 @@ it("skips an invalid skill and keeps its sibling and MCP servers", () => {
   expect(Object.keys(loaded.mcpServers).sort()).toEqual(["github", "local"]);
   expect(loaded.diagnostics.some((item) => item.message.includes("broken"))).toBe(true);
   expect(loaded.diagnostics.some((item) => item.message.includes("bad"))).toBe(true);
+  const skipped = loaded.diagnostics
+    .filter((item) => item.code === "plugin.mcp-server-skipped")
+    .map((item) => item.message);
+  expect(skipped).toEqual([
+    "Skipped invalid MCP server 'bad': it is not a valid stdio declaration",
+    "Skipped invalid MCP server 'insecure': plain http is allowed only for localhost, 127.0.0.1 or [::1]; use https for example.com",
+    "Skipped invalid MCP server 'secret': url must not carry credentials; use headers",
+  ]);
+});
+
+it("warns when the agent is built that a plugin's MCP server was skipped, and why", () => {
+  const directory = root();
+  write(directory, "plugin.json", manifest("tools"));
+  write(
+    directory,
+    "mcp.json",
+    JSON.stringify({
+      $schema: MCP_SCHEMA,
+      mcpServers: {
+        local: { type: "streamable-http", url: "http://localhost:3002/mcp" },
+        lan: { type: "streamable-http", url: "http://192.168.1.20:3002/mcp" },
+      },
+    })
+  );
+  const warnings = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+  try {
+    const agent = FileAgent({ id: "bot", name: "Bot" }).plugin(directory).build();
+    const servers = agent.manifest.capabilities.find((item) => item.id === "tools")?.mcpServers;
+    expect(Object.keys(servers ?? {})).toEqual(["local"]);
+    expect(warnings).toHaveBeenCalledTimes(1);
+    expect(warnings).toHaveBeenCalledWith(
+      "Plugin 'tools': Skipped invalid MCP server 'lan': plain http is allowed only for localhost, 127.0.0.1 or [::1]; use https for 192.168.1.20",
+      expect.objectContaining({ type: "NylorunPluginWarning", code: "plugin.mcp-server-skipped" })
+    );
+  } finally {
+    warnings.mockRestore();
+  }
 });
 
 it("disables MCP when mcp.json does not match the plugin schema and still loads skills", () => {

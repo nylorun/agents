@@ -34,8 +34,8 @@ npm run dev
 
 `nylorun start` in this directory sets up the project's Tenant on the first
 run (named after the directory, under `~/.nylorun/tenants/<name>/`) and just
-starts it after that. It prints the Runtime and Studio URLs and opens Studio,
-signed in, in your browser. The Tenant keeps running after you stop `npm run dev`, so sessions survive a source
+starts it after that. It prints the Runtime and Studio URLs; `npx nylorun
+studio` signs your browser in to Studio. The Tenant keeps running after you stop `npm run dev`, so sessions survive a source
 change; `npx nylorun stop` stops it (volumes are kept), `npx nylorun status`
 shows its health, and `npx nylorun logs runtime -f` its logs.
 
