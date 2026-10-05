@@ -1,10 +1,14 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import {
   BookOpen,
   Bot,
   Box,
+  Braces,
+  Check,
+  Copy,
   Cpu,
   Info,
+  LayoutList,
   Plug,
   Puzzle,
   Terminal,
@@ -25,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -34,7 +39,7 @@ import {
   manifestStats,
   manifestView,
   shortHash,
-  signature,
+  fieldText,
   type CapabilityView,
   type PinnedManifestState,
   type ToolKind,
@@ -56,6 +61,10 @@ const TOOL_GROUPS: readonly {
   { kinds: ["built-in"], title: "Skill tools", note: "added by the engine", icon: BookOpen },
 ];
 
+/** A segmented control: the active view is raised on the muted track. */
+const SEGMENT =
+  "h-7 rounded-md! px-2.5 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!";
+
 const HOOK_HELP: Record<string, string> = {
   beforeTurn: "Patches the turn before its first model call.",
   beforeModel: "Patches every model call.",
@@ -69,14 +78,16 @@ export function AgentManifestPanel({
   sessionId,
 }: Readonly<{ agent: AgentManifest; tenantId?: string; sessionId: string }>) {
   const { pinned, hasSandbox } = useSessionManifest(tenantId, sessionId, agent.manifestHash);
+  const [mode, setMode] = useState<"layout" | "json">("layout");
   // Show the manifest the session runs; fall back to the registered one until it is known.
-  const manifest = pinned.kind === "pinned" ? pinned.manifest : agent.manifest;
+  const manifest =
+    pinned.kind === "pinned" ? pinned.manifest : (agent.rawManifest ?? agent.manifest);
   const isWorkflow =
     agent.kind === "workflow" || (manifest as { kind?: unknown }).kind === "workflow";
   const view = manifestView(manifest);
   const stats = manifestStats(view);
   return (
-    // Radix sizes the viewport's child as a table, which grows to the longest signature line.
+    // Radix sizes the viewport's child as a table, which grows to the longest line.
     <ScrollArea className="h-full [&_[data-slot=scroll-area-viewport]>div]:block!">
       <div className="space-y-5 p-4">
         <header className="space-y-2">
@@ -94,6 +105,25 @@ export function AgentManifestPanel({
                 <VersionTag pinned={pinned} />
               </div>
             </div>
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={mode}
+              onValueChange={(value) => {
+                if (value === "layout" || value === "json") setMode(value);
+              }}
+              aria-label="Manifest view"
+              className="shrink-0 gap-0.5 rounded-lg bg-muted p-0.5"
+            >
+              <ToggleGroupItem value="layout" aria-label="Layout view" className={SEGMENT}>
+                <LayoutList className="size-3.5" />
+                Layout
+              </ToggleGroupItem>
+              <ToggleGroupItem value="json" aria-label="JSON view" className={SEGMENT}>
+                <Braces className="size-3.5" />
+                JSON
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
           {view.description ? (
             <p className="text-sm text-muted-foreground">{view.description}</p>
@@ -101,7 +131,9 @@ export function AgentManifestPanel({
           <VersionAlert pinned={pinned} />
         </header>
 
-        {isWorkflow ? (
+        {mode === "json" ? (
+          <ManifestJson manifest={manifest} />
+        ) : isWorkflow ? (
           <p className="text-sm text-muted-foreground">
             A flow agent's stages are on the Tree tab.
           </p>
@@ -199,7 +231,7 @@ function VersionTag({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="cursor-default font-mono">· manifest {shortHash(hash)}</span>
+        <span className="cursor-default font-mono">manifest {shortHash(hash)}</span>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs font-mono break-all">
         {pinned.kind === "pinned" ? "Session manifest " : "Registered manifest "}
@@ -421,28 +453,80 @@ function Instructions({ instructions }: Readonly<{ instructions: readonly string
 }
 
 function ToolRow({ tool }: Readonly<{ tool: ToolView }>) {
-  const { params, returns } = signature(tool);
   return (
-    <li className="space-y-0.5 px-3 py-2">
-      <div className="flex items-baseline gap-2">
-        <code
-          className="min-w-0 truncate font-mono text-[13px]"
-          title={`${tool.name}${params}${returns ? ` → ${returns}` : ""}`}
-        >
-          <span className="font-medium">{tool.name}</span>
-          <span className="text-muted-foreground">{params}</span>
-          {returns ? <span className="text-muted-foreground"> → {returns}</span> : null}
-        </code>
-        {tool.kind === "flow-subagent" ? (
-          <Badge variant="outline" className="ml-auto shrink-0">
-            flow
-          </Badge>
-        ) : null}
+    <li className="space-y-1.5 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <code className="font-mono text-[13px] font-medium">{tool.name}</code>
+        {tool.kind === "flow-subagent" ? <Badge variant="outline">flow</Badge> : null}
       </div>
       {tool.description ? (
         <p className="text-xs text-muted-foreground">{tool.description}</p>
       ) : null}
+      <TypeBlock tool={tool} />
     </li>
+  );
+}
+
+/** A tool's input and output as TypeScript-like members, one per line. */
+function TypeBlock({ tool }: Readonly<{ tool: ToolView }>) {
+  const rows: [string, ToolView["input"]][] = [["input", tool.input]];
+  if (tool.output) rows.push(["output", tool.output]);
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md bg-muted px-2.5 py-2 font-mono text-[11.5px] leading-5">
+      {rows.map(([label, fields]) => (
+        <Fragment key={label}>
+          <span className="text-muted-foreground select-none">{label}</span>
+          <span className="min-w-0 break-words">
+            {fields.length === 0 ? (
+              <span className="text-muted-foreground">none</span>
+            ) : (
+              fields.map((field) => (
+                <span key={field.name || field.type} className="block">
+                  {fieldText(field)}
+                </span>
+              ))
+            )}
+          </span>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** The manifest exactly as the Runtime returned it. */
+function ManifestJson({ manifest }: Readonly<{ manifest: unknown }>) {
+  const [copy, setCopy] = useState<"idle" | "copied" | "selected">("idle");
+  const pre = useRef<HTMLPreElement>(null);
+  const json = JSON.stringify(manifest, null, 2);
+  const reset = () => window.setTimeout(() => setCopy("idle"), 2000);
+  return (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="sm"
+        className="absolute top-2 right-2 h-7 bg-background px-2 text-xs"
+        onClick={() => {
+          navigator.clipboard.writeText(json).then(
+            () => setCopy("copied"),
+            // The clipboard can be refused (an embedded frame, no permission): select the text.
+            () => {
+              if (pre.current) window.getSelection()?.selectAllChildren(pre.current);
+              setCopy("selected");
+            },
+          );
+          reset();
+        }}
+      >
+        {copy === "copied" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        {copy === "copied" ? "Copied" : copy === "selected" ? "Selected — press ⌘C" : "Copy"}
+      </Button>
+      <pre
+        ref={pre}
+        className="overflow-x-auto rounded-lg border bg-muted/50 p-3 pr-20 font-mono text-[11.5px] leading-5"
+      >
+        {json}
+      </pre>
+    </div>
   );
 }
 

@@ -8,7 +8,7 @@ import {
   manifestView,
   schemaFields,
   schemaType,
-  signature,
+  fieldText,
 } from "../web/src/manifest/model.ts";
 
 const objectSchema = (properties, required = Object.keys(properties)) => ({
@@ -131,18 +131,10 @@ test("malformed manifests render as empty", () => {
   assert.deepEqual(manifestView({ capabilities: "nope" }).capabilities, []);
 });
 
-test("tools read as call signatures", () => {
-  const [agent] = manifestView(concierge).capabilities;
-  assert.deepEqual(signature(agent.tools[0]), { params: "(orderId: string)", returns: "{ status }" });
-  assert.deepEqual(signature(agent.tools[1]), { params: "(task: string)" });
-  const wide = {
-    name: "w",
-    kind: "endpoint",
-    input: [{ name: "a", type: "string", required: false }],
-    output: ["a", "b", "c", "d", "e"].map((name) => ({ name, type: "string", required: true })),
-  };
-  assert.deepEqual(signature(wide), { params: "(a?: string)", returns: "{ a, b, c, d, … }" });
-  assert.equal(signature({ ...wide, output: [{ name: "", type: "boolean", required: true }] }).returns, "boolean");
+test("fields read as TypeScript members", () => {
+  assert.equal(fieldText({ name: "orderId", type: "string", required: true }), "orderId: string");
+  assert.equal(fieldText({ name: "note", type: "string", required: false }), "note?: string");
+  assert.equal(fieldText({ name: "", type: "boolean", required: true }), "boolean");
 });
 
 test("the overview counts what the agent can do", () => {

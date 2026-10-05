@@ -191,18 +191,9 @@ export function isOutdated(
   );
 }
 
-/** A tool as a call signature: `(orderId: string)` and `{ orderId, status, … }`. */
-export function signature(tool: ToolView): { params: string; returns?: string } {
-  const params = `(${tool.input
-    .map((field) =>
-      field.name ? `${field.name}${field.required ? "" : "?"}: ${field.type}` : field.type,
-    )
-    .join(", ")})`;
-  if (!tool.output) return { params };
-  const named = tool.output.filter((field) => field.name);
-  if (named.length === 0) return { params, returns: tool.output[0]?.type ?? "unknown" };
-  const shown = named.slice(0, 4).map((field) => field.name);
-  return { params, returns: `{ ${shown.join(", ")}${named.length > 4 ? ", …" : ""} }` };
+/** One schema field as a TypeScript-like member: `orderId: string`, `note?: string`. */
+export function fieldText(field: SchemaField): string {
+  return field.name ? `${field.name}${field.required ? "" : "?"}: ${field.type}` : field.type;
 }
 
 export type ManifestStats = {
