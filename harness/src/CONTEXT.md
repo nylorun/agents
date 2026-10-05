@@ -20,11 +20,11 @@ result or a durable wait. A supplied checkpoint is not mutated by a new invocati
 **Host**: The OSS or Cloud runtime that owns persistence, scheduling,
 authentication and provider access around the shared engine.
 
-**Action endpoint**: The URL of the customer's process that the host delivers
-actions to, signed with a delivery token; it runs the developer's tool implementations
-(`createActionHandler`).
-_Avoid_: Runtime, when referring to customer code execution; "executor"
-(removed in protocol 3).
+**Manifest-only agent**: The host runs the agent from its manifest alone and never calls
+the developer's code during a session (track R2): a tool is an HTTP tool, a remote MCP
+server's, an agent used as a tool or a host built-in. A tool with an implementation
+(`tool({ run })`) runs only in the local engine (`/run`); a host refuses it at save.
+_Avoid_: "Action endpoint" and "executor" (removed in protocols 8 and 3).
 
 **HTTP tool**: A tool the manifest describes as one HTTP request (`http`, built with
 `http()`), which the host's Tool Gate makes; the engine runs it as a `tool` effect like any
@@ -32,7 +32,7 @@ hosted tool. With `approval: "always"` (also on a remote MCP server's tools) the
 each call for approval before the effect, as a code tool's `approval` does.
 
 **SDK client**: The shared application interface for communicating with a host.
-Authoring and the Action endpoint handler accompany it in the agents SDK.
+Authoring accompanies it in the agents SDK.
 
 **Failure outcome**: A model call that failed in a known way (`{kind: "failed", code, …}`),
 returned by the adapter instead of a candidate. The step fails with `model.<code>`; it is a
@@ -53,7 +53,8 @@ and dispatches them the same way as the turn loop's effects.
 **Workflow**: A registered runnable (`kind: "workflow"`, workflow manifest v3): the
 manifest of a flow agent. It uses the same session API as an agent (`createSession`,
 `input`, `observe`, `approve`, `cancel`). A flow is data: the Runtime never calls the
-developer's code to run one; only its tool nodes reach the Action endpoint.
+developer's code to run one. A tool node runs only in the local engine: a host refuses a flow
+with one at save.
 
 **Flow agent**: An `Agent` whose body is a flow (`.pipe()`, `.switch()`, `.parallel()`,
 `.map()`, `.loop()`); compiles to workflow manifest v3, which embeds its agents. The first
@@ -85,8 +86,7 @@ when the two differ (`flowInput` on the `agent` effect).
 enclosing Map item, under the ids of nested flow agents; control stages add nothing.
 
 **Key** (**stage key**): A leaf's id, a control stage's `id`, or its position from the flow
-root (`@1.default.1`). The Action endpoint routes a tool node's Action by its key, with the
-workflow id.
+root (`@1.default.1`). Effect ids and tool node bindings use it.
 
 **Iteration vector**: Enclosing Loop iteration numbers, outermost first. Not part
 of the path.

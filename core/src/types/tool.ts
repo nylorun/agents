@@ -117,12 +117,6 @@ export interface ToolDefinition<
   readonly approval?: ToolApproval<InputSchema>;
   /** Code-only metadata — never serialized into the manifest. */
   readonly effects?: ToolEffects;
-  /**
-   * Runs in the background when an Action endpoint serves it: the endpoint answers the delivery
-   * at once (`202`), heartbeats while the tool runs, and posts its outcome when it ends. For
-   * tools that run longer than an endpoint's timeout. Code-only metadata — never serialized.
-   */
-  readonly background?: boolean;
 }
 
 /** A plain return value is treated as `{ kind: "completed", output }`. Legacy tagged outcomes remain valid. */

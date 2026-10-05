@@ -120,7 +120,6 @@ export const TurnStartSchema = z
         yieldAfter: z.object({ steps: z.number().optional(), ms: z.number().optional() }).strict().optional(),
         flowLimits: z.unknown().optional(),
         fixtureModel: z.boolean(),
-        holdMs: z.number().int().nonnegative().optional(),
       })
       .strict(),
     routing: z
@@ -261,7 +260,6 @@ const messages: Record<string, z.ZodType> = {
   cancel: runId
     .extend({ reason: z.enum(ABORT_REASONS as [string, ...string[]]), message: z.string().optional() })
     .strict(),
-  "effect.resolved": runId.extend({ effectId: id, outcome }).strict(),
 };
 
 function check(schema: z.ZodType | undefined, value: unknown, what: string): void {

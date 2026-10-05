@@ -74,7 +74,7 @@ export class FlowPause extends HostSuspension {
   }
 }
 
-/** Completed effect value that encodes a curated failure (Action endpoint / agent settle). */
+/** Completed effect value that encodes a curated failure (a tool's failure / agent settle). */
 export function failedValueOf(value: unknown): FlowFailure | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;

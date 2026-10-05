@@ -1,14 +1,15 @@
 /**
- * Harness API v1 (blueprint D37–D42): the messages between core and a harness. A run is a
- * lease on one session's segment; core records, the harness runs the engine. Who executes what:
- * the harness runs model, MCP and sandbox calls; core runs Actions, flow work, linked
- * sessions, delegation journaling, `save_artifact`, the skill tools, settle and takeover.
+ * Harness API v2 (blueprint D37–D42; v2 is track R2: no Actions, so no held runs): the messages
+ * between core and a harness. A run is a lease on one session's segment; core records, the
+ * harness runs the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox
+ * calls; core runs flow work, linked sessions, delegation journaling, `save_artifact`, the
+ * skill tools, settle and takeover.
  */
-import type { ActionOutcome } from "../contracts.js";
+import type { EffectOutcome } from "../contracts.js";
 import type { AgentRef } from "../types/tool.js";
 import type { TranscriptUpdate } from "./transcript.js";
 
-export const HARNESS_API_VERSION = 1;
+export const HARNESS_API_VERSION = 2;
 
 /** Why core stopped a run. Matches the advance's abort kinds. */
 export type AbortReason = "cancel" | "shutdown" | "deadline" | "ownership.lost";
@@ -62,7 +63,7 @@ export interface EffectIntent {
 export interface RecordedOutcome {
   readonly effectId: string;
   readonly requestHash: string;
-  readonly outcome: ActionOutcome;
+  readonly outcome: EffectOutcome;
 }
 
 /** The lease on one run. `token` is the run token (F5) when the gates require one. */
@@ -101,11 +102,6 @@ export interface TurnStart {
     readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
     readonly flowLimits?: unknown;
     readonly fixtureModel: boolean;
-    /**
-     * How long the run may wait for a pending Action's outcome in its lease (F6.2,
-     * `effect.resolved`) before the segment ends as waiting. 0 or absent: it never waits.
-     */
-    readonly holdMs?: number;
   };
   readonly routing: RunRouting;
 }
@@ -140,12 +136,12 @@ export interface TurnOutput {
 export type OutputMethod = "turn.completed" | "turn.paused" | "turn.waiting" | "turn.failed" | "checkpoint";
 
 export type IntentAnswer =
-  | { readonly status: "completed"; readonly outcome: ActionOutcome }
+  | { readonly status: "completed"; readonly outcome: EffectOutcome }
   | { readonly status: "pending" | "uncertain" }
   | { readonly status: "execute"; readonly rejoin?: true };
 
 export type OutcomeAnswer =
-  | { readonly status: "completed"; readonly outcome: ActionOutcome }
+  | { readonly status: "completed"; readonly outcome: EffectOutcome }
   | { readonly status: "uncertain" };
 
 /** Requests a harness sends to core, with their answers. */
@@ -306,8 +302,6 @@ export interface CoreRequests {
 export interface CoreMessages {
   /** `message` is core's abort message, which the run's executors see as theirs. */
   cancel: { runId: string; reason: AbortReason; message?: string };
-  /** F6.2: an Action's outcome for a run held while it is pending. */
-  "effect.resolved": { runId: string; effectId: string; outcome: ActionOutcome };
 }
 
 export type HarnessMethod = keyof HarnessRequests;

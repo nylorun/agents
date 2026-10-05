@@ -26,7 +26,8 @@ export interface WorkflowAgentNode extends WorkflowNodeOptions {
 
 /**
  * Tool leaf: name and schemas. With `http` it is an HTTP stage, one request the Runtime makes
- * through its Tool Gate as for an agent's HTTP tool; without, the Action endpoint serves it.
+ * through its Tool Gate as for an agent's HTTP tool. Without, it runs your code: the Runtime
+ * refuses it at save, and only the local engine (`@nylorun/harness/run`) runs its `run`.
  */
 export interface WorkflowToolNode extends WorkflowNodeOptions {
   readonly tool: {

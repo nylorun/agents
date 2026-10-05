@@ -183,18 +183,16 @@ describe("checkCompatibility", () => {
     // A protocol 5 to 7 client still works: it requires admin-status, which the Host still
     // advertises though the Admin API is gone (protocol 8).
     expect(
+      checkCompatibility({ version: 6, required: ["admin-status", "studio-principal", "artifacts"] }, HOST_PROTOCOL),
+    ).toEqual({ ok: true });
+    // Action endpoints are gone (track R2): a client that requires them is refused.
+    expect(PROTOCOL_FEATURES).not.toContain("action-endpoints");
+    expect(
       checkCompatibility(
         { version: 5, required: ["admin-status", "studio-principal", "action-endpoints"] },
         HOST_PROTOCOL,
       ),
-    ).toEqual({ ok: true });
-    // A protocol 6 client still works.
-    expect(
-      checkCompatibility(
-        { version: 6, required: ["admin-status", "studio-principal", "action-endpoints", "artifacts"] },
-        HOST_PROTOCOL,
-      ),
-    ).toEqual({ ok: true });
+    ).toMatchObject({ ok: false, reason: "feature", missing: ["action-endpoints"] });
   });
 
   it("makes artifact ids that match their pattern", () => {

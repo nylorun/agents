@@ -22,7 +22,7 @@ import { flowEffectId, iterationsOf, nodeKeyOf } from "../../src/flow/index.js";
 /**
  * Flow agents end to end on the `flow-3` engine: workflow manifest v3 is data, so every
  * effect is an agent turn or a tool node. Leaf agents resolve from the embedded `agents`;
- * tool effects run through the flow's own bindings, as the Action endpoint does.
+ * tool effects run through the flow's own bindings, as the local engine does.
  */
 
 type Built = {

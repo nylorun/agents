@@ -44,6 +44,8 @@ export {
   sandboxCapabilityManifest,
 } from "./definition/sandbox-capability.js";
 export { mcp, McpError, normalizeMcpServers, stdioMcpRefusal } from "./definition/mcp.js";
+export { codeToolRefusal, codeToolsOf } from "./definition/code-tools.js";
+export type { CodeTool } from "./definition/code-tools.js";
 export { CapabilityBuilder, isCapabilityBuilder } from "./definition/capability.js";
 export type { CapabilityIdentity, CapabilityOptions } from "./definition/capability.js";
 export {
