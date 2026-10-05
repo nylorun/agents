@@ -188,8 +188,7 @@ describe("pod sandboxes", { timeout: 90_000 }, () => {
       service = startHarnessService({
         url: listener.url,
         token: () => host.token(),
-        paths: { sandboxes: join(harnessRoot, "sandboxes"), pluginData: join(harnessRoot, "plugin-data") },
-        childEnv: {},
+        paths: { sandboxes: join(harnessRoot, "sandboxes") },
         modelGate: { call: async () => ({ kind: "failed", message: "no gate" }) as never },
         modelProvider: podModel,
         useVaultModel: false,

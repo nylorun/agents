@@ -70,7 +70,6 @@ const open = (url: string, policy: Parameters<typeof openMcpServer>[0]["policy"]
   openMcpServer({
     server: { name: "local", type: "streamable-http", url },
     authorize: async (url) => ({ status: "unauthenticated", url, headers: {} }),
-    pluginData: "",
     policy,
   });
 

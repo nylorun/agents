@@ -79,7 +79,6 @@ export interface RunGrant {
 export interface RunRouting {
   /** The session's pinned manifest: an effect's agent resolves against it. */
   readonly rootManifest: unknown;
-  readonly pluginRoots: Readonly<Record<string, string>>;
   readonly mcpSnapshot?: unknown;
   /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
   readonly sandbox?: { readonly ownerId: string; readonly sandboxId?: string; readonly spec?: unknown };

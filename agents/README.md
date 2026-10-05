@@ -143,7 +143,7 @@ const assistant = Agent({ id: "assistant", name: "Assistant" })
   });
 ```
 
-Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Transports follow [Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers): `stdio`, `streamable-http`, and `sse`. Attach an Agent Plugin package with `.plugin(path)`.
+Each key names a server; its `name` defaults to the key and, when given, must equal it. Repeated `.mcp()` calls add servers to the same capability. Nylorun accepts remote servers only: `streamable-http` and `sse` ([Agent Plugins MCP servers](https://agent-plugins.org/plugin-authors/mcp-servers)); a `stdio` server is refused, so run it behind an HTTP transport and declare its URL. Attach an Agent Plugin package with `.plugin(path)`: its skills and remote MCP servers join the agent, and a stdio server in its `mcp.json` throws.
 
 Give a session a sandbox when you open it. The agent declares nothing, so the same agent runs with or without one, in any Tenant:
 

@@ -126,7 +126,6 @@ export const TurnStartSchema = z
     routing: z
       .object({
         rootManifest: z.record(z.string(), z.unknown()),
-        pluginRoots: z.record(z.string(), z.string()),
         mcpSnapshot: z.unknown().optional(),
         sandbox: z
           .object({ ownerId: id, sandboxId: id.optional(), spec: z.unknown().optional() })

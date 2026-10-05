@@ -214,12 +214,9 @@ project, and each has the label `dev.nylorun.tenant: <name>`. For Tenant `shop`:
 | Volumes | `nylorun-shop-postgres`, `nylorun-shop-restate`, `nylorun-shop-s2-lite`, `nylorun-shop-rustfs`, `nylorun-shop-workspaces` |
 
 The `harness` container (the Runtime image as `--service harness`) runs agent
-turns, stdio MCP servers and workspaces, apart from the `runtime` container. It
-holds only the harness token (`NYLORUN_HARNESS_TOKEN` in `.env`), mounts only
-the Tenant directory's `sandboxes/`, `plugin-data/`, `home/` and `tmp/`, and the
-Host root's `plugins/` read-only at its own path: put a plugin whose stdio MCP
-server the agent runs under `~/.nylorun/tenants/<name>/plugins/` and load it from
-there. `NYLORUN_HARNESS=in-process` in `.env` rolls back to running them in the
+turns and workspaces, apart from the `runtime` container. It holds only the
+harness token (`NYLORUN_HARNESS_TOKEN` in `.env`) and mounts only the Tenant
+directory's `sandboxes/`. `NYLORUN_HARNESS=in-process` in `.env` rolls back to running them in the
 `runtime` container (no `harness` container); `nylorun status` shows which.
 
 Postgres initialises the Tenant's database with C collation. Restate runs with

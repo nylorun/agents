@@ -29,18 +29,10 @@ export interface StackPaths {
    * runtime reads it at boot (`NYLORUN_IDENTITY_FILE`).
    */
   identity: string;
-  /** The Tenant directory: homes, sandboxes, plugin data, logs. */
+  /** The Tenant directory: home, sandboxes, logs. */
   tenant: string;
-  /**
-   * The Tenant directory's parts the harness container mounts (F6.2): workspaces, plugin data,
-   * and the home and temporary directory of MCP stdio servers.
-   */
-  harness: { sandboxes: string; pluginData: string; home: string; tmp: string };
-  /**
-   * Plugin roots on this machine (`plugins/`), mounted read-only at the same path into the
-   * runtime and harness containers, so a stdio MCP server's plugin root resolves there.
-   */
-  plugins: string;
+  /** The Tenant directory's parts the harness container mounts (F6.2): workspaces. */
+  harness: { sandboxes: string };
   /** The keys directory, mounted only into the gateway (F4.2). */
   keys: string;
   /** The Tenant's vault key (KEK), `keys/vault-kek`. */
@@ -69,13 +61,7 @@ export function stackPaths(hostRoot: string): StackPaths {
     record: join(root, "tenant.json"),
     identity: join(root, "identity.yaml"),
     tenant: join(root, "tenant"),
-    harness: {
-      sandboxes: join(root, "tenant", "sandboxes"),
-      pluginData: join(root, "tenant", "plugin-data"),
-      home: join(root, "tenant", "home"),
-      tmp: join(root, "tenant", "tmp"),
-    },
-    plugins: join(root, "plugins"),
+    harness: { sandboxes: join(root, "tenant", "sandboxes") },
     keys: join(root, "keys"),
     vaultKey: join(root, "keys", "vault-kek"),
     home: join(root, "home"),

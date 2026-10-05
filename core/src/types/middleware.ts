@@ -108,8 +108,6 @@ export interface CapabilityDeclaration<Info = unknown> {
   /** Each skill file's bytes, by `sha256:<hex>`, for the client to upload. Not projected into the manifest. */
   readonly skillFiles?: Readonly<Record<string, SkillFileSource>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
-  /** Resolved package directory. Not projected into the manifest. */
-  readonly pluginRoot?: string;
   /**
    * @deprecated Model resolution is Runtime-owned. Not projected into the harness manifest.
    * Kept for local middleware composition through 1.0.

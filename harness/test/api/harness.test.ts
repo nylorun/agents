@@ -27,7 +27,7 @@ function start(fields: Partial<TurnStart> & { checkpoint?: unknown } = {}): Turn
     outcomes: [],
     transcript: { cursor: -1 },
     options: { fixtureModel: false },
-    routing: { rootManifest: manifest, pluginRoots: {} },
+    routing: { rootManifest: manifest },
     ...fields,
   };
 }
@@ -301,7 +301,7 @@ describe("a harness", () => {
           input: "go",
         }),
         options: { fixtureModel: false, holdMs: 60_000 },
-        routing: { rootManifest: withTool, pluginRoots: {} },
+        routing: { rootManifest: withTool },
       }),
     );
     await asking;

@@ -37,7 +37,6 @@ export type { RuntimeModelAdapter } from "./contracts.js";
 export {
   baselineEnvironment,
   hostProcessEnvironment,
-  tenantChildEnvironment,
 } from "./host/environment.js";
 export type { HostProcessPathInputs } from "./host/environment.js";
 export type {

@@ -1,9 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
-import { chmodSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,14 +15,10 @@ import type { ModelProvider } from "../src/core/provider.js";
 
 const KEK = Buffer.alloc(32, 9).toString("base64");
 const TOKEN = "ada-mcp-plaintext-token-7f3c9a2e";
-const SECRET = "parent-secret-value";
 const serverHeaders = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-const fixtureDir = realpathSync(
-  dirname(fileURLToPath(new URL("./fixtures/stdio-env-server.mjs", import.meta.url))),
-);
 
 interface Probe {
   url: string;
@@ -178,11 +172,7 @@ async function createBearer(
   return { vaultId: vault.id as string, credentialId: credential.id as string };
 }
 
-async function register(
-  runtime: { url: string },
-  manifest: unknown,
-  pluginRoots?: Record<string, string>,
-) {
+async function register(runtime: { url: string }, manifest: unknown) {
   const response = await fetch(`${runtime.url}/v1/agents/bot`, {
     method: "PUT",
     headers: serverHeaders,
@@ -190,7 +180,6 @@ async function register(
       requestId: "put-agent",
       manifest,
       implementationVersion: "dev",
-      ...(pluginRoots ? { pluginRoots } : {}),
     }),
   });
   expect(response.ok).toBe(true);
@@ -603,76 +592,34 @@ it("does not send a failed MCP call again after it is uncertain", async () => {
   }
 });
 
-it("launches stdio without the parent environment and reports PLUGIN_DATA", async () => {
+it("refuses to store an agent that declares a stdio MCP server", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mcp-stdio-"));
-  chmodSync(join(fixtureDir, "stdio-env-server.mjs"), 0o755);
-  process.env.NYLORUN_PARENT_SECRET = SECRET;
-  const prompts: unknown[] = [];
-  const runtime = await boot(directory, async (effect: { input: unknown }) => {
-    const call = effect.input as { tools?: { name: string }[]; prompt?: { kind?: string }[] };
-    prompts.push(effect.input);
-    if (call.prompt?.at(-1)?.kind === "tool-result")
-      return { output: [{ type: "text", text: "done" }] };
-    return {
-      output: [{ type: "tool-call", id: "call-1", name: "local__env", args: { key: "PATH" } }],
-    };
-  });
+  const runtime = await boot(directory);
   try {
-    const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "local",
-        mcpServers: {
-          local: {
-            name: "local",
-            type: "stdio",
-            command: "./stdio-env-server.mjs",
-          },
+    const manifest = Agent({ id: "bot", name: "Bot" }).build().manifest;
+    const response = await fetch(`${runtime.url}/v1/agents/bot`, {
+      method: "PUT",
+      headers: serverHeaders,
+      body: JSON.stringify({
+        requestId: "put-agent",
+        manifest: {
+          ...manifest,
+          capabilities: [
+            ...manifest.capabilities,
+            {
+              id: "local",
+              type: "agent",
+              mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
+            },
+          ],
         },
-      })
-      .build();
-    await register(runtime, agent.manifest, { local: fixtureDir });
-    await openSession(runtime, "s1");
-    await say(runtime, "s1", "env");
-    const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
-    expect(session.status).toBe("completed");
-    const rendered = JSON.stringify(prompts);
-    expect(rendered).toContain("plugin-data");
-    expect(rendered).not.toContain(SECRET);
-    expect(session.mcpSnapshot.mcpTools[0].name).toBe("local__env");
-  } finally {
-    delete process.env.NYLORUN_PARENT_SECRET;
-    await runtime.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-it("fails a relative stdio command that has no plugin root and still finishes the turn", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "mcp-stdio-root-"));
-  const runtime = await boot(directory, async () => ({
-    output: [{ type: "text", text: "done" }],
-  }));
-  try {
-    const agent = Agent({ id: "bot", name: "Bot" })
-      .use({
-        id: "local",
-        mcpServers: {
-          local: { name: "local", type: "stdio", command: "./missing.mjs" },
-        },
-      })
-      .build();
-    await register(runtime, agent.manifest);
-    await openSession(runtime, "s1");
-    await say(runtime, "s1", "hello");
-    const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
-    expect(session.status).toBe("completed");
-    expect(session.mcpSnapshot.mcpTools).toEqual([]);
-    expect(session.mcpDiagnostics).toEqual([
-      expect.objectContaining({
-        serverName: "local",
-        outcome: "failed",
-        message: expect.stringContaining("plugin root"),
+        implementationVersion: "dev",
       }),
-    ]);
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).message).toContain(
+      "MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse).",
+    );
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });

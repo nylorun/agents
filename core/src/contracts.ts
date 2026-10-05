@@ -12,6 +12,7 @@ import {
 } from "./utils/sandbox.js";
 import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./definition/removed.js";
 import { DELEGATE_INPUT_SCHEMA } from "./definition/delegate.js";
+import { stdioMcpRefusal } from "./definition/mcp.js";
 import { canonical } from "./utils/canonical.js";
 import { DEFINITION_FILE_MAX_BYTES, skillFilesIssue } from "./utils/definition-files.js";
 export type { AgentManifest } from "./types/manifest.js";
@@ -42,34 +43,35 @@ const jsonValue: z.ZodType<JsonValue> = z
     ])
   )
   .meta({ id: "JsonValue" });
-const mcpServerSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      name: z.string().min(1),
-      type: z.literal("stdio"),
-      command: z.string().min(1),
-      args: z.array(z.string()).optional(),
-      env: z.record(z.string(), z.string()).optional(),
-      cwd: z.string().optional(),
-    })
-    .strict(),
-  z
-    .object({
-      name: z.string().min(1),
-      type: z.literal("streamable-http"),
-      url: z.string().min(1),
-      headers: z.record(z.string(), z.string()).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      name: z.string().min(1),
-      type: z.literal("sse"),
-      url: z.string().min(1),
-      headers: z.record(z.string(), z.string()).optional(),
-    })
-    .strict(),
-]);
+const mcpServerSchema = z.discriminatedUnion(
+  "type",
+  [
+    z
+      .object({
+        name: z.string().min(1),
+        type: z.literal("streamable-http"),
+        url: z.string().min(1),
+        headers: z.record(z.string(), z.string()).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        name: z.string().min(1),
+        type: z.literal("sse"),
+        url: z.string().min(1),
+        headers: z.record(z.string(), z.string()).optional(),
+      })
+      .strict(),
+  ],
+  { error: (issue) => stdioIssue(issue.input) },
+);
+/** The refusal of a `stdio` server; other bad declarations keep zod's own message. */
+function stdioIssue(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const server = input as { type?: unknown; name?: unknown };
+  if (server.type !== "stdio") return undefined;
+  return stdioMcpRefusal(typeof server.name === "string" ? server.name : "(unnamed)");
+}
 const skillManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -283,10 +285,6 @@ function delegationIssues(manifest: AgentManifest, issue: (message: string) => v
   if (sandboxes.size > 1)
     issue("An agent and the agents it uses as tools must declare identical sandboxes");
 }
-const absolutePath = z.string().min(1).refine(
-  (value) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value),
-  { message: "plugin root must be an absolute path" },
-);
 const workflowFnRefSchema = z.object({ fn: z.literal(true) }).strict();
 const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
   z.union([
@@ -538,7 +536,6 @@ export const PutAgentRequestSchema = z
     /** Agent or workflow document. Registry `kind` is carried on the document. */
     manifest: DefinitionDocumentSchema,
     implementationVersion: z.string().min(1),
-    pluginRoots: z.record(z.string(), absolutePath).optional(),
   })
   .strict();
 export type PutAgentRequest = z.infer<typeof PutAgentRequestSchema>;

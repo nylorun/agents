@@ -1,10 +1,11 @@
-import { chmodSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   Agent,
   tool,
@@ -25,11 +26,37 @@ const serverHeaders = {
   authorization: `Bearer ${APP}`,
   "content-type": "application/json",
 };
-const fixtureDir = realpathSync(
-  dirname(
-    fileURLToPath(new URL("./fixtures/stdio-env-server.mjs", import.meta.url))
-  )
-);
+/** A streamable-http MCP server with one tool, `echo`; answers `echo <text>`. */
+async function echoServer(): Promise<{ url: string; close(): Promise<void> }> {
+  const http = createServer(async (req, res) => {
+    if (req.method !== "POST") return void res.writeHead(405).end();
+    const mcp = new McpServer({ name: "local", version: "0.0.0" });
+    mcp.registerTool(
+      "echo",
+      { description: "Echo.", inputSchema: { text: z.string() } },
+      async ({ text }) => ({ content: [{ type: "text", text: `echo ${text}` }] })
+    );
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcp.connect(transport);
+    res.on("close", () => {
+      void transport.close().catch(() => {});
+      void mcp.close().catch(() => {});
+    });
+    await transport.handleRequest(req, res, await json(req));
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  const { port } = http.address() as { port: number };
+  return {
+    url: `http://127.0.0.1:${port}/mcp`,
+    close: () => new Promise((resolve) => http.close(() => resolve())),
+  };
+}
+
+async function json(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return JSON.parse(Buffer.concat(chunks).toString());
+}
 
 const search = tool({
   name: "search_orders",
@@ -107,7 +134,6 @@ async function boot(_directory: string, modelProvider: ModelProvider) {
 async function start(
   runtime: { url: string },
   manifest: unknown,
-  pluginRoots?: Record<string, string>,
   sandbox?: Record<string, unknown>
 ) {
   const put = await fetch(`${runtime.url}/v1/agents/bot`, {
@@ -117,7 +143,6 @@ async function start(
       requestId: "put-agent",
       manifest,
       implementationVersion: "dev",
-      ...(pluginRoots ? { pluginRoots } : {}),
     }),
   });
   expect(put.ok, await put.clone().text()).toBe(true);
@@ -269,14 +294,14 @@ it("delivers the work of agents used as tools to the root agent's endpoint and j
 
 it("gives an agent used as a tool its own MCP servers and the session's sandbox", async () => {
   const directory = await mkdtemp(join(tmpdir(), "delegation-mcp-"));
-  chmodSync(join(fixtureDir, "stdio-env-server.mjs"), 0o755);
+  const server = await echoServer();
   const model = script({
     root: [
       [{ name: "coder", args: { task: "note" } }],
       [{ name: "read", args: { path: "note.txt" } }],
     ],
     child: () => [
-      { name: "local__env", args: { key: "PLUGIN_DATA" } },
+      { name: "local__echo", args: { text: "from the server" } },
       { name: "write", args: { path: "note.txt", content: "from the child" } },
     ],
   });
@@ -286,39 +311,36 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
       .use({
         id: "local",
         mcpServers: {
-          local: {
-            name: "local",
-            type: "stdio",
-            command: "./stdio-env-server.mjs",
-          },
+          local: { name: "local", type: "streamable-http", url: server.url },
         },
       });
     const bot = Agent({ id: "bot", tools: [coder] }).build();
     // The session is opened with a sandbox; the agent it uses as a tool shares it.
-    await start(runtime, bot.manifest, { "coder/local": fixtureDir }, {});
+    await start(runtime, bot.manifest, {});
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
     expect(done.mcpSnapshot.mcpTools).toEqual([
       expect.objectContaining({
         agentId: "coder",
         capabilityId: "local",
-        name: "local__env",
+        name: "local__echo",
       }),
     ]);
     // The root never saw the child's MCP tool; the child did.
     const rootTools = JSON.stringify(
       model.seen.filter((item) => item.agent === "root")
     );
-    expect(rootTools).not.toContain("local__env");
+    expect(rootTools).not.toContain("local__echo");
     const childPrompts = JSON.stringify(
       model.seen.filter((item) => item.agent === "coder")
     );
-    expect(childPrompts).toContain("plugin-data");
+    expect(childPrompts).toContain("echo from the server");
     // The parent read the file the child wrote: one sandbox per session.
     const last = model.seen.filter((item) => item.agent === "root").at(-1)!;
     expect(JSON.stringify(last.prompt)).toContain("from the child");
   } finally {
     await runtime.close();
+    await server.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

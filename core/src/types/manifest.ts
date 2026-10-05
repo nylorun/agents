@@ -28,15 +28,8 @@ export interface SkillManifest {
   readonly files: Readonly<Record<string, string>>;
 }
 
+/** A remote MCP server, declared by URL. Nylorun accepts no stdio servers (`stdioMcpRefusal`). */
 export type McpServerManifest =
-  | {
-      readonly name: string;
-      readonly type: "stdio";
-      readonly command: string;
-      readonly args?: readonly string[];
-      readonly env?: Readonly<Record<string, string>>;
-      readonly cwd?: string;
-    }
   | {
       readonly name: string;
       readonly type: "streamable-http";

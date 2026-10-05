@@ -78,9 +78,6 @@ export function compileDeclaration<State>(
       ...(sandboxOf(declaration) === undefined
         ? {}
         : { sandbox: sandboxOf(declaration) }),
-      ...(declaration.pluginRoot === undefined
-        ? {}
-        : { pluginRoot: declaration.pluginRoot }),
     },
     ...(declaration.middleware ? { middleware: declaration.middleware } : {}),
   };

@@ -1,14 +1,7 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { McpServerManifest } from "@nylorun/core/define";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { stdioMcpRefusal, type McpServerManifest } from "@nylorun/core/define";
 import { loadSkillsFromDirectory, type LoadedSkill } from "../skills/load.js";
-import { expandPluginPlaceholders } from "./launch.js";
 
 export const PLUGIN_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -28,7 +21,6 @@ const PLUGIN_FIELDS = new Set([
   "extensions",
 ]);
 const AUTHOR_FIELDS = new Set(["name", "email", "url"]);
-const RESERVED_ENV = new Set(["PLUGIN_ROOT", "PLUGIN_DATA"]);
 
 export interface PluginDiagnostic {
   readonly severity: "info" | "warning";
@@ -121,7 +113,7 @@ export function loadPlugin(directory: string): LoadedPlugin {
       });
   }
   const skills = loadSkills(root, diagnostics);
-  const mcpServers = loadMcp(root, parsed.name, diagnostics);
+  const mcpServers = loadMcp(root, diagnostics);
   return {
     root,
     name: parsed.name,
@@ -185,7 +177,6 @@ function loadSkills(
 
 function loadMcp(
   root: string,
-  pluginName: string,
   diagnostics: PluginDiagnostic[]
 ): Readonly<Record<string, McpServerManifest>> {
   const location = join(root, "mcp.json");
@@ -239,10 +230,11 @@ function loadMcp(
     });
     return {};
   }
-  const pluginData = join(dirname(root), ".nylorun", "plugin-data", pluginName);
   const servers: Record<string, McpServerManifest> = {};
   for (const [name, value] of Object.entries(parsed.mcpServers)) {
-    const server = validateServer(name, value, root, pluginData);
+    if (isRecord(value) && value.type === "stdio")
+      throw new PluginError("plugin.mcp-stdio", stdioMcpRefusal(name), diagnostics);
+    const server = validateServer(name, value);
     if (typeof server === "string") {
       diagnostics.push({
         severity: "warning",
@@ -252,74 +244,17 @@ function loadMcp(
       });
       continue;
     }
-    if (server.type === "stdio") mkdirSync(pluginData, { recursive: true });
     servers[name] = server;
   }
   return servers;
 }
 
 /** The server, or why it is skipped. */
-function validateServer(
-  name: string,
-  value: unknown,
-  root: string,
-  pluginData: string
-): McpServerManifest | string {
+function validateServer(name: string, value: unknown): McpServerManifest | string {
   if (!isRecord(value) || typeof value.type !== "string") return "it has no type";
-  if (value.type === "stdio")
-    return validateStdio(name, value, root, pluginData) ?? "it is not a valid stdio declaration";
   if (value.type === "streamable-http" || value.type === "sse")
     return validateRemote(name, value);
-  return `type '${value.type}' is not stdio, streamable-http or sse`;
-}
-
-function validateStdio(
-  name: string,
-  value: Record<string, unknown>,
-  root: string,
-  pluginData: string
-): McpServerManifest | undefined {
-  const allowed = new Set(["type", "command", "args", "env", "cwd"]);
-  if (Object.keys(value).some((key) => !allowed.has(key))) return undefined;
-  if (typeof value.command !== "string" || !isCommandToken(value.command)) return undefined;
-  if (value.command.startsWith("./") && !commandStaysInside(root, value.command))
-    return undefined;
-  let args: string[] | undefined;
-  if (value.args !== undefined) {
-    if (!Array.isArray(value.args) || value.args.some((item) => typeof item !== "string"))
-      return undefined;
-    args = value.args;
-  }
-  let env: Record<string, string> | undefined;
-  if (value.env !== undefined) {
-    if (!isRecord(value.env)) return undefined;
-    env = {};
-    for (const [key, item] of Object.entries(value.env)) {
-      if (typeof item !== "string" || RESERVED_ENV.has(key)) return undefined;
-      env[key] = item;
-    }
-  }
-  let cwd: string | undefined;
-  if (value.cwd !== undefined) {
-    if (typeof value.cwd !== "string" || !isCwdForm(value.cwd)) return undefined;
-    const expanded = expandPluginPlaceholders(value.cwd, root, pluginData);
-    const absolute = expanded.startsWith("/") || /^[A-Za-z]:[\\/]/.test(expanded)
-      ? expanded
-      : resolve(root, expanded);
-    const boundary = value.cwd === "${PLUGIN_DATA}" || value.cwd.startsWith("${PLUGIN_DATA}/")
-      ? pluginData
-      : root;
-    if (!isInside(boundary, absolute)) return undefined;
-    cwd = value.cwd;
-  }
-  return {
-    name,
-    type: "stdio",
-    command: value.command,
-    ...(args === undefined ? {} : { args }),
-    ...(env === undefined ? {} : { env }),
-    ...(cwd === undefined ? {} : { cwd }),
-  };
+  return `type '${value.type}' is not streamable-http or sse`;
 }
 
 function validateRemote(
@@ -352,28 +287,6 @@ function validateRemote(
     url: value.url,
     ...(headers === undefined ? {} : { headers }),
   };
-}
-
-function commandStaysInside(root: string, command: string): boolean {
-  const lexical = resolve(root, command);
-  if (!isInside(root, lexical)) return false;
-  return !existsSync(lexical) || realInside(root, lexical) !== undefined;
-}
-
-function isCommandToken(command: string): boolean {
-  if (!command || /\s/.test(command)) return false;
-  if (command.startsWith("./")) return !command.split("/").includes("..");
-  return !command.includes("/") && !command.includes("\\") && !command.includes("${");
-}
-
-function isCwdForm(cwd: string): boolean {
-  return (
-    cwd.startsWith("./") ||
-    cwd === "${PLUGIN_ROOT}" ||
-    cwd.startsWith("${PLUGIN_ROOT}/") ||
-    cwd === "${PLUGIN_DATA}" ||
-    cwd.startsWith("${PLUGIN_DATA}/")
-  );
 }
 
 /**

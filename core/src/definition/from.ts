@@ -18,6 +18,7 @@ import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 import type { BoundMiddleware } from "./bound.js";
 import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./removed.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
+import { stdioMcpRefusal } from "./mcp.js";
 import { SKILL_TOOL_NAMES } from "./skill-tools.js";
 import { skillFilesIssue } from "../utils/definition-files.js";
 
@@ -433,6 +434,8 @@ function normalizeMcpServers(
     );
   const normalized: Record<string, McpServerManifest> = {};
   for (const [key, server] of Object.entries(servers)) {
+    if ((server as { type?: unknown }).type === "stdio")
+      throw new HarnessError("agent.build-failed", stdioMcpRefusal(key));
     if (!isMcpServer(server) || server.name !== key)
       throw new HarnessError(
         "agent.build-failed",
@@ -447,7 +450,6 @@ function isMcpServer(value: unknown): value is McpServerManifest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const server = value as Record<string, unknown>;
   if (typeof server.name !== "string" || !server.name) return false;
-  if (server.type === "stdio") return typeof server.command === "string" && server.command.length > 0;
   if (server.type === "streamable-http" || server.type === "sse")
     return typeof server.url === "string" && server.url.length > 0;
   return false;

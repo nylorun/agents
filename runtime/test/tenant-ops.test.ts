@@ -208,7 +208,6 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
   const runtime = await startEphemeralRuntime({
     database: testPool(),
     hostRoot,
-    baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
   });
   closers.push(runtime);
 

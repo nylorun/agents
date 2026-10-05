@@ -31,8 +31,8 @@ export class McpError extends Error {
  * Declare MCP servers as one capability.
  *
  * Prefer `Agent(...).mcp({ ... })`. Each key names a server; its `name` defaults to
- * the key and, when given, must equal it. Supported transports are `stdio`,
- * `streamable-http`, and `sse` (see https://agent-plugins.org/plugin-authors/mcp-servers).
+ * the key and, when given, must equal it. Nylorun accepts remote servers only:
+ * `streamable-http` and `sse` (see https://agent-plugins.org/plugin-authors/mcp-servers).
  *
  * ```ts
  * Agent({ id: "assistant" }).mcp({
@@ -46,6 +46,11 @@ export function mcp(
 ): McpCapability {
   const id = options.id ?? "mcp";
   return { id, mcpServers: normalizeMcpServers(servers, "mcp()") };
+}
+
+/** Why a `stdio` MCP server is refused: the one message the builder, plugins and manifests give. */
+export function stdioMcpRefusal(name: string): string {
+  return `MCP server '${name}' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL.`;
 }
 
 /** Validate a map of MCP servers and fill each `name` from its key. */
@@ -69,10 +74,12 @@ export function normalizeMcpServers(
   const mcpServers: Record<string, McpServerManifest> = {};
   for (const [key, spec] of entries) {
     const server = isRecord(spec) && spec.name === undefined ? { ...spec, name: key } : spec;
+    if (isRecord(server) && (server.type as string) === "stdio")
+      throw new McpError("mcp.stdio", stdioMcpRefusal(key));
     if (!isMcpServer(server)) {
       throw new McpError(
         "mcp.invalid-server",
-        `MCP server '${key}' is not a valid stdio, streamable-http, or sse declaration`
+        `MCP server '${key}' is not a valid streamable-http or sse declaration`
       );
     }
     if (server.name !== key) {
@@ -87,18 +94,6 @@ export function normalizeMcpServers(
 }
 
 function freezeServer(server: McpServerManifest): McpServerManifest {
-  if (server.type === "stdio") {
-    return Object.freeze({
-      name: server.name,
-      type: "stdio" as const,
-      command: server.command,
-      ...(server.args === undefined ? {} : { args: Object.freeze([...server.args]) }),
-      ...(server.env === undefined
-        ? {}
-        : { env: Object.freeze({ ...server.env }) }),
-      ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
-    });
-  }
   return Object.freeze({
     name: server.name,
     type: server.type,
@@ -112,8 +107,6 @@ function freezeServer(server: McpServerManifest): McpServerManifest {
 function isMcpServer(value: unknown): value is McpServerManifest {
   if (!isRecord(value) || typeof value.name !== "string" || !value.name)
     return false;
-  if (value.type === "stdio")
-    return typeof value.command === "string" && value.command.length > 0;
   if (value.type === "streamable-http" || value.type === "sse")
     return typeof value.url === "string" && value.url.length > 0;
   return false;

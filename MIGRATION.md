@@ -26,6 +26,34 @@ gone. A manifest or capability that still names them is refused with
 Studio's Agent Manifest tab no longer shows hooks or the turn lifecycle. The engine version is
 `hosted-4`.
 
+## Remote MCP servers only
+
+Nylorun accepts remote MCP servers only: `streamable-http` and `sse`, declared by URL and reached
+through the Runtime's gates with an optional vault credential. A `stdio` server is refused
+wherever it is declared: `.mcp({...})`, a plugin's `mcp.json` (`.plugin()` and `plugin()` throw
+`PluginError` with code `plugin.mcp-stdio`), and `PUT /v1/agents/:id` (`400`):
+
+```text
+MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL.
+```
+
+What to do: run the server behind an HTTP transport (several open gateways wrap a stdio server as
+streamable HTTP) and declare its URL instead of its command:
+
+```ts
+// Before
+Agent({ id: "assistant" }).mcp({ files: { type: "stdio", command: "npx", args: ["files-mcp"] } });
+
+// After
+Agent({ id: "assistant" }).mcp({ files: { type: "streamable-http", url: "https://mcp.example.com/files" } });
+```
+
+Also gone with stdio: `pluginRoots` in `PUT /v1/agents/:id` (the strict schema now refuses it),
+`prepareStdioLaunch`, `expandPluginPlaceholders` and `StdioLaunch` from `@nylorun/agents`,
+`tenantChildEnvironment` and `startEphemeralRuntime({ baseline })` from `@nylorun/runtime`, and
+the local stack's `plugins/` mount and the harness's `plugin-data/`, `home/` and `tmp/` mounts. A
+plugin's skills work as before.
+
 ## Skills are files the Runtime serves
 
 A skill is now every file of its folder, uploaded once and served by the Runtime: no skill call
