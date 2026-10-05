@@ -86,8 +86,7 @@ export async function startLoopbackHarness(
   const service = startHarnessService({
     url: listener.url,
     token,
-    paths: { sandboxes: ctx.config.paths.sandboxes, pluginData: ctx.config.paths.pluginData },
-    childEnv: ctx.config.childEnv,
+    paths: { sandboxes: ctx.config.paths.sandboxes },
     modelGate: route.modelGate,
     modelProvider: route.modelProvider,
     useVaultModel: route.useVaultModel,

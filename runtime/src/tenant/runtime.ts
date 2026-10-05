@@ -222,9 +222,7 @@ export class TenantRuntime implements TenantHandle {
     const paths = config.paths;
     mkdirSync(paths.root, { recursive: true });
     mkdirSync(paths.home, { recursive: true });
-    mkdirSync(paths.tmp, { recursive: true });
     mkdirSync(paths.sandboxes, { recursive: true });
-    mkdirSync(paths.pluginData, { recursive: true });
     mkdirSync(paths.logs, { recursive: true });
 
     const store: SessionStore = hooks.store;
@@ -292,8 +290,6 @@ export class TenantRuntime implements TenantHandle {
       // executors; otherwise the harness holds both (F6.2).
       const mcp = inProcess
         ? new McpPool({
-            pluginData: paths.pluginData,
-            childEnv: config.childEnv,
             authorize: (sessionId, request) => authorize(ctx, sessionId, request),
             policy: config.delivery ?? {},
             ...(toolGate.openMcp ? { openRemote: (server) => toolGate.openMcp!(server) } : {}),

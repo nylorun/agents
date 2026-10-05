@@ -393,7 +393,8 @@ the runtime container never holds an MCP credential or calls a tool's server:
   connection, authorizes it from the session's attached vaults (OAuth refresh
   included) and runs `tools/list` and `tools/call`. `nylorun logs gateway`
   shows one `mcp_request` line per request, never arguments, results or
-  credentials. Stdio MCP servers run in the harness container (below).
+  credentials. Nylorun accepts remote MCP servers only: there are no stdio
+  servers to run.
 - **Action deliveries**: the gateway POSTs every delivery and endpoint ping, so
   it carries `NYLORUN_ENDPOINT_LOOPBACK` (and any other `NYLORUN_ENDPOINT_*`
   setting) and reaches Action endpoints on this machine at
@@ -492,8 +493,8 @@ services in a later release.
 ## The harness: agent turns, MCP servers and workspaces
 
 The `harness` container runs the Runtime image a third time, as `--service
-harness`. It runs every agent turn's engine, the session's stdio MCP servers and
-its workspace (`bash`, `read`, `write` and the other sandbox tools), apart from
+harness`. It runs every agent turn's engine and the session's workspace
+(`bash`, `read`, `write` and the other sandbox tools), apart from
 the runtime container, which keeps the Tenant's state and schedules the turns.
 The runtime container runs no turn, no MCP server and no workspace command.
 
@@ -504,21 +505,13 @@ The runtime container runs no turn, no MCP server and no workspace command.
   refuse it. The harness holds no other credential: no database, no Restate, no vault
   key, no gates token. Its model and remote MCP calls go to the gateway with the
   run token of the turn they belong to.
-- It mounts only the Tenant directory's `sandboxes/` (the workspaces),
-  `plugin-data/`, `home/` and `tmp/` under `/harness`, and the Host root's
-  `plugins/` read-only (below). It publishes no port and is healthy once it is
+- It mounts only the Tenant directory's `sandboxes/` (the workspaces) under
+  `/harness`. It publishes no port and is healthy once it is
   connected (`nylorun status` shows `Harness  running, healthy, remote, 1
   connected`; `nylorun logs harness` shows its log).
-- **Plugin roots.** A stdio MCP server from a plugin runs from the plugin's
-  directory, which the agent names by its absolute path on the machine that
-  deployed it. In a local Tenant, put such plugins under the Host root's
-  `plugins/` directory (`~/.nylorun/tenants/<tenant>/plugins/<plugin>`) and load
-  them from there: Compose mounts that directory read-only, at the same path, into
-  the harness and runtime containers, so the paths resolve. A plugin elsewhere on
-  the machine is not visible in the containers.
 - If the harness container is killed mid model call, the gateway keeps the call
-  and the restarted harness picks up its answer. A workspace command or stdio MCP
-  call in flight is lost with the container, so its effect becomes `uncertain`
+  and the restarted harness picks up its answer. A workspace command in flight is
+  lost with the container, so its effect becomes `uncertain`
   and the session waits for a decision; nothing runs it twice. If the runtime
   restarts, the harness connects again and the turn finishes.
 - **Rollback.** Set `NYLORUN_HARNESS=in-process` in `docker/.env` and run
@@ -533,7 +526,7 @@ A local Tenant has three Compose networks:
 | Network | Members | Purpose |
 | --- | --- | --- |
 | `<project>-store` (internal: no egress) | postgres, s2-lite, restate, rustfs, runtime, gateway | The stores and Restate, reached only by the runtime and the gateway |
-| `<project>-harness` | harness, runtime, gateway | The harness reaches the Harness API and the gateway, nothing else; it keeps egress for MCP servers and `bash` |
+| `<project>-harness` | harness, runtime, gateway | The harness reaches the Harness API and the gateway, nothing else; it keeps egress for `bash` |
 | `<project>` (default) | runtime, gateway, studio, sandboxes | Egress and the published ports |
 
 Restate's admin API and UI (port 9070) have no authentication, so they are not

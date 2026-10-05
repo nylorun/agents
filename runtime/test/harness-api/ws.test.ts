@@ -105,12 +105,11 @@ it("runs a turn with bash in a harness service with its own sandbox and no store
   const listener = await listen(runtime);
   const root = await mkdtemp(join(tmpdir(), "nylorun-harness-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
-  const paths = { sandboxes: join(root, "sandboxes"), pluginData: join(root, "plugin-data") };
+  const paths = { sandboxes: join(root, "sandboxes") };
   const service: HarnessService = startHarnessService({
     url: listener.url,
     token: TOKEN,
     paths,
-    childEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, TMPDIR: root },
     modelGate: {} as ModelGate,
     modelProvider: bashOnce,
     useVaultModel: false,

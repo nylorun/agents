@@ -206,7 +206,7 @@ export interface HarnessServiceConfig {
   pod?: PodHostConfig;
   /** `NYLORUN_GATES_URL`: the gates service its model and MCP calls cross, with run tokens. */
   gatesUrl: string;
-  /** `NYLORUN_HARNESS_ROOT`: its sandboxes, plugin data, home and tmp. Default `/harness`. */
+  /** `NYLORUN_HARNESS_ROOT`: its sandboxes. Default `/harness`. */
   root: string;
   /** `/health` on `127.0.0.1:<NYLORUN_HARNESS_HEALTH_PORT>` (default 4300). */
   healthPort: number;

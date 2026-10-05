@@ -16,8 +16,8 @@
 // `nylorun down` and `nylorun up` (the Compose files and the Tenant's data are kept),
 // checks that every file in the Host root belongs to this user (the bind
 // mount's UID/GID), and always ends with `nylorun reset --yes`. The harness
-// (F6.2): it runs a stdio MCP server from the Host root's plugins/ and bash for
-// an agent on a stub model, while the runtime container runs no child process.
+// (F6.2): it runs bash for an agent on a stub model, while the runtime container
+// runs no child process. (Remote MCP through the gateway: scripts/smoke-failure.mjs.)
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -49,32 +49,13 @@ async function walk(dir) {
   return entries;
 }
 
-/** A stdio MCP server without dependencies: newline-delimited JSON-RPC, one tool `echo`. */
-const ECHO_SERVER = String.raw`
-const lines = require("node:readline").createInterface({ input: process.stdin });
-const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
-lines.on("line", (line) => {
-  const message = JSON.parse(line);
-  if (message.id === undefined) return;
-  if (message.method === "initialize")
-    return send({ id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "echo", version: "0.0.0" } } });
-  if (message.method === "tools/list")
-    return send({ id: message.id, result: { tools: [{ name: "echo", description: "Echoes text.", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } }] } });
-  if (message.method === "tools/call")
-    return send({ id: message.id, result: { content: [{ type: "text", text: "echo " + message.params.arguments.text + " from " + process.env.PLUGIN_ROOT }] } });
-  send({ id: message.id, error: { code: -32601, message: "unknown method" } });
-});
-`;
-
 /**
  * The harness container (F6.2): status reports it remote and connected; it holds the harness
- * token and nothing else; Restate's UI is not published. An agent with a stdio MCP server whose
- * plugin root is under the Host root's `plugins/` (mounted read-only at its own path) and a
- * sandbox runs its tools in the harness: the MCP child shows in the harness container's
- * processes and never in the runtime container's, which runs only its own process.
+ * token and nothing else; Restate's UI is not published. An agent with a sandbox runs its
+ * tools in the harness: the runtime container runs only its own process.
  */
 async function harnessChecks(stack, images, status) {
-  const { home, runtimeUrl } = stack;
+  const { runtimeUrl } = stack;
   const printenv = async (service, name) =>
     (await stack.compose(["exec", "-T", service, "printenv", name], { check: false })).trim();
   const harness = status.services.find((s) => s.service === "harness");
@@ -95,10 +76,7 @@ async function harnessChecks(stack, images, status) {
   for (const name of ["NYLORUN_GATES_TOKEN", "NYLORUN_OBJECT_STORE_SECRET_KEY", "NYLORUN_DATABASE_URL", "NYLORUN_KEYS_URL"])
     assert.equal(await printenv("harness", name), "", `the harness does not hold ${name}`);
 
-  // An agent with a stdio MCP server from the Host root's plugins/ and a sandbox.
-  const pluginRoot = join(home, "plugins", "echo");
-  await mkdir(pluginRoot, { recursive: true });
-  await writeFile(join(pluginRoot, "server.cjs"), ECHO_SERVER);
+  // An agent with a sandbox.
   const tenant = await stack.tenant();
   const stub = await startStubModel(stack, images.runtime);
   try {
@@ -117,21 +95,7 @@ async function harnessChecks(stack, images, status) {
     await call("/v1/agents/plugged", "PUT", {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: {
-        id: "plugged",
-        name: "Plugged",
-        manifestSchemaVersion: 5,
-        capabilities: [
-          {
-            id: "echo-tools",
-            type: "agent",
-            mcpServers: {
-              echo: { name: "echo", type: "stdio", command: "node", args: ["${PLUGIN_ROOT}/server.cjs"] },
-            },
-          },
-        ],
-      },
-      pluginRoots: { "echo-tools": pluginRoot },
+      manifest: { id: "plugged", name: "Plugged", manifestSchemaVersion: 5, capabilities: [] },
     });
     await call("/v1/sessions/plugged", "PUT", {
       requestId: randomUUID(),
@@ -154,33 +118,24 @@ async function harnessChecks(stack, images, status) {
         { timeout: 120_000, interval: 500, message: `turn ${n} to settle` },
       );
     };
-    const echoed = await turn(1, 'call echo__echo {"text":"hi"}');
-    assert.equal(echoed.status, "completed", JSON.stringify(echoed));
-    assert.ok(
-      echoed.mcpDiagnostics.some((d) => d.serverName === "echo" && d.outcome === "connected"),
-      `the harness started the stdio server: ${JSON.stringify(echoed.mcpDiagnostics)}`,
-    );
-    const bashed = await turn(2, 'call bash {"command":"echo from-the-harness > proof.txt && cat proof.txt"}');
+    const bashed = await turn(1, 'call bash {"command":"echo from-the-harness > proof.txt && cat proof.txt"}');
     assert.equal(bashed.status, "completed", JSON.stringify(bashed));
     const results = (await runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/plugged/items")).items
       .filter((item) => item.type === "tool.completed")
       .map((item) => JSON.stringify(item.payload));
-    assert.ok(results.some((r) => r.includes(`echo hi from ${pluginRoot}`)), `the plugin answered: ${results}`);
     assert.ok(results.some((r) => r.includes("from-the-harness")), `bash ran: ${results}`);
 
-    // Exit check (F6.2): the stdio child runs in the harness; the runtime container runs no
-    // MCP child, nothing but its own process.
+    // Exit check (F6.2): the sandbox runs in the harness; the runtime container runs nothing
+    // but its own process.
     const top = async (service) =>
       (await run("docker", ["top", `${stack.project}-${service}`, "-o", "pid,args"], { capture: true }))
         .trim()
         .split("\n")
         .slice(1);
-    const inHarness = await top("harness");
-    assert.ok(inHarness.some((line) => line.includes(`${pluginRoot}/server.cjs`)), inHarness.join("\n"));
     const inRuntime = await top("runtime");
     assert.equal(inRuntime.length, 1, `the runtime container runs one process:\n${inRuntime.join("\n")}`);
     assert.match(inRuntime[0], /runtime\/dist\/host\/main\.js/);
-    console.log("[stack] the harness runs the stdio MCP server and bash; the runtime runs neither");
+    console.log("[stack] the harness runs bash; the runtime runs nothing but itself");
   } finally {
     await stub.remove();
   }

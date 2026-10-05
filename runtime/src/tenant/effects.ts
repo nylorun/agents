@@ -86,7 +86,7 @@ export function recoversMcpCalls(ctx: TenantContext): boolean {
   return ctx.toolGate.recovers === true;
 }
 
-/** True when `request` calls a tool of a remote (`streamable-http` or `sse`) MCP server. */
+/** True when `request` calls a tool of a declared MCP server (every one is remote). */
 export function isRemoteMcpEffect(s: Session, request: HostEffect): boolean {
   return isRemoteMcpCall({ rootManifest: s.manifest, mcpSnapshot: s.mcpSnapshot }, request);
 }
@@ -288,7 +288,6 @@ export async function resolveNewFlowEffect(
       },
       vaultIds: workflow.vaultIds,
       credentialSelections: workflow.credentialSelections,
-      pluginRoots: definition.pluginRoots ?? {},
       ...(sandboxOwnerId ? { sandboxOwnerId } : {}),
       ...(inherited
         ? { sandbox: inherited.spec, sandboxSource: "shared" as const }
@@ -404,7 +403,6 @@ async function leafDefinition(
   manifest: AgentManifest | WorkflowManifestV2;
   manifestHash: string;
   implementationVersion: string;
-  pluginRoots?: Readonly<Record<string, string>>;
 }> {
   // A flow agent used as a tool: its manifest is inlined in the parent's pinned tool.
   if (request.context.role === "delegate" && !isWorkflowManifest(workflow.manifest)) {
@@ -414,7 +412,6 @@ async function leafDefinition(
       manifest: flow,
       manifestHash: hashManifest(flow),
       implementationVersion: workflow.implementationVersion,
-      pluginRoots: leafPluginRoots(workflow.pluginRoots, body.agentId),
     };
   }
   if (isWorkflowManifestV2(workflow.manifest)) {
@@ -426,7 +423,6 @@ async function leafDefinition(
       manifest,
       manifestHash: hashManifest(manifest),
       implementationVersion: workflow.implementationVersion,
-      pluginRoots: leafPluginRoots(workflow.pluginRoots, body.agentId),
     };
   }
   const definition = await t.get("definitions", body.agentId);
@@ -435,21 +431,5 @@ async function leafDefinition(
     manifest: AgentManifest;
     manifestHash: string;
     implementationVersion: string;
-    pluginRoots?: Readonly<Record<string, string>>;
   };
-}
-
-/**
- * A v2 workflow keys its leaves' plugin roots `<agentId>/<capability>`, and an agent keys
- * a flow agent it uses as a tool the same way (`<flowId>/<leafId>/<capability>`).
- */
-function leafPluginRoots(
-  roots: Readonly<Record<string, string>> | undefined,
-  agentId: string
-): Record<string, string> {
-  const own: Record<string, string> = {};
-  const prefix = `${agentId}/`;
-  for (const [key, root] of Object.entries(roots ?? {}))
-    if (key.startsWith(prefix)) own[key.slice(prefix.length)] = root;
-  return own;
 }

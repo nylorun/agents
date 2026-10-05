@@ -19,17 +19,15 @@ export type TenantMode = "shared" | "ephemeral" | "test";
 
 /**
  * The Tenant directory on the Host root (`<Host root>/tenant/`). The Tenant's data lives in
- * its database; this holds what stays on the Host: the vault key, plugin data, logs, and the
- * private home, tmp and sandbox directories.
+ * its database; this holds what stays on the Host: the vault key, logs, and the private home
+ * and sandbox directories.
  */
 export interface TenantPaths {
   // all absolute; derived by tenantPaths()
   root: string;
   kek: string;
   home: string;
-  tmp: string;
   sandboxes: string;
-  pluginData: string;
   /** The `fs` BlobStore's directory, used when the Host has no Object store. */
   blobs: string;
   logs: string;
@@ -65,7 +63,6 @@ export interface TenantConfig {
   actionHoldMs?: number;
   /** Retries and timeouts for model calls (Model Calls §5, §6). Defaults in `piModel`. */
   modelCall?: import("../gates/model-gate.js").ModelCallSettings;
-  childEnv: Readonly<Record<string, string>>; // allowlisted base + Tenant HOME/TMPDIR
   /** Action claim lease. Default 30 s. */
   /** How the Runtime may call Action endpoints (Host settings). Default: http and private addresses allowed. */
   delivery?: OutboundPolicy;

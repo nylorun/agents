@@ -54,8 +54,7 @@ them. A local Tenant packs `core,loop` into the `runtime` container and
 api|worker|all` is the deprecated name of `--service core`, `loop` and
 `core,loop`.
 
-`harness` runs alone: agent turns, stdio MCP servers and workspaces, apart from
-core. With `NYLORUN_HARNESS=remote`, core runs no turn itself and opens the
+`harness` runs alone: agent turns and workspaces, apart from core. With `NYLORUN_HARNESS=remote`, core runs no turn itself and opens the
 Harness API listener (`NYLORUN_HARNESS_LISTEN_HOST`, `NYLORUN_HARNESS_LISTEN_PORT`,
 default 4200, `NYLORUN_HARNESS_ALLOWED_HOSTS`), which accepts only
 `NYLORUN_HARNESS_TOKEN`; `in-process` (the default outside Compose) runs turns in
@@ -129,7 +128,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
   host-credentials.json     # adminKey (0600): the root secret Studio's key derives from
   identity.yaml             # optional: trusted issuers (NYLORUN_IDENTITY_FILE)
   docker/                   # compose.yaml, .env (0600), Restate identity key
-  tenant/                   # vault-kek, plugin-data, logs, home, tmp, sandboxes
+  tenant/                   # logs, home, sandboxes
 ```
 
 ## HTTP surface

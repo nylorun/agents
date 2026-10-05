@@ -47,10 +47,8 @@ const MCP_SWEEP_MS = 60_000;
 export interface HarnessServiceOptions {
   readonly url: string;
   readonly token: HarnessClientOptions["token"];
-  /** Where workspaces (and their records) live, and the plugins' data. */
-  readonly paths: { readonly sandboxes: string; readonly pluginData: string };
-  /** The environment of MCP stdio servers: the allowlisted base, with HOME and TMPDIR. */
-  readonly childEnv: Readonly<Record<string, string>>;
+  /** Where workspaces (and their records) live. */
+  readonly paths: { readonly sandboxes: string };
   /** Vault-backed model calls (the gates service's client). */
   readonly modelGate: ModelGate;
   /** Models served without the vault; a harness process has none (`useVaultModel`). */
@@ -109,8 +107,6 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
   };
 
   const pool = new McpPool({
-    pluginData: options.paths.pluginData,
-    childEnv: options.childEnv,
     authorize:
       options.authorize ??
       (async () => {

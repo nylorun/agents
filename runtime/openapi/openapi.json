@@ -6573,46 +6573,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -6894,46 +6854,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -7204,46 +7124,6 @@
                           "type": "object",
                           "additionalProperties": {
                             "oneOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
                               {
                                 "type": "object",
                                 "properties": {
@@ -7669,46 +7549,6 @@
                               "type": {
                                 "type": "string",
                                 "enum": [
-                                  "stdio"
-                                ]
-                              },
-                              "command": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "args": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              },
-                              "env": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              },
-                              "cwd": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "type",
-                              "command"
-                            ],
-                            "additionalProperties": false
-                          },
-                          {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "type": {
-                                "type": "string",
-                                "enum": [
                                   "streamable-http"
                                 ]
                               },
@@ -8046,46 +7886,6 @@
                             "type": "object",
                             "additionalProperties": {
                               "oneOf": [
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "type": {
-                                      "type": "string",
-                                      "enum": [
-                                        "stdio"
-                                      ]
-                                    },
-                                    "command": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "args": {
-                                      "type": "array",
-                                      "items": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "env": {
-                                      "type": "object",
-                                      "additionalProperties": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "cwd": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "type",
-                                    "command"
-                                  ],
-                                  "additionalProperties": false
-                                },
                                 {
                                   "type": "object",
                                   "properties": {
@@ -9091,46 +8891,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -9340,13 +9100,6 @@
           "implementationVersion": {
             "type": "string",
             "minLength": 1
-          },
-          "pluginRoots": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "minLength": 1
-            }
           }
         },
         "required": [

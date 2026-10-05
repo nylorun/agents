@@ -38,7 +38,7 @@ export function hostPaths(hostRoot: string): HostPaths {
  * root after realpath.
  *
  * The directory holds what stays on the Host (the Tenant's data is its database): `home/`,
- * `tmp/`, `sandboxes/`, `plugin-data/`, `blobs/` (the `fs` BlobStore, when the Host has no
+ * `sandboxes/`, `blobs/` (the `fs` BlobStore, when the Host has no
  * Object store), `logs/tenant.log`. The vault key is the one exception:
  * it lives beside the Tenant directory, in `<hostRoot>/keys/vault-kek`, which the local stack
  * mounts only into the gateway (F4.2), never into the runtime container.
@@ -52,9 +52,7 @@ export function tenantPaths(hostRoot: string): TenantPaths {
     root,
     kek: join(host, "keys", "vault-kek"),
     home: join(root, "home"),
-    tmp: join(root, "tmp"),
     sandboxes: join(root, "sandboxes"),
-    pluginData: join(root, "plugin-data"),
     blobs: join(root, "blobs"),
     logs: join(root, "logs"),
     log: join(root, "logs", "tenant.log"),

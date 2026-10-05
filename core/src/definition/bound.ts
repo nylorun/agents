@@ -60,6 +60,4 @@ export interface BoundMiddleware {
   readonly skillRecords?: Readonly<Record<string, SkillRecord>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   readonly sandbox?: SandboxManifest;
-  /** Package directory for a plugin capability. Not a manifest field. */
-  readonly pluginRoot?: string;
 }

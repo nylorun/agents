@@ -115,7 +115,6 @@ export function assembleAgent(
           ...(item.sessionTools === undefined
             ? {}
             : { sessionTools: item.sessionTools }),
-          ...(item.pluginRoot === undefined ? {} : { pluginRoot: item.pluginRoot }),
         })
       );
     }

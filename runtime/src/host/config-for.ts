@@ -1,7 +1,5 @@
-import type { HostConfigFile } from "./config.js";
 import { tenantPaths } from "../tenant/paths.js";
 import type { Logger, TenantConfig } from "../tenant/types.js";
-import { tenantChildEnvironment } from "./environment.js";
 
 /**
  * Builds the TenantConfig of the Host's Tenant for `openTenantRuntime`.
@@ -10,10 +8,7 @@ import { tenantChildEnvironment } from "./environment.js";
  */
 export function configForFactory(options: {
   hostRoot: string;
-  hostConfig: HostConfigFile;
   logger: Logger;
-  /** Allowlisted baseline from `baselineEnvironment` (built in `host/main.ts`). */
-  baseline: Readonly<Record<string, string>>;
   mode?: TenantConfig["mode"];
   /** Override model; default vault. Fixture/scripted require ephemeral/test mode. */
   model?: TenantConfig["model"];
@@ -24,7 +19,6 @@ export function configForFactory(options: {
   /** `NYLORUN_PUBLIC_URL`: the base of the MCP OAuth callback (F9 C2). */
   publicUrl?: string;
 }): (id: string) => TenantConfig {
-  const { baseline } = options;
   return (id: string): TenantConfig => {
     const tenant = tenantPaths(options.hostRoot);
     const sandboxBackend: TenantConfig["sandbox"]["backend"] = "auto";
@@ -37,11 +31,6 @@ export function configForFactory(options: {
       ...(options.delivery ? { delivery: options.delivery } : {}),
       ...(options.issuers ? { issuers: options.issuers } : {}),
       ...(options.publicUrl ? { publicUrl: options.publicUrl } : {}),
-      childEnv: tenantChildEnvironment(
-        baseline,
-        options.hostConfig,
-        tenant,
-      ),
       logger: {
         info: (message, fields) =>
           options.logger.info(message, { tenantId: id, ...fields }),

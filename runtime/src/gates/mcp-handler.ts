@@ -3,7 +3,6 @@
  * declared `streamable-http` or `sse` server, authorizes it with the Tenant vault (OAuth refresh
  * included) and runs `tools/list` and `tools/call` on it. The loop names the server; the gate
  * finds it in the session's pinned manifest, so the loop never chooses a URL or a credential.
- * Stdio servers are refused: they run beside the loop until the session sandbox takes them.
  *
  * A failure is an answer (`{ok: false, error}`), shaped so the loop's diagnostics read it as
  * they read a failure in their own process. Logs one line per call, never arguments, results or
@@ -83,13 +82,11 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
   async function declared(
     vault: TenantVault,
     server: McpServerRef,
-  ): Promise<Extract<McpServerManifest, { type: "streamable-http" | "sse" }>> {
+  ): Promise<McpServerManifest> {
     const session = await vault.session(server.sessionId);
     if (!session) throw new NotDeclared(`Session ${server.sessionId} not found`);
     const found = findServer(session.manifest, server.agentId, server.capabilityId, server.serverName);
     if (!found) throw new NotDeclared(`MCP server '${server.serverName}' is not declared`);
-    if (found.server.type === "stdio")
-      throw new NotDeclared(`MCP server '${server.serverName}' is a stdio server, which runs beside the loop`);
     return found.server;
   }
 
@@ -110,7 +107,6 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
               serverName: server.serverName,
               ...(server.agentId === undefined ? {} : { agentId: server.agentId }),
             }),
-          pluginData: "",
           policy: options.delivery ?? {},
         });
         const entry: Live = { connection, lastUsedAt: now(), active: 0 };

@@ -241,8 +241,6 @@ services:
         read_only: true
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user
       - workspaces:/workspaces
-      # Plugin roots on this machine, at their own path (as for the harness), for NYLORUN_HARNESS=in-process.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
     networks: [default, store, harness]
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Runtime and Management APIs, SSE, browsers
@@ -288,7 +286,7 @@ services:
       retries: 30
     restart: unless-stopped
 
-  harness: # agent turns, MCP servers and workspaces; holds only the harness token; not published
+  harness: # agent turns and workspaces; holds only the harness token; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     container_name: nylorun-shop-harness
     labels: *tenant
@@ -303,13 +301,8 @@ services:
       NYLORUN_GATES_URL: http://gateway:4100
       NYLORUN_HARNESS_ROOT: /harness
     volumes:
-      # The Tenant's workspaces, plugin data and the homes of MCP stdio servers; nothing else.
+      # The Tenant's workspaces; nothing else.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/sandboxes:/harness/sandboxes
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/plugin-data:/harness/plugin-data
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/home:/harness/home
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/tmp:/harness/tmp
-      # Plugin roots on this machine, read-only, at their own path: agents name them so.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
     networks: [harness]
     healthcheck: # healthy once connected to core's Harness API
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/health').then(r=>r.json()).then(b=>process.exit(b.connected?0:1),()=>process.exit(1))"]

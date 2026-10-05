@@ -71,8 +71,6 @@ export interface StartEphemeralRuntimeOptions {
    * admin key derives (`deriveStudioToken` in `@nylorun/admin`).
    */
   studioCredentialHash?: string;
-  /** Allowlisted baseline for childEnv (e.g. PATH). Never read from ambient here. */
-  baseline?: Readonly<Record<string, string>>;
   model?: TenantModelConfig;
   sandboxBackend?: "auto" | "virtual";
   /** When true, close() leaves hostRoot on disk. */
@@ -148,7 +146,6 @@ export async function startEphemeralRuntime(
       error() {},
     } satisfies Logger);
 
-  const baseline = options.baseline ?? {};
   const model: TenantModelConfig =
     options.model ?? ({ kind: "scripted", output: "ok" } as const);
 
@@ -170,11 +167,6 @@ export async function startEphemeralRuntime(
       model,
       ...(issuers ? { issuers } : {}),
       ...(options.resolver ? { resolver: options.resolver } : {}),
-      childEnv: Object.freeze({
-        ...baseline,
-        HOME: tenant.home,
-        TMPDIR: tenant.tmp,
-      }),
       logger: createTenantLogger({
         tenantId,
         logPath: tenant.log,

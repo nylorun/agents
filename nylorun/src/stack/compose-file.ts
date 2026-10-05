@@ -27,7 +27,7 @@ import { PINNED_IMAGES } from "./images.js";
  * holds remote MCP connections and their credentials and POSTs every Action
  * delivery. Every model call, remote MCP call and delivery of the loop crosses it
  * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`, or a run's token from the
- * harness); MCP stdio servers run in the harness container. The gateway also runs keys (F4.2): the only
+ * harness). The gateway also runs keys (F4.2): the only
  * holder of the vault key, it runs every vault write that touches a secret and signs
  * every token (NYLORUN_KEYS_URL). The gateway mounts only the Host's Tenant directory
  * (`tenant/`) and its keys directory (`keys/`, the vault key), read-only: never
@@ -55,14 +55,12 @@ import { PINNED_IMAGES } from "./images.js";
  * CONNECT with the egress token, to the hosts the sandbox spec allows). The two HTTP listeners
  * accept that address as a Host.
  *
- * The harness (F6.2, `harness: "remote"`, the default) runs every agent turn, MCP stdio server
- * and workspace in its own container: the runtime image with `--service harness`, connected to
- * core's Harness API (`ws://runtime:4200/nylorun/harness/v1`) with NYLORUN_HARNESS_TOKEN, its
- * only credential, and calling models and remote MCP servers through the gateway with each
- * run's token. It mounts only the Tenant's `sandboxes/`, `plugin-data/`, `home/` and `tmp/`
- * under `/harness`, and the Host root's `plugins/` read-only at its own path (plugin roots name
- * paths on this machine; the runtime mounts it there too). NYLORUN_HARNESS=in-process in `.env`
- * rolls back to turns in the runtime container, without the harness service.
+ * The harness (F6.2, `harness: "remote"`, the default) runs every agent turn and workspace in
+ * its own container: the runtime image with `--service harness`, connected to core's Harness
+ * API (`ws://runtime:4200/nylorun/harness/v1`) with NYLORUN_HARNESS_TOKEN, its only
+ * credential, and calling models and remote MCP servers through the gateway with each run's
+ * token. It mounts only the Tenant's `sandboxes/` under `/harness`. NYLORUN_HARNESS=in-process
+ * in `.env` rolls back to turns in the runtime container, without the harness service.
  *
  * Three networks: `store` (internal: no egress) joins Postgres, s2-lite, Restate and RustFS to
  * the runtime and the gateway; `harness` joins the harness to the runtime and the gateway only;
@@ -270,8 +268,6 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
         read_only: true
         tmpfs: { size: 4096, mode: 0755 } # empty, and listable by the runtime user${sandboxes ? SANDBOXES_RUNTIME_MOUNT : ""}
       - workspaces:/workspaces
-      # Plugin roots on this machine, at their own path (as for the harness), for NYLORUN_HARNESS=in-process.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
     networks: [default, store, harness]
     ports:
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Runtime and Management APIs, SSE, browsers${sandboxes ? SANDBOXES_RUNTIME_PORT : ""}
@@ -349,13 +345,13 @@ const RESTATE_UI = `    networks: [store, default]
 `;
 
 /**
- * The harness service (F6.2): agent turns, MCP stdio servers and workspaces, apart from core.
+ * The harness service (F6.2): agent turns and workspaces, apart from core.
  * It holds the harness token only; models and remote MCP servers are reached through the
  * gateway with each run's token. Healthy once connected to core's Harness API.
  */
 function harnessService(project: string): string {
   return `
-  harness: # agent turns, MCP servers and workspaces; holds only the harness token; not published
+  harness: # agent turns and workspaces; holds only the harness token; not published
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
     container_name: ${project}-harness
     labels: *tenant
@@ -370,13 +366,8 @@ function harnessService(project: string): string {
       NYLORUN_GATES_URL: http://gateway:4100
       NYLORUN_HARNESS_ROOT: /harness
     volumes:
-      # The Tenant's workspaces, plugin data and the homes of MCP stdio servers; nothing else.
+      # The Tenant's workspaces; nothing else.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/sandboxes:/harness/sandboxes
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/plugin-data:/harness/plugin-data
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/home:/harness/home
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/tmp:/harness/tmp
-      # Plugin roots on this machine, read-only, at their own path: agents name them so.
-      - \${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:\${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro
     networks: [harness]
     healthcheck: # healthy once connected to core's Harness API
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/health').then(r=>r.json()).then(b=>process.exit(b.connected?0:1),()=>process.exit(1))"]
