@@ -75,12 +75,6 @@ export type {
   ToolDefinition,
   ToolExecutionContext,
   ToolOutcome,
-  Patch,
-  Decision,
-  TurnDecision,
-  HookScope,
-  BeforeHook,
-  AfterHook,
   JsonValue,
   JsonObject,
 } from "@nylorun/core/define";
@@ -155,8 +149,6 @@ export { plugin } from "./plugins/plugin.js";
 export type { PluginCapability } from "./plugins/plugin.js";
 export { loadPlugin, PluginError } from "./plugins/load.js";
 export type { LoadedPlugin, PluginDiagnostic } from "./plugins/load.js";
-export { prepareStdioLaunch, expandPluginPlaceholders } from "./plugins/launch.js";
-export type { StdioLaunch } from "./plugins/launch.js";
 export {
   skills,
   loadSkillsFromDirectory,

@@ -35,13 +35,10 @@ describe("deprecation warnings", () => {
     Agent({ id: "a", instructions: "x", tools: [look] });
     Agent({ id: "b", instructions: "y" });
     Agent({ id: "c" }).use({ id: "cap-c", instructions: ["c"] });
-    Agent({ id: "d" }).before("turn", () => ({}));
-    Agent({ id: "e" }).after("step", () => ({}));
     capability({ id: "cap", instructions: "c" });
     expect(codes).toEqual([
       "NYLORUN_DEP_AGENT_OPTIONS",
       "NYLORUN_DEP_USE",
-      "NYLORUN_DEP_HOOKS",
       "NYLORUN_DEP_CAPABILITY_OPTIONS",
     ]);
   });
@@ -54,8 +51,6 @@ describe("deprecation warnings", () => {
       .subagents(helper)
       .capability(capability({ id: "cap" }).instructions("c"))
       .mcp({ gh: { type: "sse", url: "https://x.example/gh" } })
-      .beforeTurn(() => ({}))
-      .afterModel(() => ({}))
       .output(z.string())
       .build();
     Agent({ id: "f" }).step(helper).build();

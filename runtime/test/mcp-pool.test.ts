@@ -8,7 +8,7 @@ import type { LiveConnection, McpClient } from "../src/mcp/connect.js";
 import { McpPool } from "../src/mcp/pool.js";
 
 const agent = Agent({ id: "bot", name: "Bot" })
-  .mcp({ local: { type: "stdio", command: "./server.mjs" } })
+  .mcp({ local: { type: "streamable-http", url: "https://mcp.example.invalid/mcp" } })
   .build();
 
 function harness() {
@@ -18,8 +18,6 @@ function harness() {
   let finish: (() => void) | undefined;
   const gate = { hold: false, holdCalls: false };
   const pool = new McpPool({
-    pluginData: "/tmp/plugin-data",
-    childEnv: {},
     authorize: async () => ({ status: "none" }) as never,
     idleMs: 1_000,
     now: () => now,
@@ -51,7 +49,6 @@ function harness() {
       serverToolName: "echo",
       args: {},
       manifest: agent.manifest,
-      pluginRoots: {},
     });
   return {
     pool,

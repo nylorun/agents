@@ -287,15 +287,12 @@ export async function main(): Promise<void> {
   const infra = createInfra(stack, { logger });
   const database = infra.database;
   if (!database) throw new Error("NYLORUN_DATABASE_URL did not yield a Postgres pool");
-  const baseline = baselineEnvironment(process.env);
 
   // A Tenant that should answer with the fixture model carries the Tenant
   // setting (`tenant/model-setting.ts`); the Host has no fixture mode.
   const configFor = configForFactory({
     hostRoot,
-    hostConfig: config,
     logger,
-    baseline,
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
     ...(issuers ? { issuers } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),

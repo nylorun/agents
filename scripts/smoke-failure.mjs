@@ -175,7 +175,7 @@ try {
         body: {
           requestId: randomUUID(),
           implementationVersion: "dev",
-          manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 4, capabilities: [] },
+          manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 5, capabilities: [] },
         },
       });
       await request(runtimeUrl, tenant, "/v1/sessions/s1", {
@@ -506,7 +506,7 @@ try {
           manifest: {
             id: "tooler",
             name: "Tooler",
-            manifestSchemaVersion: 4,
+            manifestSchemaVersion: 5,
             capabilities: [
               {
                 id: "remote-tools",

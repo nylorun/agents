@@ -44,7 +44,6 @@ it("runs a turn on a Tenant in its database, ends its own pool and removes its H
   // A URL: the Runtime opens its own pool on it.
   const runtime = await startEphemeralRuntime({
     hostRoot,
-    baseline: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     model: { kind: "scripted", output: "hello from postgres" },
     database: testDatabaseUrl(fileDatabaseName()),
   });

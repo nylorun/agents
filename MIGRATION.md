@@ -1,7 +1,62 @@
-# Code tools → HTTP tools (manifest-only agents)
+# Manifest-only agents (manifest v5)
 
-The Runtime is moving to running an agent from its manifest alone: during a session it never
-calls back into your code. A code tool (`tool({ run })`) runs in your process today, delivered
+The Runtime now runs an agent from its manifest alone: during a session it never calls your
+code. This release removes what used to run your code mid-session. Manifests are
+`manifestSchemaVersion: 5`. A Runtime of this release refuses a v4 manifest with a message that
+names what changed, and a session pinned to a v4 manifest cannot take another turn: rebuild and
+save your agents with this SDK, then start new sessions.
+
+## Hooks are removed
+
+`.beforeTurn()`, `.beforeModel()`, `.afterModel()` and `.afterTurn()` (with the deprecated
+`.before()` and `.after()`), a capability's `before` and `after`, the manifest's
+`capabilities[].hooks`, the `hook` Action and the `Patch`, `Decision` and `TurnDecision` types are
+gone. A manifest or capability that still names them is refused with
+`hooks were removed: …`. Each use has a replacement that needs no code of yours mid-turn:
+
+| Hook use                                            | Instead                                                                      |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Add instructions for a turn (`beforeTurn`)          | `.instructions()`, or send the message with a turn manifest that changes them |
+| Hide tools or capabilities for a turn               | A turn manifest that leaves them out (a variant may remove tools)            |
+| Deny or approve a proposed tool call (`afterModel`) | `approval` on the tool                                                       |
+| Check or redo the final answer (`afterTurn`)        | An output schema, or a flow `loop` with a verifier agent                     |
+| Write session state                                 | A tool writes `ctx.state`                                                    |
+| A policy over every model call                      | Bring your own harness (Harness API)                                         |
+
+Studio's Agent Manifest tab no longer shows hooks or the turn lifecycle. The engine version is
+`hosted-4`.
+
+## Remote MCP servers only
+
+Nylorun accepts remote MCP servers only: `streamable-http` and `sse`, declared by URL and reached
+through the Runtime's gates with an optional vault credential. A `stdio` server is refused
+wherever it is declared: `.mcp({...})`, a plugin's `mcp.json` (`.plugin()` and `plugin()` throw
+`PluginError` with code `plugin.mcp-stdio`), and `PUT /v1/agents/:id` (`400`):
+
+```text
+MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse). Run the server behind an HTTP transport and declare its URL.
+```
+
+What to do: run the server behind an HTTP transport (several open gateways wrap a stdio server as
+streamable HTTP) and declare its URL instead of its command:
+
+```ts
+// Before
+Agent({ id: "assistant" }).mcp({ files: { type: "stdio", command: "npx", args: ["files-mcp"] } });
+
+// After
+Agent({ id: "assistant" }).mcp({ files: { type: "streamable-http", url: "https://mcp.example.com/files" } });
+```
+
+Also gone with stdio: `pluginRoots` in `PUT /v1/agents/:id` (the strict schema now refuses it),
+`prepareStdioLaunch`, `expandPluginPlaceholders` and `StdioLaunch` from `@nylorun/agents`,
+`tenantChildEnvironment` and `startEphemeralRuntime({ baseline })` from `@nylorun/runtime`, and
+the local stack's `plugins/` mount and the harness's `plugin-data/`, `home/` and `tmp/` mounts. A
+plugin's skills work as before.
+
+## HTTP tools replace code tools
+
+A code tool (`tool({ run })`) runs in your process today, delivered
 to your Action endpoint; a later release of this series removes Action endpoints and
 `createActionHandler`, and with them code tools. Move each one to an **HTTP tool** now: the
 Runtime makes one request to your service per call, through its Tool Gate. Code tools keep

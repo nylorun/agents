@@ -26,7 +26,7 @@ function manifest(
   overrides: Partial<AgentManifest> & { id?: string } = {}
 ): AgentManifest {
   return {
-    manifestSchemaVersion: 4,
+    manifestSchemaVersion: 5,
     id: "coder",
     capabilities: [
       {
@@ -86,7 +86,7 @@ describe("turn-manifest", () => {
         {
           id: "policy",
           type: "agent",
-          hooks: [{ at: "before", scope: "turn" }],
+          mcpServers: { gh: { name: "gh", type: "streamable-http", url: "https://x.example/mcp" } },
           tools: [],
         },
       ],

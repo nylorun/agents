@@ -6,8 +6,7 @@
  * database, no Restate, no keys.
  *
  * Its files live under `NYLORUN_HARNESS_ROOT` (`/harness`): `sandboxes/` (workspaces and their
- * records), `plugin-data/`, and `home/` and `tmp/` for MCP stdio servers. `/health` answers on
- * 127.0.0.1 only.
+ * records). `/health` answers on 127.0.0.1 only.
  *
  * In a pod sandbox (`NYLORUN_SANDBOX_KIND=pod`, F7.2) it is that sandbox's engine: it first waits
  * until the pod's NetworkPolicy is in force (`awaitNetworkPolicy`), then joins with the
@@ -30,8 +29,8 @@ import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
 
 /**
- * `baseline` is the allowlisted environment of MCP stdio servers (`baselineEnvironment`), read
- * by `host/main.ts`: nothing here reads the process environment.
+ * `baseline` is the allowlisted environment of a pod's sandbox tools (`baselineEnvironment`),
+ * read by `host/main.ts`: nothing here reads the process environment.
  */
 export async function runHarness(
   stack: StackConfig,
@@ -39,13 +38,8 @@ export async function runHarness(
 ): Promise<void> {
   const config = stack.harness!;
   const logger = createHostLogger();
-  const paths = {
-    sandboxes: join(config.root, "sandboxes"),
-    pluginData: join(config.root, "plugin-data"),
-    home: join(config.root, "home"),
-    tmp: join(config.root, "tmp"),
-  };
-  for (const dir of Object.values(paths)) mkdirSync(dir, { recursive: true });
+  const paths = { sandboxes: join(config.root, "sandboxes") };
+  mkdirSync(paths.sandboxes, { recursive: true });
   logger.info("host_stack_config", { services: [...stack.services], harness: config.url, gates: config.gatesUrl });
 
   // A pod's engine trusts the network only once its NetworkPolicy blocks what it must.
@@ -67,7 +61,6 @@ export async function runHarness(
     token,
     ...(pod ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv() })] } : {}),
     paths,
-    childEnv: { ...baseline, HOME: paths.home, TMPDIR: paths.tmp },
     modelGate: httpModelGate({ url: config.gatesUrl, runTokens }),
     useVaultModel: true,
     toolGate: httpToolGate({ url: config.gatesUrl, runTokens }),

@@ -20,7 +20,6 @@ export interface SkillRecord {
   readonly resources?: Readonly<Record<string, string>>;
 }
 import type { ContextItem, JsonObject, Tripwire } from "./shared.js";
-import type { AfterHooks, BeforeHooks } from "./dynamics.js";
 import type { Interaction, ToolDefinition, ToolResult } from "./tool.js";
 
 interface StepRequestBase {
@@ -107,19 +106,13 @@ export interface CapabilityDeclaration<Info = unknown> {
   /** File contents for load_skill. Omitted from the manifest. */
   readonly skillRecords?: Readonly<Record<string, SkillRecord>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
-  /** Resolved package directory. Not projected into the manifest. */
-  readonly pluginRoot?: string;
   /**
    * @deprecated Model resolution is Runtime-owned. Not projected into the harness manifest.
    * Kept for local middleware composition through 1.0.
    */
   readonly model?: ModelDirective;
-  /** @deprecated Prefer before / after hooks. Kept through 1.0. */
+  /** @deprecated Runs in the local engine only. Kept through 1.0. */
   readonly middleware?: StepMiddleware<Info>;
-  /** Run before each turn or each model call (step). */
-  readonly before?: BeforeHooks<Info>;
-  /** Run after each model call (step) or after the turn's final answer. */
-  readonly after?: AfterHooks<Info>;
 }
 
 /** What `.use()` accepts: a capability whose `tools` may also hold agents used as tools. */

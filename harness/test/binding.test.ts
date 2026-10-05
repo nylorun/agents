@@ -13,7 +13,7 @@ describe("build", () => {
     expect(agent.id).toBe("test");
     expect(agent.name).toBe("Test");
     expect(agent.manifest).toEqual({
-      manifestSchemaVersion: 4,
+      manifestSchemaVersion: 5,
       id: "test",
       name: "Test",
       capabilities: [
@@ -45,7 +45,7 @@ describe("build", () => {
       .use({ id: "model", model: { id: "opus", controls: { temperature: 0.2 } } })
       .build();
     expect(agent.manifest).toEqual({
-      manifestSchemaVersion: 4,
+      manifestSchemaVersion: 5,
       id: "test",
       name: "Test",
       capabilities: [{ id: "model", type: "agent" }],

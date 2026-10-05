@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { AgentManifest, McpServerManifest } from "@nylorun/core/define";
 import { delegatesOf } from "@nylorun/core/define";
 import type { OutboundPolicy } from "../tenant/outbound.js";
@@ -41,9 +40,6 @@ export class McpPool {
 
   constructor(
     private readonly options: {
-      /** Absolute Tenant `plugin-data` directory. */
-      readonly pluginData: string;
-      readonly childEnv: Readonly<Record<string, string>>;
       readonly authorize: (
         sessionId: string,
         request: { url: string; serverName: string; agentId?: string },
@@ -58,8 +54,7 @@ export class McpPool {
       /**
        * Opens a remote (`streamable-http` or `sse`) server somewhere else: the gates service
        * holds the connection and its credential, and the loop never sees either (F4.1).
-       * Absent: remote servers are opened in this process, with `authorize`. Stdio servers
-       * always run here.
+       * Absent: they are opened in this process, with `authorize`.
        */
       readonly openRemote?: (server: McpServerRef) => Promise<LiveConnection>;
     },
@@ -73,7 +68,6 @@ export class McpPool {
     sessionId: string;
     manifest: AgentManifest;
     manifestHash: string;
-    pluginRoots: Readonly<Record<string, string>>;
     signal?: AbortSignal;
   }): Promise<{ snapshot: McpSnapshot; diagnostics: McpDiagnostic[] }> {
     // Each agent names its own tools, so collisions are checked per agent.
@@ -128,7 +122,6 @@ export class McpPool {
   async reconnect(input: {
     sessionId: string;
     manifest: AgentManifest;
-    pluginRoots: Readonly<Record<string, string>>;
     tools: readonly McpToolRecord[];
     signal?: AbortSignal;
   }): Promise<McpDiagnostic[]> {
@@ -174,7 +167,6 @@ export class McpPool {
     serverToolName: string;
     args: unknown;
     manifest: AgentManifest;
-    pluginRoots: Readonly<Record<string, string>>;
     /** The effect id: a gate runs the call once under it (F4.1). */
     effectId?: string;
     signal?: AbortSignal;
@@ -212,7 +204,7 @@ export class McpPool {
 
   /**
    * Closes connections unused for the idle timeout (the Tenant sweep). A session that calls
-   * one again reconnects, as after a restart; this bounds the stdio processes a Tenant keeps.
+   * one again reconnects, as after a restart; this bounds the connections a Tenant keeps.
    */
   async sweep(): Promise<void> {
     const now = this.now();
@@ -269,14 +261,11 @@ export class McpPool {
   }
 
   private async connectDeclared(
-    input: {
-      sessionId: string;
-      pluginRoots: Readonly<Record<string, string>>;
-    },
+    input: { sessionId: string },
     declared: DeclaredServer,
   ): Promise<Opened> {
     try {
-      if (declared.server.type !== "stdio" && this.options.openRemote) {
+      if (this.options.openRemote) {
         const connection = await this.options.openRemote({
           sessionId: input.sessionId,
           ...ownerOf(declared),
@@ -287,22 +276,13 @@ export class McpPool {
       }
       const connection = await this.open({
         server: declared.server,
-        pluginRoot: input.pluginRoots[pluginKey(declared)],
-        pluginData: join(
-          this.options.pluginData,
-          ...pluginKey(declared).split("/"),
-        ),
-        childEnv: this.options.childEnv,
         ...(this.options.policy ? { policy: this.options.policy } : {}),
-        authorize:
-          declared.server.type === "stdio"
-            ? undefined
-            : (url) =>
-                this.options.authorize(input.sessionId, {
-                  url,
-                  serverName: declared.server.name,
-                  ...ownerOf(declared),
-                }),
+        authorize: (url) =>
+          this.options.authorize(input.sessionId, {
+            url,
+            serverName: declared.server.name,
+            ...ownerOf(declared),
+          }),
       });
       return { ok: true, connection };
     } catch (error) {
@@ -365,13 +345,6 @@ export function findServer(
       item.capabilityId === capabilityId &&
       item.server.name === serverName,
   );
-}
-
-/** Plugin roots of agents used as tools are registered as `<agent>/<capability>`. */
-function pluginKey(declared: DeclaredServer): string {
-  return declared.agentId === undefined
-    ? declared.capabilityId
-    : `${declared.agentId}/${declared.capabilityId}`;
 }
 
 function ownerOf(declared: DeclaredServer): { agentId?: string } {

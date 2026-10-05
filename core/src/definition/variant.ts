@@ -44,7 +44,7 @@ function removeOnlySkills(
 
 /**
  * Whether `candidate` is a valid turn-manifest variant of the session's pinned
- * manifest (`loops.md` §3.4). Hooks and setup (MCP, sandbox) are fixed;
+ * manifest (`loops.md` §3.4). Setup (MCP, sandbox) is fixed;
  * code-backed tools/skills/agents-as-tools are remove-only; plain data may change.
  */
 export function isVariantOf(
@@ -65,10 +65,7 @@ export function isVariantOf(
 
   for (const [, prior] of pinnedById) {
     const next = candidateById.get(prior.id);
-    if (prior.hooks?.length) {
-      // Hooks — and any capability that registers them — must not change or be removed.
-      if (!next || !same(next.hooks, prior.hooks)) return false;
-    }
+    // Setup — and any capability that declares it — must not change or be removed.
     if (prior.mcpServers !== undefined) {
       if (!next || !same(next.mcpServers, prior.mcpServers)) return false;
     }
@@ -84,16 +81,11 @@ export function isVariantOf(
     if (!removeOnlyTools(prior.tools, next.tools)) return false;
     if (!removeOnlySkills(prior.skills, next.skills)) return false;
     // Free: name, description, metadata, instructions (and model once it exists).
-    if (prior.hooks?.length) {
-      if (!same(next.hooks, prior.hooks)) return false;
-    } else if (next.hooks?.length) {
-      return false; // cannot add hooks
-    }
     if (!same(next.mcpServers, prior.mcpServers)) return false;
     if (!same(next.sandbox, prior.sandbox)) return false;
   }
 
-  // Dropping a capability is allowed only when it had no hooks / MCP / sandbox
+  // Dropping a capability is allowed only when it had no MCP / sandbox
   // (those are enforced above). Tools and skills on a dropped capability are
   // removals, which §3.4 permits.
   return true;

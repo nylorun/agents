@@ -176,9 +176,7 @@ export async function startTestTenant(
   for (const dir of [
     paths.root,
     paths.home,
-    paths.tmp,
     paths.sandboxes,
-    paths.pluginData,
     paths.logs,
     dirname(paths.kek),
   ])
@@ -223,20 +221,12 @@ export async function startTestTenant(
   )
     throw new Error("fixture/scripted models require ephemeral or test mode");
 
-  const childEnv = options.childEnv ?? {
-    // Tests may read ambient PATH; Runtime code must not.
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
-    HOME: paths.home,
-    TMPDIR: paths.tmp,
-  };
-
   const config: TenantConfig = {
     tenantId,
     mode,
     paths,
     sandbox: options.sandbox ?? { backend: "virtual" },
     model,
-    childEnv,
     ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
     ...(options.ownerLeaseMs === undefined
       ? {}

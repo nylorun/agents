@@ -12,7 +12,7 @@ import { AgentManifestSchema } from "../src/contracts.js";
 
 /** A session's pinned manifest: the definition plus the capability the Runtime adds. */
 const pinned = (sandbox: Record<string, unknown> = {}) => ({
-  manifestSchemaVersion: 4 as const,
+  manifestSchemaVersion: 5 as const,
   id: "analyst",
   capabilities: [sandboxCapabilityManifest(sandbox)],
 });

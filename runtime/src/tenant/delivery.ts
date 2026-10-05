@@ -226,12 +226,7 @@ export function interpret(action: Action, result: OutboundResult): Settlement {
   // A plain answer: a tool's output, or what an `fn` or `verify` returned.
   if (action.kind === "tool")
     return { kind: "outcome", outcome: { value: { kind: "completed", output: value } } };
-  if (action.kind === "fn" || action.kind === "verify")
-    return { kind: "outcome", outcome: { value } };
-  return rejected(
-    "endpoint.invalid-answer",
-    `A ${action.kind} needs a tagged answer (${OUTCOME_HEADER}: 1)`,
-  );
+  return { kind: "outcome", outcome: { value } };
 }
 
 function rejected(code: string, message: string): Settlement {
@@ -352,8 +347,7 @@ async function notice(
 
 /**
  * A delivery that may have reached the endpoint got no answer. A tool becomes `uncertain`, with
- * its effect and its session. A hook,
- * `fn` or `verify` is pure or repeat-safe and goes back to `pending`: delivered again right away
+ * its effect and its session. A `fn` or `verify` is pure or repeat-safe and goes back to `pending`: delivered again right away
  * (`after-commit`) or by the caller's retry (`retry`). Returns true when it will be delivered again.
  */
 export async function loseAction(
@@ -363,7 +357,7 @@ export async function loseAction(
   action: Action,
   options: { redeliver: "after-commit" | "retry" },
 ): Promise<boolean> {
-  if (action.kind === "hook" || action.kind === "fn" || action.kind === "verify") {
+  if (action.kind === "fn" || action.kind === "verify") {
     action.status = "pending";
     action.deadlineAt = null;
     await t.put("actions", action.actionId, action);

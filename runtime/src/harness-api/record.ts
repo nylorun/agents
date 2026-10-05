@@ -189,7 +189,7 @@ async function saveArtifact(scope: RecordScope, request: HostEffect): Promise<In
   return recordOutcome(scope, request.effectId, { value });
 }
 
-/** A tool or hook Action for the agent's endpoint, in the intent's transaction. */
+/** A tool Action for the agent's endpoint, in the intent's transaction. */
 async function offerActionFor(
   scope: RecordScope,
   t: Tx,
@@ -197,8 +197,7 @@ async function offerActionFor(
   agentManifest: ReturnType<typeof manifestFor> & object,
   request: HostEffect
 ): Promise<void> {
-  const tool =
-    request.kind === "tool" ? pinnedTool(agentManifest, request.capabilityId, request.toolName) : undefined;
+  const tool = pinnedTool(agentManifest, request.capabilityId, request.toolName);
   const base = {
     actionId: request.effectId,
     sessionId: request.sessionId,
@@ -212,31 +211,20 @@ async function offerActionFor(
     generation: 0,
     ...(request.agent ? { agent: request.agent } : {}),
   };
-  const action: Action =
-    request.kind === "hook"
-      ? {
-          ...base,
-          kind: "hook",
-          hook: {
-            at: request.hook!.at,
-            scope: request.hook!.scope,
-            capabilityIds: [...request.hook!.capabilityIds],
-          },
-        }
-      : {
-          ...base,
-          kind: "tool",
-          capabilityId: request.capabilityId!,
-          toolName: request.toolName!,
-          ...(tool?.inputSchema ? { inputSchema: tool.inputSchema } : {}),
-          ...(tool?.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-        };
+  const action: Action = {
+    ...base,
+    kind: "tool",
+    capabilityId: request.capabilityId!,
+    toolName: request.toolName!,
+    ...(tool?.inputSchema ? { inputSchema: tool.inputSchema } : {}),
+    ...(tool?.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+  };
   await t.put("actions", action.actionId, action);
   await t.event(s.id, s.activeTurnId, "action.pending", {
     actionId: action.actionId,
     kind: action.kind,
     ...actionTarget(action),
-    ...(action.kind === "tool" ? toolIds(request.context) : {}),
+    ...toolIds(request.context),
     input: action.input,
   });
   await offerAction(t, scope.ctx, action);

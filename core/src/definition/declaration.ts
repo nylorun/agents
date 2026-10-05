@@ -5,28 +5,31 @@ import type {
   MiddlewareContributions,
   StepMiddleware,
 } from "../types/middleware.js";
-import type { AfterHooks, BeforeHooks } from "../types/dynamics.js";
-import { hooksFrom } from "./hooks.js";
 import type { ModelDirective } from "../types/model.js";
 import type { ToolDefinition } from "../types/tool.js";
 import type { AgentTool } from "../types/agent.js";
 import type { SandboxManifest } from "../types/manifest.js";
 import { delegateTool, isAgentItem } from "./delegate.js";
+import { HarnessError } from "../errors.js";
+import { REMOVED_CAPABILITY_FIELDS } from "./removed.js";
 
 export interface CompiledCapability {
   readonly bound: BoundMiddleware;
-  readonly before?: BeforeHooks<any>;
-  readonly after?: AfterHooks<any>;
   readonly middleware?: StepMiddleware<any>;
 }
 
 export function compileDeclaration<State>(
   declaration: CapabilityInput<State>
 ): CompiledCapability {
+  for (const field of ["before", "after"])
+    if ((declaration as Record<string, unknown>)[field] !== undefined)
+      throw new HarnessError(
+        "configuration.invalid",
+        `Capability '${declaration.id}': ${REMOVED_CAPABILITY_FIELDS.hooks}`
+      );
   const tools = asTools(copyItems(declaration.tools, declaration.id));
   const instructions = copyItems(declaration.instructions, declaration.id);
   const model = declaration.model;
-  const hooks = hooksFrom(declaration.before, declaration.after);
   const contributions = snapshotContributions(
     instructions?.items,
     tools?.items,
@@ -55,7 +58,6 @@ export function compileDeclaration<State>(
       hasMiddleware: declaration.middleware !== undefined,
       tools: tools?.items,
       ...(contributions === undefined ? {} : { contributions }),
-      ...(hooks === undefined ? {} : { hooks }),
       ...(declaration.type === undefined ? {} : { manifestType: declaration.type }),
       ...(declaration.metadata === undefined
         ? {}
@@ -76,12 +78,7 @@ export function compileDeclaration<State>(
       ...(sandboxOf(declaration) === undefined
         ? {}
         : { sandbox: sandboxOf(declaration) }),
-      ...(declaration.pluginRoot === undefined
-        ? {}
-        : { pluginRoot: declaration.pluginRoot }),
     },
-    ...(declaration.before === undefined ? {} : { before: declaration.before }),
-    ...(declaration.after === undefined ? {} : { after: declaration.after }),
     ...(declaration.middleware ? { middleware: declaration.middleware } : {}),
   };
 }

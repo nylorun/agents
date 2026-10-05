@@ -4,8 +4,8 @@
  * The database holds one Tenant (`store/postgres/tenant.ts`): opening migrates it, creates
  * the Tenant on first start (from the Host's configuration: id, name, Studio and derived
  * principals), and opens the Tenant Runtime on its Session Store. What stays on the Host root
- * is the Tenant directory `tenant/`: the vault key (`vault-kek`), `plugin-data/`, `logs/`,
- * and the private `home/`, `tmp/` and `sandboxes/`.
+ * is the Tenant directory `tenant/`: the vault key (`vault-kek`), `logs/`, and the private
+ * `home/` and `sandboxes/`.
  *
  * - A failure in the Tenant (an old layout, a database newer than this Runtime, a failed
  *   migration, an unreadable Tenant row, vault ciphertext without its key) rejects with that

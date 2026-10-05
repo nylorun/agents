@@ -1,6 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpServerManifest } from "@nylorun/core/define";
 import type { JsonObject } from "@nylorun/core/define";
@@ -12,7 +11,6 @@ import {
   type McpDiagnostic,
   type McpToolRecord,
 } from "./snapshot.js";
-import { prepareStdioLaunch } from "./stdio.js";
 
 /** Options of one MCP request. */
 export interface McpRequestOptions {
@@ -74,38 +72,15 @@ export function sdkClient(client: Client): McpClient {
 
 export async function openMcpServer(input: {
   server: McpServerManifest;
-  authorize?: (url: string) => Promise<AuthorizeResult>;
+  authorize: (url: string) => Promise<AuthorizeResult>;
   /**
    * How a remote server is reached: the Host's address policy of Action endpoints
    * (`TenantConfig.delivery`), so `localhost` means the Docker host in the local stack and a
    * Host that refuses private addresses refuses them here too. Default: no limits.
    */
   policy?: OutboundPolicy;
-  pluginRoot?: string;
-  pluginData: string;
-  childEnv?: Readonly<Record<string, string>>;
 }): Promise<LiveConnection> {
-  if (input.server.type === "stdio") {
-    const launch = prepareStdioLaunch(input.server, {
-      pluginRoot: input.pluginRoot,
-      pluginData: input.pluginData,
-      childEnv: input.childEnv,
-    });
-    const transport = new StdioClientTransport({
-      command: launch.command,
-      args: [...launch.args],
-      cwd: launch.cwd,
-      // Full explicit env so HOME/TMPDIR from the Tenant override getDefaultEnvironment().
-      env: { ...launch.env },
-      stderr: "pipe",
-    });
-    transport.stderr?.on("data", () => {});
-    const client = createClient();
-    await client.connect(transport);
-    return { client: sdkClient(client), close: () => client.close() };
-  }
   const authorize = input.authorize;
-  if (!authorize) throw new Error("HTTP MCP server requires authorization");
   const initial = await authorize(input.server.url);
   if (initial.status === "refused") {
     const error = new Error(`MCP authorization refused: ${initial.reason}`);
@@ -246,7 +221,7 @@ function createClient(): Client {
 }
 
 function authorizedFetch(
-  server: Extract<McpServerManifest, { type: "streamable-http" | "sse" }>,
+  server: McpServerManifest,
   authorize: (url: string) => Promise<AuthorizeResult>,
   policy: OutboundPolicy,
 ): (url: string | URL, init?: RequestInit) => Promise<Response> {

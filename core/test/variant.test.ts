@@ -37,7 +37,7 @@ function manifest(
   } = {}
 ): AgentManifest {
   return {
-    manifestSchemaVersion: 4,
+    manifestSchemaVersion: 5,
     id: "coder",
     capabilities: overrides.capabilities ?? [
       capability({
@@ -129,21 +129,16 @@ describe("isVariantOf", () => {
     ).toBe(false);
   });
 
-  it("rejects removing or changing hooks (LOOP-R19, LOOP-A6, LOOP-D3)", () => {
+  it("keeps a capability that declares MCP servers, and frees its data (LOOP-R19, LOOP-D3)", () => {
     const pinned = manifest({
       capabilities: [
-        capability({
-          id: "policy",
-          hooks: [{ at: "before", scope: "turn" }],
-          tools: [deploy],
-        }),
+        capability({ id: "policy", mcpServers: mcp, tools: [deploy] }),
+        capability({ id: "main", tools: [lookup] }),
       ],
     });
     expect(
       isVariantOf(
-        manifest({
-          capabilities: [capability({ id: "policy", tools: [deploy] })],
-        }),
+        manifest({ capabilities: [capability({ id: "main", tools: [lookup] })] }),
         pinned
       )
     ).toBe(false);
@@ -151,26 +146,8 @@ describe("isVariantOf", () => {
       isVariantOf(
         manifest({
           capabilities: [
-            capability({
-              id: "policy",
-              hooks: [{ at: "after", scope: "step" }],
-              tools: [deploy],
-            }),
-          ],
-        }),
-        pinned
-      )
-    ).toBe(false);
-    expect(
-      isVariantOf(
-        manifest({
-          capabilities: [
-            capability({
-              id: "policy",
-              hooks: [{ at: "before", scope: "turn" }],
-              tools: [],
-              instructions: ["stricter"],
-            }),
+            capability({ id: "policy", mcpServers: mcp, tools: [], instructions: ["stricter"] }),
+            capability({ id: "main", tools: [lookup] }),
           ],
         }),
         pinned

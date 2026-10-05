@@ -6452,7 +6452,7 @@
                   "manifestSchemaVersion": {
                     "type": "number",
                     "enum": [
-                      4
+                      5
                     ]
                   },
                   "id": {
@@ -6615,46 +6615,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -6770,33 +6730,6 @@
                             }
                           },
                           "additionalProperties": false
-                        },
-                        "hooks": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "at": {
-                                "type": "string",
-                                "enum": [
-                                  "before",
-                                  "after"
-                                ]
-                              },
-                              "scope": {
-                                "type": "string",
-                                "enum": [
-                                  "turn",
-                                  "step"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "at",
-                              "scope"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -6856,7 +6789,7 @@
                   "manifestSchemaVersion": {
                     "type": "number",
                     "enum": [
-                      4
+                      5
                     ]
                   },
                   "id": {
@@ -7019,46 +6952,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -7174,33 +7067,6 @@
                             }
                           },
                           "additionalProperties": false
-                        },
-                        "hooks": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "at": {
-                                "type": "string",
-                                "enum": [
-                                  "before",
-                                  "after"
-                                ]
-                              },
-                              "scope": {
-                                "type": "string",
-                                "enum": [
-                                  "turn",
-                                  "step"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "at",
-                              "scope"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -7259,7 +7125,7 @@
                   "manifestSchemaVersion": {
                     "type": "number",
                     "enum": [
-                      4
+                      5
                     ]
                   },
                   "id": {
@@ -7422,46 +7288,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -7577,33 +7403,6 @@
                             }
                           },
                           "additionalProperties": false
-                        },
-                        "hooks": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "at": {
-                                "type": "string",
-                                "enum": [
-                                  "before",
-                                  "after"
-                                ]
-                              },
-                              "scope": {
-                                "type": "string",
-                                "enum": [
-                                  "turn",
-                                  "step"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "at",
-                              "scope"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -7797,7 +7596,7 @@
               "manifestSchemaVersion": {
                 "type": "number",
                 "enum": [
-                  4
+                  5
                 ]
               },
               "id": {
@@ -7960,46 +7759,6 @@
                               "type": {
                                 "type": "string",
                                 "enum": [
-                                  "stdio"
-                                ]
-                              },
-                              "command": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "args": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              },
-                              "env": {
-                                "type": "object",
-                                "additionalProperties": {
-                                  "type": "string"
-                                }
-                              },
-                              "cwd": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "name",
-                              "type",
-                              "command"
-                            ],
-                            "additionalProperties": false
-                          },
-                          {
-                            "type": "object",
-                            "properties": {
-                              "name": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "type": {
-                                "type": "string",
-                                "enum": [
                                   "streamable-http"
                                 ]
                               },
@@ -8115,33 +7874,6 @@
                         }
                       },
                       "additionalProperties": false
-                    },
-                    "hooks": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "at": {
-                            "type": "string",
-                            "enum": [
-                              "before",
-                              "after"
-                            ]
-                          },
-                          "scope": {
-                            "type": "string",
-                            "enum": [
-                              "turn",
-                              "step"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "at",
-                          "scope"
-                        ],
-                        "additionalProperties": false
-                      }
                     }
                   },
                   "required": [
@@ -8267,7 +7999,7 @@
                     "manifestSchemaVersion": {
                       "type": "number",
                       "enum": [
-                        4
+                        5
                       ]
                     },
                     "id": {
@@ -8430,46 +8162,6 @@
                                     "type": {
                                       "type": "string",
                                       "enum": [
-                                        "stdio"
-                                      ]
-                                    },
-                                    "command": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "args": {
-                                      "type": "array",
-                                      "items": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "env": {
-                                      "type": "object",
-                                      "additionalProperties": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "cwd": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "type",
-                                    "command"
-                                  ],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "name": {
-                                      "type": "string",
-                                      "minLength": 1
-                                    },
-                                    "type": {
-                                      "type": "string",
-                                      "enum": [
                                         "streamable-http"
                                       ]
                                     },
@@ -8585,33 +8277,6 @@
                               }
                             },
                             "additionalProperties": false
-                          },
-                          "hooks": {
-                            "type": "array",
-                            "items": {
-                              "type": "object",
-                              "properties": {
-                                "at": {
-                                  "type": "string",
-                                  "enum": [
-                                    "before",
-                                    "after"
-                                  ]
-                                },
-                                "scope": {
-                                  "type": "string",
-                                  "enum": [
-                                    "turn",
-                                    "step"
-                                  ]
-                                }
-                              },
-                              "required": [
-                                "at",
-                                "scope"
-                              ],
-                              "additionalProperties": false
-                            }
                           }
                         },
                         "required": [
@@ -9385,7 +9050,7 @@
                   "manifestSchemaVersion": {
                     "type": "number",
                     "enum": [
-                      4
+                      5
                     ]
                   },
                   "id": {
@@ -9548,46 +9213,6 @@
                                   "type": {
                                     "type": "string",
                                     "enum": [
-                                      "stdio"
-                                    ]
-                                  },
-                                  "command": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "args": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "env": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "cwd": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "name",
-                                  "type",
-                                  "command"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "name": {
-                                    "type": "string",
-                                    "minLength": 1
-                                  },
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
                                       "streamable-http"
                                     ]
                                   },
@@ -9703,33 +9328,6 @@
                             }
                           },
                           "additionalProperties": false
-                        },
-                        "hooks": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "at": {
-                                "type": "string",
-                                "enum": [
-                                  "before",
-                                  "after"
-                                ]
-                              },
-                              "scope": {
-                                "type": "string",
-                                "enum": [
-                                  "turn",
-                                  "step"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "at",
-                              "scope"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -9838,13 +9436,6 @@
           "implementationVersion": {
             "type": "string",
             "minLength": 1
-          },
-          "pluginRoots": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "minLength": 1
-            }
           }
         },
         "required": [
@@ -10675,129 +10266,6 @@
                     "kind",
                     "path",
                     "key"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "hook"
-                      ]
-                    },
-                    "hook": {
-                      "type": "object",
-                      "properties": {
-                        "at": {
-                          "type": "string",
-                          "enum": [
-                            "before",
-                            "after"
-                          ]
-                        },
-                        "scope": {
-                          "type": "string",
-                          "enum": [
-                            "turn",
-                            "step"
-                          ]
-                        },
-                        "capabilityIds": {
-                          "type": "array",
-                          "items": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "minItems": 1
-                        }
-                      },
-                      "required": [
-                        "at",
-                        "scope",
-                        "capabilityIds"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "kind",
-                    "hook"
                   ],
                   "additionalProperties": false
                 },
@@ -26216,7 +25684,7 @@
     },
     {
       "name": "Action endpoints",
-      "description": "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call, hook and workflow step to, signed with a delivery token your endpoint verifies with the public keys."
+      "description": "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call and workflow step to, signed with a delivery token your endpoint verifies with the public keys."
     },
     {
       "name": "Deliveries",

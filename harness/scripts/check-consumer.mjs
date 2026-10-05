@@ -91,7 +91,7 @@ export function checkPackedConsumer(cache) {
       .build();
     assert.deepEqual(Object.keys(agent).sort(), ['id', 'manifest', 'name', 'toJSON']);
     assert.equal(agent.hash, undefined);
-    assert.equal(agent.toJSON().manifestSchemaVersion, 4);
+    assert.equal(agent.toJSON().manifestSchemaVersion, 5);
     assert.equal(agent.toJSON().capabilities.length, 1);
     assert.equal(agent.toJSON().capabilities[0].id, 'agent');
     assert.equal(agent.toJSON().capabilities[0].type, 'agent');

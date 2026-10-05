@@ -14,9 +14,7 @@ const search = tool({
     return `found ${query}`;
   },
 });
-const researcher = Agent({ id: "researcher", description: "Researches.", tools: [search] })
-  .before("step", () => ({ instructions: ["child hook"] }))
-  .build();
+const researcher = Agent({ id: "researcher", description: "Researches.", tools: [search] }).build();
 const support = Agent({ id: "support", tools: [researcher] }).build();
 const agent = { id: "researcher", path: "support/researcher", delegationId: "invocation_1" };
 
@@ -59,18 +57,6 @@ it("runs a delegated agent's tool from the root binding", async () => {
     statePatch: { last: "A" },
   });
   expect(seen.at(-1)).toEqual(agent);
-});
-
-it("runs a delegated agent's hooks", async () => {
-  const action: Action = {
-    ...base,
-    kind: "hook",
-    hook: { at: "before", scope: "step", capabilityIds: ["agent"] },
-    input: { step: 0, state: {}, messages: [] },
-    agent,
-  };
-  const outcome = await executeAction(action, support, new AbortController().signal);
-  expect(outcome.value).toEqual({ results: { agent: { instructions: ["child hook"] } } });
 });
 
 it("tells root tools which agent they belong to", async () => {

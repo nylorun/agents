@@ -86,13 +86,13 @@ Only `host/` and `api/` import Hono. `/health` reports `service: "nylorun-runtim
 `hostId` and protocol range; `/ready` reports the Tenant, Postgres, Restate and S2
 (`infra/readiness.ts`), and `harness: { mode, connected }` while the Tenant is open. It
 stops on SIGTERM. The Tenant's data is its Postgres database; the Host keeps its
-key, plugin data and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or a
+key and logs under `tenant/` in its Host root (`NYLORUN_HOME`, or a
 local Tenant's `~/.nylorun/tenants/<name>/`). `nylorun start` writes `host.json` and
 `host-credentials.json`.
 _Avoid_: calling the Host a "scope", "project Runtime", or "global Runtime".
 
-**Tenant**: One isolated unit of sessions, principals, vault, sandboxes, plugin
-data and logs: the one Tenant of an installation, its state in the Postgres schema
+**Tenant**: One isolated unit of sessions, principals, vault, sandboxes and
+logs: the one Tenant of an installation, its state in the Postgres schema
 `nylorun` of its own database (the `nylorun.tenant` row holds its envelope), its record in
 `nylorun_streams`, and the Tenant directory `<host root>/tenant/`. The Host creates it on
 first start (`store/postgres/tenant.ts`: `NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`, its
@@ -274,15 +274,15 @@ nginx, Tailscale).
 
 **Action endpoint**: The URL an app registers for one agent (`PUT /v1/endpoints`,
 `endpoints` table, `tenant/endpoints.ts`), served by `createActionHandler` from
-`@nylorun/agents`. The Runtime POSTs each of the agent's Actions (tool, hook, `fn`,
-`verify`) there. The endpoint answers with the outcome, or with `202` for a
+`@nylorun/agents`. The Runtime POSTs each of the agent's Actions (tool, `fn`, `verify`)
+there. The endpoint answers with the outcome, or with `202` for a
 background tool, which later posts `POST /v1/actions/:id/result`. Health comes from
 recent deliveries and `POST /v1/endpoints/:agentId/ping`.
 _Avoid_: "executor", "webhook" or "callback URL" for it.
 
 **Delivery**: One POST of an Action to its endpoint (`tenant/delivery.ts`, run by the
 execution's `deliver` handler). The Action is `delivering` until its `deadlineAt`; then it
-is lost. A lost tool is `uncertain`; a lost hook, `fn` or `verify` is delivered again.
+is lost. A lost tool is `uncertain`; a lost `fn` or `verify` is delivered again.
 Unreachable endpoints are retried with backoff (`action.delivery_failed`), and a cancel
 aborts the request.
 
@@ -431,7 +431,7 @@ One line each; the module named is where the term lives in code.
 - **Packing**: Which services share a container. A local Tenant's combined packing runs `core,loop` in the `runtime` container and `gates` in the `gateway` container; core and loop may share a process, gates never joins them (`NYLORUN_PACKING`, `nylorun/src/stack/compose-file.ts`).
 - **Gateway**: A local Tenant's container for the gates and keys services, and egress when sandboxes are enabled (`--service gates,keys,egress`). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider.
 - **Keys service**: The `keys` service (F4.2), run in the gateway's process (`--service gates,keys`): the only process that reads the vault key (`<Host root>/keys/vault-kek`). It runs the vault writes that touch a secret and signs every token, behind the `Keys` seam (`keys/keys.ts`): in process, or over HTTP (`keys/client.ts`, `POST /nylorun/v1/keys/{operation}`, `NYLORUN_KEYS_URL`). With it, a Tenant runtime never reads, creates or holds the key.
-- **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`), HTTP tools (`/nylorun/v1/http-calls`) and Action deliveries (`/nylorun/v1/deliveries`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`), and it reaches the server under the Host's address policy, as a delivery (`guardedFetch`, `tenant/outbound.ts`: `localhost` is the Docker host in the local stack). A keyed MCP or HTTP tool call runs once (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway is `uncertain`. Stdio MCP servers and the sandbox tools never cross it.
+- **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`), HTTP tools (`/nylorun/v1/http-calls`) and Action deliveries (`/nylorun/v1/deliveries`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`), and it reaches the server under the Host's address policy, as a delivery (`guardedFetch`, `tenant/outbound.ts`: `localhost` is the Docker host in the local stack). A keyed MCP or HTTP tool call runs once (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway is `uncertain`. The sandbox tools never cross it.
 - **HTTP tool**: A tool whose manifest entry has `http` (`url`, `method` POST/PUT/PATCH, `credential`, `timeoutMs`; a sibling of `agent`, with `fn` and `command` reserved), built with `http()`: the Tool Gate sends the input as a JSON body with `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and the effect id as `Idempotency-Key`, adding the vault credential bound to the URL that the `credential` selection names (`gates/http-tool.ts`, `runHttpTool`; the request and answer alone are `callHttpTarget`). Its outcome is the answer, or a failed outcome the model sees (`http.status`, `http.timeout`, `http.refused`, `http.credential`, `tool.invalid-output`); never an Action. _Avoid_: "webhook tool".
 - **Static approval**: `approval: "always"` on an HTTP tool, or on a remote MCP server for all its tools: the engine pauses each call for the session's `approve` before it becomes an effect, and a denied call is `denied` without running (`DurableSessionTool.approval`, `harness/run/durable.ts`).
 - **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod sandboxes' only way out, a CONNECT proxy that verifies an egress token, checks its sandbox's host epoch, and tunnels only to a host name in the spec's `network.allow` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). No TLS interception, no credential injection, no events; refusals are logged.

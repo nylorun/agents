@@ -98,7 +98,6 @@ export async function prepareMcp(
       sessionId,
       manifest,
       manifestHash: hashManifest(manifest),
-      pluginRoots: routing.pluginRoots,
       signal: run.signal,
     });
     answer = await record({ snapshot: found.snapshot, diagnostics: found.diagnostics });
@@ -106,7 +105,6 @@ export async function prepareMcp(
     const diagnostics = await pool.reconnect({
       sessionId,
       manifest,
-      pluginRoots: routing.pluginRoots,
       tools: routing.mcpSnapshot.mcpTools,
       signal: run.signal,
     });
@@ -124,7 +122,6 @@ export function routingOf(run: HarnessRun): ToolRouting {
   const { routing } = run.start;
   return {
     rootManifest: routing.rootManifest as AgentManifest,
-    pluginRoots: routing.pluginRoots,
     ...(routing.mcpSnapshot ? { mcpSnapshot: routing.mcpSnapshot as McpSnapshot } : {}),
     sandboxOwnerId: routing.sandbox?.ownerId ?? run.grant.sessionId,
     ...(routing.sandbox?.sandboxId === undefined ? {} : { sandboxId: routing.sandbox.sandboxId }),

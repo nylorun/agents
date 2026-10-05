@@ -29,7 +29,6 @@ export interface ModelRoute {
 /** What a session's tool calls are routed by. */
 export interface ToolRouting {
   readonly rootManifest: AgentManifest;
-  readonly pluginRoots: Readonly<Record<string, string>>;
   readonly mcpSnapshot?: McpSnapshot;
   /** The session that owns the tree's sandbox, and the sandbox resource it is attached to. */
   readonly sandboxOwnerId: string;
@@ -108,7 +107,7 @@ export function isSaveArtifactCall(manifest: AgentManifest | undefined, request:
   );
 }
 
-/** True when `request` calls a tool of a remote (`streamable-http` or `sse`) MCP server. */
+/** True when `request` calls a tool of a declared MCP server (every one is remote). */
 export function isRemoteMcpCall(
   routing: Pick<ToolRouting, "rootManifest" | "mcpSnapshot">,
   request: HostEffect
@@ -116,8 +115,7 @@ export function isRemoteMcpCall(
   if (request.kind !== "tool") return false;
   const tool = mcpToolOf(routing.mcpSnapshot, request);
   if (!tool) return false;
-  const declared = findServer(routing.rootManifest, tool.agentId, tool.capabilityId, tool.serverName);
-  return declared !== undefined && declared.server.type !== "stdio";
+  return findServer(routing.rootManifest, tool.agentId, tool.capabilityId, tool.serverName) !== undefined;
 }
 
 export async function callMcpTool(
@@ -137,7 +135,6 @@ export async function callMcpTool(
     serverToolName: tool.serverToolName,
     args: request.input,
     manifest: routing.rootManifest,
-    pluginRoots: routing.pluginRoots,
     effectId: request.effectId,
     signal,
   });

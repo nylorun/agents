@@ -124,12 +124,7 @@ describe("compose.yaml", () => {
     expect(harness).toContain("http://127.0.0.1:4300/health");
     expect(harness).not.toMatch(/^\s+ports:|GATES_TOKEN|DATABASE_URL|KEYS_URL|RESTATE|OBJECT_STORE|POSTGRES|extra_hosts/m);
     const mounts = [...harness.matchAll(/^ {6}- (.+)$/gm)].map((m) => m[1]);
-    expect(mounts).toEqual([
-      ...["sandboxes", "plugin-data", "home", "tmp"].map(
-        (dir) => `\${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/${dir}:/harness/${dir}`,
-      ),
-      "${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro",
-    ]);
+    expect(mounts).toEqual(["${NYLORUN_HOST_ROOT:?run nylorun start}/tenant/sandboxes:/harness/sandboxes"]);
     // The harness token reaches the runtime (which checks it) and the harness, nothing else.
     expect(compose.match(/\$\{NYLORUN_HARNESS_TOKEN/g)).toHaveLength(2);
     expect(service(compose, "gateway")).not.toContain("HARNESS");
@@ -140,9 +135,7 @@ describe("compose.yaml", () => {
     expect(runtime).toContain("NYLORUN_HARNESS: ${NYLORUN_HARNESS:-remote}\n");
     expect(runtime).toContain('NYLORUN_HARNESS_LISTEN_PORT: "4200"\n');
     expect(runtime).toContain("NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200\n");
-    expect(runtime).toContain(
-      "- ${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:${NYLORUN_HOST_ROOT:?run nylorun start}/plugins:ro",
-    );
+    expect(runtime).not.toContain("/plugins");
     const rollback = renderComposeFile("nylorun-shop", "shop", { harness: "in-process" });
     expect(rollback).not.toContain("container_name: nylorun-shop-harness");
     expect(rollback).toContain("NYLORUN_HARNESS: ${NYLORUN_HARNESS:-remote}\n");
@@ -510,13 +503,11 @@ describe("prepareStack", () => {
     expect(second.host.hostId).toBe(first.host.hostId);
   });
 
-  it("makes the harness container's directories and the plugins directory before Compose binds them", async () => {
+  it("makes the harness container's directories before Compose binds them", async () => {
     const home = await temporaryHome();
     await prepare(home, fakePorts());
     const paths = stackPaths(home);
-    for (const dir of [...Object.values(paths.harness), paths.plugins])
-      expect(await mode(dir)).toBe(0o700);
-    expect(paths.plugins).toBe(`${paths.root}/plugins`);
+    for (const dir of Object.values(paths.harness)) expect(await mode(dir)).toBe(0o700);
   });
 
   it("keeps a launcher host.json's hostId and unknown fields, and fixes credential modes", async () => {

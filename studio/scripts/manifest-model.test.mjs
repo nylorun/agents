@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  hookMethod,
   isOutdated,
-  lifecycle,
   manifestStats,
   manifestView,
   schemaFields,
@@ -26,11 +24,6 @@ const concierge = {
       id: "agent",
       type: "agent",
       instructions: ["Keep answers short.", "Use tools."],
-      hooks: [
-        { at: "after", scope: "turn" },
-        { at: "before", scope: "turn" },
-        { at: "after", scope: "step" },
-      ],
       tools: [
         {
           name: "lookup_order",
@@ -46,7 +39,7 @@ const concierge = {
         },
       ],
     },
-    { id: "billing", type: "agent", description: "Invoices.", hooks: [{ at: "after", scope: "step" }], tools: [] },
+    { id: "billing", type: "agent", description: "Invoices.", tools: [] },
     {
       id: "store-skills",
       type: "agent",
@@ -57,13 +50,6 @@ const concierge = {
     { id: "shipping", type: "agent-plugin", instructions: "Plugin skills.", skills: {} },
   ],
 };
-
-test("hook points use the SDK method names", () => {
-  assert.equal(hookMethod({ at: "before", scope: "turn" }), "beforeTurn");
-  assert.equal(hookMethod({ at: "before", scope: "step" }), "beforeModel");
-  assert.equal(hookMethod({ at: "after", scope: "step" }), "afterModel");
-  assert.equal(hookMethod({ at: "after", scope: "turn" }), "afterTurn");
-});
 
 test("capabilities keep their instructions, type, skills and MCP servers", () => {
   const view = manifestView(concierge);
@@ -110,14 +96,6 @@ test("schemas become compact fields", () => {
   assert.equal(schemaType({ anyOf: [{ type: "string" }, { type: "null" }] }), "string | null");
 });
 
-test("hook points list every capability on them in engine order", () => {
-  assert.deepEqual(manifestView(concierge).hookPoints, [
-    { method: "beforeTurn", frequency: "once per turn", capabilityIds: ["agent"] },
-    { method: "afterModel", frequency: "every model call", capabilityIds: ["agent", "billing"] },
-    { method: "afterTurn", frequency: "once per turn", capabilityIds: ["agent"] },
-  ]);
-});
-
 test("a session is outdated only when a different manifest is registered", () => {
   const pinned = { kind: "pinned", manifest: {}, manifestHash: "aaa" };
   assert.equal(isOutdated({ ...pinned, registeredHash: "bbb" }), true);
@@ -127,7 +105,7 @@ test("a session is outdated only when a different manifest is registered", () =>
 });
 
 test("malformed manifests render as empty", () => {
-  assert.deepEqual(manifestView(undefined), { capabilities: [], hookPoints: [] });
+  assert.deepEqual(manifestView(undefined), { capabilities: [] });
   assert.deepEqual(manifestView({ capabilities: "nope" }).capabilities, []);
 });
 
@@ -142,18 +120,8 @@ test("the overview counts what the agent can do", () => {
     tools: 1,
     subagents: 2,
     skills: 1,
-    hooks: 3,
     mcpServers: 1,
   });
-});
-
-test("the lifecycle places the model call between the step hooks", () => {
-  assert.deepEqual(
-    lifecycle(manifestView(concierge)).map((stage) =>
-      stage.kind === "model" ? "model" : `${stage.method}:${stage.capabilityIds.join("+") || "-"}`,
-    ),
-    ["beforeTurn:agent", "beforeModel:-", "model", "afterModel:agent+billing", "afterTurn:agent"],
-  );
 });
 
 test("HTTP tools show their request and static approval; MCP servers their approval", () => {

@@ -117,7 +117,6 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     },
     routing: {
       rootManifest: current.manifest,
-      pluginRoots: current.pluginRoots ?? {},
       ...(current.mcpSnapshot ? { mcpSnapshot: current.mcpSnapshot } : {}),
       sandbox: segment.sandbox,
     },

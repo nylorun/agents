@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.5-beta
+
+### Patch Changes
+
+- Update the tested Harness, SDK, Runtime, and CLI compatibility combination.
+
 ## 0.13.4-beta
 
 ### Patch Changes

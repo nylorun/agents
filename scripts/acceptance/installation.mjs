@@ -34,6 +34,7 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ProcessGroup } from "../lib/processes.mjs";
 import { npm, packageName, root } from "../lib/repo.mjs";
 import {
@@ -137,7 +138,7 @@ const putAgent = (url, key, agentId, name = agentId) =>
     body: {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: agentId, name, manifestSchemaVersion: 4, capabilities: [] },
+      manifest: { id: agentId, name, manifestSchemaVersion: 5, capabilities: [] },
     },
   }).then(ok);
 
@@ -352,7 +353,7 @@ async function i3(url, stack) {
     body: {
       requestId: randomUUID(),
       implementationVersion: "dev",
-      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 4, capabilities: [] },
+      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 5, capabilities: [] },
     },
   });
   assert.equal(rejected.status, 426, await rejected.text());

@@ -1,6 +1,5 @@
 import type { HostConfigFile } from "./config.js";
 import type { HostPaths } from "../tenant/paths.js";
-import type { TenantPaths } from "../tenant/types.js";
 
 const BASELINE_KEYS = new Set(["PATH", "LANG", "TZ"]);
 
@@ -51,19 +50,5 @@ export function hostProcessEnvironment(
     HOME: paths.home,
     TMPDIR: paths.tmp,
     NYLORUN_HOME: paths.root,
-  };
-}
-
-/** Environment for Tenant-owned children (MCP stdio, sandboxes). */
-export function tenantChildEnvironment(
-  baseline: Readonly<Record<string, string>>,
-  hostConfig: HostConfigFile,
-  tenantPaths: TenantPaths,
-): Record<string, string> {
-  return {
-    ...baseline,
-    ...proxyEnv(hostConfig),
-    HOME: tenantPaths.home,
-    TMPDIR: tenantPaths.tmp,
   };
 }

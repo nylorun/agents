@@ -12,7 +12,7 @@ export interface HarnessRun {
 
 /**
  * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools. Core
- * runs everything else (Actions, hooks, flow work, linked sessions).
+ * runs everything else (Actions, flow work, linked sessions).
  */
 export interface HarnessExecutors {
   /** A model call. A provider failure is a failure outcome; only an abort throws. */

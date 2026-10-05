@@ -73,7 +73,7 @@ it("still registers an agent document without kind", () => {
   const parsed = PutAgentRequestSchema.parse({
     requestId: "r1",
     manifest: {
-      manifestSchemaVersion: 4,
+      manifestSchemaVersion: 5,
       id: "coder",
       capabilities: [],
     },
@@ -107,7 +107,7 @@ it("message is exactly one of content or data", () => {
 
 it("message may carry an optional agent manifest", () => {
   const manifest = {
-    manifestSchemaVersion: 4 as const,
+    manifestSchemaVersion: 5 as const,
     id: "coder",
     capabilities: [],
   };

@@ -1,9 +1,8 @@
 import type { JsonObject } from "./shared.js";
-import type { HookManifest } from "./dynamics.js";
 import type { WorkflowManifestV2 } from "./workflow.js";
 
 /** Published manifest schema version (no top-level model — Runtime-owned). */
-export type ManifestSchemaVersion = 4;
+export type ManifestSchemaVersion = 5;
 
 /** Whether each call waits for a person's approval (`approve` on the session). Default `never`. */
 export type ApprovalMode = "never" | "always";
@@ -52,15 +51,8 @@ export interface SkillManifest {
   readonly description: string;
 }
 
+/** A remote MCP server, declared by URL. Nylorun accepts no stdio servers (`stdioMcpRefusal`). */
 export type McpServerManifest =
-  | {
-      readonly name: string;
-      readonly type: "stdio";
-      readonly command: string;
-      readonly args?: readonly string[];
-      readonly env?: Readonly<Record<string, string>>;
-      readonly cwd?: string;
-    }
   | {
       readonly name: string;
       readonly type: "streamable-http";
@@ -115,8 +107,6 @@ export interface CapabilityManifest {
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   /** Present when this capability gives the agent a Runtime-owned sandbox. */
   readonly sandbox?: SandboxManifest;
-  /** Hook points this capability registered, in canonical order. */
-  readonly hooks?: readonly HookManifest[];
 }
 
 /** Reserved. Empty until later fields are defined. Omit `runtime` while it has no fields. */

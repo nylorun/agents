@@ -13,7 +13,8 @@ export interface PluginCapability extends CapabilityDeclaration {
 /**
  * Read an Agent Plugin package and return one capability for `Agent.use`. Each part it skips
  * (an invalid MCP server or skill) is a process warning, so building or registering the agent
- * says why the agent has less than the package declares.
+ * says why the agent has less than the package declares. A stdio MCP server throws: Nylorun
+ * accepts remote servers only.
  */
 export function plugin(directory: string): PluginCapability {
   const loaded = loadPlugin(directory);
@@ -55,7 +56,6 @@ export function capabilityFromPlugin(loaded: LoadedPlugin): PluginCapability {
   return {
     id: loaded.name,
     type: "agent-plugin",
-    pluginRoot: loaded.root,
     ...(loaded.description === undefined ? {} : { description: loaded.description }),
     ...(instructions === undefined ? {} : { instructions }),
     ...(names.length === 0 ? {} : { skills, skillRecords: loaded.skills }),

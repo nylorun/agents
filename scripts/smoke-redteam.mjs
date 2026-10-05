@@ -69,7 +69,7 @@ try {
           body: {
             requestId: randomUUID(),
             implementationVersion: "dev",
-            manifest: { id, name: id, manifestSchemaVersion: 4, capabilities: [] },
+            manifest: { id, name: id, manifestSchemaVersion: 5, capabilities: [] },
           },
         });
       const A = "redteam-a";
@@ -138,7 +138,6 @@ try {
             "-e", `SMOKE_HOST_PORTS=${valueOf("NYLORUN_RESTATE_PORT")}`,
             "-e", `SMOKE_PROTOCOL=${PROTOCOL_VERSION}`,
             "-e", `SMOKE_SECRET_HASHES=${secrets.map(sha256).join(",")}`,
-            "-e", `SMOKE_PLUGINS=${join(home, "plugins")}`,
             "--entrypoint", "node",
             "harness", "--input-type=module", "-",
           ],

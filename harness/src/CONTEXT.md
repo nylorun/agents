@@ -9,24 +9,20 @@ persists progress and connects it to external systems.
 Its canonical hash identifies the definition used by an execution.
 
 **Binding**: The local pairing of a manifest with ordered declarations, executable
-tool snapshots, hooks and live schema validators. Functions in a binding stay local.
+tool snapshots and live schema validators. Functions in a binding stay local.
 
 **Turn loop**: The progression from model calls through tool outcomes to a final
 result or a durable wait. A supplied checkpoint is not mutated by a new invocation.
 (The workflow primitive named **Loop** is separate; see below.)
 
-**Step**: One model call together with its middleware, hooks and tool plan.
-
-**Hook**: Developer code the loop calls at a named point: `before` or `after`, scoped to
-a `turn` (once per turn) or a `step` (every model call). It returns data that the engine
-validates and applies. All capabilities registered at one point run as one host effect.
+**Step**: One model call together with its middleware and tool plan.
 
 **Host**: The OSS or Cloud runtime that owns persistence, scheduling,
 authentication and provider access around the shared engine.
 
 **Action endpoint**: The URL of the customer's process that the host delivers
-actions to, signed with a delivery token; it runs the developer's tool, hook,
-`fn` and `verify` implementations (`createActionHandler`).
+actions to, signed with a delivery token; it runs the developer's tool, `fn` and
+`verify` implementations (`createActionHandler`).
 _Avoid_: Runtime, when referring to customer code execution; "executor"
 (removed in protocol 3).
 

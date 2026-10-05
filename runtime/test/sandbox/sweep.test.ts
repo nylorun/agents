@@ -24,7 +24,7 @@ afterEach(async () => {
 
 /** A session's pinned manifest: the Runtime added its sandbox at open. */
 const manifest: AgentManifest = {
-  manifestSchemaVersion: 4,
+  manifestSchemaVersion: 5,
   id: "bot",
   capabilities: [sandboxCapabilityManifest({ idle: "1m" })],
 };

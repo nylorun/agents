@@ -43,18 +43,10 @@ export const EffectIntentSchema = z
     turnId: id,
     agentId: id,
     manifestHash: z.string(),
-    kind: z.enum(["model", "tool", "hook", "delegation", "agent", "fn", "verify"]),
+    kind: z.enum(["model", "tool", "delegation", "agent", "fn", "verify"]),
     agent: z.object({ id: z.string(), path: z.string(), delegationId: z.string().optional() }).strict().optional(),
     capabilityId: z.string().optional(),
     toolName: z.string().optional(),
-    hook: z
-      .object({
-        at: z.enum(["before", "after"]),
-        scope: z.enum(["turn", "step"]),
-        capabilityIds: z.array(z.string()),
-      })
-      .strict()
-      .optional(),
     path: z.string().optional(),
     key: z.string().optional(),
     iterations: z.string().optional(),
@@ -134,7 +126,6 @@ export const TurnStartSchema = z
     routing: z
       .object({
         rootManifest: z.record(z.string(), z.unknown()),
-        pluginRoots: z.record(z.string(), z.string()),
         mcpSnapshot: z.unknown().optional(),
         sandbox: z
           .object({ ownerId: id, sandboxId: id.optional(), spec: z.unknown().optional() })

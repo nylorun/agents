@@ -1,5 +1,4 @@
 export * from "./contracts.js";
-export type * from "./types/dynamics.js";
 export type * from "./types/middleware.js";
 export type * from "./types/tool.js";
 export type * from "./types/agent.js";

@@ -14,7 +14,7 @@ const input = { type: "object", properties: { orderId: { type: "string" } }, req
 
 function manifest(tool: Record<string, unknown>, mcpServers?: Record<string, unknown>) {
   return {
-    manifestSchemaVersion: 4 as const,
+    manifestSchemaVersion: 5 as const,
     id: "orders",
     capabilities: [
       {
@@ -65,7 +65,7 @@ describe("the manifest's HTTP tools", () => {
   });
 
   it("refuses a tool that is both an agent and an HTTP request", () => {
-    const agent = { manifestSchemaVersion: 4, id: "helper", capabilities: [] };
+    const agent = { manifestSchemaVersion: 5, id: "helper", capabilities: [] };
     expect(issues(manifest({ http: { url: "https://example.com/x" }, agent }))).toContain(
       "Tool 'refund' is an agent or an HTTP request, not both",
     );

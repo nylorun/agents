@@ -73,13 +73,8 @@ export function pinnedTool(
   return capability?.tools?.find((tool) => tool.name === toolName);
 }
 
-/** What an action runs, for events: a tool name, or a hook point and its capabilities. */
+/** What an action runs, for events: a tool name, or a flow path and key. */
 export function actionTarget(action: Action) {
-  if (action.kind === "hook")
-    return {
-      hook: action.hook,
-      ...(action.agent ? { agent: action.agent } : {}),
-    };
   if (action.kind === "tool" && "toolName" in action)
     return {
       toolName: action.toolName,

@@ -67,19 +67,9 @@ export interface ExecutionPlan {
   readonly calls: readonly SavedToolCall[];
 }
 
-/** Hook progress for the turn in flight. Cleared when the turn ends. */
-export interface TurnHookState {
+/** The turn in flight, kept across a segment rollover or a crash. Cleared when the turn ends. */
+export interface TurnState {
   readonly turnId: string;
-  /** Text of the input that started the turn. */
-  readonly input?: string;
-  /** Validated before("turn") patch, applied to every step of the turn. */
-  readonly patch?: {
-    readonly capabilities?: Readonly<Record<string, boolean>>;
-    readonly tools?: Readonly<Record<string, boolean>>;
-    readonly instructions?: readonly string[];
-  };
-  /** Retries requested so far this turn, per hook point. */
-  readonly attempts: { readonly afterStep: number; readonly afterTurn: number };
 }
 
 /** Versioned continuation data, not a live execution object. */
@@ -97,10 +87,10 @@ export interface ExecutionState {
   readonly plan?: ExecutionPlan;
   /** Abandoned actions retained for reconciliation, never automatically dispatched. */
   readonly cancelledCalls?: readonly SavedToolCall[];
-  /** Hook progress for the current turn; present only while a turn with hooks is in flight. */
-  readonly turn?: TurnHookState;
+  /** The current turn; present only while a turn continues in a later segment. */
+  readonly turn?: TurnState;
   /**
-   * Durable session memory (tools write via `ctx.state`; hooks read it).
+   * Durable session memory (tools write via `ctx.state`).
    * Runtime persists this with the checkpoint.
    */
   readonly state?: JsonObject;
