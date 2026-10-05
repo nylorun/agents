@@ -10,6 +10,7 @@ import type { ToolSchemaSource } from "../types/tool.js";
 import { bindOutputContract } from "./output-contract.js";
 import { normalizedSchemasFor } from "./schema.js";
 import { delegateOf } from "./delegate.js";
+import { httpToolOf } from "./http-tool.js";
 
 import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 
@@ -76,6 +77,7 @@ function projectTool(
 ): ToolManifest {
   const schemas = normalizedSchemasFor(tool);
   const delegate = delegateOf(tool);
+  const http = httpToolOf(tool);
   return {
     name: tool.name,
     ...(tool.description === undefined
@@ -86,5 +88,7 @@ function projectTool(
       ? {}
       : { outputSchema: schemas.outputSchema.jsonSchema }),
     ...(delegate === undefined ? {} : { agent: delegate.manifest }),
+    ...(http === undefined ? {} : { http: { ...http.http } }),
+    ...(http?.approval === undefined ? {} : { approval: http.approval }),
   };
 }

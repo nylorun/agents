@@ -118,7 +118,7 @@ function executors(
   return {
     model,
     tool: async () => "tool",
-    recovers: { model: false, remoteMcp: () => false },
+    recovers: { model: false, tool: () => false },
     ...fields,
   };
 }
@@ -257,7 +257,7 @@ describe("a harness", () => {
             entered();
             signal.addEventListener("abort", () => reject(signal.reason));
           }),
-        { recovers: { model: true, remoteMcp: () => false } },
+        { recovers: { model: true, tool: () => false } },
       ),
     );
     void core.offer(start());

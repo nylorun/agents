@@ -7,6 +7,7 @@ import {
   Check,
   Copy,
   Cpu,
+  Globe,
   Info,
   LayoutList,
   Plug,
@@ -57,6 +58,7 @@ const TOOL_GROUPS: readonly {
   icon: LucideIcon;
 }[] = [
   { kinds: ["endpoint"], title: "Tools", note: "run at your Action endpoint", icon: Wrench },
+  { kinds: ["http"], title: "HTTP tools", note: "requests the Runtime makes", icon: Globe },
   { kinds: ["subagent", "flow-subagent"], title: "Subagents", note: "take a { task }", icon: Bot },
   { kinds: ["built-in"], title: "Skill tools", note: "added by the engine", icon: BookOpen },
 ];
@@ -407,6 +409,9 @@ function CapabilityItem({ capability }: Readonly<{ capability: CapabilityView }>
               {capability.mcpServers.map((name) => (
                 <Badge key={name} variant="outline" className="font-mono">
                   {name}
+                  {capability.mcpApproval.includes(name) ? (
+                    <span className="font-sans text-muted-foreground">approval</span>
+                  ) : null}
                 </Badge>
               ))}
             </div>
@@ -473,7 +478,13 @@ function ToolRow({ tool }: Readonly<{ tool: ToolView }>) {
       <div className="flex items-center gap-2">
         <code className="font-mono text-[13px] font-medium">{tool.name}</code>
         {tool.kind === "flow-subagent" ? <Badge variant="outline">flow</Badge> : null}
+        {tool.approval ? <Badge variant="outline">approval</Badge> : null}
       </div>
+      {tool.http ? (
+        <p className="font-mono text-[11.5px] break-all text-muted-foreground">
+          {tool.http.method} {tool.http.url}
+        </p>
+      ) : null}
       {tool.description ? (
         <p className="text-xs text-muted-foreground">{tool.description}</p>
       ) : null}

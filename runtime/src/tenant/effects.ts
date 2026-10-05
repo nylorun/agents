@@ -1,12 +1,12 @@
 /**
  * Core's side of effects: `resolveNewFlowEffect` journals and dispatches new workflow effects
  * (linked agent sessions, tool nodes, fn, verify); the takeover helpers say which calls their
- * gate recovers. Also vault authorization for MCP servers. The journal of a run's effects is
+ * gate recovers. Also vault authorization for MCP servers and HTTP tools. The journal of a run's effects is
  * `harness-api/record.ts`; a harness readies the session's MCP servers itself (`session.mcp`).
  *
  * Every journal write runs in a transaction that locks the effect's session first and checks
  * the advance's ownership epoch (`ownedSession`): after another Worker takes over, the next
- * write throws `ownership.lost` and nothing is written. The model, MCP, sandbox and vault
+ * write throws `ownership.lost` and nothing is written. The model, MCP, HTTP, sandbox and vault
  * calls run between transactions, never inside one.
  */
 import type { Action, ActionOutcome, SessionCommand } from "@nylorun/core/contracts";
@@ -30,7 +30,9 @@ import {
 import { mayDispatchMore } from "../core/limits.js";
 import type { Tx } from "../store/types.js";
 import type { AuthorizeResult } from "../vault/service.js";
+import type { McpCredentialRequest } from "../vault/sources.js";
 import { isRemoteMcpCall } from "../harness/calls.js";
+import { isHttpToolCall } from "../gates/http-tool.js";
 import {
   owningSandboxSessionId,
   sandboxSpecOf,
@@ -78,17 +80,20 @@ export async function linkedOutcome(
 }
 
 /**
- * True when this Tenant's remote MCP calls outlive the process that sent them (the gates
- * service, F4.1 G3): after a takeover or a shutdown, the journaled call is re-sent and joins
- * the running call or gets its answer, instead of becoming `uncertain`.
+ * True when this Tenant's remote MCP and HTTP tool calls outlive the process that sent them
+ * (the gates service, F4.1 G3): after a takeover or a shutdown, the journaled call is re-sent
+ * and joins the running call or gets its answer, instead of becoming `uncertain`.
  */
-export function recoversMcpCalls(ctx: TenantContext): boolean {
+export function recoversToolCalls(ctx: TenantContext): boolean {
   return ctx.toolGate.recovers === true;
 }
 
-/** True when `request` calls a tool of a remote (`streamable-http` or `sse`) MCP server. */
-export function isRemoteMcpEffect(s: Session, request: HostEffect): boolean {
-  return isRemoteMcpCall({ rootManifest: s.manifest, mcpSnapshot: s.mcpSnapshot }, request);
+/** True when `request` calls a remote (`streamable-http` or `sse`) MCP server's tool or an HTTP tool. */
+export function isGateToolEffect(s: Session, request: HostEffect): boolean {
+  return (
+    isRemoteMcpCall({ rootManifest: s.manifest, mcpSnapshot: s.mcpSnapshot }, request) ||
+    isHttpToolCall(s.manifest, request)
+  );
 }
 
 /**
@@ -378,13 +383,13 @@ function inheritedSandbox(
 }
 
 /**
- * The credential of an MCP server request made on behalf of a session: from its attached vaults,
- * else the operator's credential resolver (`vault/sources.ts`).
+ * The credential of an MCP server or HTTP tool request made on behalf of a session: from its
+ * attached vaults, else the operator's credential resolver (`vault/sources.ts`).
  */
 export async function authorize(
   ctx: TenantContext,
   sessionId: string,
-  request: { url: string; serverName?: string; agentId?: string }
+  request: McpCredentialRequest
 ): Promise<AuthorizeResult> {
   const s = await loadSession(ctx, sessionId);
   return ctx.credentials.authorize({ ...s, id: sessionId }, request);

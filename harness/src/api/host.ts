@@ -61,9 +61,7 @@ export function apiHost(
     } catch (error) {
       // Another owner decides what the effect became.
       if (error instanceof HarnessApiError && error.code === "ownership_lost") throw error;
-      const recoverable = model
-        ? executors.recovers.model
-        : executors.recovers.remoteMcp(effect, run);
+      const recoverable = model ? executors.recovers.model : executors.recovers.tool(effect, run);
       const kind = runAbortKind(signal);
       // The call goes on at its gate: the next run re-sends it and collects its outcome.
       if (recoverable && kind === "shutdown") throw error;

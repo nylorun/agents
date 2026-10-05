@@ -281,7 +281,13 @@ export class TenantRuntime implements TenantHandle {
       });
       // `ctx` is assigned below; these callbacks only run once the Tenant is open.
       let ctx!: TenantContext;
-      const toolGate = hooks.toolGate ?? inProcessToolGate(config.delivery ?? {});
+      const toolGate =
+        hooks.toolGate ??
+        inProcessToolGate(config.delivery ?? {}, {
+          session: (sessionId) => opened.tx((t) => t.get<{ manifest: unknown }>("sessions", sessionId)),
+          authorize: (sessionId, request) => authorize(ctx, sessionId, request),
+          logger: config.logger,
+        });
       const signingKeys = new SigningKeys({ tenantId: config.tenantId, kek: ensureKek });
       const keys =
         hooks.keys ?? inProcessKeys({ store: opened, vault, signingKeys, kek: ensureKek });

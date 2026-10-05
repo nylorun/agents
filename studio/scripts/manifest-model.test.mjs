@@ -155,3 +155,36 @@ test("the lifecycle places the model call between the step hooks", () => {
     ["beforeTurn:agent", "beforeModel:-", "model", "afterModel:agent+billing", "afterTurn:agent"],
   );
 });
+
+test("HTTP tools show their request and static approval; MCP servers their approval", () => {
+  const view = manifestView({
+    capabilities: [
+      {
+        id: "billing",
+        tools: [
+          {
+            name: "refund",
+            inputSchema: objectSchema({ orderId: { type: "string" } }),
+            http: { url: "https://billing.example.com/refunds", method: "PUT" },
+            approval: "always",
+          },
+          { name: "lookup", inputSchema: objectSchema({}), http: { url: "https://billing.example.com/lookup" } },
+        ],
+        mcpServers: {
+          shop: { type: "streamable-http", url: "https://x", approval: "always" },
+          docs: { type: "sse", url: "https://y" },
+        },
+      },
+    ],
+  });
+  const [billing] = view.capabilities;
+  assert.deepEqual(
+    billing.tools.map((t) => [t.name, t.kind, t.http, t.approval]),
+    [
+      ["refund", "http", { method: "PUT", url: "https://billing.example.com/refunds" }, true],
+      ["lookup", "http", { method: "POST", url: "https://billing.example.com/lookup" }, undefined],
+    ],
+  );
+  assert.deepEqual(billing.mcpApproval, ["shop"]);
+  assert.equal(manifestStats(view).tools, 2);
+});

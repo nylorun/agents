@@ -8,6 +8,9 @@ export {
   PROTOCOL_HEADER,
   SUBJECT_HEADER,
   SCOPES_HEADER,
+  SESSION_ID_HEADER,
+  TURN_ID_HEADER,
+  AGENT_ID_HEADER,
   TENANT_ID_PATTERN,
   isTenantId,
   newTenantId,
@@ -41,6 +44,7 @@ export {
   CapabilityBuilder,
   flow,
   tool,
+  http,
   defineSchema,
   ToolError,
 } from "@nylorun/core/define";

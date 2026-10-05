@@ -30,6 +30,11 @@ actions to, signed with a delivery token; it runs the developer's tool, hook,
 _Avoid_: Runtime, when referring to customer code execution; "executor"
 (removed in protocol 3).
 
+**HTTP tool**: A tool the manifest describes as one HTTP request (`http`, built with
+`http()`), which the host's Tool Gate makes; the engine runs it as a `tool` effect like any
+hosted tool. With `approval: "always"` (also on a remote MCP server's tools) the engine pauses
+each call for approval before the effect, as a code tool's `approval` does.
+
 **SDK client**: The shared application interface for communicating with a host.
 Authoring and the Action endpoint handler accompany it in the agents SDK.
 

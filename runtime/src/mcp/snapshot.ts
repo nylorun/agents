@@ -64,11 +64,22 @@ export function declaredToolNames(manifest: AgentManifest): Set<string> {
   return names;
 }
 
-/** The tools of a snapshot, as the engine advertises them. */
+/**
+ * The tools of a snapshot, as the engine advertises them. A tool of a server whose `approval` is
+ * `always` in the session's `manifest` waits for approval on each call.
+ */
 export function sessionToolsOf(
-  snapshot: McpSnapshot | undefined
+  snapshot: McpSnapshot | undefined,
+  manifest: AgentManifest
 ): readonly DurableSessionTool[] | undefined {
   if (!snapshot?.mcpTools.length) return undefined;
+  const approved = (tool: McpToolRecord) => {
+    const agent = tool.agentId === undefined ? manifest : delegateManifest(manifest, tool.agentId);
+    const server = agent?.capabilities.find((item) => item.id === tool.capabilityId)?.mcpServers?.[
+      tool.serverName
+    ];
+    return server !== undefined && "approval" in server && server.approval === "always";
+  };
   return snapshot.mcpTools.map((tool) => ({
     ...(tool.agentId === undefined ? {} : { agentId: tool.agentId }),
     capabilityId: tool.capabilityId,
@@ -80,6 +91,7 @@ export function sessionToolsOf(
     ...(tool.outputSchema === undefined
       ? {}
       : { outputSchema: tool.outputSchema }),
+    ...(approved(tool) ? { approval: "always" as const } : {}),
   }));
 }
 

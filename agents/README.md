@@ -43,6 +43,52 @@ that `npx nylorun start` writes; with neither, `register` fails with
 `connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
 for upgrading from `nylorun serve`.
 
+## HTTP tools
+
+A tool can be one HTTP request to your service, made by the Runtime itself: no
+Action endpoint and no code of yours runs during the session.
+
+```ts
+import { Agent, http } from "@nylorun/agents";
+import { z } from "zod";
+
+const refundOrder = http({
+  name: "refund_order",
+  description: "Refund an order.",
+  input: z.object({ orderId: z.string(), amount: z.number() }), // or a JSON Schema object
+  output: z.object({ refundId: z.string() }), // optional
+  url: "https://billing.example.com/refunds",
+  method: "POST", // default; or PUT, PATCH
+  credential: "billing", // optional: a vault credential bound to this URL
+  timeoutMs: 20_000, // default 60000, at most 300000
+  approval: "always", // optional: each call waits for session.approve()
+});
+
+export const support = Agent({ id: "support" }).tools(refundOrder);
+```
+
+The tool goes into the manifest as `http` (and `approval`), and the Runtime's
+Tool Gate sends the model's input as the JSON body, under the Host's address
+policy (`NYLORUN_ENDPOINT_*`), with `content-type: application/json`,
+`Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and an
+`Idempotency-Key` that is the same when the Runtime re-sends the call after a
+restart, so your service can drop duplicates. A `2xx` JSON answer is the output
+(text when it is not JSON and the tool has no `output`), checked against
+`output`. Any other status (with the start of its body), a timeout, a refused
+address or a mismatched output is a tool error the model sees. A call whose
+answer was lost with the gateway is `uncertain` and never sent again.
+
+`credential` works as for a remote MCP server: the session's attached vaults
+must hold a credential bound to the tool's exact URL (a `credentialSelections`
+entry whose `serverName` is the `credential` picks one when several are), else
+the operator's credential resolver is asked; without one the call fails before
+it is sent. `approval: "always"` pauses the turn for `session.approve()`; a
+denied call never runs and the model sees the denial. A remote MCP server takes
+`approval: "always"` too, for every one of its tools:
+`.mcp({ shop: { type: "streamable-http", url, approval: "always" } })`.
+An HTTP tool belongs in an agent's `.tools(...)`, not a flow stage, and runs
+only on the Runtime (a local `run()` reports `http.runtime-only`).
+
 ## Connection resolution
 
 `resolveConnection` / `createClient()` / `createActionHandler({ agents })`:

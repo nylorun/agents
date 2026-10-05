@@ -1,7 +1,7 @@
 /**
  * The calls a harness executes, as pure helpers over what routes them: the Model Gate (or the
- * Tenant's provider), the MCP pool, the SandboxManager. No store, no record: the session's
- * routing comes with the run (`TurnStart.routing`).
+ * Tenant's provider), the Tool Gate, the MCP pool, the SandboxManager. No store, no record: the
+ * session's routing comes with the run (`TurnStart.routing`).
  */
 import { ARTIFACTS_CAPABILITY_ID, SAVE_ARTIFACT_TOOL, type AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
@@ -10,6 +10,7 @@ import type { AbortReason } from "@nylorun/core/harness-api";
 import type { RuntimeModelCall } from "../contracts.js";
 import type { ModelProvider } from "../core/provider.js";
 import type { ModelGate } from "../gates/model-gate.js";
+import type { ToolGate } from "../gates/tool-gate.js";
 import { classifyThrown } from "../model/classify.js";
 import { findServer, type McpPool } from "../mcp/pool.js";
 import { manifestFor, mcpToolOf, type McpSnapshot } from "../mcp/snapshot.js";
@@ -140,6 +141,33 @@ export async function callMcpTool(
     effectId: request.effectId,
     signal,
   });
+}
+
+/**
+ * Calls an HTTP tool through the Tool Gate (R2 M3), keyed by the effect id. The agent that
+ * declares it is the effect's agent used as a tool, or the root. Its outcome is the effect's
+ * value; a throw leaves the effect `uncertain`.
+ */
+export async function callHttpTool(
+  gate: Pick<ToolGate, "callHttp">,
+  request: HostEffect,
+  signal: AbortSignal
+): Promise<unknown> {
+  if (!gate.callHttp) throw new Error("This Runtime has no Tool Gate for HTTP tools");
+  return gate.callHttp(
+    {
+      tool: {
+        sessionId: request.sessionId,
+        ...(request.agent ? { agentId: request.agent.id } : {}),
+        capabilityId: request.capabilityId!,
+        toolName: request.toolName!,
+      },
+      effectId: request.effectId,
+      turnId: request.turnId,
+      input: request.input,
+    },
+    signal
+  );
 }
 
 export async function callSandboxTool(

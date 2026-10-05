@@ -4,13 +4,13 @@ import type { ExecutionInput, ExecutionState, RunResult } from "../types/executi
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Implementations } from "@nylorun/core/define";
 import type { ActionOutcome } from "@nylorun/core/contracts";
-import type { AgentRef, HookAt, HookScope, ModelAdapter } from "@nylorun/core/define";
+import type { AgentRef, ApprovalMode, HookAt, HookScope, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
 import { HOOK_POINTS, hasHook } from "@nylorun/core/define";
 import type { AgentDefinition } from "../definition/agent-definition.js";
 import type { HookRunner } from "../loop/step/hooks.js";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
-import { agentFrom } from "@nylorun/core/define";
+import { agentFrom, withHttpTarget } from "@nylorun/core/define";
 import { definitionFor } from "../definition/agent-definition.js";
 import { schemaFromJSON } from "@nylorun/core/define";
 import { hashManifest } from "@nylorun/core/define";
@@ -93,6 +93,8 @@ export interface DurableSessionTool {
   readonly description?: string;
   readonly inputSchema: JsonObject;
   readonly outputSchema?: JsonObject;
+  /** `always`: each call waits for approval (a remote MCP server's `approval`). */
+  readonly approval?: ApprovalMode;
 }
 export function createDurableCheckpoint(input: {
   manifest: AgentManifest;
@@ -192,12 +194,15 @@ export async function runDurable(options: {
         readonly description?: string;
         readonly inputSchema: JsonObject;
         readonly outputSchema?: JsonObject;
+        readonly approval?: ApprovalMode;
       },
     ) => ({
       name: tool.name,
       ...(tool.description === undefined ? {} : { description: tool.description }),
       inputSchema: schemaFromJSON(tool.inputSchema),
       ...(tool.outputSchema ? { outputSchema: schemaFromJSON(tool.outputSchema) } : {}),
+      // Static approval: the engine asks before the call becomes an effect.
+      ...(tool.approval === "always" ? { approval: () => true } : {}),
       async execute(args: unknown, ctx: any) {
         const previous = patchTail;
         let release!: () => void;
@@ -253,9 +258,15 @@ export async function runDurable(options: {
     const implementations: Record<string, Implementations[string]> = {};
     for (const capability of agent.capabilities) {
       const tools: Record<string, any> = {};
-      // Agents used as tools are rebuilt from their manifest body; the engine runs them.
+      // Agents used as tools are rebuilt from their manifest body; the engine runs them. An
+      // HTTP tool keeps its target (the manifest's hash covers it) and runs as a host effect.
       for (const tool of capability.tools ?? [])
-        if (!tool.agent) tools[tool.name] = hostedTool(capability.id, tool);
+        if (tool.http)
+          tools[tool.name] = withHttpTarget(hostedTool(capability.id, tool), {
+            http: tool.http,
+            ...(tool.approval === undefined ? {} : { approval: tool.approval }),
+          });
+        else if (!tool.agent) tools[tool.name] = hostedTool(capability.id, tool);
       for (const tool of owned)
         if (tool.capabilityId === capability.id) tools[tool.name] = hostedTool(capability.id, tool);
       implementations[capability.id] = {

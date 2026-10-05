@@ -57,7 +57,7 @@ export interface HarnessServiceOptions {
   readonly modelProvider?: ModelProvider;
   readonly useVaultModel: boolean;
   /** Remote MCP servers (`openMcp`) and keyed cancels; the gates service's client. */
-  readonly toolGate: Pick<ToolGate, "recovers" | "cancel" | "openMcp">;
+  readonly toolGate: Pick<ToolGate, "recovers" | "cancel" | "openMcp" | "callHttp">;
   /**
    * Authorizes a remote MCP server opened in this process. A harness process has no vault: it
    * opens remote servers through the Tool Gate, and refuses them without one.

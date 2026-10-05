@@ -18,6 +18,11 @@ import { copyJsonObject, deepFreeze } from "../utils/immutable.js";
 import type { BoundMiddleware } from "./bound.js";
 import { HOOK_POINTS, hasHook, hookListIssue } from "./hooks.js";
 import { delegateFromManifest, delegateOf } from "./delegate.js";
+import { httpToolFromManifest, httpToolOf } from "./http-tool.js";
+
+/** Tools the engine or the Runtime runs, which need no implementation: agents and HTTP tools. */
+const declarative = (tool: ToolDefinition) =>
+  delegateOf(tool) !== undefined || httpToolOf(tool) !== undefined;
 
 /** A tool that exists for one execution and is not part of the hashed manifest. */
 export interface SessionToolRef {
@@ -61,7 +66,7 @@ export function agentFrom<Info = unknown>(
             capability.id,
             advertised.map(
               (tool) =>
-                (delegateOf(tool)
+                (declarative(tool)
                   ? tool
                   : implementations[capability.id]?.tools?.[tool.name]) ?? tool
             )
@@ -85,7 +90,7 @@ export function agentFrom<Info = unknown>(
         tools:
           capability.tools !== undefined
             ? tools.map((tool) => {
-                const live = delegateOf(tool) ? tool : impl.tools?.[tool.name];
+                const live = declarative(tool) ? tool : impl.tools?.[tool.name];
                 if (!live)
                   throw new HarnessError(
                     "agent.build-failed",
@@ -200,6 +205,13 @@ function resolveTools(
         live && delegateOf(live)?.manifest.id === declared.agent.id
           ? live
           : delegateFromManifest(declared.agent, declared),
+      ];
+    // The Runtime runs HTTP tools; a host's own (its engine's routing) is kept.
+    if (declared.http)
+      return [
+        live && httpToolOf(live)
+          ? live
+          : httpToolFromManifest({ ...declared, http: declared.http }),
       ];
     if (live) return [live];
     if (
@@ -510,5 +522,7 @@ function normalizeTool(tool: ToolManifest): ToolManifest {
               ? deepFreeze(JSON.parse(JSON.stringify(tool.agent)))
               : normalizeManifest(tool.agent as unknown as JsonObject),
         }),
+    ...(tool.http === undefined ? {} : { http: Object.freeze({ ...tool.http }) }),
+    ...(tool.approval === undefined ? {} : { approval: tool.approval }),
   });
 }

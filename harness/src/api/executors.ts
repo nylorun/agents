@@ -11,13 +11,13 @@ export interface HarnessRun {
 }
 
 /**
- * What runs the effects the harness executes: model calls, MCP tools and sandbox tools. Core
+ * What runs the effects the harness executes: model calls, MCP, HTTP and sandbox tools. Core
  * runs everything else (Actions, hooks, flow work, linked sessions).
  */
 export interface HarnessExecutors {
   /** A model call. A provider failure is a failure outcome; only an abort throws. */
   model(effect: HostEffect, signal: AbortSignal, run: HarnessRun): Promise<unknown>;
-  /** An MCP or sandbox tool call, routed by `run.start.routing`. */
+  /** An MCP, HTTP or sandbox tool call, routed by `run.start.routing`. */
   tool(effect: HostEffect, signal: AbortSignal, run: HarnessRun): Promise<unknown>;
   /**
    * Calls that outlive this process at their gate: a shutdown leaves them running there, and
@@ -25,7 +25,8 @@ export interface HarnessExecutors {
    */
   readonly recovers: {
     readonly model: boolean;
-    remoteMcp(effect: HostEffect, run: HarnessRun): boolean;
+    /** True for a tool call at a gate that outlives this process (remote MCP, HTTP tools). */
+    tool(effect: HostEffect, run: HarnessRun): boolean;
   };
   /** Stops a recoverable tool call at its gate after a user cancel. Never rejects. */
   cancelAtGate?(effect: HostEffect, run: HarnessRun): Promise<void>;

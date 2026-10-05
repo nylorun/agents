@@ -67,7 +67,7 @@ it("binds a run to its connection, and offers it again when that connection is l
     tool: async () => {
       throw new Error("no tools here");
     },
-    recovers: { model: false, remoteMcp: () => false },
+    recovers: { model: false, tool: () => false },
   };
   const harness = createHarness({ channel: attach(runtime), executors });
   cleanups.push(() => harness.stop());
