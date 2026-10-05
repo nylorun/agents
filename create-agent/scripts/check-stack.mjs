@@ -8,7 +8,7 @@ assert.equal(p.dependencies['@nylorun/agents'],pins.agents);assert.equal(p.depen
 assert.deepEqual(Object.keys(p.devDependencies).filter((name)=>name.includes('nylorun')),[]);
 assert.equal(p.dependencies['@nylorun/runtime'],undefined);assert.equal(p.devDependencies['@nylorun/runtime'],undefined);
 assert.equal(p.dependencies.hono,undefined);assert.equal(p.dependencies['@nylorun/harness'],undefined);
-assert.equal(files['src/index.ts'],undefined);assert.ok(files['src/main.ts']);assert.match(files['agents/assistant/agent.ts'],/lookup_order/);
+assert.equal(files['src/index.ts'],undefined);assert.ok(files['src/main.ts']);assert.match(files['src/main.ts'],/saveAgent/);assert.doesNotMatch(files['src/main.ts'],/createActionHandler/);
 assert.equal(p.scripts.dev,'tsx watch --env-file-if-exists=.env src/main.ts');
 // Studio runs in the local Tenant's containers (ghcr.io/nylorun/studio); the starter never depends on it.
 assert.equal(p.dependencies['@nylorun/studio'],undefined);assert.equal(p.devDependencies['@nylorun/studio'],undefined);

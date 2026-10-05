@@ -1,7 +1,8 @@
-# Manifest-only agents (manifest v5)
+# Manifest-only agents (protocol 8, manifest v5)
 
 The Runtime now runs an agent from its manifest alone: during a session it never calls your
-code. This release removes what used to run your code mid-session. Manifests are
+code. This release removes what used to run your code mid-session, Action endpoints included;
+it ships in the same protocol 8 beta as the Runtime and Management APIs. Manifests are
 `manifestSchemaVersion: 5`. A Runtime of this release refuses a v4 manifest with a message that
 names what changed, and a session pinned to a v4 manifest cannot take another turn: rebuild and
 save your agents with this SDK, then start new sessions.
@@ -20,7 +21,7 @@ gone. A manifest or capability that still names them is refused with
 | Hide tools or capabilities for a turn               | A turn manifest that leaves them out (a variant may remove tools)            |
 | Deny or approve a proposed tool call (`afterModel`) | `approval` on the tool                                                       |
 | Check or redo the final answer (`afterTurn`)        | An output schema, or a flow `loop` with a verifier agent                     |
-| Write session state                                 | A tool writes `ctx.state`                                                    |
+| Write session state                                 | Your service keeps it, keyed by `Nylorun-Session-Id` (an HTTP tool)          |
 | A policy over every model call                      | Bring your own harness (Harness API)                                         |
 
 Studio's Agent Manifest tab no longer shows hooks or the turn lifecycle. The engine version is
@@ -56,11 +57,10 @@ plugin's skills work as before.
 
 ## HTTP tools replace code tools
 
-A code tool (`tool({ run })`) runs in your process today, delivered
-to your Action endpoint; a later release of this series removes Action endpoints and
-`createActionHandler`, and with them code tools. Move each one to an **HTTP tool** now: the
-Runtime makes one request to your service per call, through its Tool Gate. Code tools keep
-working until then.
+A code tool (`tool({ run })`) used to run in your process, delivered to your Action endpoint.
+Action endpoints are removed ([below](#action-endpoints-are-removed)), so the Runtime refuses
+a definition with a code tool. Move each one to an **HTTP tool**: the Runtime makes one request
+to your service per call, through its Tool Gate, or serve it from a remote MCP server.
 
 ```ts
 // Before: a code tool, run by your Action endpoint
@@ -103,8 +103,8 @@ reaches your process. The manifest's `skills.<name>` gains `files`, each path of
 (`SKILL.md` required) mapped to `sha256:<hex>`; the build hashes them, binary files included.
 
 - **Nothing to change** if you load skills with `.skills(folder)`, `skills(folder)` or
-  `.plugin(folder)` and register with `saveAgent` or `createActionHandler().register()`: they
-  upload the files the Runtime lacks (`client.files`) before the definition.
+  `.plugin(folder)` and register with `saveAgent`: it uploads the files the Runtime lacks
+  (`client.files`) before the definition.
 - **`PUT /v1/agents/{id}` by hand** must upload each file first with
   `PUT /v1/files/sha256:<hex>` (application key, the raw bytes, at most 10 MiB; `HEAD` says
   whether the Runtime holds it). A definition naming a file the Runtime lacks is
@@ -159,15 +159,64 @@ status or a timeout fails the loop with `loop.verify-failed`.
 .loop(fixer, { verify: http({ url: "https://ci.example.com/verify", credential: "ci" }), max: 3 })
 ```
 
-Code tool nodes still run on your Action endpoint; an `http()` tool is a stage your Action
-endpoint never sees. `fn` and `command` verify targets are reserved and refused for now.
+A code tool stage (`tool({ run })`) runs only in the local engine: the Runtime refuses a flow
+agent with one ([below](#action-endpoints-are-removed)). `fn` and `command` verify targets are
+reserved and refused for now.
+
+## Action endpoints are removed
+
+The Runtime no longer delivers tool calls to your process. Gone:
+
+- `PUT`, `GET` and `DELETE /v1/endpoints`, `POST /v1/endpoints/{agentId}/ping` and
+  `/v1/actions/{actionId}/{heartbeat,result,sandbox/:tool}` (they answer `404`); delivery tokens
+  (`Nylorun-Signature`, `Nylorun-Outcome`, `nylorun-delivery+jwt`); the gates service's
+  `/nylorun/v1/deliveries`; the `actions` and `endpoints` tables (a migration drops them).
+- `createActionHandler`, `executeAction`, `createActionSandbox` and the `Action`, `ActionOutcome`
+  and `ActionHandler*` types in `@nylorun/agents`; `tool({ background: true })`; `ctx.sandbox`,
+  `ctx.state`, `ctx.ask` and `ctx.approve` in a tool on the Runtime (they still work in the local
+  engine, `@nylorun/harness/run`).
+- The `action.pending`, `.delivered`, `.delivery_failed`, `.completed` and `.uncertain` events:
+  a tool the Runtime ran is a `tool.completed` event, and a `turn.paused` interaction carries the
+  tool call's `callId`.
+- The `action-endpoints` protocol feature: protocol stays 8, and a client that requires the
+  feature (an earlier SDK, CLI or Studio) is refused by the Host's feature check. The Harness API
+  is v2: held runs (`holdMs`, `effect.resolved`) are gone.
+- `nylo endpoints`, and in Tenant status `checks.endpoints`, `agents[].registered`,
+  `agents[].endpoint` and `counts.pendingActions`.
+
+`PUT /v1/agents/{id}` refuses (`400`) a definition with a tool that has no `http` and no
+`agent` and is not one of the Runtime's built-ins, and a flow agent with a code tool stage (a
+tool stage without `http`);
+`saveAgent` refuses the same before sending:
+
+```text
+Tool 'lookup_order' of agent 'assistant' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).
+```
+
+What to do:
+
+```ts
+// Before: serve the agents' tools and register the URL
+const actions = createActionHandler({ agents, url });
+createServer(actions.node).listen(3001);
+await actions.register({ url });
+
+// After: save the agents; their tools are http() tools or MCP servers
+const client = createClient();
+for (const agent of agents) await client.saveAgent(agent);
+```
+
+A process that only served Actions is no longer needed; the service your HTTP tools call is
+an ordinary HTTP service (see [HTTP tools](#http-tools-replace-code-tools)). `saveAgent`'s
+`implementationVersion` is optional (`NYLORUN_IMPLEMENTATION_VERSION`, else `dev`). The
+starter (`npm create @nylorun/agent`) saves its agent and runs no server.
 
 # Runtime and Management APIs (protocol 8)
 
 Every Tenant now serves two APIs on its one URL, split by route and by key. The **Runtime API**
-is for developers: everything under `/v1` but `/v1/tenant/*` (agents, Action endpoints and
-deliveries, sessions with AG-UI and A2A, sandboxes, artifacts, `/v1/me` and the JWKS). It takes
-application keys, trusted issuers' tokens and delivery tokens, through `@nylorun/agents`. The
+is for developers: everything under `/v1` but `/v1/tenant/*` (agents, sessions with AG-UI and
+A2A, sandboxes, artifacts, `/v1/me` and the JWKS). It takes application keys and trusted
+issuers' tokens, through `@nylorun/agents`. The
 **Management API** is for operators: `/v1/tenant/*` (models, vaults, signing keys, settings,
 application keys, seed and reset) and `GET /v1/oauth/callback`. It takes **management keys**
 only, through `@nylorun/admin`. The Admin API and its operator listener are gone: Host work runs
@@ -249,8 +298,7 @@ What to do:
    An MCP OAuth connect starts with `admin.vaults.startOAuth(vaultId, { url, server,
    clientId? })`; `nylorun mcp connect` already does. Unchanged: opening a session with
    `vaultIds`, `GET /v1/oauth/callback` (providers keep the redirect URI they have), and
-   `GET /v1/access/jwks` with `client.access.jwks()`, which Action endpoints verify deliveries
-   with.
+   `GET /v1/access/jwks` with `client.access.jwks()`.
 3. **`tenant:settings` is retired.** It leaves `SUBJECT_SCOPES`; `Nylorun-Scopes` may still name
    it, and it grants nothing. No subject reaches the Management API: a management key with
    `Nylorun-Subject` or `Nylorun-Scopes` is `403 subject_invalid`, and one sent with an `Origin`
@@ -686,7 +734,7 @@ and vaults stay. Cursors from before the upgrade are not valid after it.
   `REPLICATION` (see `DEPLOYMENT.md`). An `api` or `all` Runtime with S2 refuses to start
   without them.
 
-# Action endpoints replace executors
+# Action endpoints replace executors (superseded: [Action endpoints are removed](#action-endpoints-are-removed))
 
 Protocol 3 removes executors. The Runtime no longer offers Actions for a process to claim.
 It POSTs each Action (tool, hook, `fn`, `verify`) to the URL your app registers, signed with a

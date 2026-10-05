@@ -17,12 +17,12 @@ npm start
 `nylorun start` in the project starts its Tenant (creating it and the Project
 link the first time), or leaves it running when it already is, and
 prints the Runtime and Studio URLs. `npm start` runs
-`node dist/src/main.js`, which serves the application's Action endpoint and
-registers it with the Runtime using two variables: `NYLORUN_RUNTIME_URL` and
-`NYLORUN_SERVER_KEY`, or through the Project link. The
-Runtime calls that endpoint for every tool call, so its URL
-(`NYLORUN_ACTIONS_URL` in the starter) must be reachable from the Runtime: the
-local Tenant's containers map `localhost` to this machine. `nylo env`
+`node dist/src/main.js`, which saves the application's agents to the Runtime
+using two variables: `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY`, or through
+the Project link. The Runtime runs no code of the application's during a session:
+an agent's tools are HTTP tools and remote MCP servers, whose URLs must be
+reachable from the Runtime (the local Tenant's containers map `localhost` to
+this machine). `nylo env`
 (`npx @nylorun/cli env`) prints them for the Project that `nylorun start`
 linked; a supervisor can set them directly instead. The application does not
 start the Tenant, Studio or a file watcher; start the Tenant first
@@ -103,7 +103,7 @@ requests through your app server: it presents the JWT your identity provider
 gave the person, and the Runtime trusts that provider through the identity
 file ([Trusted issuers](#trusted-issuers)). There is no toggle and no browser
 key: a request with an `Origin` and a trusted issuer's token is served like a
-server's. Application keys and delivery tokens are server secrets, refused with
+server's. Application keys are server secrets, refused with
 an `Origin` (`403 origin_rejected`).
 
 The Runtime sends no CORS headers. Put it behind a reverse proxy that answers
@@ -262,26 +262,26 @@ On the app server's machine:
   server a key of its own: `npx nylorun key put app-server` prints one once.
   Keep the key in the app server's secret store.
 - Set `NYLORUN_RUNTIME_URL` to the proxy's URL (`https://runtime.example.com`)
-  for the client and the Action endpoint's `register`; keep
-  `NYLORUN_SERVER_KEY` as printed. Register the app's
-  Action endpoint at a URL the Runtime's machine can reach (the app server's
-  address on the network, or a tunnel), and allow that traffic.
+  for the client; keep `NYLORUN_SERVER_KEY` as printed. The services the
+  agents' HTTP tools call must be at URLs the Runtime's machine can reach (the
+  app server's address on the network, or a tunnel); allow that traffic.
 - To check a placement end to end, run the remote check from a checkout of this
   repository on the app server's machine, against an installation made for it:
 
   ```sh
   npm ci && npm run build --workspace @nylorun/core --workspace @nylorun/agents
   node scripts/acceptance/remote.mjs --placement lan --fixture-model \
-    --actions-url https://tunnel.example.com/nylorun/actions --actions-port 3000
+    --tools-url https://tunnel.example.com --tools-port 3000
   ```
 
-  `--actions-url` is where the Runtime reaches the check's Action endpoint, which
-  listens on `--actions-port` on the app server's machine (a tunnel, or the machine's
-  address when the Runtime can reach it). The check verifies the proxy rules, runs a
-  chat with an approval, drops the connection and reattaches, then keeps an event
-  stream open through ten idle minutes (`--idle-minutes`) and checks that tools are
-  still delivered afterwards. `--fixture-model` switches the Tenant's
-  model calls to the Runtime's deterministic fixture model.
+  `--tools-url` is where the Runtime reaches the check's tool service (the HTTP
+  tool its agent calls), which listens on `--tools-port` on the app server's
+  machine (a tunnel, or the machine's address when the Runtime can reach it).
+  The check verifies the proxy rules, runs a chat with an approval, drops the
+  connection and reattaches, then keeps an event stream open through ten idle
+  minutes (`--idle-minutes`) and checks that the Runtime still calls the tool
+  afterwards. `--fixture-model` switches the Tenant's model calls to the
+  Runtime's deterministic fixture model.
 
 This is one Runtime on one server, operated by hand: no replicas, managed
 backups, Helm charts or upgrade automation.
@@ -349,18 +349,17 @@ a model credential.
   on the Compose networks. It accepts two credentials:
   - **Core's credential**, `NYLORUN_GATES_TOKEN` from `docker/.env`. `nylorun up`
     generates it once and keeps it, and only the runtime container holds it. It
-    is the only credential for vault writes and token signing, Action
-    deliveries and endpoint pings, and it covers MCP requests the runtime makes
-    outside a turn (closing a connection, for example).
+    is the only credential for vault writes and token signing, and it covers MCP
+    requests the runtime makes outside a turn (closing a connection, for example).
   - **Run tokens**, the credential of the agent loop. Each time the runtime
     takes a session to advance it, it mints a short-lived token (15 minutes,
     renewed while the advance runs) naming that session, its turn and agent,
     and its ownership lease. Model calls accept only a run token, and the
     gateway takes the call's session, turn and agent from it, never from the
-    request. Remote MCP calls use it too. Once the turn is cancelled, a new turn
+    request. Remote MCP and HTTP tool calls use it too. Once the turn is cancelled, a new turn
     starts or another runtime takes the session over, the gateway refuses calls
     under the old token with `409 run_stale`. A run token never reaches vault
-    writes, token signing or deliveries.
+    writes or token signing.
 - It mounts only the Host root's `tenant/` and `keys/` directories, read-only
   (the Tenant's homes and its vault key), never `host-credentials.json`, and
   writes nothing there. It is not ready until `keys/vault-kek` is there;
@@ -395,10 +394,9 @@ the runtime container never holds an MCP credential or calls a tool's server:
   shows one `mcp_request` line per request, never arguments, results or
   credentials. Nylorun accepts remote MCP servers only: there are no stdio
   servers to run.
-- **Action deliveries**: the gateway POSTs every delivery and endpoint ping, so
-  it carries `NYLORUN_ENDPOINT_LOOPBACK` (and any other `NYLORUN_ENDPOINT_*`
-  setting) and reaches Action endpoints on this machine at
-  `host.docker.internal`. While it is down, deliveries are retried with backoff.
+- **HTTP tools**: the gateway POSTs every HTTP tool call, so it carries
+  `NYLORUN_ENDPOINT_LOOPBACK` (and any other `NYLORUN_ENDPOINT_*` setting) and
+  reaches services on this machine at `host.docker.internal`.
 - A remote MCP call outlives the runtime that sent it, like a model call: a
   restarted runtime picks up its answer. The gateway records each call in the
   `tool_crossings` table before it reaches the server, so after a gateway
@@ -472,15 +470,14 @@ local Tenant); a server reached through a proxy sets `NYLORUN_PUBLIC_URL` to
 its public address. Without one, the callback is the start request's own
 origin. A sign-in must finish within 10 minutes, and its `state` works once.
 
-These requests follow the `NYLORUN_ENDPOINT_*` settings, like Action
-deliveries: no redirects, and a local Tenant may reach an OAuth server on this
+These requests follow the `NYLORUN_ENDPOINT_*` settings, like HTTP tool calls: no redirects, and a local Tenant may reach an OAuth server on this
 machine. On a server, set `NYLORUN_ENDPOINT_PRIVATE=refuse` on the gateway so
 a discovery document cannot point it at a private address.
 
 The gateway also runs `keys`, the only process that reads the vault key: it
 runs every vault write that touches a secret (creating and rotating a
 credential, setting and selecting the host model, MCP OAuth connect) and signs every token
-(Action deliveries, capability links, run and host tokens, signing-key rotation). The runtime reaches
+(capability links, run and host tokens, signing-key rotation). The runtime reaches
 it at `NYLORUN_KEYS_URL` (by default the gateway's `NYLORUN_GATES_URL`) and
 never reads the key: Compose covers `keys/` and `docker/` in the runtime
 container with empty read-only mounts. While the gateway is down, those
@@ -552,6 +549,6 @@ there is no `latest` tag. Studio is not published to npm; it ships only as its
 image.
 
 Remote ingress, TLS, server deployment of these images (Compose on a server,
-Helm), replicas, hosted customer Action endpoints, backups/migrations, crash recovery
+Helm), replicas, backups/migrations, crash recovery
 qualification, and deployment automation are deferred. Local build and smoke
 results do not establish those deployment guarantees.

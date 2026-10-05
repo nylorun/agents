@@ -24,8 +24,8 @@ import { PINNED_IMAGES } from "./images.js";
  * The combined packing (blueprint D12): the `runtime` container runs the core
  * and loop services, and the `gateway` container runs gates: the Model Gate,
  * which alone reads model credentials, and the Tool Gate (F4.1), which alone
- * holds remote MCP connections and their credentials and POSTs every Action
- * delivery. Every model call, remote MCP call and delivery of the loop crosses it
+ * holds remote MCP connections and their credentials and makes every HTTP tool
+ * request. Every model call, remote MCP call and HTTP tool call of the loop crosses it
  * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`, or a run's token from the
  * harness). The gateway also runs keys (F4.2): the only
  * holder of the vault key, it runs every vault write that touches a secret and signs
@@ -34,7 +34,7 @@ import { PINNED_IMAGES } from "./images.js";
  * host-credentials.json. The runtime mounts the Host root with `keys/` and `docker/`
  * covered by empty read-only mounts, so it can read neither the vault key nor
  * Restate's private key and `.env`. The runtime does not wait for the gateway: while
- * it is down, model and MCP calls fail, deliveries are retried, vault writes and
+ * it is down, model, MCP and HTTP tool calls fail, vault writes and
  * token minting answer 503, and the session takes the next message.
  *
  * The Object store (blueprint D35) is RustFS, single node and single drive, pinned by digest,
@@ -184,14 +184,14 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
+      # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
       # unset by default. Set both in the shell that runs \`nylorun start\`.
       NYLORUN_RESOLVER_URL: \${NYLORUN_RESOLVER_URL:-}
       NYLORUN_RESOLVER_TOKEN: \${NYLORUN_RESOLVER_TOKEN:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
-      host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
+      host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
       # The Tenant's homes and its vault key only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
@@ -221,7 +221,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
       NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
-      # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
+      # Model calls, remote MCP calls and HTTP tool calls go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
       # or the vault key.
       NYLORUN_GATES_URL: http://gateway:4100
@@ -245,7 +245,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
+      # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Agent turns, MCP servers and workspaces run in the harness container, which connects to
       # this listener with NYLORUN_HARNESS_TOKEN. NYLORUN_HARNESS=in-process in .env rolls back.

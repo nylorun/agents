@@ -102,7 +102,7 @@ eval "$(npx @nylorun/cli env)"
 | [`@nylorun/harness`](./harness)           | Execution engine and checkpoints                                  |
 | [`nylorun`](./nylorun)                    | `npx nylorun start`: a project's local Tenant and its link        |
 | [`@nylorun/cli`](./cli)                   | Runtime client (`nylo`): status, reset, access, model provider    |
-| [`@nylorun/agents`](./agents)             | Session SDK, authoring, and the Action endpoint that runs your tools |
+| [`@nylorun/agents`](./agents)             | Session SDK and authoring: define agents and save them           |
 | [`@nylorun/admin`](./admin)               | Management API client: models, vaults, signing keys, application keys |
 | [`@nylorun/runtime`](./runtime)           | Runtime Host and Tenant Runtime; the `ghcr.io/nylorun/runtime` image |
 | [`@nylorun/studio`](./studio)             | Dashboard and trusted proxy; the `ghcr.io/nylorun/studio` image   |

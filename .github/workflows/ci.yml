@@ -250,7 +250,7 @@ jobs:
           NYLORUN_TEST_S3_ENDPOINT: http://127.0.0.1:59000
         run: npm run test:integration --workspace @nylorun/runtime
       # `check` runs the unit suite with the gates in process; this runs it again with model
-      # calls, remote MCP, deliveries and keys crossing a gates service on 127.0.0.1 with run
+      # calls, remote MCP, HTTP tools and keys crossing a gates service on 127.0.0.1 with run
       # tokens, as the local stack does (F5).
       - name: Runtime unit tests, gates over HTTP
         env:

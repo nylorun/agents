@@ -50,8 +50,11 @@ describe("starter template", () => {
     ]);
     expect(files[".env/auth.json"]).toBeUndefined();
     expect(files["src/index.ts"]).toBeUndefined();
-    expect(files["src/main.ts"]).toContain("createActionHandler");
-    expect(files["agents/assistant/agent.ts"]).toContain("lookup_order");
+    expect(files["src/main.ts"]).toContain("client.saveAgent(agent)");
+    expect(files["src/main.ts"]).not.toMatch(/createActionHandler|createServer|NYLORUN_ACTIONS_URL/);
+    // No tools: a code tool would be refused on save, and an HTTP tool needs a service.
+    expect(files["agents/assistant/agent.ts"]).not.toMatch(/^[^/\n]*\.tools\(/m);
+    expect(files["agents/assistant/agent.ts"]).toContain("http({");
     expect(files["agents/assistant/agent.ts"]).toContain("@nylorun/agents");
     expect(files["agents/assistant/agent.ts"]).not.toMatch(/\bmodel\s*:/);
     expect(files["README.md"]).toContain("8787");
@@ -70,7 +73,7 @@ describe("starter template", () => {
     expect(files[".env.example"]).toContain("MODEL_PROVIDER=");
     expect(files[".env.example"]).toContain("MODEL=");
     expect(files[".env.example"]).toContain("MODEL_PROVIDER_API_KEY=");
-    expect(files[".env.example"]).toContain("PORT=8787");
+    expect(files[".env.example"]).not.toContain("PORT=");
     expect(files[".gitignore"]).toContain(".nylorun/");
     expect(Object.keys(files).some((path) => path.includes("_gitignore"))).toBe(
       false
