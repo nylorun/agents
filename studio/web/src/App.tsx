@@ -54,11 +54,16 @@ import {
   StudioSignedOutError,
   createTenantClient,
   fetchHello,
-  openStudioSession,
   tenantHref,
   tenantRuntime,
   tenantScope,
 } from "@/proxy-client";
+import {
+  NEW_SESSION,
+  asStudioDefinition,
+  definitionForSession,
+  isNewSessionState,
+} from "@/session-open";
 import type {
   AgentManifest,
   Connection,
@@ -73,37 +78,10 @@ import {
   rememberWorkflowLinks,
   treeFromManifest,
   type IterationRecord,
-  type WorkflowManifest,
   type WorkflowTreeNode,
 } from "@/workflow";
 
 export type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
-
-function asStudioDefinition(raw: {
-  manifest: Record<string, unknown> & { id: string; name?: string };
-}): StudioDefinition {
-  const manifest = raw.manifest;
-  if (manifest.kind === "workflow") {
-    return {
-      id: String(manifest.id),
-      name: String(manifest.name ?? manifest.id),
-      kind: "workflow",
-      manifest: manifest as WorkflowManifest,
-    };
-  }
-  const capabilities = Array.isArray(manifest.capabilities)
-    ? (manifest.capabilities as {
-        id: string;
-        tools?: { name: string; description?: string }[];
-        hooks?: { at: "before" | "after"; scope: "turn" | "step" }[];
-      }[])
-    : [];
-  return {
-    id: String(manifest.id),
-    name: String(manifest.name ?? manifest.id),
-    manifest: { capabilities },
-  };
-}
 
 function studioClient(tenantId: string) {
   return createTenantClient(tenantId);
@@ -484,16 +462,23 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
           ) : settingsActive ? (
             <TenantSettings tenant={tenant} />
+          ) : agentId && sessionId ? (
+            // Any session opens, also one whose agent is not registered (a
+            // flow's embedded agent); the session says which agent it runs.
+            connection.status === "Connecting" ? (
+              <p className="p-8 text-muted-foreground">Opening the session…</p>
+            ) : (
+              <SessionWorkspace
+                key={sessionId}
+                routeAgentId={agentId}
+                agents={connection.agents}
+                sessionId={sessionId}
+                tenantId={tenant.id}
+                refresh={refresh}
+              />
+            )
           ) : waiting ? (
             <TenantOverview tenant={tenant} waitingForAgents />
-          ) : agent && sessionId ? (
-            <SessionWorkspace
-              key={sessionId}
-              agent={agent}
-              sessionId={sessionId}
-              tenantId={tenant.id}
-              refresh={refresh}
-            />
           ) : (
             <section className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-8">
               <h1 className="text-2xl font-semibold">
@@ -517,6 +502,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                     onClick={() =>
                       void navigate(
                         `/agents/${encodeURIComponent(a.id)}/sessions/${crypto.randomUUID()}`,
+                        { state: NEW_SESSION },
                       )
                     }
                   >
@@ -593,7 +579,98 @@ function SessionRedirect({
   );
 }
 
+type SessionLoad =
+  | { kind: "loading" }
+  | { kind: "ready"; agentId: string }
+  | { kind: "not-found" }
+  | { kind: "failed"; message: string };
+
+/**
+ * Opens a session by reading it. Only Studio's own "New session" creates one:
+ * a PUT with Studio's parameters would answer 409 for a session an application
+ * created with another owner, sandbox or info.
+ */
 function SessionWorkspace({
+  routeAgentId,
+  agents,
+  sessionId,
+  tenantId,
+  refresh,
+}: {
+  routeAgentId: string;
+  agents: readonly StudioDefinition[];
+  sessionId: string;
+  tenantId: string;
+  refresh: () => Promise<void>;
+}) {
+  const location = useLocation();
+  const create = isNewSessionState(location.state);
+  const routeAgent = agents.find((a) => a.id === routeAgentId);
+  const routeAgentKnown = routeAgent !== undefined;
+  const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
+  useEffect(() => {
+    const abort = new AbortController();
+    const sdk = studioClient(tenantId);
+    void (async () => {
+      try {
+        const view = await sdk.session(sessionId).inspect(abort.signal);
+        if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: view.agentId });
+      } catch (cause) {
+        if ((cause as { status?: unknown }).status !== 404) throw cause;
+        if (!create || !routeAgentKnown) {
+          if (!abort.signal.aborted) setLoad({ kind: "not-found" });
+          return;
+        }
+        await sdk.createSession({
+          id: sessionId,
+          agentId: routeAgentId,
+          ownerUserId: "local-developer",
+        });
+        if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
+      }
+    })().catch((cause: unknown) => {
+      if (!abort.signal.aborted)
+        setLoad({
+          kind: "failed",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+    });
+    return () => abort.abort();
+  }, [tenantId, sessionId, routeAgentId, routeAgentKnown, create]);
+
+  if (load.kind === "loading")
+    return <p className="p-8 text-muted-foreground">Opening the session…</p>;
+  if (load.kind !== "ready")
+    return (
+      <section className="mx-auto w-full max-w-3xl flex-1 p-8">
+        <h1 className="text-2xl font-semibold">
+          {load.kind === "not-found" ? "Session not found" : "Session unavailable"}
+        </h1>
+        <p role="alert" className="mt-2 text-muted-foreground">
+          {load.kind === "not-found" ? (
+            <>
+              This Tenant has no session <code className={code}>{sessionId}</code>.
+            </>
+          ) : (
+            load.message
+          )}
+        </p>
+      </section>
+    );
+  return (
+    <SessionView
+      agent={definitionForSession(load.agentId, agents, [
+        lookupWorkflowLink(sessionId)?.workflowAgentId,
+        routeAgentId,
+      ])}
+      sessionId={sessionId}
+      tenantId={tenantId}
+      refresh={refresh}
+    />
+  );
+}
+
+function SessionView({
   agent,
   sessionId,
   tenantId,
@@ -633,11 +710,6 @@ function SessionWorkspace({
     const sdk = studioClient(tenantId);
     const current = sdk.session(sessionId);
     void (async () => {
-      const inspect = await openStudioSession(sdk, {
-        sessionId,
-        agentId: agent.id,
-        signal: abort.signal,
-      });
       const history = await current.history({ signal: abort.signal });
       if (abort.signal.aborted) return;
       const loaded = mergeStudioEvents(
@@ -650,6 +722,7 @@ function SessionWorkspace({
           linksFromEvents(loaded, sessionId, { workflowAgentId: agent.id }),
         );
       }
+      const inspect = await current.inspect(abort.signal);
       setStatus(inspect.status);
       await refresh();
       for await (const event of current.observe({

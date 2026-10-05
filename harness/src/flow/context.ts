@@ -4,7 +4,14 @@ import { HostSuspension } from "../loop/host-suspension.js";
 import type { FlowCheckpoint } from "./checkpoint.js";
 import { resolveOperatorLimits, type FlowOperatorLimits } from "./limits.js";
 import { flowEffectId, iterationsOf, nodeKeyOf } from "./paths.js";
-import { failedValueOf, FlowNodeError, type FlowFailure } from "./types.js";
+import {
+  failedValueOf,
+  FlowNodeError,
+  FlowPause,
+  type FlowDurableResult,
+  type FlowFailure,
+  type FlowInteraction,
+} from "./types.js";
 
 export type FlowEffectKind = "agent" | "tool" | "fn" | "verify";
 
@@ -16,6 +23,8 @@ export type FlowContext = {
   /** Operator ceilings (Map items / Loop iterations). */
   readonly limits: FlowOperatorLimits;
   readonly pending: Map<string, "pending" | "uncertain">;
+  /** Interactions tool nodes wait on, by interaction id. */
+  readonly interactions: Map<string, FlowInteraction>;
   readonly inFlight: Set<Promise<unknown>>;
   /** Nearest enclosing Chain `results`, outermost first. */
   readonly resultsStack: Array<Record<string, JsonValue>>;
@@ -29,6 +38,13 @@ export type FlowContext = {
     identity: { path: string; key: string; iterations?: string; role?: string },
     context?: Record<string, unknown>,
   ): Promise<unknown>;
+  /** The id `effect` gives an effect of `kind` at `identity`. */
+  effectIdOf(
+    kind: FlowEffectKind,
+    identity: { path: string; iterations?: string; role?: string },
+  ): string;
+  /** Records an interaction a tool node waits on; throw what it returns. */
+  pause(interaction: FlowInteraction): FlowPause;
   nearestResults(): Record<string, JsonValue>;
   iterationsString(): string;
 };
@@ -41,6 +57,7 @@ export function createFlowContext(options: {
   readonly limits?: Partial<FlowOperatorLimits> | null;
 }): FlowContext {
   const pending = new Map<string, "pending" | "uncertain">();
+  const interactions = new Map<string, FlowInteraction>();
   const inFlight = new Set<Promise<unknown>>();
   const cancelEffectIds = new Set<string>();
   const resultsStack: Array<Record<string, JsonValue>> = [];
@@ -51,6 +68,7 @@ export function createFlowContext(options: {
     signal: options.signal,
     limits: resolveOperatorLimits(options.limits),
     pending,
+    interactions,
     inFlight,
     resultsStack,
     iterations: [],
@@ -61,19 +79,26 @@ export function createFlowContext(options: {
     iterationsString() {
       return iterationsOf(ctx.iterations);
     },
+    effectIdOf(kind, identity) {
+      return flowEffectId({
+        turnId: options.checkpoint.turnId,
+        segment: options.checkpoint.segment,
+        path: identity.path,
+        kind,
+        iterations: identity.iterations ?? ctx.iterationsString(),
+        ...(identity.role === undefined ? {} : { role: identity.role }),
+      });
+    },
+    pause(interaction) {
+      interactions.set(interaction.interaction.id, interaction);
+      return new FlowPause(interaction);
+    },
     async effect(kind, input, identity, context = {}) {
       if (options.signal?.aborted)
         throw new FlowNodeError({ code: "cancelled", message: "cancelled" });
       const iterations = identity.iterations ?? ctx.iterationsString();
       const key = identity.key || nodeKeyOf(identity.path);
-      const effectId = flowEffectId({
-        turnId: options.checkpoint.turnId,
-        segment: options.checkpoint.segment,
-        path: identity.path,
-        kind,
-        iterations,
-        ...(identity.role === undefined ? {} : { role: identity.role }),
-      });
+      const effectId = ctx.effectIdOf(kind, { ...identity, iterations });
       if (cancelEffectIds.has(effectId))
         throw new FlowNodeError({
           code: "cancelled",
@@ -118,6 +143,23 @@ export function createFlowContext(options: {
     },
   };
   return ctx;
+}
+
+/**
+ * The result of a flow that unwound on a suspension: waiting (or uncertain) while any effect is
+ * pending, otherwise paused on the interactions its tool nodes wait on.
+ */
+export function suspendedResult(ctx: FlowContext): FlowDurableResult {
+  const { checkpoint } = ctx;
+  if (ctx.pending.size === 0 && ctx.interactions.size > 0) {
+    const pending = [...ctx.interactions.values()];
+    return { status: "paused", checkpoint, result: { status: "paused", pending } };
+  }
+  return {
+    status: [...ctx.pending.values()].includes("uncertain") ? "uncertain" : "waiting",
+    checkpoint,
+    effectIds: [...ctx.pending.keys()],
+  };
 }
 
 export function markFailFastCancels(ctx: FlowContext): void {

@@ -141,8 +141,8 @@ docker build --file studio/Dockerfile --tag nylorun-studio:dev .
 NYLORUN_RUNTIME_IMAGE=nylorun-runtime:dev NYLORUN_STUDIO_IMAGE=nylorun-studio:dev npx nylorun start
 ```
 
-CI builds both images from the PR for the `stack`, `smoke-starter`, `smoke-dev`
-and `acceptance` jobs. `check` and `consumers` start the Docker test stack before
+CI's full tier (see [Pull requests](#pull-requests)) builds both images from the
+commit for the `stack`, `smoke-starter`, `smoke-dev` and `acceptance` jobs. `check` and `consumers` start the Docker test stack before
 their tests, and `integration` runs the Runtime's integration tests against it
 (`npm run test:stack:up --workspace @nylorun/runtime`, then
 `NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
@@ -170,6 +170,19 @@ Keep changes focused and test observable behavior. For a package release, add a
 short change description with `npm run changeset`; select the affected packages
 and version impact. Repository-only changes do not require package releases.
 Run `npm run check`; run `npm run check:stack` for packaging or cross-package changes.
+
+CI runs in two tiers (`.github/workflows/ci.yml`). The fast tier, `check`, runs
+on every PR and merge-queue entry, and the merge queue merges on it. The full
+tier (the Docker smokes, acceptance, integration, sandboxes on kind, macOS and the
+newest Node) runs after the merge on `main`, and for release PRs, whose `ci`
+waits for the full suite on the PR and again in the queue. Queue a PR as soon as
+you open it with `gh pr merge --auto --squash`: its required `ci` passes at once
+and the merge queue runs the checks; `ci (pull_request)` on the PR is feedback.
+To run the full tier on a branch before merging, use
+`gh workflow run ci.yml --ref <branch>`. A full-tier failure on `main` is
+reverted or fixed forward before the next release, which needs the full suite
+to pass.
+
 See [RELEASING.md](./RELEASING.md) for administrators and
 [DEPLOYMENT.md](./DEPLOYMENT.md) for application hosting.
 

@@ -37,11 +37,13 @@ import {
   failureOf,
   markFailFastCancels,
   settleInFlight,
+  suspendedResult,
   type FlowContext,
 } from "./context.js";
 import { assertLoopIteration, assertMapItemCount, type FlowOperatorLimits } from "./limits.js";
 import { iterationsOf } from "./paths.js";
 import { readAgentTurn } from "./loop.js";
+import { runToolEffect } from "./tool.js";
 import { FlowNodeError, type FlowDurableResult } from "./types.js";
 
 /** Where a node runs: its flow, path prefixes, Map indices, and what its functions see. */
@@ -109,12 +111,7 @@ export async function runFlowV2(options: {
     return { status: "completed", checkpoint, result: { status: "completed", output } };
   } catch (error) {
     await settleInFlight(ctx);
-    if (error instanceof HostSuspension)
-      return {
-        status: [...ctx.pending.values()].includes("uncertain") ? "uncertain" : "waiting",
-        checkpoint,
-        effectIds: [...ctx.pending.keys()],
-      };
+    if (error instanceof HostSuspension) return suspendedResult(ctx);
     if (error instanceof FlowNodeError && error.failure.code === "cancelled")
       return { status: "cancelled", checkpoint, result: { status: "cancelled" } };
     return {
@@ -240,12 +237,11 @@ async function runTool(
   site: string,
   input: JsonValue,
 ): Promise<JsonValue> {
-  const value = (await ctx.effect(
-    "tool",
-    input,
-    { path: site, key, iterations: iterationsOf(scope.iterations) },
-    { toolName: name },
-  )) as JsonValue;
+  const value = await runToolEffect(ctx, name, input, {
+    path: site,
+    key,
+    iterations: iterationsOf(scope.iterations),
+  });
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const outcome = value as Readonly<Record<string, JsonValue>>;
   if (outcome.kind === "completed" && "output" in outcome) return outcome.output ?? null;

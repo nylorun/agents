@@ -162,4 +162,22 @@ describe("guardedFetch (F9 C2)", () => {
     );
     await expect(guardedFetch({})(`http://localhost:1/closed`)).rejects.toBeInstanceOf(OutboundFailed);
   });
+
+  it("streams an answer that stays open, unbounded, when asked to (MCP)", async () => {
+    let finish!: () => void;
+    const port = await serve((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("x".repeat(2048));
+      finish = () => res.end("done");
+    });
+    const answer = await guardedFetch({}, { stream: true, maxResponseBytes: 1024 })(`http://localhost:${port}/sse`);
+    expect(answer.headers.get("content-type")).toBe("text/event-stream");
+    const reader = answer.body!.getReader();
+    let text = "";
+    while (text.length < 2048) text += new TextDecoder().decode((await reader.read()).value);
+    finish();
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
+      text += new TextDecoder().decode(chunk.value);
+    expect(text.endsWith("done")).toBe(true);
+  });
 });

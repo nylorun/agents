@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { McpServerManifest } from "@nylorun/core/define";
 import type { JsonObject } from "@nylorun/core/define";
 import { schemaFromJSON } from "@nylorun/core/define";
+import { guardedFetch, type OutboundPolicy } from "../tenant/outbound.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import {
   modelToolName,
@@ -74,6 +75,12 @@ export function sdkClient(client: Client): McpClient {
 export async function openMcpServer(input: {
   server: McpServerManifest;
   authorize?: (url: string) => Promise<AuthorizeResult>;
+  /**
+   * How a remote server is reached: the Host's address policy of Action endpoints
+   * (`TenantConfig.delivery`), so `localhost` means the Docker host in the local stack and a
+   * Host that refuses private addresses refuses them here too. Default: no limits.
+   */
+  policy?: OutboundPolicy;
   pluginRoot?: string;
   pluginData: string;
   childEnv?: Readonly<Record<string, string>>;
@@ -106,7 +113,7 @@ export async function openMcpServer(input: {
       initial.credentialIds;
     throw error;
   }
-  const fetchImpl = authorizedFetch(input.server, authorize);
+  const fetchImpl = authorizedFetch(input.server, authorize, input.policy ?? {});
   const url = new URL(input.server.url);
   const transport =
     input.server.type === "sse"
@@ -241,7 +248,9 @@ function createClient(): Client {
 function authorizedFetch(
   server: Extract<McpServerManifest, { type: "streamable-http" | "sse" }>,
   authorize: (url: string) => Promise<AuthorizeResult>,
+  policy: OutboundPolicy,
 ): (url: string | URL, init?: RequestInit) => Promise<Response> {
+  const send = guardedFetch(policy, { stream: true });
   return async (url, init) => {
     const target = typeof url === "string" ? url : url.href;
     if (!sameOrigin(target, server.url))
@@ -259,7 +268,8 @@ function authorizedFetch(
     new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
     if (result.status === "authorized")
       for (const [key, value] of Object.entries(result.headers)) headers.set(key, value);
-    return fetch(target, { ...init, headers, redirect: "error" });
+    // No redirects, and the address checked on what is connected to (`tenant/outbound.ts`).
+    return send(target, { ...init, headers });
   };
 }
 

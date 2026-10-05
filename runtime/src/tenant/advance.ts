@@ -631,6 +631,9 @@ async function settle(
                   interaction: call.interaction,
                   wait: call.wait,
                   status: call.status,
+                  // A flow's tool node that asked.
+                  ...(typeof call.path === "string" ? { path: call.path } : {}),
+                  ...(typeof call.toolName === "string" ? { toolName: call.toolName } : {}),
                 })
               ),
             }

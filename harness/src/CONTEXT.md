@@ -88,5 +88,11 @@ of the path.
 **Verdict**: Loop verify outcome: `{ pass: true }` or `{ pass: false, feedback }`,
 each with optional `data`.
 
+**Flow interaction**: A tool node that asks (`ctx.approve`, `ctx.ask`) pauses the flow on its
+own session once nothing else is pending. The answer goes into the checkpoint (`resumes`, same
+segment), so the flow replays its journal and runs the tool again as a new effect (role
+`resume.<n>`) with the answer and the resume token from the journaled outcome. A rejected
+approval settles the node `denied`.
+
 **Turn manifest**: Optional `message.manifest` for one agent turn. Must be a
 validated variant of the session's pinned manifest; it does not latch.

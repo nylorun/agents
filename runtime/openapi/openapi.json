@@ -10798,6 +10798,9 @@
             "$ref": "#/components/schemas/DelegationCompletedEvent"
           },
           {
+            "$ref": "#/components/schemas/McpDiscoveredEvent"
+          },
+          {
             "$ref": "#/components/schemas/SandboxStateEvent"
           },
           {
@@ -10862,6 +10865,7 @@
             "effect.uncertain": "#/components/schemas/EffectUncertainEvent",
             "delegation.started": "#/components/schemas/DelegationStartedEvent",
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
+            "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
             "sandbox.state": "#/components/schemas/SandboxStateEvent",
             "sandbox.exec": "#/components/schemas/SandboxExecEvent",
             "sandbox.attached": "#/components/schemas/SandboxAttachedEvent",
@@ -14585,6 +14589,216 @@
             },
             "required": [
               "agent"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "McpDiscoveredEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxd",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mcp.discovered"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "servers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "capabilityId": {
+                      "type": "string"
+                    },
+                    "serverName": {
+                      "type": "string"
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "connected",
+                        "refused",
+                        "failed"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "tools": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "credentialIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "capabilityId",
+                    "serverName",
+                    "outcome",
+                    "message",
+                    "tools"
+                  ],
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": [
+              "servers"
             ],
             "additionalProperties": {}
           }
@@ -22877,6 +23091,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/DelegationCompletedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/McpDiscoveredEvent"
                     },
                     {
                       "$ref": "#/components/schemas/SandboxStateEvent"

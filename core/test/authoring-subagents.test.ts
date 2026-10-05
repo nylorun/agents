@@ -55,6 +55,15 @@ describe("flow agents as subagents", () => {
     expect(isFlowDelegate(delegateOf(rebuilt.getBinding().tools[0])!)).toBe(true);
   });
 
+  it("may have named agents as steps", () => {
+    const named = (id: string) =>
+      Agent({ id, name: `Named ${id}`, description: `The ${id}.` }).instructions(`Be ${id}.`);
+    const desk = Agent({ id: "desk", name: "Desk", description: "Runs a desk." })
+      .step(named("reader"))
+      .step(named("writer"));
+    expect(codesOf(() => Agent({ id: "lead" }).instructions("Lead.").subagents(desk).build())).toEqual([]);
+  });
+
   it("need a description, like any subagent", () => {
     const plain = Agent({ id: "plain" }).step(agent("a"));
     expect(codesOf(() => Agent({ id: "lead" }).instructions("Lead.").subagents(plain).build())).toEqual([

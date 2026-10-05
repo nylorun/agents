@@ -197,6 +197,40 @@ describe("leaves and ids", () => {
   });
 });
 
+describe("named agents are agents, not tools", () => {
+  // An unbuilt AgentBuilder has `name` and an `.input()` method, which once made it look like a tool.
+  const named = (id: string) =>
+    Agent({ id, name: `Named ${id}` }).instructions(`Be ${id}.`).output(z.object({ y: z.string() }));
+
+  it("in step, switch, parallel, map and loop", () => {
+    const step = Agent({ id: "f" }).step(named("a")).build();
+    expect(step.manifest.root).toEqual({ chain: [{ agent: "a" }] });
+    const sw = Agent({ id: "s" }).switch({ a: named("a"), default: named("b") }, { on: () => "a" }).build();
+    expect(JSON.stringify(sw.manifest.root)).toContain('"agent":"a"');
+    const par = Agent({ id: "p" }).parallel({ a: named("a"), b: named("b") }).build();
+    expect(JSON.stringify(par.manifest.root)).toContain('"agent":"b"');
+    const map = Agent({ id: "m" }).step(agent("splitter")).map(named("w")).build();
+    expect(JSON.stringify(map.manifest.root)).toContain('"agent":"w"');
+    const named_judge = Agent({ id: "nj", name: "Named judge" }).instructions("Judge.").output(VerdictSchema);
+    const loop = Agent({ id: "l" }).loop(named("fixer"), { verify: named_judge, max: 2 }).build();
+    expect(JSON.stringify(loop.manifest.root)).toContain('"agent":"nj"');
+    const agentsOf = (built: { getBinding(): { agents: Record<string, unknown> } }) =>
+      Object.keys(built.getBinding().agents).sort();
+    expect(agentsOf(step)).toEqual(["a"]);
+    expect(agentsOf(sw)).toEqual(["a", "b"]);
+    expect(agentsOf(par)).toEqual(["a", "b"]);
+    expect(agentsOf(map)).toEqual(["splitter", "w"]);
+    expect(agentsOf(loop)).toEqual(["fixer", "nj"]);
+  });
+
+  it("built, and in Chain", () => {
+    expect(Agent({ id: "f" }).step(named("a").build()).build().manifest.root).toEqual({ chain: [{ agent: "a" }] });
+    expect(Chain({ id: "c", steps: [named("a"), named("b")] }).manifest.root).toEqual({
+      chain: { id: "c", steps: [{ agent: "a" }, { agent: "b" }] },
+    });
+  });
+});
+
 describe("loop", () => {
   it("needs max or decide", () => {
     expect(codesOf(() => Agent({ id: "fix" }).loop(fixer, { verify: judge }).build())).toEqual([

@@ -11,6 +11,7 @@ import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
+import { Readable } from "node:stream";
 
 /** How the Host lets the Runtime call developer URLs (Host settings, `TenantConfig.delivery`). */
 export interface OutboundPolicy {
@@ -215,13 +216,18 @@ export const FETCH_TIMEOUT_MS = 30_000;
  * unless the caller passes a signal. The gateway calls OAuth discovery, registration, the code
  * exchange and refresh with it. A refused URL or address rejects with `OutboundRefused`, any
  * other failure with `OutboundFailed`.
+ *
+ * `stream`: the Response resolves once the headers arrive and its body streams, unbounded and
+ * with no timeout but the caller's signal: remote MCP servers, whose answers and event streams
+ * stay open (`mcp/connect.ts`).
  */
 export function guardedFetch(
   policy: OutboundPolicy,
-  options: { maxResponseBytes?: number; timeoutMs?: number } = {},
+  options: { maxResponseBytes?: number; timeoutMs?: number; stream?: boolean } = {},
 ): typeof fetch {
   const limit = options.maxResponseBytes ?? MAX_FETCH_RESPONSE_BYTES;
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const stream = options.stream === true;
   const lookup = guardedLookup(policy);
   const guarded = async (input: string | URL | Request, init: RequestInit = {}): Promise<Response> => {
     const request = input instanceof Request ? input : undefined;
@@ -246,7 +252,7 @@ export function guardedFetch(
     }
     const originalHost = url.host;
     dockerHost(url, policy);
-    const signal = init.signal ?? request?.signal ?? AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ?? request?.signal ?? (stream ? undefined : AbortSignal.timeout(timeoutMs));
     const outgoing: Record<string, string> = { host: originalHost };
     for (const [name, value] of headers) outgoing[name] = value;
     if (body) outgoing["content-length"] = String(body.byteLength);
@@ -263,14 +269,14 @@ export function guardedFetch(
             error instanceof RefusedAddress
               ? new OutboundRefused(error.message)
               : new OutboundFailed(
-                  signal.aborted ? `The request to ${originalHost} was aborted or timed out` : error.message,
-                  signal.aborted ? "ABORTED" : (error.code ?? error.name),
+                  signal?.aborted ? `The request to ${originalHost} was aborted or timed out` : error.message,
+                  signal?.aborted ? "ABORTED" : (error.code ?? error.name),
                 ),
           ),
         );
       const sent = (url.protocol === "https:" ? httpsRequest : httpRequest)(
         url,
-        { method, headers: outgoing, lookup: lookup as never, signal },
+        { method, headers: outgoing, lookup: lookup as never, ...(signal ? { signal } : {}) },
         (response) => {
           const status = response.statusCode ?? 0;
           if (status >= 300 && status < 400 && response.headers.location !== undefined) {
@@ -278,6 +284,24 @@ export function guardedFetch(
             return settle(() =>
               reject(new OutboundFailed(`${originalHost} answered a redirect, which this Runtime does not follow`, "REDIRECT")),
             );
+          }
+          const noBody = status === 204 || status === 304 || method === "HEAD";
+          const answer = (body: BodyInit | null) => {
+            const headers = new Headers();
+            for (const [name, value] of Object.entries(response.headers)) {
+              if (value === undefined) continue;
+              for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+            }
+            return new Response(noBody ? null : body, {
+              status,
+              statusText: response.statusMessage ?? "",
+              headers,
+            });
+          };
+          if (stream) {
+            // A failure after this reaches the reader as the body's error.
+            if (noBody) response.resume();
+            return settle(() => resolve(answer(noBody ? null : (Readable.toWeb(response) as ReadableStream))));
           }
           const chunks: Buffer[] = [];
           let size = 0;
@@ -292,23 +316,7 @@ export function guardedFetch(
             }
             chunks.push(chunk);
           });
-          response.on("end", () =>
-            settle(() => {
-              const answer = new Headers();
-              for (const [name, value] of Object.entries(response.headers)) {
-                if (value === undefined) continue;
-                for (const item of Array.isArray(value) ? value : [value]) answer.append(name, item);
-              }
-              const noBody = status === 204 || status === 304 || method === "HEAD";
-              resolve(
-                new Response(noBody ? null : Buffer.concat(chunks), {
-                  status,
-                  statusText: response.statusMessage ?? "",
-                  headers: answer,
-                }),
-              );
-            }),
-          );
+          response.on("end", () => settle(() => resolve(answer(Buffer.concat(chunks)))));
           response.on("error", failed);
           response.on("aborted", () =>
             failed(Object.assign(new Error("The answer was cut off"), { code: "ECONNRESET" })),

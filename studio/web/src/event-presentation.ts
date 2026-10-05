@@ -58,6 +58,7 @@ const LABELS: Readonly<Record<string, string>> = {
   "loop.waiting": "Loop waiting",
   "loop.verified": "Loop verified",
   "loop.decided": "Loop decided",
+  "mcp.discovered": "MCP servers",
 };
 
 /** The agent used as a tool that an event belongs to; undefined for the session's root agent. */
@@ -174,6 +175,20 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
         payload.next,
         "?",
       )}${payload.patched === true ? " (patched)" : ""}`;
+    case "mcp.discovered": {
+      const servers = Array.isArray(payload.servers) ? payload.servers.map(record) : [];
+      if (servers.length === 0) return "No MCP servers.";
+      return servers
+        .map((server) => {
+          const name = text(server.serverName, "server");
+          if (server.outcome === "connected") {
+            const tools = Number(server.tools ?? 0);
+            return `${name}: ${tools} tool${tools === 1 ? "" : "s"}`;
+          }
+          return `${name} ${text(server.outcome, "failed")}: ${text(server.message, "no tools")}`;
+        })
+        .join(" · ");
+    }
     default:
       return compact(event.payload);
   }
