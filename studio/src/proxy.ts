@@ -100,11 +100,9 @@ export async function proxyRuntime(
     if (!value || typeof value !== "object" || Array.isArray(value))
       return fail(400, "JSON object required");
     if (vaultWrite && path === "/v1/vaults" && method === "POST") {
-      // Studio's Connections are the installation's own vaults, which any session may use.
-      delete value.ownerUserId;
-      value.scope = "installation";
-    }
-    else if (!tenantWrite && !vaultWrite && method === "PUT")
+      if (value.scope !== "installation" || value.ownerUserId !== undefined)
+        return fail(400, "Studio creates installation vaults only");
+    } else if (!tenantWrite && !vaultWrite && method === "PUT")
       value.ownerUserId = LOCAL_OWNER;
     else if (
       !tenantWrite &&
@@ -117,8 +115,11 @@ export async function proxyRuntime(
       );
     body = JSON.stringify(value);
   }
-  if (path === "/v1/vaults" && method === "GET")
-    incoming.searchParams.set("ownerUserId", LOCAL_OWNER);
+  if (
+    path === "/v1/vaults" && method === "GET" &&
+    incoming.searchParams.has("ownerUserId")
+  )
+    return fail(400, "Studio lists installation vaults only");
   const controller = new AbortController();
   response.on("close", () => controller.abort());
   try {

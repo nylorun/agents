@@ -74,9 +74,19 @@ the browser.
 Studio lists registered agents and sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Each session shows chat beside an
-**Events** inspector and an optional Agent Manifest tab. **Vault** and **Model
-Settings** use the Tenant API. Token streaming, media and an approvals UI are
-deferred.
+**Events** inspector and an optional Agent Manifest tab. **Tenant settings** groups
+Overview, Models and Credentials. Credentials lists installation vaults and
+manages their URL-bound bearer or OAuth credentials through the Tenant API;
+secret reads return metadata only. Attach vaults explicitly using `vaultIds` when
+creating a session with the SDK or API. Studio-created sessions attach none.
+Personal MCP credentials come from the operator's external resolver. Use
+`nylorun mcp connect` for the installation's OAuth connection flow.
+
+Settings links use `/tenants/<id>/settings/overview`, `/settings/models` and
+`/settings/credentials` under the same Tenant prefix. Legacy `/settings` and
+`/vault` links redirect to Models and Credentials respectively, including embeds.
+Token streaming, media, an approvals UI, a session vault selector and a Studio
+OAuth Connect button are deferred.
 
 ## The image
 

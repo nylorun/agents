@@ -3,13 +3,14 @@ import {
   BrowserRouter,
   Routes,
   Route,
+  Navigate,
   useLocation,
   useNavigate,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ModelSettings } from "@/components/model-settings";
-import { VaultModule } from "@/components/vault";
+import { TenantSettings } from "@/components/tenant-settings";
+import { TenantOverview } from "@/components/tenant-overview";
 import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
@@ -368,45 +369,6 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
   );
 }
 
-/** Tenant overview while waiting for the first registered agent. */
-function TenantOverview({ tenant }: { tenant: StudioTenantInfo }) {
-  return (
-    <section className="mx-auto w-full max-w-3xl flex-1 space-y-6 overflow-auto p-8">
-      <h1 className="text-2xl font-semibold">Runtime tenant</h1>
-      <dl className="space-y-4 rounded-lg border p-5">
-        <div>
-          <dt className="text-sm text-muted-foreground">Name</dt>
-          <dd className="mt-1 font-medium">{tenant.name}</dd>
-        </div>
-        <div>
-          <dt className="text-sm text-muted-foreground">Tenant ID</dt>
-          <dd className="mt-1 break-all font-mono text-sm">{tenant.id}</dd>
-        </div>
-        <div>
-          <dt className="text-sm text-muted-foreground">Runtime</dt>
-          <dd className="mt-1 text-sm">Connected</dd>
-        </div>
-      </dl>
-      <div className="space-y-2 rounded-lg bg-muted p-4 text-sm text-muted-foreground">
-        <p>No agents registered yet.</p>
-        <p>
-          Use the Runtime through the SDK, CLI, or your own client. Agents and
-          sessions appear here as you use them. See the{" "}
-          <a
-            className="text-primary underline underline-offset-4"
-            href="https://docs.nylorun.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            documentation
-          </a>{" "}
-          to get started.
-        </p>
-      </div>
-    </section>
-  );
-}
-
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -469,6 +431,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     return () => window.clearInterval(timer);
   }, [waiting, refresh]);
   const agent = connection.agents.find((a) => a.id === agentId);
+  const settingsActive = location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/") || location.pathname === "/vault";
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
@@ -476,18 +440,13 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         tenant={tenant}
         activeAgentId={agentId}
         activeSessionId={sessionId}
-        settingsActive={location.pathname === "/settings"}
-        vaultActive={location.pathname === "/vault"}
+        settingsActive={settingsActive}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
           <SidebarTrigger />
           <strong>
-            {location.pathname === "/settings"
-              ? "Model Settings"
-              : location.pathname === "/vault"
-                ? "Connections"
-                : (agent?.name ?? "Nylorun Studio")}
+            {settingsActive ? "Tenant settings" : (agent?.name ?? "Nylorun Studio")}
           </strong>
           {embedded() ? null : (
             <Badge variant="outline" title={tenant.id}>
@@ -520,11 +479,13 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               sessionId={decodeURIComponent(sessionOnly[1]!)}
             />
           ) : location.pathname === "/settings" ? (
-            <ModelSettings tenantId={tenant.id} />
+            <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
           ) : location.pathname === "/vault" ? (
-            <VaultModule tenantId={tenant.id} />
+            <Navigate to={`/settings/credentials${location.search}${location.hash}`} replace />
+          ) : settingsActive ? (
+            <TenantSettings tenant={tenant} />
           ) : waiting ? (
-            <TenantOverview tenant={tenant} />
+            <TenantOverview tenant={tenant} waitingForAgents />
           ) : agent && sessionId ? (
             <SessionWorkspace
               key={sessionId}

@@ -147,7 +147,7 @@ test("proxy allows /health for SDK compatibility checks", async () => {
   );
 });
 
-test("proxy creates Studio's Connections as installation vaults", async () => {
+test("proxy requires explicit installation vaults and lists them without an owner", async () => {
   const seen: { path: string; body: string }[] = [];
   await withUpstream(
     async (req, res) => {
@@ -170,7 +170,7 @@ test("proxy creates Studio's Connections as installation vaults", async () => {
         const created = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults`, {
           method: "POST",
           headers: { origin, "content-type": "application/json" },
-          body: JSON.stringify({ requestId: "r", idempotencyKey: "k", name: "GitHub", ownerUserId: "someone" }),
+          body: JSON.stringify({ requestId: "r", idempotencyKey: "k", name: "GitHub", scope: "installation" }),
         });
         assert.equal(created.status, 200);
         assert.deepEqual(JSON.parse(seen[0]!.body), {
@@ -181,7 +181,18 @@ test("proxy creates Studio's Connections as installation vaults", async () => {
         });
         const listed = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults`);
         assert.equal(listed.status, 200);
-        assert.equal(seen[1]!.path, "/v1/vaults?ownerUserId=local-developer");
+        assert.equal(seen[1]!.path, "/v1/vaults");
+        for (const body of [{ name: "Old defaults" }, { name: "Personal", ownerUserId: "someone" }, { name: "Conflicting", scope: "installation", ownerUserId: "someone" }]) {
+          const response = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults`, {
+            method: "POST",
+            headers: { origin, "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          assert.equal(response.status, 400);
+        }
+        const personal = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/vaults?ownerUserId=local-developer`);
+        assert.equal(personal.status, 400);
+        assert.equal(seen.length, 2, "unsupported owner requests never reach Runtime");
       } finally {
         studio.close();
         await once(studio, "close");
