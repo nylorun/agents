@@ -150,9 +150,16 @@ it("keeps a principal an earlier Runtime registered as an ordinary key", async (
   await sql`INSERT INTO nylorun.principals (id, role, token_hash, created_at)
     VALUES ('legacy', 'application', ${hashToken(key)}, ${new Date().toISOString()})`;
   const restarted = await startHost(sql, { adminKey: host.adminKey });
+  const me = await fetch(`${restarted.url}/v1/me`, {
+    headers: { authorization: `Bearer ${key}`, [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) },
+  });
+  expect(me.status).toBe(200);
+  expect(await me.json()).toMatchObject({ via: "application:legacy" });
+  // An application key: the Management API turns it away (protocol 8).
   const response = await restarted.tenant(key);
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({ tenant: { id } });
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({ code: "key_role_mismatch" });
+  expect((await restarted.status()).tenant).toMatchObject({ id });
 });
 
 it("refuses a database of the old layout: not ready, the cause in the status, the opaque 404", async () => {

@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
@@ -119,7 +120,7 @@ describe("nylorun mcp connect", () => {
     const startRequest = fetch.requests.find((item) => item.url.endsWith("/oauth/start"))!;
     const headers = new Headers(startRequest.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli-management")!.key}`);
-    expect(headers.get("nylorun-protocol")).toBe("7");
+    expect(headers.get("nylorun-protocol")).toBe(String(PROTOCOL_VERSION));
   });
 
   it("reuses the vault mcp, passes --client-id, and sees a reconnect rotate the credential", async () => {

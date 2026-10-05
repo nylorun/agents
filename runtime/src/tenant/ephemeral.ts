@@ -59,6 +59,11 @@ export interface StartEphemeralRuntimeOptions {
   name?: string;
   /** An application key for an application principal of the Tenant. Default: a new key. */
   applicationKey?: string;
+  /**
+   * A management key (protocol 8), registered as the key `bootstrap` like
+   * `NYLORUN_MANAGEMENT_KEY_FILE`. Default: a new key.
+   */
+  managementKey?: string;
   adminKey?: string;
   principalId?: string;
   /**
@@ -101,6 +106,8 @@ export interface EphemeralRuntime {
   adminUrl: string;
   tenantId: string;
   applicationKey: string;
+  /** The Management API's key (`/v1/tenant/*`), principal `bootstrap`. */
+  managementKey: string;
   adminKey: string;
   principalId: string;
   hostRoot: string;
@@ -185,6 +192,7 @@ export async function startEphemeralRuntime(
       ? createPostgresClient(options.database)
       : undefined;
   const applicationKey = options.applicationKey ?? mintBearerToken();
+  const managementKey = options.managementKey ?? mintBearerToken();
   const principalId =
     options.principalId ?? `principal_${randomBytes(8).toString("hex")}`;
   const module = createTenantModule({
@@ -197,6 +205,7 @@ export async function startEphemeralRuntime(
         principals: hostPrincipals({
           adminKey,
           application: { principalId, key: applicationKey },
+          bootstrapKey: managementKey,
           ...(options.studioCredentialHash
             ? { studioCredentialHash: options.studioCredentialHash }
             : {}),
@@ -267,6 +276,7 @@ export async function startEphemeralRuntime(
     adminUrl: started.adminUrl,
     tenantId,
     applicationKey,
+    managementKey,
     adminKey,
     principalId,
     hostRoot,

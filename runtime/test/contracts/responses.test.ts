@@ -65,6 +65,11 @@ function app(extra: Record<string, string> = {}): Record<string, string> {
   };
 }
 
+/** The Management API's key (protocol 8): every `/v1/tenant/*` route takes it alone. */
+function management(): Record<string, string> {
+  return { "nylorun-protocol": "5", authorization: `Bearer ${rt.managementKey}` };
+}
+
 /** Sends the request and returns its body, which must parse to itself with `schema`. */
 async function answer(
   schema: ZodType,
@@ -72,7 +77,9 @@ async function answer(
   path: string,
   options: { body?: unknown; headers?: Record<string, string>; base?: string } = {},
 ): Promise<any> {
-  const headers = { ...(options.headers ?? app()) };
+  const headers = {
+    ...(options.headers ?? (path.startsWith("/v1/tenant") ? management() : app())),
+  };
   if (options.body !== undefined) headers["content-type"] = "application/json";
   const response = await fetch(`${options.base ?? rt.url}${path}`, {
     method,
@@ -235,26 +242,26 @@ it("Tenant settings", async () => {
 
 it("vaults and credentials", async () => {
   const write = (key: string) => ({ requestId: key, idempotencyKey: key });
-  const vault = await answer(VaultInfoSchema, "POST", "/v1/vaults", {
+  const vault = await answer(VaultInfoSchema, "POST", "/v1/tenant/vaults", {
     body: { ...write("vault"), name: "v", ownerUserId: "app:ann", metadata: { team: "a" } },
   });
-  await answer(ListVaultsResponseSchema, "GET", "/v1/vaults?ownerUserId=app:ann");
-  await answer(VaultInfoSchema, "GET", `/v1/vaults/${vault.id}`);
-  const credential = await answer(CredentialInfoSchema, "POST", `/v1/vaults/${vault.id}/credentials`, {
+  await answer(ListVaultsResponseSchema, "GET", "/v1/tenant/vaults?ownerUserId=app:ann");
+  await answer(VaultInfoSchema, "GET", `/v1/tenant/vaults/${vault.id}`);
+  const credential = await answer(CredentialInfoSchema, "POST", `/v1/tenant/vaults/${vault.id}/credentials`, {
     body: {
       ...write("credential"),
       name: "api",
       auth: { type: "bearer", url: "https://api.example.com", token: "secret-token" },
     },
   });
-  const path = `/v1/vaults/${vault.id}/credentials/${credential.id}`;
-  await answer(ListCredentialsResponseSchema, "GET", `/v1/vaults/${vault.id}/credentials`);
+  const path = `/v1/tenant/vaults/${vault.id}/credentials/${credential.id}`;
+  await answer(ListCredentialsResponseSchema, "GET", `/v1/tenant/vaults/${vault.id}/credentials`);
   await answer(CredentialInfoSchema, "GET", path);
   await answer(CredentialInfoSchema, "POST", path, {
     body: { ...write("rotate"), auth: { type: "bearer", token: "rotated-token" } },
   });
   await answer(DeletedResponseSchema, "DELETE", path);
-  await answer(DeletedResponseSchema, "DELETE", `/v1/vaults/${vault.id}`);
+  await answer(DeletedResponseSchema, "DELETE", `/v1/tenant/vaults/${vault.id}`);
 });
 
 it("access: signing keys, public keys, and the agent list for an issuer token", async () => {
@@ -263,8 +270,8 @@ it("access: signing keys, public keys, and the agent list for an issuer token", 
     headers: app({ authorization: `Bearer ${token}` }),
   });
   await answer(JwksSchema, "GET", "/v1/access/jwks");
-  await answer(SigningKeyListSchema, "GET", "/v1/access/signing-keys");
-  await answer(SigningKeyListSchema, "POST", "/v1/access/signing-keys/rotate", {
+  await answer(SigningKeyListSchema, "GET", "/v1/tenant/signing-keys");
+  await answer(SigningKeyListSchema, "POST", "/v1/tenant/signing-keys/rotate", {
     body: { requestId: "rotate" },
   });
 });

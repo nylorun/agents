@@ -11,7 +11,8 @@
  * cases and is reset at the end. I5 needs no containers.
  *
  * I1  one Tenant per installation: the Admin API reports exactly one, open;
- *     Tenant API requests without Nylorun-Tenant work; /v1/admin/tenants is 404
+ *     Runtime and Management API requests without Nylorun-Tenant work, each with
+ *     its own key; /v1/admin/tenants is 404
  * I2  protocol 4 compatibility: Nylorun-Tenant naming the Host's Tenant works,
  *     naming another Tenant is the opaque 404
  * I3  a request outside the protocol range fails with 426 before any mutation
@@ -105,7 +106,10 @@ async function installProject(cwd, packed, deps, { name = "nylorun-acceptance", 
   await npm(["install", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd, capture: true });
 }
 
-/** A request with `key` (the Tenant's `project` key) unless `headers` replace it. */
+/**
+ * A request with `key` unless `headers` replace it: an application key for the Runtime API, a
+ * management key for the Management API (`/v1/tenant/*`).
+ */
 async function request(url, path, { method = "GET", key, body, headers = {} } = {}) {
   return fetch(`${url}${path}`, {
     method,
@@ -245,25 +249,26 @@ async function i5(temporary, packed) {
 }
 
 // ── I1: one Tenant per installation ──
-async function i1(url, admin, adminKey) {
+async function i1(url, stack, admin, adminKey) {
   const hostStatus = await admin.status();
   const { tenant } = hostStatus;
   assert.equal(hostStatus.tenants, undefined, "the Admin API reports one Tenant, not a list");
   assert.equal(tenant.state, "open", JSON.stringify(tenant));
   assert.match(tenant.id ?? "", /^tn_[0-9a-z]{26}$/);
   const { key } = await hostTenant(admin);
+  const managementKey = await stack.managementKey();
   // Nothing in a request selects the Tenant: no Nylorun-Tenant header anywhere.
   await request(url, "/v1/tenant/config/seed", {
     method: "PUT",
-    key,
+    key: managementKey,
     body: { requestId: randomUUID(), sandbox: { backend: "virtual" } },
   }).then(ok);
   await putAgent(url, key, "installation-agent");
   await putSession(url, key, "sess-installation", "installation-agent");
   const vault = (
-    await request(url, "/v1/vaults", {
+    await request(url, "/v1/tenant/vaults", {
       method: "POST",
-      key,
+      key: managementKey,
       body: { requestId: randomUUID(), idempotencyKey: randomUUID(), name: "Vault", ownerUserId: "acceptance" },
     }).then(ok)
   ).id;
@@ -272,8 +277,12 @@ async function i1(url, admin, adminKey) {
     ["installation-agent"],
   );
   assert.equal(await status(url, "/v1/sessions/sess-installation", key), 200);
-  assert.equal(await status(url, `/v1/vaults/${vault}`, key), 200);
-  assert.equal(await status(url, "/v1/tenant", key), 200);
+  assert.equal(await status(url, `/v1/tenant/vaults/${vault}`, managementKey), 200);
+  assert.equal(await status(url, "/v1/tenant", managementKey), 200);
+  // Each key reaches its own API only (protocol 8).
+  const crossed = await request(url, "/v1/tenant", { key });
+  assert.equal(crossed.status, 403, "an application key does not reach the Management API");
+  assert.equal((await crossed.json()).code, "key_role_mismatch");
   // Registration does not call the URL, so it need not answer.
   await request(url, "/v1/endpoints", {
     method: "PUT",
@@ -302,14 +311,14 @@ async function i1(url, admin, adminKey) {
   });
   assert.equal(onRuntimePort.status, 404, "the Runtime port serves no admin routes");
   assert.equal((await admin.status()).tenant.id, tenant.id, "still the one Tenant");
-  pass("I1", "one open Tenant per installation; the Tenant API needs no Nylorun-Tenant; /v1/admin/tenants is 404");
+  pass("I1", "one open Tenant per installation; its APIs need no Nylorun-Tenant; /v1/admin/tenants is 404");
 }
 
 // ── I2: protocol 4 compatibility ──
 async function i2(url, admin) {
   const { id, key } = await hostTenant(admin);
   const v4 = (tenantId) => ({ [PROTOCOL_HEADER]: "4", [TENANT_HEADER]: tenantId });
-  assert.equal(await status(url, "/v1/tenant", key, v4(id)), 200, "a protocol 4 client naming the Host's Tenant");
+  assert.equal(await status(url, "/v1/me", key, v4(id)), 200, "a protocol 4 client naming the Host's Tenant");
   assert.equal(await status(url, "/v1/agents", key, v4(id)), 200);
   const other = await request(url, "/v1/agents", { key, headers: v4(OTHER_TENANT) });
   assert.equal(other.status, 404, "a protocol 4 client naming another Tenant");
@@ -325,7 +334,7 @@ async function i3(url, admin, adminKey) {
   const { key } = await hostTenant(admin);
   // The packed admin client speaks the Runtime's protocol.
   assert.equal((await admin.status()).tenant.state, "open");
-  assert.equal(await status(url, "/v1/tenant", key), 200);
+  assert.equal(await status(url, "/v1/me", key), 200);
   const adminRejected = await request(admin.adminUrl, "/v1/admin/status", {
     headers: { authorization: `Bearer ${adminKey}`, [PROTOCOL_HEADER]: "99" },
   });
@@ -359,9 +368,15 @@ async function i9(url, stack, admin, temporary) {
   assert.equal(linked.link.format, 3);
   assert.equal(linked.link.tenant, stack.env.NYLORUN_TENANT);
   assert.equal(linked.link.tenantId, id);
-  assert.equal(linked.credentials.principalId, "project", "the link carries the operator key project");
+  assert.equal(linked.credentials.principalId, "project", "the link carries the application key project");
+  assert.equal(
+    linked.credentials.managementPrincipalId,
+    "project-management",
+    "and the management key project-management",
+  );
   assert.notEqual(linked.credentials.applicationKey, key, "the project key is not the checks' key");
-  assert.equal(await status(url, "/v1/tenant", linked.credentials.applicationKey), 200);
+  assert.equal(await status(url, "/v1/me", linked.credentials.applicationKey), 200);
+  assert.equal(await status(url, "/v1/tenant", linked.credentials.managementKey), 200);
   // A second start keeps the file: its key still authenticates.
   await stack.start(["--no-studio"], { cwd: project });
   assert.deepEqual((await readProject(project)).credentials, linked.credentials, "a later start keeps the key");
@@ -372,7 +387,8 @@ async function i9(url, stack, admin, temporary) {
   await rm(project, { recursive: true, force: true });
   const movedProject = await readProject(moved);
   assert.equal(movedProject.link.hostUrl, url);
-  assert.equal(await status(url, "/v1/tenant", movedProject.credentials.applicationKey), 200);
+  assert.equal(await status(url, "/v1/me", movedProject.credentials.applicationKey), 200);
+  assert.equal(await status(url, "/v1/tenant", movedProject.credentials.managementKey), 200);
   // A fresh clone or a second worktree has no .nylorun (it is git-ignored).
   for (const directory of ["project-i9-clone", "project-i9-worktree"]) {
     await mkdir(join(temporary, directory));
@@ -384,10 +400,12 @@ async function i9(url, stack, admin, temporary) {
   await stack.start(["--no-studio"], { cwd: worktree });
   const worktreeProject = await readProject(worktree);
   assert.equal(worktreeProject.link.tenantId, id);
-  assert.equal(await status(url, "/v1/tenant", worktreeProject.credentials.applicationKey), 200);
-  // The checkouts share the one project key: linking the worktree rotated nothing.
+  assert.equal(await status(url, "/v1/me", worktreeProject.credentials.applicationKey), 200);
+  // The checkouts share the project's keys: linking the worktree rotated nothing.
   assert.equal(worktreeProject.credentials.applicationKey, movedProject.credentials.applicationKey);
-  assert.equal(await status(url, "/v1/tenant", movedProject.credentials.applicationKey), 200);
+  assert.equal(worktreeProject.credentials.managementKey, movedProject.credentials.managementKey);
+  assert.equal(await status(url, "/v1/me", movedProject.credentials.applicationKey), 200);
+  assert.equal(await status(url, "/v1/tenant", movedProject.credentials.managementKey), 200);
   pass("I9", "a moved checkout keeps its Project link; clone/worktree do not inherit; nylorun start links a worktree");
 }
 
@@ -478,7 +496,7 @@ async function i8(url, stack, admin, packed, temporary) {
       const { link, credentials } = await readProject(project);
       assert.equal(link.hostUrl, url, "both Projects use the one Runtime");
       assert.equal(link.tenantId, id, "both Projects use the one Tenant");
-      assert.equal(await status(url, "/v1/tenant", credentials.applicationKey), 200, "each Project's key authenticates");
+      assert.equal(await status(url, "/v1/me", credentials.applicationKey), 200, "each Project's key authenticates");
       keys.add(credentials.applicationKey);
     }
     assert.equal(keys.size, 1, "concurrent starts share the one project key");
@@ -503,6 +521,7 @@ async function i8(url, stack, admin, packed, temporary) {
 async function i4(stack, admin) {
   const url = stack.runtimeUrl;
   const { id, key } = await hostTenant(admin);
+  const managementKey = await stack.managementKey();
   await putAgent(url, key, "restart-agent", "restart-agent-name");
   await putSession(url, key, "sess-restart", "restart-agent");
   await stack.nylorun(["stop"]);
@@ -535,7 +554,8 @@ async function i4(stack, admin) {
     { timeout: 120_000, message: "the Tenant to be unavailable with a cause" },
   );
   assert.equal(unavailable.cause?.code, "schema-too-new", JSON.stringify(unavailable));
-  assert.equal(await status(url, "/v1/tenant", key), 404, "the unavailable Tenant does not serve (opaque 404)");
+  assert.equal(await status(url, "/v1/agents", key), 404, "the unavailable Tenant does not serve (opaque 404)");
+  assert.equal(await status(url, "/v1/tenant", managementKey), 404, "nor its Management API");
   assert.equal((await fetch(`${url}/ready`)).status, 503, "readiness fails");
   pass("I4", "a database schema newer than the Runtime leaves the Tenant unavailable (schema-too-new) and fails readiness");
 }
@@ -571,7 +591,7 @@ try {
         const { adminKey } = JSON.parse(
           await readFile(join(stack.home, "host-credentials.json"), "utf8"),
         );
-        if (selected("I1")) await i1(url, admin, adminKey);
+        if (selected("I1")) await i1(url, stack, admin, adminKey);
         if (selected("I2")) await i2(url, admin);
         if (selected("I3")) await i3(url, admin, adminKey);
         if (selected("I9")) await i9(url, stack, admin, temporary);

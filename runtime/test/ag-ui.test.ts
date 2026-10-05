@@ -146,7 +146,7 @@ beforeAll(async () => {
   // The handler opens sessions without naming a sandbox, so they get the Tenant default.
   const configured = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
     method: "PUT",
-    headers: { ...runtime.headers(), "content-type": "application/json" },
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
     body: JSON.stringify({ default: "virtual" }),
   });
   if (!configured.ok) throw new Error(await configured.text());
@@ -309,7 +309,7 @@ describe("AG-UI handler against the Runtime", () => {
       headers: {
         "x-user": "bob",
         "Nylorun-Subject": "ada",
-        "Nylorun-Scopes": "sessions:own tenant:settings",
+        "Nylorun-Scopes": "sessions:own agents:write",
       },
     });
     expect(forged.status).toBe(200);

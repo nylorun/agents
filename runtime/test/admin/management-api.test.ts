@@ -2,7 +2,8 @@
  * The Management API (protocol 8, A2): `/v1/tenant/keys`, and vaults and signing keys under
  * `/v1/tenant`, with a management key, through `@nylorun/admin`'s `createManagementClient`.
  * A management key issues application keys, never management keys. Application keys do not
- * reach the new paths; the old ones stay until the protocol 8 cut.
+ * reach the Management API, and the old paths (`/v1/vaults`, `/v1/access/signing-keys`) are
+ * gone (protocol 8).
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -122,10 +123,10 @@ describe("the Management API's groups", () => {
       id: credential.id,
     });
     expect(await host.admin.vaults.delete(vault.id)).toEqual({ id: vault.id });
-    // Application keys keep the old paths until protocol 8, and never reach the new ones.
-    expect(await host.status(host.applicationKey, "GET", "/v1/vaults")).toBe(200);
+    // Application keys never reach the vaults, and the old paths are gone (protocol 8).
     expect(await host.status(host.applicationKey, "GET", "/v1/tenant/vaults")).toBe(403);
-    expect(await host.status(host.managementKey, "GET", "/v1/vaults")).toBe(403);
+    expect(await host.status(host.applicationKey, "GET", "/v1/vaults")).toBe(404);
+    expect(await host.status(host.managementKey, "GET", "/v1/vaults")).toBe(404);
   });
 
   it("lists and rotates signing keys under /v1/tenant/signing-keys", async () => {
@@ -136,6 +137,8 @@ describe("the Management API's groups", () => {
     const current = after.find((key) => key.state === "current");
     expect(current?.id).toBe(before.find((key) => key.state === "standby")?.id);
     expect(await host.status(host.applicationKey, "GET", "/v1/tenant/signing-keys")).toBe(403);
-    expect(await host.status(host.applicationKey, "GET", "/v1/access/signing-keys")).toBe(200);
+    // The old path is gone (protocol 8).
+    expect(await host.status(host.applicationKey, "GET", "/v1/access/signing-keys")).toBe(404);
+    expect(await host.status(host.managementKey, "GET", "/v1/access/signing-keys")).toBe(404);
   });
 });

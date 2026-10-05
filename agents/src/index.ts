@@ -124,7 +124,7 @@ export type {
   SessionSandboxHandle,
 } from "./client.js";
 export { SandboxesClient } from "./client.js";
-export { AccessClient, SigningKeysClient } from "./access.js";
+export { AccessClient } from "./access.js";
 export { createActionHandler } from "./action-handler.js";
 export type {
   ActionHandler,

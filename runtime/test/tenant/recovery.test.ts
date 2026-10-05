@@ -80,7 +80,7 @@ async function boot() {
   open.push(runtime);
   const configured = await realFetch(`${runtime.url}/v1/tenant/model`, {
     method: "PUT",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: "model-1",
       idempotencyKey: "model-1",

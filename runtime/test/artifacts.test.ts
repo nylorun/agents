@@ -241,7 +241,7 @@ it("refuses a body past the per-file cap mid-stream and stores nothing; then the
   await openSession(runtime, "s1");
   const limits = await fetch(`${runtime.url}/v1/tenant/artifacts`, {
     method: "PUT",
-    headers: json,
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({ limits: { fileBytes: 1024, totalBytes: 1500 } }),
   });
   expect(await limits.json()).toEqual({ limits: { fileBytes: 1024, totalBytes: 1500 }, usedBytes: 0 });
@@ -266,7 +266,7 @@ it("refuses a body past the per-file cap mid-stream and stores nothing; then the
   await uploaded(await upload(runtime, "name=one.bin&sessionId=s1", new Uint8Array(1000)));
   const full = await upload(runtime, "name=two.bin&sessionId=s1", streamOf(2, 500));
   expect(full.status).toBe(413);
-  const view = (await (await fetch(`${runtime.url}/v1/tenant/artifacts`, { headers: auth })).json()) as {
+  const view = (await (await fetch(`${runtime.url}/v1/tenant/artifacts`, { headers: runtime.managementHeaders() })).json()) as {
     usedBytes: number;
   };
   expect(view.usedBytes).toBe(1000);
@@ -327,7 +327,7 @@ for (const gate of ["in-process", "http"] as const)
     const runtime = await boot({ useHostModel: true, modelCall: { retryBaseDelayMs: 1 } });
     const configured = await realFetch(`${runtime.url}/v1/tenant/model`, {
       method: "PUT",
-      headers: json,
+      headers: runtime.managementHeaders(),
       body: JSON.stringify({
         requestId: "model-1",
         idempotencyKey: "model-1",

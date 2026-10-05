@@ -6,13 +6,14 @@
     "description": "Agents, sessions and their events, vaults, access and the Tenant's settings. A Runtime serves one Tenant: its URL is the Tenant's, and no request names it. Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields.",
     "x-nylorun-protocol": {
       "min": 4,
-      "max": 7,
+      "max": 8,
       "features": [
         "runtime-tenants",
         "admin-status",
         "studio-principal",
         "action-endpoints",
         "artifacts",
+        "management-api",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -21119,7 +21120,6 @@
                 "agents:read",
                 "agents:write",
                 "sessions:own",
-                "tenant:settings",
                 "sandboxes:write",
                 "studio"
               ]
@@ -21367,10 +21367,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21483,10 +21483,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21593,10 +21593,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -21728,10 +21728,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21818,10 +21818,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -21928,10 +21928,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22021,10 +22021,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22117,10 +22117,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -22230,10 +22230,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22369,10 +22369,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22506,10 +22506,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22643,10 +22643,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22790,10 +22790,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -22946,10 +22946,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23093,10 +23093,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23345,10 +23345,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -23481,10 +23481,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23620,10 +23620,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23771,10 +23771,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -23908,10 +23908,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24061,10 +24061,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24200,10 +24200,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24335,10 +24335,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24500,10 +24500,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24652,10 +24652,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24789,10 +24789,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -24941,10 +24941,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25076,10 +25076,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25223,10 +25223,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25437,10 +25437,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25594,10 +25594,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25818,10 +25818,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -25965,10 +25965,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26103,10 +26103,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26249,10 +26249,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": false,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -26426,49 +26426,22 @@
         "summary": "Get the Tenant's artifact limits",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -26543,49 +26516,22 @@
         "description": "The largest file one upload may store, and the most bytes all artifacts may hold. Unset limits take the defaults (100 MiB and 10 GiB).",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -26671,49 +26617,22 @@
         "summary": "Get the Tenant's status",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -26790,14 +26709,10 @@
         "description": "Deletes its sessions, its sandboxes, or both, after draining or cancelling the turns in progress. The Tenant stays open.",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
           "management"
         ],
         "x-nylorun-scopes": "never",
@@ -26805,10 +26720,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -26896,14 +26811,10 @@
         "description": "Sets each setting the Tenant does not have yet; keeps the ones it has.",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
           "management"
         ],
         "x-nylorun-scopes": "never",
@@ -26911,10 +26822,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -27001,50 +26912,22 @@
         "summary": "List model providers and models",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings",
-          "agents:write"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27120,49 +27003,22 @@
         "summary": "Get the Tenant's sandbox configuration",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27237,49 +27093,22 @@
         "description": "What a session gets when it names no sandbox, and the limits every session's sandbox must fit.",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27366,20 +27195,13 @@
         "description": "Totals from the model usage ledger, which the model gate writes once per call: for the Tenant, one agent or one turn, over the current UTC day or month, or all time.",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
@@ -27421,31 +27243,11 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27521,49 +27323,22 @@
         "summary": "Get the Tenant's model budgets",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27638,49 +27413,22 @@
         "description": "Replaces every budget. Before each model call the gate checks the scope's spend against its cap; once a cap is reached the call fails with `budget_exhausted` and the turn with `model.budget_exhausted`. An empty list removes every cap.",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27766,50 +27514,22 @@
         "summary": "List the model providers the Tenant has credentials for",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings",
-          "agents:write"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -27885,49 +27605,22 @@
         "summary": "Get the Tenant's model",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28001,49 +27694,22 @@
         "summary": "Set a model provider's credentials",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28129,49 +27795,22 @@
         "summary": "Choose the provider and model",
         "security": [
           {
-            "applicationKey": []
-          },
-          {
             "managementKey": []
           }
         ],
         "x-nylorun-credentials": [
-          "application",
-          "subject",
           "management"
         ],
-        "x-nylorun-scopes": [
-          "tenant:settings"
-        ],
+        "x-nylorun-scopes": "never",
         "parameters": [
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
             "in": "header"
           }
         ],
@@ -28269,10 +27908,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28371,10 +28010,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28464,10 +28103,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28549,10 +28188,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28662,10 +28301,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28761,10 +28400,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28858,10 +28497,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -28958,10 +28597,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29065,10 +28704,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29172,10 +28811,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29277,10 +28916,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29395,10 +29034,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29495,10 +29134,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -29536,1057 +29175,6 @@
           },
           "403": {
             "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "The authorization server, or its discovery, failed or refused (`oauth_failed`)"
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/vaults": {
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Create a vault",
-        "description": "With `scope: \"installation\"` the installation's own vault, owned by `installation`, which any session may attach; or a vault of one person (`ownerUserId`), which only that person's sessions attach.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateVaultRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The vault",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VaultInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The idempotency key was used for another vault"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "List vaults",
-        "description": "The installation vaults, after the vaults of `ownerUserId` when it names a person.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "Also list this person's vaults"
-            },
-            "required": false,
-            "description": "Also list this person's vaults",
-            "name": "ownerUserId",
-            "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The vaults",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListVaultsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/vaults/{vaultId}": {
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Get a vault",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The vault",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VaultInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Delete a vault and its credentials",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeletedResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/vaults/{vaultId}/credentials": {
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Add a credential",
-        "description": "A bearer token or OAuth tokens, bound to the URLs a tool may send them to.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCredentialRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The credential, without its secret",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "List a vault's credentials",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The credentials, without their secrets",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCredentialsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/vaults/{vaultId}/credentials/{credentialId}": {
-      "get": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Get a credential",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "credentialId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The credential, without its secret",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Rotate a credential's secret",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "credentialId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RotateCredentialRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The credential",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CredentialInfo"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A credential's type cannot change"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Delete a credential",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "credentialId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeletedResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/vaults/{vaultId}/oauth/start": {
-      "post": {
-        "tags": [
-          "Vaults"
-        ],
-        "summary": "Start an MCP OAuth connect",
-        "description": "Signs the installation in to the remote MCP server at `url` (declared as `server`) and stores its OAuth credential, bound to `url`, in this installation vault. The Runtime discovers the server's authorization server (RFC 9728, RFC 8414), registers itself (RFC 7591) unless `clientId` names a registered client, and answers the URL to open in a browser; the sign-in returns to `GET /v1/oauth/callback` within `expiresAt`. The callback URL is `NYLORUN_PUBLIC_URL` + `/v1/oauth/callback`, or this request's own origin when the Host has no public URL. Application keys acting for no one only. `oauth_client_required` when the server offers no registration and no `clientId` was given.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "vaultId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StartOAuthRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Where to send the browser",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartOAuthResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30681,10 +29269,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": false,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30798,6 +29386,9 @@
             "applicationKey": []
           },
           {
+            "managementKey": []
+          },
+          {
             "issuerToken": []
           },
           {}
@@ -30805,6 +29396,7 @@
         "x-nylorun-credentials": [
           "application",
           "subject",
+          "management",
           "token"
         ],
         "x-nylorun-scopes": "any",
@@ -30812,10 +29404,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -30872,7 +29464,7 @@
             }
           },
           "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
             "content": {
               "application/json": {
                 "schema": {
@@ -30933,10 +29525,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -31025,10 +29617,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -31137,10 +29729,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -31222,314 +29814,6 @@
         }
       }
     },
-    "/v1/access/signing-keys": {
-      "get": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "List signing keys",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Standby, current, previous and revoked keys",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SigningKeyList"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/signing-keys/rotate": {
-      "post": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Rotate the signing keys",
-        "description": "The standby key signs from now on; the current one still verifies tokens it signed. `force` also ends every outstanding delivery token and capability link.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RotateSigningKeysRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The keys after rotation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SigningKeyList"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The previous key may still verify outstanding tokens"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/signing-keys/{kid}/revoke": {
-      "post": {
-        "tags": [
-          "Access"
-        ],
-        "summary": "Revoke a signing key",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "kid",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `7`"
-            },
-            "required": true,
-            "description": "The protocol version, `7`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RevokeSigningKeyRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The key, revoked",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SigningKeyView"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Rotate before revoking the current key"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/me": {
       "get": {
         "tags": [
@@ -31559,10 +29843,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31695,10 +29979,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -31848,10 +30132,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32013,10 +30297,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32159,10 +30443,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32293,10 +30577,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -32443,10 +30727,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `7`"
+              "description": "The protocol version, `8`"
             },
             "required": true,
-            "description": "The protocol version, `7`",
+            "description": "The protocol version, `8`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },

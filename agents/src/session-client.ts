@@ -23,13 +23,11 @@ import {
   parseSubjectHeaders,
   type SubjectScope,
   type AcceptedResponse,
-  type CredentialInfo,
   type CredentialSelection,
   type LiveEvent,
   type MessagePart,
   type SandboxRequest,
   type SessionCommand,
-  type VaultInfo,
 } from "@nylorun/core/contracts";
 import { AccessClient } from "./access.js";
 import { SandboxesClient } from "./sandboxes.js";
@@ -273,137 +271,6 @@ export class AgentsClient {
     });
     return this.session(sessionId);
   }
-  /**
-   * Creates a vault: the installation's own (`scope: "installation"`), which any session may
-   * attach, or one person's (`ownerUserId`), which only that person's sessions attach. Vault
-   * routes take the application key acting for no one (protocol 7): not a client made with `as`.
-   */
-  createVault(
-    options: {
-      name: string;
-      metadata?: Record<string, string>;
-      idempotencyKey: string;
-      requestId?: string;
-    } & ({ scope: "installation"; ownerUserId?: undefined } | { scope?: "user"; ownerUserId: string }),
-  ): Promise<VaultInfo> {
-    return this.transport.json("/v1/vaults", "POST", {
-      requestId: options.requestId ?? id(),
-      idempotencyKey: options.idempotencyKey,
-      name: options.name,
-      ...(options.scope === "installation"
-        ? { scope: "installation" }
-        : { ownerUserId: options.ownerUserId }),
-      ...(options.metadata ? { metadata: options.metadata } : {}),
-    });
-  }
-  /** The installation vaults, after the vaults of `ownerUserId` when it is given. */
-  listVaults(ownerUserId?: string, signal?: AbortSignal): Promise<{ vaults: VaultInfo[] }> {
-    return this.transport.json(
-      ownerUserId === undefined
-        ? "/v1/vaults"
-        : `/v1/vaults?ownerUserId=${encodeURIComponent(ownerUserId)}`,
-      "GET",
-      undefined,
-      signal,
-    );
-  }
-  getVault(vaultId: string, signal?: AbortSignal): Promise<VaultInfo> {
-    return this.transport.json(
-      `/v1/vaults/${segment(vaultId)}`,
-      "GET",
-      undefined,
-      signal,
-    );
-  }
-  deleteVault(vaultId: string): Promise<{ id: string }> {
-    return this.transport.json(`/v1/vaults/${segment(vaultId)}`, "DELETE");
-  }
-  createCredential(
-    vaultId: string,
-    options: {
-      name: string;
-      idempotencyKey: string;
-      requestId?: string;
-      auth:
-        | { type: "bearer"; url: string; token: string }
-        | {
-            type: "oauth";
-            url: string;
-            accessToken: string;
-            expiresAt?: string | null;
-            refresh?: {
-              tokenEndpoint: string;
-              clientId: string;
-              refreshToken: string;
-              tokenEndpointAuth:
-                | { type: "none" }
-                | { type: "client_secret_basic"; clientSecret: string }
-                | { type: "client_secret_post"; clientSecret: string };
-            };
-          };
-    },
-  ): Promise<CredentialInfo> {
-    return this.transport.json(
-      `/v1/vaults/${segment(vaultId)}/credentials`,
-      "POST",
-      {
-        requestId: options.requestId ?? id(),
-        idempotencyKey: options.idempotencyKey,
-        name: options.name,
-        auth: options.auth,
-      },
-    );
-  }
-  listCredentials(
-    vaultId: string,
-    signal?: AbortSignal,
-  ): Promise<{ credentials: CredentialInfo[] }> {
-    return this.transport.json(
-      `/v1/vaults/${segment(vaultId)}/credentials`,
-      "GET",
-      undefined,
-      signal,
-    );
-  }
-  getCredential(
-    vaultId: string,
-    credentialId: string,
-    signal?: AbortSignal,
-  ): Promise<CredentialInfo> {
-    return this.transport.json(
-      `/v1/vaults/${segment(vaultId)}/credentials/${segment(credentialId)}`,
-      "GET",
-      undefined,
-      signal,
-    );
-  }
-  rotateCredential(
-    vaultId: string,
-    credentialId: string,
-    options: {
-      idempotencyKey: string;
-      requestId?: string;
-      auth:
-        | { type: "bearer"; token: string }
-        | { type: "oauth"; accessToken: string; expiresAt?: string | null };
-    },
-  ): Promise<CredentialInfo> {
-    return this.transport.json(
-      `/v1/vaults/${segment(vaultId)}/credentials/${segment(credentialId)}`,
-      "POST",
-      {
-        requestId: options.requestId ?? id(),
-        idempotencyKey: options.idempotencyKey,
-        auth: options.auth,
-      },
-    );
-  }
-  deleteCredential(vaultId: string, credentialId: string): Promise<{ id: string }> {
-    return this.transport.json(
-      `/v1/vaults/${segment(vaultId)}/credentials/${segment(credentialId)}`,
-      "DELETE",
-    );
-  }
   session(sessionId: string): SessionClient {
     return new SessionClient(this.transport, sessionId);
   }
@@ -626,6 +493,6 @@ export class SessionClient {
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
-export { AccessClient, SigningKeysClient } from "./access.js";
+export { AccessClient } from "./access.js";
 export { SandboxesClient } from "./sandboxes.js";
 export type { ForSessionOptions, SandboxSpec, SessionSandboxHandle } from "./sandboxes.js";

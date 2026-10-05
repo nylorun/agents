@@ -52,7 +52,7 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
 
     const seed = await getJson(`${host.url}/v1/tenant/config/seed`, {
       method: "PUT",
-      headers: a.headers(),
+      headers: a.managementHeaders(),
       body: JSON.stringify({
         requestId: randomUUID(),
         sandbox: { backend: "virtual" },
@@ -66,7 +66,7 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
     expect(seed.status).toBe(200);
 
     const model = await getJson(`${host.url}/v1/tenant/model`, {
-      headers: a.headers(),
+      headers: a.managementHeaders(),
     });
     expect(model.status).toBe(200);
     expect(model.raw).not.toContain(HOSTILE_MODEL_KEY);
@@ -74,7 +74,7 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
     expect(model.raw).not.toContain("sk-tenant-owned-seed-key");
 
     const sandbox = await getJson(`${host.url}/v1/tenant/sandbox`, {
-      headers: a.headers(),
+      headers: a.managementHeaders(),
     });
     expect(sandbox.status).toBe(200);
     // The backend selection must ignore NYLORUN_SANDBOX. The Tenant's own configuration
@@ -83,7 +83,7 @@ it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", a
     expect(JSON.stringify(selection)).not.toContain(`"${HOSTILE_SANDBOX}"`);
 
     const status = await getJson(`${host.url}/v1/tenant`, {
-      headers: a.headers(),
+      headers: a.managementHeaders(),
     });
     expect(status.status).toBe(200);
     expect(status.raw).not.toContain(HOSTILE_VAULT_KEK);

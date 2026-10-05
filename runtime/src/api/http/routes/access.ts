@@ -17,7 +17,6 @@ import {
   SigningKeyList,
   SigningKeyView,
 } from "../../components.js";
-import { requireOperator } from "../../../tenant/auth.js";
 import { publicJwk, signingKeyView } from "../../../tenant/signing-keys.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
@@ -26,8 +25,6 @@ import { jsonResponse } from "../respond.js";
 
 /** The Management API's signing-key routes: a management key. */
 const MANAGEMENT: RouteAccess = { credentials: ["management"], scopes: "never" };
-/** The signing-key routes at `/v1/access/signing-keys`: an application key, until protocol 8. */
-const APPLICATION: RouteAccess = { credentials: ["application"], scopes: "never" };
 
 const json = (schema: z.ZodType, description: string) => ({
   description,
@@ -42,7 +39,7 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
   tenantRoute(
     api,
     {
-      credentials: ["application", "subject", "token"],
+      credentials: ["application", "subject", "management", "token"],
       scopes: "any",
       // Public keys: an Action endpoint verifies delivery tokens with them and holds no key.
       anonymous: true,
@@ -72,13 +69,9 @@ export function accessRoutes(api: OpenAPIHono<TenantEnv>): void {
   );
 
   signingKeyRoutesAt(api, "/v1/tenant/signing-keys", MANAGEMENT);
-  signingKeyRoutesAt(api, "/v1/access/signing-keys", APPLICATION);
 }
 
-/**
- * The signing-key routes under `base`: `/v1/tenant/signing-keys`, the Management API's, or
- * `/v1/access/signing-keys`, which application keys reach until protocol 8.
- */
+/** The signing-key routes under `base` (`/v1/tenant/signing-keys`). */
 function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: RouteAccess): void {
   tenantRoute(
     api,
@@ -91,7 +84,6 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
       responses: { 200: json(SigningKeyList, "Standby, current, previous and revoked keys") },
     },
     async (c) => {
-      requireOperator(c.get("scope"));
       const ctx = c.env.tenant;
       const read = () => ctx.store.tx((t) => t.signingKeys());
       let rows = await read();
@@ -120,7 +112,6 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
       },
     },
     async (c) => {
-      requireOperator(c.get("scope"));
       const ctx = c.env.tenant;
       const request = RotateSigningKeysRequestSchema.parse(await readJson(c.req.raw));
       // The longest any token the Runtime signs lives (delivery tokens, capability links).
@@ -148,7 +139,6 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
       },
     },
     async (c) => {
-      requireOperator(c.get("scope"));
       const ctx = c.env.tenant;
       RevokeSigningKeyRequestSchema.parse(await readJson(c.req.raw));
       const row = await ctx.store.tx((t) => ctx.signingKeys.revoke(t, c.req.param("kid")!));

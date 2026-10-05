@@ -28,7 +28,7 @@ it("G3: ambient/env changes after seed do not overwrite Tenant config", async ()
     const a = host.tenant;
     const seed = await getJson(`${host.url}/v1/tenant/config/seed`, {
       method: "PUT",
-      headers: a.headers(),
+      headers: a.managementHeaders(),
       body: JSON.stringify({
         requestId: randomUUID(),
         sandbox: { backend: "virtual" },
@@ -45,10 +45,10 @@ it("G3: ambient/env changes after seed do not overwrite Tenant config", async ()
     });
 
     const beforeModel = await getJson(`${host.url}/v1/tenant/model`, {
-      headers: a.headers(),
+      headers: a.managementHeaders(),
     });
     const beforeSandbox = await getJson(`${host.url}/v1/tenant/sandbox`, {
-      headers: a.headers(),
+      headers: a.managementHeaders(),
     });
     expect(beforeModel.status).toBe(200);
     expect(beforeSandbox.status).toBe(200);
@@ -62,7 +62,7 @@ it("G3: ambient/env changes after seed do not overwrite Tenant config", async ()
 
       const again = await getJson(`${host.url}/v1/tenant/config/seed`, {
         method: "PUT",
-        headers: a.headers(),
+        headers: a.managementHeaders(),
         body: JSON.stringify({
           requestId: randomUUID(),
           sandbox: { backend: "auto" },
@@ -80,10 +80,10 @@ it("G3: ambient/env changes after seed do not overwrite Tenant config", async ()
       });
 
       const afterModel = await getJson(`${host.url}/v1/tenant/model`, {
-        headers: a.headers(),
+        headers: a.managementHeaders(),
       });
       const afterSandbox = await getJson(`${host.url}/v1/tenant/sandbox`, {
-        headers: a.headers(),
+        headers: a.managementHeaders(),
       });
       expect(afterModel.raw).toBe(beforeModel.raw);
       expect(afterSandbox.raw).toBe(beforeSandbox.raw);

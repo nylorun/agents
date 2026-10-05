@@ -41,7 +41,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
   closers.push(runtime);
 
   const response = await fetch(`${runtime.url}/v1/tenant`, {
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
   });
   expect(response.status).toBe(200);
   const body = await response.json();
@@ -53,6 +53,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
   expect(parsed.model.configured).toBe(false);
   const serialized = JSON.stringify(body);
   expect(serialized).not.toContain("status-app-key-16chars");
+  expect(serialized).not.toContain(runtime.managementKey);
 });
 
 it("summary() returns counts only with no string fields (A15)", async () => {
@@ -114,7 +115,7 @@ it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
     method: "POST",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       scope: "sessions",
@@ -130,7 +131,7 @@ it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17
   expect(missing.status).toBe(404);
 
   const status = await fetch(`${runtime.url}/v1/tenant`, {
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
   });
   const body = TenantStatusSchema.parse(await status.json());
   expect(body.counts.sessions).toBe(0);
@@ -142,7 +143,7 @@ it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17
   expect(
     (
       await fetch(`${runtime.url}/v1/tenant`, {
-        headers: runtime.headers(),
+        headers: runtime.managementHeaders(),
       })
     ).status,
   ).toBe(200);
@@ -156,7 +157,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
 
   const first = await fetch(`${runtime.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       sandbox: { backend: "virtual" },
@@ -174,7 +175,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
 
   const second = await fetch(`${runtime.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       sandbox: { backend: "auto" },
@@ -191,7 +192,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
   expect(kept.kept.sort()).toEqual(["model", "sandbox.backend"]);
 
   const model = await fetch(`${runtime.url}/v1/tenant/model`, {
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
   });
   const modelBody = await model.json();
   expect(modelBody).toMatchObject({
@@ -217,11 +218,12 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
   expect(ready.status).toBe(200);
   expect(runtime.tenantId).toMatch(/^tn_/);
   expect(runtime.applicationKey.length).toBeGreaterThanOrEqual(16);
+  expect(runtime.managementKey.length).toBeGreaterThanOrEqual(16);
   expect(runtime.adminKey.length).toBeGreaterThanOrEqual(16);
 
   const status = await fetch(`${runtime.url}/v1/tenant`, {
     headers: {
-      authorization: `Bearer ${runtime.applicationKey}`,
+      authorization: `Bearer ${runtime.managementKey}`,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       "content-type": "application/json",
     },
@@ -238,7 +240,7 @@ it("reset sandboxes renames then clears the sandboxes directory (A17)", async ()
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
     method: "POST",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       scope: "sandboxes",
@@ -273,9 +275,9 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
     }),
   });
 
-  const vault = await fetch(`${runtime.url}/v1/vaults`, {
+  const vault = await fetch(`${runtime.url}/v1/tenant/vaults`, {
     method: "POST",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       idempotencyKey: "vault-1",
@@ -287,7 +289,7 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
 
   await fetch(`${runtime.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       model: {
@@ -314,7 +316,7 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
     method: "POST",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
       scope: "all",
@@ -325,7 +327,7 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
 
   const status = TenantStatusSchema.parse(
     await (
-      await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.headers() })
+      await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() })
     ).json(),
   );
   expect(status.agents).toEqual([]);
@@ -333,8 +335,8 @@ it("reset all clears definitions, Action endpoints, user vaults and tenant log (
   expect(status.model.configured).toBe(true);
   expect(await endpoints()).toEqual([]);
 
-  const vaults = await fetch(`${runtime.url}/v1/vaults?ownerUserId=user-1`, {
-    headers: runtime.headers(),
+  const vaults = await fetch(`${runtime.url}/v1/tenant/vaults?ownerUserId=user-1`, {
+    headers: runtime.managementHeaders(),
   });
   expect((await vaults.json()).vaults).toEqual([]);
 

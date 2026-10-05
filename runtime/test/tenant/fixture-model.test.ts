@@ -44,7 +44,7 @@ const orders = Agent({ id: "orders", name: "Orders" })
 async function seed(runtime: Started, body: Record<string, unknown>) {
   const response = await fetch(`${runtime.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({ requestId: randomUUID(), ...body }),
   });
   expect(response.status).toBe(200);
@@ -99,7 +99,7 @@ async function items(runtime: Started) {
 }
 
 async function modelCheck(runtime: Started): Promise<boolean> {
-  const response = await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.headers() });
+  const response = await fetch(`${runtime.url}/v1/tenant`, { headers: runtime.managementHeaders() });
   return TenantStatusSchema.parse(await response.json()).checks.model;
 }
 
@@ -181,7 +181,7 @@ it("rejects a fixtureModel value other than true", async () => {
   open.push(runtime);
   const response = await fetch(`${runtime.url}/v1/tenant/config/seed`, {
     method: "PUT",
-    headers: runtime.headers(),
+    headers: runtime.managementHeaders(),
     body: JSON.stringify({ requestId: randomUUID(), fixtureModel: false }),
   });
   expect(response.status).toBe(400);

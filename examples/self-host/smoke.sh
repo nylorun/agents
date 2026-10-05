@@ -137,8 +137,8 @@ expect 404 "another person's session with ben's token"
 rt PUT "/v1/sessions/smoke-$RUN-steal" "$BEN" -H "content-type: application/json" \
   -d "$(json_of '{ requestId: a[0], agentId: a[1], ownerUserId: a[2] }' "steal-$RUN" "$AGENT" "$OTHER_SUBJECT")"
 expect 403 "a session for another owner with ben's token"
-rt GET /v1/vaults "$BEN"
-expect 403 "GET /v1/vaults with ben's token"
+rt GET /v1/tenant/vaults "$BEN"
+expect 403 "GET /v1/tenant/vaults (the Management API) with ben's token"
 pass "ben's token lists only his sessions, gets 404 for another's, and reaches no vault route"
 
 # 5. ben's own MCP credential, from OpenBao through the resolver.

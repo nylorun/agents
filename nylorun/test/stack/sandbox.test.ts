@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
@@ -100,7 +101,7 @@ describe("nylorun sandbox", () => {
     expect(new URL(request.url).searchParams.getAll("label")).toEqual(["project=acme"]);
     const headers = new Headers(request.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli")!.key}`);
-    expect(headers.get("nylorun-protocol")).toBe("7");
+    expect(headers.get("nylorun-protocol")).toBe(String(PROTOCOL_VERSION));
     const file = stackPaths(home).cliCredentials;
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
       format: 1,

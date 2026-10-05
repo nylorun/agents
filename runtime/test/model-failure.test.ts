@@ -57,7 +57,7 @@ async function tenant(idleTimeoutMs = 5_000) {
   });
   const response = await realFetch(`${runtime.url}/v1/tenant/model`, {
     method: "PUT",
-    headers: { ...runtime.headers(), "content-type": "application/json" },
+    headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
     body: JSON.stringify({
       requestId: "model-1",
       idempotencyKey: "model-1",
