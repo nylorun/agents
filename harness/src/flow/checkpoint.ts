@@ -3,7 +3,7 @@ import { WorkflowManifestSchema, type WorkflowManifest } from "@nylorun/core/con
 import { hashManifest } from "@nylorun/core/define";
 import {
   CHECKPOINT_VERSION,
-  flowEngineVersionOf,
+  FLOW_ENGINE_VERSION,
   type FlowEngineVersion,
 } from "../compatibility.js";
 
@@ -40,7 +40,7 @@ export function createFlowCheckpoint(input: {
   WorkflowManifestSchema.parse(input.manifest);
   return {
     version: CHECKPOINT_VERSION,
-    engineVersion: flowEngineVersionOf(input.manifest),
+    engineVersion: FLOW_ENGINE_VERSION,
     manifestHash: hashManifest(input.manifest),
     sessionId: input.sessionId,
     turnId: input.turnId,

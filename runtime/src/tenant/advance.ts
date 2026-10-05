@@ -57,7 +57,6 @@ import type { TurnOutput } from "@nylorun/core/harness-api";
 import { isOwnershipLost, ownedTx } from "../store/ownership.js";
 import type { EffectDoc, Tx } from "../store/types.js";
 import type { Lease, Session, TenantContext } from "./context.js";
-import { linkedAgentOutput } from "./session.js";
 import { isGateToolEffect, recoversModelCalls, recoversToolCalls } from "./effects.js";
 import { slimModelEffects } from "./slim.js";
 import {
@@ -458,10 +457,7 @@ async function wakeWorkflowOf(
       turnId,
       output:
         type === "turn.completed"
-          ? linkedAgentOutput(
-              agent,
-              (payload as { output?: JsonValue }).output
-            )
+          ? (payload as { output?: JsonValue }).output ?? null
           : undefined,
       failed: type === "turn.failed",
       error:

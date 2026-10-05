@@ -2,7 +2,6 @@ import { expect, it, describe } from "vitest";
 import { z } from "zod";
 import {
   Agent,
-  Loop,
   tool,
   createClient,
   type AgentsClient,
@@ -121,12 +120,7 @@ function buildDefinition(
   gates: ReturnType<typeof createGates>
 ): BuiltAgent | BuiltWorkflow {
   if (kind === "agent") return buildWorker(gates, "parity");
-  return Loop({
-    id: "parity",
-    run: buildWorker(gates, "parity-worker"),
-    verify: () => ({ pass: true as const }),
-    decide: ({ output }) => ({ output }),
-  });
+  return Agent({ id: "parity" }).pipe(buildWorker(gates, "parity-worker")).build();
 }
 
 /** Redeploy variant: same id, different hashed document (new manifest hash). */
@@ -146,13 +140,10 @@ function buildRedeployed(
       })
       .build();
   }
-  // Slot-rename the run agent so the workflow document hash changes (referenced
-  // agent instruction edits alone do not change the workflow manifest).
-  return Loop({
-    id: "parity",
-    run: {
-      id: "parity-worker-v2",
-      run: Agent({
+  // The flow agent embeds its worker, so the worker's new instructions change its hash.
+  return Agent({ id: "parity" })
+    .pipe(
+      Agent({
         id: "parity-worker",
         name: "parity-worker",
         instructions: "REDEPLOYED worker — call work, then stop.",
@@ -161,11 +152,9 @@ function buildRedeployed(
           id: "parity-tools",
           tools: [workTool(gates)],
         })
-        .build(),
-    },
-    verify: () => ({ pass: true as const }),
-    decide: ({ output }) => ({ output }),
-  });
+        .build()
+    )
+    .build();
 }
 
 function scriptedModel() {

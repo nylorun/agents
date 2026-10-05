@@ -2,8 +2,8 @@
  * The engine's `DurableHost` over the Harness API. An effect whose outcome came with the run
  * (same id, same request hash) resolves here; any other becomes an `effect.intent`. A model
  * intent carries no prompt: core stores its hash. When core answers `execute`, the harness runs
- * the call and reports its outcome. When it answers `pending` for an Action (a tool, `fn`
- * or `verify` an Action endpoint runs), the run may hold for its outcome (`options.hold`).
+ * the call and reports its outcome. When it answers `pending` for an Action (a tool an Action
+ * endpoint runs), the run may hold for its outcome (`options.hold`).
  */
 import {
   HarnessApiError,
@@ -26,7 +26,7 @@ export interface ApiHostOptions {
 }
 
 /** Effects whose `pending` is an Action endpoint's work, which a run may hold for. */
-const HELD_KINDS: ReadonlySet<HostEffect["kind"]> = new Set(["tool", "fn", "verify"]);
+const HELD_KINDS: ReadonlySet<HostEffect["kind"]> = new Set(["tool"]);
 
 export function apiHost(
   channel: HarnessChannel,

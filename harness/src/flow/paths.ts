@@ -1,17 +1,5 @@
 /** Path, node key and iteration-vector helpers (workflows.md §6). */
 
-export function joinPath(parent: string, part: string): string {
-  return parent ? `${parent}/${part}` : part;
-}
-
-/**
- * Map item path: `<map path>[index]/<each id>` (workflows.md §6).
- * Example: `implement[2]/code`.
- */
-export function mapItemPath(mapPath: string, index: number, eachId: string): string {
-  return `${mapPath}[${index}]/${eachId}`;
-}
-
 /** Drop Map indices from a path to get the node key. */
 export function nodeKeyOf(path: string): string {
   return path.replace(/\[\d+]/g, "");
@@ -24,8 +12,7 @@ export function iterationsOf(vector: readonly number[]): string {
 
 /**
  * Effect id for a flow effect (workflows.md §10).
- * `role` separates two effects of one kind on one path, e.g. a slot `input`
- * and the Map `over` or Switch `on` it wraps.
+ * `role` separates two effects of one kind on one path, e.g. a tool node's runs after it asked.
  */
 export function flowEffectId(input: {
   readonly turnId: string;

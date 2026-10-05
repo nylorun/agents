@@ -24,7 +24,7 @@ export function implementationVersionOf(options: {
   );
 }
 
-/** Agents embedded in a v2 workflow: served here, but saved only as part of the workflow. */
+/** Agents embedded in a flow agent: served here, but saved only as part of the flow agent. */
 const embeddedAgents = new WeakMap<Map<string, ExecutableDefinition>, Set<string>>();
 
 /** The ids among `agents` that are saved only as part of another definition. */
@@ -33,8 +33,8 @@ export function embeddedIn(agents: Map<string, ExecutableDefinition>): ReadonlyS
 }
 
 /**
- * Every definition `sources` serves, by id: the agents and workflows passed in, the agents
- * a v2 workflow embeds, and flow agents used as tools. `owner` names the caller in errors.
+ * Every definition `sources` serves, by id: the agents and flow agents passed in, the agents
+ * a flow agent embeds, and flow agents used as tools. `owner` names the caller in errors.
  */
 export function buildAgents(
   sources: readonly (AgentSource | BuiltWorkflow)[],
@@ -43,7 +43,7 @@ export function buildAgents(
   const agents = new Map<string, ExecutableDefinition>();
   const embedded = new Set<string>();
   /**
-   * Agents embedded in another definition (a v2 flow's agents, a flow agent used as a
+   * Agents embedded in another definition (a flow agent's agents, a flow agent used as a
    * tool) may be reached from more than one place; the same definition is served once.
    */
   const sameAsServed = (id: string, manifest: object): boolean => {
@@ -78,10 +78,9 @@ export function buildAgents(
       return;
     }
     agents.set(workflow.id, workflow);
-    const v2 = workflow.manifest.workflowSchemaVersion === 2;
     for (const binding of Object.values(workflow.getBinding().agents)) {
-      addAgent(agentFrom(binding.manifest, binding.implementations), v2);
-      if (v2) embedded.add(binding.manifest.id);
+      addAgent(agentFrom(binding.manifest, binding.implementations), true);
+      embedded.add(binding.manifest.id);
     }
   };
   for (const source of sources) {
@@ -104,12 +103,10 @@ export function buildAgents(
 }
 
 /**
- * The manifest hash served for a workflow's flow actions. A run is pinned to one workflow
- * manifest, and its stage keys may shift between deploys, so flow actions for another hash
- * are left for whoever serves it.
+ * The manifest hash served for a flow agent's tool node Actions. A run is pinned to one
+ * workflow manifest, and its stage keys may shift between deploys, so Actions for another
+ * hash are left for whoever serves it.
  */
 export function flowManifestHash(agent: ExecutableDefinition): string | undefined {
-  return isBuiltWorkflow(agent) && agent.manifest.workflowSchemaVersion === 2
-    ? hashManifest(agent.manifest)
-    : undefined;
+  return isBuiltWorkflow(agent) ? hashManifest(agent.manifest) : undefined;
 }

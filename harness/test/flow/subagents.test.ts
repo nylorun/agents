@@ -25,8 +25,8 @@ const toolResults = (call: ModelCall) =>
   );
 
 const research = Agent({ id: "research", description: "Researches a question." })
-  .step(Agent({ id: "searcher" }).instructions("Search."))
-  .step(Agent({ id: "summarizer" }).instructions("Summarize."));
+  .pipe(Agent({ id: "searcher" }).instructions("Search."))
+  .pipe(Agent({ id: "summarizer" }).instructions("Summarize."));
 const lead = Agent({ id: "lead" }).instructions("Delegate research.").subagents(research).build();
 
 /** The lead calls `research` once, then answers with whatever came back. */

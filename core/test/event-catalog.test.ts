@@ -62,7 +62,7 @@ describe("event catalog", () => {
 
   it("rejects a known type whose payload does not match", () => {
     expect(
-      SessionEventSchema.safeParse({ ...envelope, type: "loop.decided", payload: { n: 1 } })
+      SessionEventSchema.safeParse({ ...envelope, type: "loop.verified", payload: { n: 1 } })
         .success
     ).toBe(false);
   });

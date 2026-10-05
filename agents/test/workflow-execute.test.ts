@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  Agent,
-  Loop,
   bindTool,
   tool,
   type BuiltWorkflow,
@@ -38,7 +36,7 @@ function workflowWithTool(run: (
   const bound = bindTool(openPr, { middlewareId: "workflow", slot: "tool" });
   const manifest: WorkflowManifest = {
     kind: "workflow",
-    workflowSchemaVersion: 1,
+    workflowSchemaVersion: 3,
     id: "ship",
     root: {
       tool: {
@@ -47,10 +45,11 @@ function workflowWithTool(run: (
         outputSchema: { type: "object" },
       },
     },
+    agents: {},
   };
   const binding: WorkflowBinding = {
     manifest,
-    nodes: { ship: { kind: "tool", tool: bound } },
+    nodes: { "open-pr": { kind: "tool", tool: bound } },
     agents: {},
   };
   return {
@@ -69,8 +68,8 @@ describe("executeAction workflow tool nodes (WF-R13 / WF-D8 / WF-C5)", () => {
     const action: Action = {
       ...base,
       kind: "tool",
-      path: "ship",
-      key: "ship",
+      path: "open-pr",
+      key: "open-pr",
       input: { summaries: ["a", "b"] },
       inputSchema: { type: "object" },
       outputSchema: { type: "object" },
@@ -91,8 +90,8 @@ describe("executeAction workflow tool nodes (WF-R13 / WF-D8 / WF-C5)", () => {
     const action: Action = {
       ...base,
       kind: "tool",
-      path: "ship",
-      key: "ship",
+      path: "open-pr",
+      key: "open-pr",
       input: { summaries: "not-an-array" },
     };
     const outcome = await executeAction(
@@ -106,48 +105,13 @@ describe("executeAction workflow tool nodes (WF-R13 / WF-D8 / WF-C5)", () => {
     });
   });
 
-  it("dispatches fn and verify by key on the workflow binding", async () => {
-    const writer = Agent({ id: "writer", instructions: "Write." }).build();
-    const workflow = Loop({
-      id: "polish",
-      run: writer,
-      verify: () => ({ pass: true as const }),
-      decide: () => ({ output: "done" }),
-    });
-    const verify = await executeAction(
-      {
-        ...base,
-        actionId: "t:0:flow:polish:verify:-",
-        agentId: "polish",
-        kind: "verify",
-        path: "polish",
-        key: "polish",
-        input: { input: "x", output: "y", iteration: 1 },
-      },
-      workflow,
-      new AbortController().signal,
-    );
-    expect(verify.value).toEqual({ pass: true });
-
-    const decide = await executeAction(
-      {
-        ...base,
-        actionId: "t:0:flow:polish:fn:-",
-        agentId: "polish",
-        kind: "fn",
-        path: "polish",
-        key: "polish/decide",
-        input: {
-          output: "y",
-          verdict: { pass: true },
-          iteration: 1,
-          input: "x",
-          history: [],
-        },
-      },
-      workflow,
-      new AbortController().signal,
-    );
-    expect(decide.value).toEqual({ output: "done" });
+  it("refuses an Action that is not a tool node", async () => {
+    await expect(
+      executeAction(
+        { ...base, kind: "fn", path: "open-pr:input", key: "open-pr:input", input: {} } as never,
+        workflowWithTool(() => ({ url: "x" })),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/Unsupported action kind fn on workflow/);
   });
 });

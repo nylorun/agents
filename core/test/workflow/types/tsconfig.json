@@ -9,5 +9,5 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["./usage.ts", "./authoring.ts"]
+  "include": ["./authoring.ts"]
 }

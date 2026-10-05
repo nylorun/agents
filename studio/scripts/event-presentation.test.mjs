@@ -24,13 +24,17 @@ test("labels new Runtime LiveEvent types", () => {
 test("labels workflow LiveEvent types", () => {
   assert.equal(eventLabel({ type: "node.started" }), "Node started");
   assert.equal(eventLabel({ type: "loop.iteration" }), "Loop iteration");
-  assert.equal(eventLabel({ type: "loop.decided" }), "Loop decided");
+  assert.equal(eventLabel({ type: "loop.verified" }), "Loop verified");
   assert.equal(
     eventSummary({
-      type: "loop.decided",
-      payload: { path: "fix-tests", n: 1, next: "input", patched: true },
+      type: "loop.verified",
+      payload: { path: "fix-tests", n: 1, pass: false, feedback: "tests still red" },
     }),
-    "fix-tests #1 → input (patched)",
+    "fix-tests #1: fail — tests still red",
+  );
+  assert.equal(
+    eventSummary({ type: "loop.verified", payload: { path: "fix-tests", n: 2, pass: true } }),
+    "fix-tests #2: pass",
   );
 });
 

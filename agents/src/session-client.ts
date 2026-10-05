@@ -231,8 +231,8 @@ export class AgentsClient {
     agent: AgentSource | BuiltWorkflow,
     options: { implementationVersion: string; requestId?: string }
   ) {
-    if (isBuiltWorkflow(agent) && agent.manifest.workflowSchemaVersion === 2) {
-      // A v2 workflow embeds its agents: one document, carrying their files.
+    if (isBuiltWorkflow(agent)) {
+      // A flow agent embeds its agents: one document, carrying their files.
       const files = new Map<string, SkillFileSource>();
       for (const binding of Object.values(agent.getBinding().agents)) {
         const leaf = { id: binding.manifest.id, manifest: binding.manifest, getBinding: () => binding };
@@ -240,23 +240,6 @@ export class AgentsClient {
         skillFilesOf(leaf, files);
       }
       await this.files.ensure(files);
-      return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
-        requestId: options.requestId ?? id(),
-        manifest: agent.manifest,
-        implementationVersion: options.implementationVersion,
-      });
-    }
-    if (isBuiltWorkflow(agent)) {
-      for (const binding of Object.values(agent.getBinding().agents)) {
-        await this.saveAgent(
-          {
-            id: binding.manifest.id,
-            manifest: binding.manifest,
-            getBinding: () => binding,
-          },
-          options,
-        );
-      }
       return this.transport.json(`/v1/agents/${segment(agent.id)}`, "PUT", {
         requestId: options.requestId ?? id(),
         manifest: agent.manifest,

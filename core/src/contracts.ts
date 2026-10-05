@@ -2,7 +2,7 @@
 import { z } from "zod";
 import type { AgentManifest } from "./types/manifest.js";
 import type { JsonValue } from "./types/shared.js";
-import type { WorkflowManifest, WorkflowNodeV2 } from "./types/workflow.js";
+import type { WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
   SANDBOX_NETWORK_PRESETS,
   SANDBOX_TOOL_NAMES,
@@ -10,7 +10,11 @@ import {
   parseSandboxDuration,
   parseSandboxSize,
 } from "./utils/sandbox.js";
-import { REMOVED_CAPABILITY_FIELDS, manifestVersionIssue } from "./definition/removed.js";
+import {
+  REMOVED_CAPABILITY_FIELDS,
+  manifestVersionIssue,
+  workflowVersionIssue,
+} from "./definition/removed.js";
 import { DELEGATE_INPUT_SCHEMA } from "./definition/delegate.js";
 import { stdioMcpRefusal } from "./definition/mcp.js";
 import {
@@ -150,7 +154,7 @@ const toolManifestSchema = z
     inputSchema: jsonObject,
     outputSchema: jsonObject.optional(),
     agent: z
-      .lazy(() => z.union([workflowV2ManifestSchema, AgentManifestSchema]))
+      .lazy(() => z.union([workflowManifestSchema, AgentManifestSchema]))
       .meta({ id: "ToolAgentManifest" })
       .optional(),
     http: httpToolTargetSchema.optional(),
@@ -327,10 +331,16 @@ function delegationIssues(manifest: AgentManifest, issue: (message: string) => v
   if (sandboxes.size > 1)
     issue("An agent and the agents it uses as tools must declare identical sandboxes");
 }
-const workflowFnRefSchema = z.object({ fn: z.literal(true) }).strict();
+// Workflow manifest v3 (flow agents): `id` on any node, embedded agents, no functions.
+const workflowNodeOptions = { id: z.string().min(1).optional() };
+const workflowAgentNodeSchema = z
+  .object({ agent: z.string().min(1), ...workflowNodeOptions })
+  .strict();
+/** What judges a Loop attempt: a verifier agent. */
+const workflowLoopVerifySchema = z.union([workflowAgentNodeSchema]);
 const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
   z.union([
-    z.object({ agent: z.string().min(1) }).strict(),
+    workflowAgentNodeSchema,
     z
       .object({
         tool: z
@@ -341,175 +351,58 @@ const workflowNodeSchema: z.ZodTypeAny = z.lazy(() =>
             outputSchema: jsonObject.optional(),
           })
           .strict(),
+        ...workflowNodeOptions,
       })
       .strict(),
-    z
-      .object({
-        chain: z
-          .object({
-            id: z.string().min(1),
-            steps: z.array(workflowNodeSchema).min(1),
-          })
-          .strict(),
-      })
-      .strict(),
+    z.object({ chain: z.array(workflowNodeSchema).min(1), ...workflowNodeOptions }).strict(),
     z
       .object({
         switch: z
           .object({
-            id: z.string().min(1),
-            on: workflowFnRefSchema,
             cases: z.record(z.string(), workflowNodeSchema),
             default: workflowNodeSchema.optional(),
           })
           .strict(),
+        ...workflowNodeOptions,
       })
       .strict(),
     z
       .object({
         parallel: z
-          .object({
-            id: z.string().min(1),
-            branches: z.record(z.string(), workflowNodeSchema),
-          })
-          .strict(),
+          .record(z.string(), workflowNodeSchema)
+          .refine((branches) => Object.keys(branches).length > 0, {
+            message: "parallel needs at least one branch",
+          }),
+        ...workflowNodeOptions,
       })
       .strict(),
     z
       .object({
-        map: z
-          .object({
-            id: z.string().min(1),
-            over: workflowFnRefSchema,
-            each: workflowNodeSchema,
-          })
-          .strict(),
+        map: z.object({ each: workflowNodeSchema }).strict(),
+        ...workflowNodeOptions,
       })
       .strict(),
     z
       .object({
         loop: z
           .object({
-            id: z.string().min(1),
             run: workflowNodeSchema,
-            verify: z.union([
-              workflowFnRefSchema,
-              z.object({ agent: z.string().min(1) }).strict(),
-              z
-                .object({
-                  slot: z
-                    .object({
-                      id: z.string().min(1).optional(),
-                      input: workflowFnRefSchema.optional(),
-                      run: workflowNodeSchema,
-                    })
-                    .strict(),
-                })
-                .strict(),
-            ]),
-            decide: workflowFnRefSchema,
+            verify: workflowLoopVerifySchema,
+            max: z.number().int().positive(),
           })
           .strict(),
-      })
-      .strict(),
-    z
-      .object({
-        slot: z
-          .object({
-            id: z.string().min(1).optional(),
-            input: workflowFnRefSchema.optional(),
-            run: workflowNodeSchema,
-          })
-          .strict(),
+        ...workflowNodeOptions,
       })
       .strict(),
   ])
 ).meta({ id: "WorkflowNode" });
-const workflowV1ManifestSchema = z
-  .object({
-    kind: z.literal("workflow"),
-    workflowSchemaVersion: z.literal(1),
-    id: z.string().min(1),
-    root: workflowNodeSchema,
-    sandbox: sandboxManifestSchema.optional(),
-  })
-  .strict();
-// v2 (Flow Agents): `id` and `input` on any node, no slots, embedded agents.
-const workflowNodeOptionsV2 = {
-  id: z.string().min(1).optional(),
-  input: workflowFnRefSchema.optional(),
-};
-const workflowAgentNodeV2Schema = z
-  .object({ agent: z.string().min(1), ...workflowNodeOptionsV2 })
-  .strict();
-const workflowNodeV2Schema: z.ZodTypeAny = z.lazy(() =>
-  z.union([
-    workflowAgentNodeV2Schema,
-    z
-      .object({
-        tool: z
-          .object({
-            name: z.string().min(1),
-            description: z.string().optional(),
-            inputSchema: jsonObject.optional(),
-            outputSchema: jsonObject.optional(),
-          })
-          .strict(),
-        ...workflowNodeOptionsV2,
-      })
-      .strict(),
-    z.object({ chain: z.array(workflowNodeV2Schema).min(1), ...workflowNodeOptionsV2 }).strict(),
-    z
-      .object({
-        switch: z
-          .object({
-            on: workflowFnRefSchema,
-            cases: z.record(z.string(), workflowNodeV2Schema),
-            default: workflowNodeV2Schema.optional(),
-          })
-          .strict(),
-        ...workflowNodeOptionsV2,
-      })
-      .strict(),
-    z
-      .object({
-        parallel: z
-          .record(z.string(), workflowNodeV2Schema)
-          .refine((branches) => Object.keys(branches).length > 0, {
-            message: "parallel needs at least one branch",
-          }),
-        ...workflowNodeOptionsV2,
-      })
-      .strict(),
-    z
-      .object({
-        map: z.object({ each: workflowNodeV2Schema }).strict(),
-        ...workflowNodeOptionsV2,
-      })
-      .strict(),
-    z
-      .object({
-        loop: z
-          .object({
-            run: workflowNodeV2Schema,
-            verify: z.union([workflowFnRefSchema, workflowAgentNodeV2Schema]),
-            max: z.number().int().positive().optional(),
-            decide: workflowFnRefSchema.optional(),
-          })
-          .strict()
-          .refine((loop) => loop.max !== undefined || loop.decide !== undefined, {
-            message: "loop needs max or decide",
-          }),
-        ...workflowNodeOptionsV2,
-      })
-      .strict(),
-  ])
-).meta({ id: "WorkflowNodeV2" });
-const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
+const workflowManifestSchema: z.ZodTypeAny = z.lazy(() =>
   z
     .object({
       kind: z.literal("workflow"),
-      workflowSchemaVersion: z.literal(2),
+      workflowSchemaVersion: z.literal(3, {
+        error: (issue) => workflowVersionIssue(issue.input),
+      }),
       id: z.string().min(1),
       name: z.string().min(1).optional(),
       description: z.string().optional(),
@@ -517,15 +410,15 @@ const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
       inputSchema: jsonObject.optional(),
       outputSchema: jsonObject.optional(),
       sandbox: sandboxManifestSchema.optional(),
-      root: workflowNodeV2Schema,
+      root: workflowNodeSchema,
       agents: z.record(
         z.string().min(1),
-        z.union([workflowV2ManifestSchema, AgentManifestSchema])
+        z.union([workflowManifestSchema, AgentManifestSchema])
       ),
     })
     .strict()
     .superRefine((manifest, ctx) => {
-      for (const agentId of referencedAgents(manifest.root as WorkflowNodeV2)) {
+      for (const agentId of referencedAgents(manifest.root as WorkflowNode)) {
         if (!(agentId in manifest.agents))
           ctx.addIssue({
             code: "custom",
@@ -542,10 +435,10 @@ const workflowV2ManifestSchema: z.ZodTypeAny = z.lazy(() =>
           });
       }
     })
-).meta({ id: "WorkflowV2Manifest" });
-function referencedAgents(node: WorkflowNodeV2): string[] {
+).meta({ id: "WorkflowManifest" });
+function referencedAgents(node: WorkflowNode): string[] {
   const out: string[] = [];
-  const visit = (child: WorkflowNodeV2): void => {
+  const visit = (child: WorkflowNode): void => {
     if ("agent" in child) out.push(child.agent);
     else if ("chain" in child) child.chain.forEach(visit);
     else if ("switch" in child) {
@@ -555,17 +448,14 @@ function referencedAgents(node: WorkflowNodeV2): string[] {
     else if ("map" in child) visit(child.map.each);
     else if ("loop" in child) {
       visit(child.loop.run);
-      if ("agent" in child.loop.verify) visit(child.loop.verify);
+      visit(child.loop.verify);
     }
   };
   visit(node);
   return out;
 }
 /** Workflow definition document. `kind: "workflow"`; a missing `kind` is never a workflow. */
-export const WorkflowManifestSchema = z.union([
-  workflowV1ManifestSchema,
-  workflowV2ManifestSchema,
-]) as unknown as z.ZodType<WorkflowManifest>;
+export const WorkflowManifestSchema = workflowManifestSchema as unknown as z.ZodType<WorkflowManifest>;
 /** Registry document: agent (no `kind`, or legacy) or workflow (`kind: "workflow"`). */
 export const DefinitionDocumentSchema = z.union([
   AgentManifestSchema,
@@ -1371,28 +1261,7 @@ const workflowToolActionSchema = z
     outputSchema: jsonObject.optional(),
   })
   .strict();
-const fnActionSchema = z
-  .object({
-    ...actionBase,
-    kind: z.literal("fn"),
-    path: z.string().min(1),
-    key: z.string().min(1),
-  })
-  .strict();
-const verifyActionSchema = z
-  .object({
-    ...actionBase,
-    kind: z.literal("verify"),
-    path: z.string().min(1),
-    key: z.string().min(1),
-  })
-  .strict();
-export const ActionSchema = z.union([
-  agentToolActionSchema,
-  workflowToolActionSchema,
-  fnActionSchema,
-  verifyActionSchema,
-]);
+export const ActionSchema = z.union([agentToolActionSchema, workflowToolActionSchema]);
 export type Action = z.infer<typeof ActionSchema>;
 
 /**
@@ -1672,15 +1541,6 @@ export const LoopVerifiedPayloadSchema = z
     data: z.unknown().optional(),
   })
   .passthrough();
-/** `loop.decided`: a Loop's decide step chose to iterate again (`input`) or finish (`output`). */
-export const LoopDecidedPayloadSchema = z
-  .object({
-    path: z.string(),
-    n: z.number().int(),
-    next: z.enum(["input", "output"]),
-    patched: z.boolean(),
-  })
-  .passthrough();
 /**
  * `transcript.updated` (internal; blueprint P0.3): the own loop's model-facing transcript after a
  * settled segment, as an edit of the previous one: keep its first `keep` entries, then append
@@ -1840,7 +1700,6 @@ export const EVENT_CATALOG = {
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
   "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
   "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1 },
-  "loop.decided": { payload: LoopDecidedPayloadSchema, source: "api", version: 1 },
   "artifact.created": { payload: ArtifactVersionPayloadSchema, source: "api", version: 1 },
   "artifact.version.created": {
     payload: ArtifactVersionPayloadSchema,

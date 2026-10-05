@@ -13,8 +13,8 @@ import { AgentManifestSchema } from "../src/contracts.js";
 
 const agent = (id: string) => Agent({ id, description: `The ${id}.` }).instructions(`Be ${id}.`);
 const research = Agent({ id: "research", description: "Researches a question and reports back." })
-  .step(agent("searcher"))
-  .step(agent("summarizer"));
+  .pipe(agent("searcher"))
+  .pipe(agent("summarizer"));
 
 const codesOf = (build: () => unknown): string[] => {
   try {
@@ -27,13 +27,13 @@ const codesOf = (build: () => unknown): string[] => {
 };
 
 describe("flow agents as subagents", () => {
-  it("inline the flow's workflow manifest v2 in the delegating tool", () => {
+  it("inline the flow's workflow manifest v3 in the delegating tool", () => {
     const lead = Agent({ id: "lead" }).instructions("Lead.").subagents(research).build();
     const tool = lead.manifest.capabilities[0]!.tools![0]!;
     expect(tool).toMatchObject({
       name: "research",
       description: "Researches a question and reports back.",
-      agent: { kind: "workflow", workflowSchemaVersion: 2, id: "research" },
+      agent: { kind: "workflow", workflowSchemaVersion: 3, id: "research" },
     });
     expect(tool.agent).toEqual(research.manifest);
     expect(AgentManifestSchema.safeParse(lead.manifest).success).toBe(true);
@@ -59,20 +59,20 @@ describe("flow agents as subagents", () => {
     const named = (id: string) =>
       Agent({ id, name: `Named ${id}`, description: `The ${id}.` }).instructions(`Be ${id}.`);
     const desk = Agent({ id: "desk", name: "Desk", description: "Runs a desk." })
-      .step(named("reader"))
-      .step(named("writer"));
+      .pipe(named("reader"))
+      .pipe(named("writer"));
     expect(codesOf(() => Agent({ id: "lead" }).instructions("Lead.").subagents(desk).build())).toEqual([]);
   });
 
   it("need a description, like any subagent", () => {
-    const plain = Agent({ id: "plain" }).step(agent("a"));
+    const plain = Agent({ id: "plain" }).pipe(agent("a"));
     expect(codesOf(() => Agent({ id: "lead" }).instructions("Lead.").subagents(plain).build())).toEqual([
       "delegation.description-required",
     ]);
   });
 
   it("may have agents that delegate in turn", () => {
-    const deep = Agent({ id: "deep", description: "Goes deep." }).step(
+    const deep = Agent({ id: "deep", description: "Goes deep." }).pipe(
       Agent({ id: "worker" }).instructions("Work.").subagents(agent("helper"))
     );
     expect(codesOf(() => Agent({ id: "lead" }).instructions("Lead.").subagents(deep).build())).toEqual([]);

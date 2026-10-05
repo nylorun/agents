@@ -22,7 +22,7 @@ createServer(actions.node).listen(3001); // or actions.fetch in Hono, Next.js, W
 await actions.register({ url });
 ```
 
-The Runtime delivers each tool call and workflow function of these agents
+The Runtime delivers each tool call of these agents (and each tool node of their flows)
 to `url`, signed with a short-lived **delivery token** that the handler checks
 (Tenant, URL, Action, generation and body) before any code runs. `register`
 saves the definitions, registers the URL and pings it through the Runtime. A
@@ -254,26 +254,37 @@ Delegate when the parent should keep the answer. When a specialist should own th
 
 ## Flow agents
 
-An agent's body is either a ReAct loop (the model decides) or a flow (your code
-decides). A flow agent is built from stages, each shaped `.stage(whatRuns, { how })`,
-and is registered, saved and opened as a session like any agent: put it in
-`export const agents`, `saveAgent(flowAgent)`, then `createSession({ agentId })`
-and `session.input(value)`. `input` sends string values as `content` and other JSON
-as `data`. On the wire a flow agent is a workflow manifest v2 (`kind: "workflow"`,
-`workflowSchemaVersion: 2`) that embeds the agents it runs, so one document and one
-manifest hash cover the whole flow; its agents are not listed on their own.
+An agent's body is either a ReAct loop (the model decides) or a flow (its manifest
+decides). A flow agent is built from stages and is registered, saved and opened as a
+session like any agent: put it in `export const agents`, `saveAgent(flowAgent)`, then
+`createSession({ agentId })` and `session.input(value)`. `input` sends string values as
+`content` and other JSON as `data`. On the wire a flow agent is a workflow manifest v3
+(`kind: "workflow"`, `workflowSchemaVersion: 3`) that embeds the agents it runs, so one
+document and one manifest hash cover the whole flow; its agents are not listed on their own.
+
+A flow runs no code of yours: the first stage gets the flow's input, and every later stage
+gets the previous stage's output. So each agent returns, through its `.output()` schema,
+what the next stage needs.
 
 ```ts
-import { Agent, tool } from "@nylorun/agents";
+import { Agent, VerdictSchema, tool } from "@nylorun/agents";
 import { z } from "zod";
 
 const planner = Agent({ id: "planner" })
-  .instructions("Return { tasks: string[] }.")
-  .output(z.object({ tasks: z.array(z.string()) }));
+  .instructions("Return { items: string[] }, one task each.")
+  .output(z.object({ items: z.array(z.string()) }));
 
 const coder = Agent({ id: "coder" })
   .instructions("Implement one task. Return { summary }.")
   .output(z.object({ summary: z.string() }));
+
+const reviewer = Agent({ id: "reviewer" })
+  .instructions("Pass the response when its summary says what changed.")
+  .output(VerdictSchema);
+
+const prWriter = Agent({ id: "pr-writer" })
+  .instructions("Return the summaries you are given as { summaries }.")
+  .output(z.object({ summaries: z.array(z.string()) }));
 
 const openPr = tool({
   name: "open-pr",
@@ -285,50 +296,41 @@ const openPr = tool({
 });
 
 export const shipFeature = Agent({ id: "ship-feature" })
-  .step(planner)
-  .map(
-    Agent({ id: "code" }).loop(coder, {
-      verify: ({ output }) => (output.summary ? { pass: true } : { pass: false, feedback: "Say what you changed." }),
-      max: 2,
-    }),
-    { id: "implement", input: ({ input }) => input.tasks },
-  )
-  .step(openPr, { input: ({ input }) => ({ summaries: input.map((item) => item.summary) }) });
+  .pipe(planner)
+  .map(Agent({ id: "code" }).loop(coder, { verify: reviewer, max: 2 }), { id: "implement" })
+  .pipe(prWriter, openPr);
 
 export const agents = [shipFeature];
 ```
 
 | Stage | Role |
 | --- | --- |
-| **`.step(x, { id?, input? })`** | Run one agent, tool or `flow()`; its output is the next stage's input |
-| **`.switch({ ...cases, default? }, { on })`** | `on({ input })` returns a case name; exactly that case runs |
+| **`.pipe(a, b, …)`** | Run agents, tools or `flow()`s in order; each one's output is the next one's input |
+| **`.switch({ ...cases, default? })`** | Run the case the previous output names: a string, or its `route` field |
 | **`.parallel(branches)`** | Fixed named branches at once, same input; output is an object |
-| **`.map(each)`** | Run `each` once per item of the input, which must be an array; output is an array |
-| **`.loop(body, { verify, max?, decide? })`** | Run, verify, run again with the feedback until it passes; needs `max` or `decide` |
+| **`.map(each)`** | Run `each` once per item of the previous output: an array, or its `items`; output is an array |
+| **`.loop(body, { verify, max })`** | Run `body`, ask the `verify` agent, run again with its feedback until it passes, at most `max` times |
 
-Every function receives one object: `{ input, results, flowInput }`. `input` is
-what the stage received, `results` holds earlier steps' outputs by step id, and
-`flowInput` is the agent's own input. The `input` option computes a stage's input;
-the `id` option names a step. `flow()` builds a sequence with no id for a case,
-branch, map item or loop body that is more than one step. Types flow from each
-step's `.output()` schema to the next stage's `input`.
+Every stage takes `{ id }` to name it (`.loop` takes it beside `verify` and `max`).
+`flow()` builds a sequence with no id for a case, branch, map item or loop body that
+is more than one step. A verifier agent gets `{ task, response, iteration }` and returns
+a verdict, `{ pass, feedback? }` (`VerdictSchema`), with feedback when it fails; the
+verdict is recorded as a `loop.verified` event. An agent after the first stage also
+sees the flow's input, as the original request, before its own input. Types flow from
+each stage's `.output()` schema to the flow agent's output. `.step(x, { id })` is a
+deprecated alias for `.pipe(x.withId(id))`.
 
 Agents inside a flow keep their own sessions, linked from the flow's session and
-named by the agent: a step's id (the agent's id, or `{ id }`), with `[i]` for each
-Map item and a nested flow agent's id in front of its own agents'. Control stages
-add nothing, so wrapping a step in `.loop()` or moving it between cases keeps its
-session. An agent may appear once per flow; use it again under a new id with
-`.step(writer, { id: "final-writer" })` or `writer.withId("…")`
-(`flow.duplicate-leaf`). Functions are bound under stage keys: a stage's `id`, or
-its position such as `@1.default.1`, plus `:input`, `:on`, `:verify` or `:decide`.
-Name the stages you may reorder.
-
-`Chain`, `Switch`, `Parallel`, `Map` and `Loop` still build workflow manifest v1
-directly and run as before; a flow agent can't be a child of them.
+named by the agent: its id (or `.withId("…")`), with `[i]` for each Map item and a
+nested flow agent's id in front of its own agents'. Control stages add nothing, so
+wrapping a step in `.loop()` or moving it between cases keeps its session. An agent
+may appear once per flow; use it again under a new id with `writer.withId("final-writer")`
+(`flow.duplicate-leaf`). Tool nodes are served by the Action endpoint under stage keys:
+the tool's name or `id`, under a nested flow agent's id.
 
 The agents in a flow share one sandbox: open the flow's session with it,
-`createSession({ …, sandbox: { … } })`, and every agent, tool step and `verify` in the
-flow uses it. Share it with other sessions by opening them all on one sandbox resource
+`createSession({ …, sandbox: { … } })`, and every agent and tool step in the flow
+uses it. Share it with other sessions by opening them all on one sandbox resource
 (`sandbox: { id }`, see `client.sandboxes`), and call
 built-ins via `session.sandbox` (application) or `ctx.sandbox` (a tool).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;

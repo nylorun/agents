@@ -32,18 +32,9 @@ function IterationRow({
           <Badge variant="destructive">fail</Badge>
         ) : null}
         {row.waiting ? <Badge variant="outline">waiting</Badge> : null}
-        {row.decided ? (
-          <Badge variant="outline">decide → {row.decided}</Badge>
-        ) : null}
-        {row.patched ? <Badge variant="outline">patched</Badge> : null}
       </div>
       {row.feedback ? (
         <p className="text-xs text-muted-foreground">{row.feedback}</p>
-      ) : null}
-      {row.patchSummary ? (
-        <p className="font-mono text-xs text-amber-700 dark:text-amber-400">
-          {row.patchSummary}
-        </p>
       ) : null}
     </button>
   );

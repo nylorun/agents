@@ -1,6 +1,6 @@
 /**
  * Core's side of effects: `resolveNewFlowEffect` journals and dispatches new workflow effects
- * (linked agent sessions, tool nodes, fn, verify); the takeover helpers say which calls their
+ * (linked agent sessions and tool nodes); the takeover helpers say which calls their
  * gate recovers. Also vault authorization for MCP servers and HTTP tools. The journal of a run's effects is
  * `harness-api/record.ts`; a harness readies the session's MCP servers itself (`session.mcp`).
  *
@@ -16,16 +16,18 @@ import {
   embeddedAgent,
   flowDelegateManifest,
   hashManifest,
-  isWorkflowManifestV2,
-  type WorkflowManifestV2,
+  type WorkflowManifest,
 } from "@nylorun/core/define";
 import {
   countActiveFlowWork,
   deriveAgentEffectSessionId,
   isFlowToolEffect,
   isWorkflowManifest,
+  linkedMessageInput,
   linkedMessageKey,
   linkedTurnEnd,
+  settleAgentEffect,
+  type FlowEffect,
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
 import type { Tx } from "../store/types.js";
@@ -49,7 +51,7 @@ import {
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
-import { linkedAgentOutput, turnManifestOf } from "./session.js";
+import { turnManifestOf } from "./session.js";
 import { command } from "./commands.js";
 import { offerAction } from "./delivery.js";
 
@@ -64,8 +66,7 @@ export async function linkedOutcome(
 ): Promise<ActionOutcome | undefined> {
   const end = await linkedTurnEnd(t, effect, agent);
   if (!end || !agent) return undefined;
-  if (end.status === "completed")
-    return { value: linkedAgentOutput(agent, end.output) };
+  if (end.status === "completed") return { value: end.output };
   return {
     value: {
       kind: "failed",
@@ -109,7 +110,7 @@ type FlowStep =
   | { kind: "resolved"; resolution: EffectResolution }
   | { kind: "agent"; workflow: Session };
 
-/** Journal and dispatch a new flow effect (agent / tool node / fn / verify). */
+/** Journal and dispatch a new flow effect (agent or tool node). */
 export async function resolveNewFlowEffect(
   ctx: TenantContext,
   request: HostEffect,
@@ -137,9 +138,7 @@ export async function resolveNewFlowEffect(
           : undefined;
         const outcome = await linkedOutcome(t, existing, agent);
         if (!outcome) return resolved({ status: "pending" });
-        existing.status = "completed";
-        existing.outcome = outcome;
-        await t.put("effects", request.effectId, existing);
+        await settleAgentEffect({ t, effect: existing as FlowEffect, outcome });
         return resolved({ status: "completed", outcome });
       } else {
         return resolved({ status: "pending" });
@@ -160,58 +159,35 @@ export async function resolveNewFlowEffect(
       return resolved({ status: "pending" });
     }
 
-    if (
-      request.kind === "fn" ||
-      request.kind === "verify" ||
-      isFlowToolEffect(request)
-    ) {
+    if (isFlowToolEffect(request)) {
       await t.put("effects", request.effectId, {
         request,
         status: "pending",
       });
-      const action =
-        request.kind === "fn" || request.kind === "verify"
-          ? ({
-              actionId: request.effectId,
-              sessionId: request.sessionId,
-              turnId: request.turnId,
-              agentId: request.agentId,
-              manifestHash: request.manifestHash,
-              implementationVersion: workflow.implementationVersion,
-              input: request.input as any,
-              context: request.context,
-              status: "pending" as const,
-              generation: 0,
-              kind: request.kind,
-              path: request.path!,
-              key: request.key!,
-            } satisfies Action)
-          : ({
-              actionId: request.effectId,
-              sessionId: request.sessionId,
-              turnId: request.turnId,
-              agentId: request.agentId,
-              manifestHash: request.manifestHash,
-              implementationVersion: workflow.implementationVersion,
-              input: request.input as any,
-              context: request.context,
-              status: "pending" as const,
-              generation: 0,
-              kind: "tool" as const,
-              path: request.path!,
-              key: request.key!,
-            } satisfies Action);
+      const action = {
+        actionId: request.effectId,
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+        agentId: request.agentId,
+        manifestHash: request.manifestHash,
+        implementationVersion: workflow.implementationVersion,
+        input: request.input as any,
+        context: request.context,
+        status: "pending" as const,
+        generation: 0,
+        kind: "tool" as const,
+        path: request.path!,
+        key: request.key!,
+      } satisfies Action;
       await t.put("actions", action.actionId, action);
-      if (isFlowToolEffect(request)) {
-        await t.event(workflow.id, workflow.activeTurnId, "node.started", {
-          path: request.path!,
-          kind: "tool",
-          key: request.key!,
-          ...(request.iterations !== undefined
-            ? { iterations: request.iterations }
-            : {}),
-        });
-      }
+      await t.event(workflow.id, workflow.activeTurnId, "node.started", {
+        path: request.path!,
+        kind: "tool",
+        key: request.key!,
+        ...(request.iterations !== undefined
+          ? { iterations: request.iterations }
+          : {}),
+      });
       await t.event(workflow.id, workflow.activeTurnId, "action.pending", {
         actionId: action.actionId,
         kind: action.kind,
@@ -231,10 +207,11 @@ export async function resolveNewFlowEffect(
   const body = request.input as {
     agentId: string;
     input: JsonValue;
+    /** The flow agent's input, when the stage's input differs from it (D12). */
+    flowInput?: JsonValue;
     path: string;
-    /** v2: the nested flow agents, outermost first, whose `agents` hold this leaf. */
+    /** The nested flow agents, outermost first, whose `agents` hold this leaf. */
     flow?: readonly string[];
-    manifest?: AgentManifest;
   };
   const path = body.path ?? request.path!;
   const agentSessionId = deriveAgentEffectSessionId(
@@ -265,7 +242,7 @@ export async function resolveNewFlowEffect(
     const exists = await t.lockSession(agentSessionId);
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
-    const definition = await leafDefinition(t, workflow, body, request);
+    const definition = leafDefinition(workflow, body, request);
     const lookup = await sandboxLookup(t, workflow.sandboxOwnerId);
     const sandboxOwnerId =
       sessionSandboxSpec(workflow) || workflow.sandboxOwnerId
@@ -303,7 +280,7 @@ export async function resolveNewFlowEffect(
 
   // Binds this effect to the one linked turn its message opens (`linkedTurnEnd`).
   const idempotencyKey = linkedMessageKey(request);
-  const messageInput = body.input;
+  const messageInput = linkedMessageInput(body);
   const messageCommand: SessionCommand =
     typeof messageInput === "string"
       ? {
@@ -311,14 +288,12 @@ export async function resolveNewFlowEffect(
           content: messageInput,
           requestId: `flow-${request.effectId}`,
           idempotencyKey,
-          ...(body.manifest ? { manifest: body.manifest } : {}),
         }
       : {
           type: "message",
           data: messageInput,
           requestId: `flow-${request.effectId}`,
           idempotencyKey,
-          ...(body.manifest ? { manifest: body.manifest } : {}),
         };
   const accepted = (await command(ctx, agentSessionId, messageCommand, {
     kind: "application",
@@ -329,8 +304,8 @@ export async function resolveNewFlowEffect(
   return store.tx(async (t): Promise<EffectResolution> => {
     const s = await ownedSession(t, lease, request.sessionId);
     const agent = await sessionOf(t, agentSessionId);
-    // Only a Loop's own agent turns are iterations; a step elsewhere in the flow is not.
-    if (typeof request.context.loopPath === "string")
+    // Only a Loop body's agent turns are iterations: not its verifier, nor a step elsewhere.
+    if (typeof request.context.loopPath === "string" && request.context.role !== "verify-agent")
       await t.event(s.id, s.activeTurnId, "loop.iteration", {
         path: request.context.loopPath,
         n,
@@ -351,11 +326,10 @@ export async function resolveNewFlowEffect(
       agent
     );
     if (outcome) {
-      await t.put("effects", request.effectId, {
-        request,
-        status: "completed",
+      await settleAgentEffect({
+        t,
+        effect: { request, status: "pending", agentSessionId } as FlowEffect,
         outcome,
-        agentSessionId,
       });
       return { status: "completed", outcome };
     }
@@ -395,20 +369,18 @@ export async function authorize(
 }
 
 /**
- * The definition a flow leaf's session runs. A v2 workflow embeds its leaves, so they
- * come from the workflow's own manifest and can't drift from it; v1 leaves come from the
- * registry by id.
+ * The definition a flow leaf's session runs. A flow agent embeds its leaves, so they come
+ * from the workflow's own manifest and can't drift from it.
  */
-async function leafDefinition(
-  t: Tx,
+function leafDefinition(
   workflow: Session,
   body: { readonly agentId: string; readonly flow?: readonly string[] },
   request: HostEffect
-): Promise<{
-  manifest: AgentManifest | WorkflowManifestV2;
+): {
+  manifest: AgentManifest | WorkflowManifest;
   manifestHash: string;
   implementationVersion: string;
-}> {
+} {
   // A flow agent used as a tool: its manifest is inlined in the parent's pinned tool.
   if (request.context.role === "delegate" && !isWorkflowManifest(workflow.manifest)) {
     const flow = flowDelegateManifest(turnManifestOf(workflow), body.agentId);
@@ -419,22 +391,15 @@ async function leafDefinition(
       implementationVersion: workflow.implementationVersion,
     };
   }
-  if (isWorkflowManifestV2(workflow.manifest)) {
-    const leaf = embeddedAgent(workflow.manifest, body.flow ?? [], body.agentId);
-    if (!leaf || isWorkflowManifestV2(leaf as { kind?: unknown; workflowSchemaVersion?: unknown }))
-      fail(404, `Agent '${body.agentId}' is not embedded in workflow '${workflow.manifest.id}'`);
-    const manifest = leaf as AgentManifest;
-    return {
-      manifest,
-      manifestHash: hashManifest(manifest),
-      implementationVersion: workflow.implementationVersion,
-    };
-  }
-  const definition = await t.get("definitions", body.agentId);
-  if (!definition) fail(404, "Definition not found");
-  return definition as {
-    manifest: AgentManifest;
-    manifestHash: string;
-    implementationVersion: string;
+  const leaf = isWorkflowManifest(workflow.manifest)
+    ? embeddedAgent(workflow.manifest, body.flow ?? [], body.agentId)
+    : undefined;
+  if (!leaf || isWorkflowManifest(leaf))
+    return fail(404, `Agent '${body.agentId}' is not embedded in workflow '${workflow.manifest.id}'`);
+  const manifest = leaf as AgentManifest;
+  return {
+    manifest,
+    manifestHash: hashManifest(manifest),
+    implementationVersion: workflow.implementationVersion,
   };
 }

@@ -11,8 +11,8 @@ import { AgentsClient } from "../src/client.js";
 import { executeAction } from "../src/execute-action.js";
 
 /**
- * Flow Agents Phase 2 in the SDK: a flow agent is saved as one workflow manifest v2
- * document, and its Action endpoint serves flow actions only for the manifest it runs.
+ * Flow agents in the SDK: a flow agent is saved as one workflow manifest v3 document, and
+ * its Action endpoint serves tool node Actions only for the manifest it runs.
  */
 
 const KEY = "a".repeat(64);
@@ -77,7 +77,7 @@ function healthOk() {
 }
 
 function pluginFolder(): string {
-  const directory = mkdtempSync(join(tmpdir(), "nylorun-v2-plugin-"));
+  const directory = mkdtempSync(join(tmpdir(), "nylorun-flow-plugin-"));
   const write = (path: string, contents: string) => {
     mkdirSync(dirname(join(directory, path)), { recursive: true });
     writeFileSync(join(directory, path), contents);
@@ -104,14 +104,14 @@ const shout = tool({
 });
 
 function deskWith(pluginDir: string) {
-  const writer = Agent({ id: "writer" }).instructions("Write.").plugin(pluginDir);
-  return Agent({ id: "desk" })
-    .step(writer)
-    .step(shout, { input: ({ input }) => ({ word: String(input) }) })
-    .build();
+  const writer = Agent({ id: "writer" })
+    .instructions("Write.")
+    .plugin(pluginDir)
+    .output(z.object({ word: z.string() }));
+  return Agent({ id: "desk" }).pipe(writer, shout).build();
 }
 
-describe("saveAgent with a v2 flow agent", () => {
+describe("saveAgent with a flow agent", () => {
   it("PUTs one document", async () => {
     const desk = deskWith(pluginFolder());
     const puts: { path: string; body: any }[] = [];
@@ -130,12 +130,12 @@ describe("saveAgent with a v2 flow agent", () => {
     });
     await client.saveAgent(desk, { implementationVersion: "test" });
     expect(puts.map((p) => p.path)).toEqual(["desk"]);
-    expect(puts[0]!.body.manifest.workflowSchemaVersion).toBe(2);
+    expect(puts[0]!.body.manifest.workflowSchemaVersion).toBe(3);
     expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
   });
 });
 
-describe("createActionHandler with a v2 flow agent", () => {
+describe("createActionHandler with a flow agent", () => {
   it("saves only the flow agent, and registers its endpoint with the manifest hash", async () => {
     const desk = deskWith(pluginFolder());
     const { saved, registrations, answers } = await register([desk]);
@@ -152,8 +152,8 @@ describe("createActionHandler with a v2 flow agent", () => {
   });
 });
 
-describe("executeAction on a v2 flow agent", () => {
-  it("routes fn and tool actions by stage key", async () => {
+describe("executeAction on a flow agent", () => {
+  it("routes tool node actions by stage key", async () => {
     const desk = deskWith(pluginFolder());
     const base = {
       sessionId: "s1",
@@ -165,19 +165,6 @@ describe("executeAction on a v2 flow agent", () => {
       status: "delivering" as const,
       generation: 1,
     };
-    const input = await executeAction(
-      {
-        ...base,
-        actionId: "a1",
-        kind: "fn",
-        path: "shout:input",
-        key: "shout:input",
-        input: { input: "hello", results: {}, flowInput: "go" },
-      } as Action,
-      desk,
-      new AbortController().signal
-    );
-    expect(input).toEqual({ value: { word: "hello" } });
     const loud = await executeAction(
       { ...base, actionId: "a2", kind: "tool", path: "shout", key: "shout", input: { word: "hello" } } as Action,
       desk,
@@ -188,9 +175,10 @@ describe("executeAction on a v2 flow agent", () => {
 });
 
 describe("a flow agent used as a tool (Phase 3)", () => {
-  const research = Agent({ id: "research", description: "Researches a question." })
-    .step(Agent({ id: "searcher" }).instructions("Search.").plugin(pluginFolder()))
-    .step(shout, { input: ({ input }) => ({ word: String(input) }) });
+  const research = Agent({ id: "research", description: "Researches a question." }).pipe(
+    Agent({ id: "searcher" }).instructions("Search.").plugin(pluginFolder()).output(z.object({ word: z.string() })),
+    shout
+  );
   const lead = Agent({ id: "lead" }).instructions("Delegate.").subagents(research);
 
   it("is saved inside its parent", async () => {

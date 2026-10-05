@@ -1,43 +1,40 @@
 /**
- * Paths and keys for workflow manifest v2 (Flow Agents). Shared by the compiler, the
+ * Paths and keys for workflow manifest v3 (flow agents). Shared by the compiler, the
  * flow engine, the executor and Studio, so every package names a node the same way.
  *
  * - A **leaf path** names an agent or tool session: the leaf's id (its `id`, or the
  *   agent's id or tool name), with `[i]` for each Map item it runs in, under the ids of
  *   any nested flow agents. Control stages and `flow()` add nothing, so wrapping a step
  *   in a Loop or moving it out of a Switch keeps its session.
- * - A **stage key** names a node for binding functions: a leaf's id, a control stage's
- *   `id`, or else its position from the flow root (`@1.default.1`). Function keys add
- *   `:input`, `:on`, `:verify` or `:decide`.
+ * - A **stage key** names a node: a leaf's id, a control stage's `id`, or else its
+ *   position from the flow root (`@1.default.1`). A tool node's code is bound under its key.
  */
 import type {
-  WorkflowAgentNodeV2,
+  WorkflowAgentNode,
   WorkflowManifest,
-  WorkflowManifestV2,
-  WorkflowNodeV2,
-  WorkflowToolNodeV2,
+  WorkflowNode,
+  WorkflowToolNode,
 } from "../../types/workflow.js";
 import type { AgentManifest } from "../../types/manifest.js";
 
 /** Position of a flow's root node. */
 export const ROOT_POSITION = "@";
 
-export type FlowFunctionRole = "input" | "on" | "verify" | "decide";
-
-export function isWorkflowManifestV2(
+/** True for a workflow manifest v3: a flow agent, or a nested one among `agents`. */
+export function isWorkflowManifest(
   manifest: { readonly kind?: unknown; readonly workflowSchemaVersion?: unknown } | undefined
-): manifest is WorkflowManifestV2 {
-  return manifest?.kind === "workflow" && manifest.workflowSchemaVersion === 2;
+): manifest is WorkflowManifest {
+  return manifest?.kind === "workflow" && manifest.workflowSchemaVersion === 3;
 }
 
 export function isLeafNode(
-  node: WorkflowNodeV2
-): node is WorkflowAgentNodeV2 | WorkflowToolNodeV2 {
+  node: WorkflowNode
+): node is WorkflowAgentNode | WorkflowToolNode {
   return "agent" in node || "tool" in node;
 }
 
 /** A leaf's path part: its `id`, else the agent id or tool name. Undefined for control nodes. */
-export function leafPart(node: WorkflowNodeV2): string | undefined {
+export function leafPart(node: WorkflowNode): string | undefined {
   if ("agent" in node) return node.id ?? node.agent;
   if ("tool" in node) return node.id ?? node.tool.name;
   return undefined;
@@ -52,13 +49,9 @@ export function childPosition(parent: string, segment: string | number): string 
  * A node's stage key: a leaf's path part, a control node's `id`, or its position.
  * `prefix` is the key of the nested flow agent the node runs in, if any.
  */
-export function stageKey(node: WorkflowNodeV2, position: string, prefix = ""): string {
+export function stageKey(node: WorkflowNode, position: string, prefix = ""): string {
   const own = leafPart(node) ?? node.id ?? position;
   return prefix ? `${prefix}/${own}` : own;
-}
-
-export function functionKey(key: string, role: FlowFunctionRole): string {
-  return `${key}:${role}`;
 }
 
 /** `[0][2]` for Map item indices, outermost first. */
@@ -72,13 +65,13 @@ export function leafPath(prefix: string, part: string, indices: readonly number[
   return prefix ? `${prefix}/${own}` : own;
 }
 
-/** Drop Map indices from a path: the key a leaf's code is bound under. */
+/** Drop Map indices from a path: the key a tool node's code is bound under. */
 export function stripIndices(path: string): string {
   return path.replace(/\[\d+]/g, "");
 }
 
 export interface FlowNodeVisit {
-  readonly node: WorkflowNodeV2;
+  readonly node: WorkflowNode;
   readonly position: string;
   /** Stage key, including the nested flow agent prefix. */
   readonly key: string;
@@ -93,13 +86,13 @@ export interface FlowNodeVisit {
  * their nodes live in their own manifest under `agents`.
  */
 export function forEachFlowNode(
-  root: WorkflowNodeV2,
+  root: WorkflowNode,
   visit: (entry: FlowNodeVisit) => void,
   options: { readonly prefix?: string } = {}
 ): void {
   const prefix = options.prefix ?? "";
   const walk = (
-    node: WorkflowNodeV2,
+    node: WorkflowNode,
     position: string,
     role: FlowNodeVisit["role"],
     inMap: boolean
@@ -120,8 +113,7 @@ export function forEachFlowNode(
     } else if ("map" in node) walk(node.map.each, childPosition(position, "each"), "each", true);
     else if ("loop" in node) {
       walk(node.loop.run, childPosition(position, "run"), "run", inMap);
-      if ("agent" in node.loop.verify)
-        walk(node.loop.verify, childPosition(position, "verify"), "verify", inMap);
+      walk(node.loop.verify, childPosition(position, "verify"), "verify", inMap);
     }
   };
   walk(root, ROOT_POSITION, "root", false);
@@ -132,17 +124,15 @@ export function forEachFlowNode(
  * (`flow`, outermost first) the node runs in.
  */
 export function embeddedAgent(
-  manifest: WorkflowManifestV2,
+  manifest: WorkflowManifest,
   flow: readonly string[],
   agentId: string
-): AgentManifest | WorkflowManifestV2 | undefined {
-  let scope: WorkflowManifest = manifest;
+): AgentManifest | WorkflowManifest | undefined {
+  let scope = manifest;
   for (const id of flow) {
-    const next: AgentManifest | WorkflowManifestV2 | undefined = isWorkflowManifestV2(scope)
-      ? scope.agents[id]
-      : undefined;
-    if (!next || !isWorkflowManifestV2(next as WorkflowManifest)) return undefined;
-    scope = next as WorkflowManifestV2;
+    const next = scope.agents[id];
+    if (!isWorkflowManifest(next as WorkflowManifest | undefined)) return undefined;
+    scope = next as WorkflowManifest;
   }
-  return isWorkflowManifestV2(scope) ? scope.agents[agentId] : undefined;
+  return scope.agents[agentId];
 }

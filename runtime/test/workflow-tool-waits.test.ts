@@ -102,11 +102,7 @@ async function onlyWait(session: { pending(): Promise<unknown> }) {
   return waits[0] as { interactionId: string; kind: string; path: string; interaction: any };
 }
 
-const flow = (step: Parameters<ReturnType<typeof Agent>["step"]>[0]) =>
-  Agent({ id: "f" })
-    .step(prepare)
-    .step(step)
-    .build();
+const flow = (step: unknown) => Agent({ id: "f" }).pipe(prepare, step).build();
 
 describe("flow tool step waits", { timeout: 30_000 }, () => {
   it("pauses on ctx.approve and completes the tool once approved", async () => {

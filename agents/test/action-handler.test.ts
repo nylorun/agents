@@ -333,14 +333,13 @@ describe("createActionHandler: deliveries", () => {
       run: async ({ word }) => word.toUpperCase(),
     });
     const desk = Agent({ id: "desk" })
-      .step(Agent({ id: "writer" }).instructions("Write."))
-      .step(shout, { input: ({ input }) => ({ word: String(input) }) })
+      .pipe(Agent({ id: "writer" }).instructions("Write.").output(z.object({ word: z.string() })), shout)
       .build();
     const { actions } = handler({ agents: [desk] });
     const flowAction = (manifestHash: string) =>
       action(
-        { input: "hi", results: {}, flowInput: "go" },
-        { agentId: "desk", manifestHash, kind: "fn", path: "shout:input", key: "shout:input", capabilityId: undefined, toolName: undefined },
+        { word: "hi" },
+        { agentId: "desk", manifestHash, path: "shout", key: "shout", capabilityId: undefined, toolName: undefined },
       );
     const stale = await actions.fetch(
       await delivery({ type: "action", action: flowAction("sha256:old"), sandbox: false }),
@@ -351,7 +350,7 @@ describe("createActionHandler: deliveries", () => {
       await delivery({ type: "action", action: flowAction(hashManifest(desk.manifest)), sandbox: false }),
     );
     expect(current.status).toBe(200);
-    expect(await current.json()).toMatchObject({ value: { word: "hi" } });
+    expect(await current.json()).toMatchObject({ value: { kind: "completed", output: "HI" } });
   });
 
   it("serves node:http through the same handler", async () => {

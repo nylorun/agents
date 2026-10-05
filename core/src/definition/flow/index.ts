@@ -9,22 +9,20 @@ export {
   childPosition,
   embeddedAgent,
   forEachFlowNode,
-  functionKey,
   indexSuffix,
   isLeafNode,
-  isWorkflowManifestV2,
+  isWorkflowManifest,
   leafPart,
   leafPath,
   stageKey,
   stripIndices,
-  type FlowFunctionRole,
   type FlowNodeVisit,
 } from "./paths.js";
 export type * from "./types.js";
 
 /**
  * A sequence with no id, for a switch case, parallel branch, map item or loop body
- * that is more than one step: `flow().step(planner).map(implementer)`.
+ * that is more than one step: `flow().pipe(planner).map(implementer)`.
  */
 export function flow<In = any>(): Flow<In> {
   return new FlowBuilder() as unknown as Flow<In>;

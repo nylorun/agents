@@ -22,30 +22,27 @@ import { normalizeMcpServers, type McpServerSpec } from "./mcp.js";
 import { deprecate } from "../utils/deprecate.js";
 import { WorkflowBuildError } from "./workflow/diagnostics.js";
 import { flowFrom, type FlowImplementations } from "./flow/from.js";
-import { isBuiltWorkflow, type BuiltWorkflow } from "./workflow/types.js";
+import type { BuiltWorkflow } from "./workflow/types.js";
 import { compileAgentFlow } from "./flow/compile.js";
 import {
   loopStage,
   mapStage,
   named,
   parallelStage,
+  pipeStages,
   stepStage,
   switchStage,
   type FlowStage,
 } from "./flow/spec.js";
 import type {
-  AddResult,
   BranchesOut,
-  CaseKey,
   CasesOut,
   FlowAgentBuilder,
   FlowOut,
-  IdOf,
-  LoopChoice,
-  LoopDecideArgs,
-  LoopVerifyFn,
+  LoopOptions,
   Named,
-  StageArgs,
+  PipeOut,
+  StageOptions,
 } from "./flow/types.js";
 import { isCapabilityBuilder } from "./capability.js";
 
@@ -114,9 +111,9 @@ export function Agent<
 }
 
 export namespace Agent {
-  /** Rebuild a flow agent from its workflow manifest v2 and the code its stage keys name. */
+  /** Rebuild a flow agent from its workflow manifest v3 and the tools its tool nodes name. */
   export function from(
-    json: import("../types/workflow.js").WorkflowManifestV2,
+    json: WorkflowManifest,
     implementations?: FlowImplementations
   ): BuiltWorkflow;
   /** Rebuild an agent from its manifest and the code its capabilities name. */
@@ -138,11 +135,10 @@ const SNAPSHOT = Symbol("AgentBuilder.snapshot");
 
 type SchemaOut<Schema> = Schema extends ToolSchemaSource ? SchemaOutput<Schema> : never;
 type ReactOutput<Schema> = Schema extends ToolSchemaSource ? SchemaOutput<Schema> : string;
-type StartFlow<Info, Schema, Id extends string, Cur, Results> = FlowAgentBuilder<
+type StartFlow<Info, Schema, Id extends string, Cur> = FlowAgentBuilder<
   Info,
   any,
   Cur,
-  Results,
   SchemaOut<Schema>,
   Id
 >;
@@ -335,12 +331,12 @@ export class AgentBuilder<
     return this.appendCompiled(compiled, body);
   }
 
-  // ── Flow: code decides ─────────────────────────────────────────────────────
+  // ── Flow: the manifest decides ─────────────────────────────────────────────
 
   /** The flow agent's input. Set once. */
   input<S extends ToolSchemaSource>(
     schema: S
-  ): FlowAgentBuilder<Info, SchemaOutput<S>, SchemaOutput<S>, {}, SchemaOut<Schema>, Id> {
+  ): FlowAgentBuilder<Info, SchemaOutput<S>, SchemaOutput<S>, SchemaOut<Schema>, Id> {
     const snapshot = this.#snapshot;
     const body = this.bodyFor("flow", "input()");
     if (snapshot.inputSchema !== undefined)
@@ -352,58 +348,48 @@ export class AgentBuilder<
     return this.spawn({ ...snapshot, ...body, inputSchema: schema }) as never;
   }
 
-  step<C, const StepId extends string = IdOf<C>>(
-    child: C,
-    options?: { readonly id?: StepId; readonly input?: (args: StageArgs<any, {}, any>) => unknown }
-  ): StartFlow<Info, Schema, Id, FlowOut<C>, AddResult<{}, StepId, FlowOut<C>>>;
+  /** Add stages in order: the first gets the flow's input, each later one the previous output. */
+  pipe<const Children extends readonly unknown[]>(
+    ...children: Children
+  ): StartFlow<Info, Schema, Id, PipeOut<Children, any>>;
+  pipe(...children: unknown[]): unknown {
+    return this.addStages(pipeStages(children), "pipe()");
+  }
+
+  /** @deprecated Use `.pipe()`, and `.withId()` to rename a child. */
+  step<C>(child: C, options?: StageOptions): StartFlow<Info, Schema, Id, FlowOut<C>>;
   step(child: unknown, options?: Readonly<Record<string, unknown>>): unknown {
-    return this.addStage(stepStage(child, options), "step()");
+    return this.addStages([stepStage(child, options)], "step()");
   }
 
-  switch<const Cases extends Readonly<Record<string, unknown>>, T, const StageId extends string = string>(
+  /** Run one case, picked by the previous output: a string, or its `route` field. */
+  switch<const Cases extends Readonly<Record<string, unknown>>>(
     cases: Cases,
-    options: {
-      readonly input: (args: StageArgs<any, {}, any>) => T;
-      readonly on: (args: StageArgs<T, {}, any>) => CaseKey<Cases>;
-      readonly id?: StageId;
-    }
-  ): StartFlow<Info, Schema, Id, CasesOut<Cases>, AddResult<{}, StageId, CasesOut<Cases>>>;
-  switch<const Cases extends Readonly<Record<string, unknown>>, const StageId extends string = string>(
-    cases: Cases,
-    options: { readonly on: (args: StageArgs<any, {}, any>) => CaseKey<Cases>; readonly id?: StageId }
-  ): StartFlow<Info, Schema, Id, CasesOut<Cases>, AddResult<{}, StageId, CasesOut<Cases>>>;
+    options?: StageOptions
+  ): StartFlow<Info, Schema, Id, CasesOut<Cases>>;
   switch(cases: unknown, options?: Readonly<Record<string, unknown>>): unknown {
-    return this.addStage(switchStage(cases, options), "switch()");
+    return this.addStages([switchStage(cases, options)], "switch()");
   }
 
-  parallel<const Branches extends Readonly<Record<string, unknown>>, const StageId extends string = string>(
+  /** Run every branch on the same input; the output is keyed by branch. */
+  parallel<const Branches extends Readonly<Record<string, unknown>>>(
     branches: Branches,
-    options?: { readonly id?: StageId; readonly input?: (args: StageArgs<any, {}, any>) => unknown }
-  ): StartFlow<Info, Schema, Id, BranchesOut<Branches>, AddResult<{}, StageId, BranchesOut<Branches>>>;
+    options?: StageOptions
+  ): StartFlow<Info, Schema, Id, BranchesOut<Branches>>;
   parallel(branches: unknown, options?: Readonly<Record<string, unknown>>): unknown {
-    return this.addStage(parallelStage(branches, options), "parallel()");
+    return this.addStages([parallelStage(branches, options)], "parallel()");
   }
 
-  map<E, const StageId extends string = string>(
-    each: E,
-    options?: { readonly id?: StageId; readonly input?: (args: StageArgs<any, {}, any>) => readonly unknown[] }
-  ): StartFlow<Info, Schema, Id, FlowOut<E>[], AddResult<{}, StageId, FlowOut<E>[]>>;
+  /** Run `each` once per item of the previous output: an array, or its `items` field. */
+  map<E>(each: E, options?: StageOptions): StartFlow<Info, Schema, Id, FlowOut<E>[]>;
   map(each: unknown, options?: Readonly<Record<string, unknown>>): unknown {
-    return this.addStage(mapStage(each, options), "map()");
+    return this.addStages([mapStage(each, options)], "map()");
   }
 
-  loop<B, const StageId extends string = string>(
-    body: B,
-    options: {
-      readonly verify: LoopVerifyFn<any, FlowOut<B>> | object;
-      readonly max?: number;
-      readonly decide?: (args: LoopDecideArgs<any, FlowOut<B>>) => LoopChoice<FlowOut<B>>;
-      readonly id?: StageId;
-      readonly input?: (args: StageArgs<any, {}, any>) => unknown;
-    }
-  ): StartFlow<Info, Schema, Id, FlowOut<B>, AddResult<{}, StageId, FlowOut<B>>>;
-  loop(body: unknown, options?: Readonly<Record<string, unknown>>): unknown {
-    return this.addStage(loopStage(body, options), "loop()");
+  /** Run `body` until the verifier agent passes it, at most `max` times. */
+  loop<B>(body: B, options: LoopOptions): StartFlow<Info, Schema, Id, FlowOut<B>>;
+  loop(body: unknown, options: object): unknown {
+    return this.addStages([loopStage(body, options as Readonly<Record<string, unknown>>)], "loop()");
   }
 
   /** Give this agent a new step id where there is no options object. */
@@ -476,19 +462,19 @@ export class AgentBuilder<
       kind === "react"
         ? Object.freeze({
             code: "flow.no-model",
-            message: `'${snapshot.id}' is a flow agent, which runs no model. Move .${method} to an agent passed to .step().`,
+            message: `'${snapshot.id}' is a flow agent, which runs no model. Move .${method} to an agent passed to .pipe().`,
           })
         : Object.freeze({
             code: "agent.mixed-body",
-            message: `'${snapshot.id}' is a ReAct agent. An agent is either a ReAct loop or a flow: put the ReAct part in its own Agent and add it with .step().`,
+            message: `'${snapshot.id}' is a ReAct agent. An agent is either a ReAct loop or a flow: put the ReAct part in its own Agent and add it with .pipe().`,
           });
     return { body: snapshot.body, diagnostics: addDiagnostics(snapshot.diagnostics, [diagnostic]) };
   }
 
-  private addStage(stage: FlowStage, method: string): unknown {
+  private addStages(stages: readonly FlowStage[], method: string): unknown {
     const snapshot = this.#snapshot;
     const body = this.bodyFor("flow", method);
-    return this.spawn({ ...snapshot, ...body, stages: Object.freeze([...snapshot.stages, stage]) });
+    return this.spawn({ ...snapshot, ...body, stages: Object.freeze([...snapshot.stages, ...stages]) });
   }
 
   private withAgentItems(
@@ -497,21 +483,14 @@ export class AgentBuilder<
   ): this {
     const snapshot = this.#snapshot;
     const body = this.bodyFor("react", method);
-    const flows = (items.tools ?? []).filter((item) => isFlowItem(item));
     const part = {
       ...(snapshot.agentPart?.instructions !== undefined || items.instructions !== undefined
         ? { instructions: Object.freeze([...(snapshot.agentPart?.instructions ?? []), ...(items.instructions ?? [])]) }
         : {}),
       ...(snapshot.agentPart?.tools !== undefined || items.tools !== undefined
-        ? { tools: Object.freeze([...(snapshot.agentPart?.tools ?? []), ...(items.tools ?? []).filter((item) => !isFlowItem(item))]) }
+        ? { tools: Object.freeze([...(snapshot.agentPart?.tools ?? []), ...(items.tools ?? [])]) }
         : {}),
     };
-    const diagnostics = flows.map((item) =>
-      Object.freeze({
-        code: "delegation.flow-unsupported",
-        message: `'${(item as { id?: string }).id ?? "workflow"}' was built with Chain, Switch, Parallel, Map or Loop and cannot be a subagent. Write it as a flow agent, Agent({ id }).step(…), which can.`,
-      })
-    );
     const compiled = compileDeclaration({ id: "agent", ...part });
     return this.spawn({
       ...snapshot,
@@ -519,7 +498,7 @@ export class AgentBuilder<
       agentPart: Object.freeze(part),
       entries: replaceOrAppend(snapshot.entries, compiled.bound),
       dynamics: withDynamics(snapshot.dynamics, "agent", snapshot.dynamics.get("agent") ?? {}),
-      diagnostics: addDiagnostics(body.diagnostics ?? snapshot.diagnostics, diagnostics),
+      ...(body.diagnostics === undefined ? {} : { diagnostics: body.diagnostics }),
     });
   }
 
@@ -625,15 +604,6 @@ function replaceOrAppend(
   const index = entries.findIndex((item) => item.id === bound.id);
   if (index < 0) return Object.freeze([...entries, bound]);
   return Object.freeze([...entries.slice(0, index), bound, ...entries.slice(index + 1)]);
-}
-
-/**
- * A workflow built with the v1 primitives, placed where a subagent is expected. Flow
- * agents are subagents like any agent: they run in their own linked session.
- */
-function isFlowItem(value: unknown): boolean {
-  if (!value || typeof value !== "object" || value instanceof AgentBuilder) return false;
-  return isBuiltWorkflow(value) && value.manifest.workflowSchemaVersion === 1;
 }
 
 function nextMiddlewareId(entries: readonly BoundMiddleware[]): string {

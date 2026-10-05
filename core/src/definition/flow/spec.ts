@@ -1,7 +1,5 @@
 import { HarnessError } from "../../errors.js";
-
-/** A function in a flow stage: `input`, `on`, `verify` or `decide`. */
-export type FlowFn = (args: any) => unknown;
+import { deprecate } from "../../utils/deprecate.js";
 
 /** A child given a new step id with `.withId()`. */
 export interface NamedChild {
@@ -10,40 +8,26 @@ export interface NamedChild {
   readonly id: string;
 }
 
+/** One stage of a flow. Stages hold agents, tools and flows: never functions. */
 export type FlowStage =
-  | {
-      readonly kind: "step";
-      readonly child: unknown;
-      readonly id?: string;
-      readonly input?: FlowFn;
-    }
+  | { readonly kind: "step"; readonly child: unknown; readonly id?: string }
   | {
       readonly kind: "switch";
       readonly cases: Readonly<Record<string, unknown>>;
-      readonly on: FlowFn;
       readonly id?: string;
-      readonly input?: FlowFn;
     }
   | {
       readonly kind: "parallel";
       readonly branches: Readonly<Record<string, unknown>>;
       readonly id?: string;
-      readonly input?: FlowFn;
     }
-  | {
-      readonly kind: "map";
-      readonly each: unknown;
-      readonly id?: string;
-      readonly input?: FlowFn;
-    }
+  | { readonly kind: "map"; readonly each: unknown; readonly id?: string }
   | {
       readonly kind: "loop";
       readonly body: unknown;
       readonly verify: unknown;
       readonly max?: number;
-      readonly decide?: FlowFn;
       readonly id?: string;
-      readonly input?: FlowFn;
     };
 
 export const NAMED: unique symbol = Symbol.for("nylorun.flow.named") as never;
@@ -64,11 +48,19 @@ export function isNamedChild(value: unknown): value is NamedChild {
 type Options = Readonly<Record<string, unknown>> | undefined;
 
 const HINTS: Readonly<Record<string, string>> = {
-  over: "A Map runs over its input. Use { input: ({ input }) => list } to pick the list.",
-  from: "Use { input } to compute a step's input.",
+  over: "A map runs over the previous output: an array, or its `items` field.",
+  from: "Each stage gets the previous stage's output.",
   as: "Use { id } to name a step.",
   name: "Use { id } to name a stage.",
-  default: "Put default among the cases: .switch({ ...cases, default }, { on }).",
+  default: "Put default among the cases: .switch({ ...cases, default }).",
+};
+
+/** Function options that flows no longer take, and what replaces each (see MIGRATION.md). */
+const REMOVED: Readonly<Record<string, string>> = {
+  input:
+    "stages get the previous output; return what the next stage needs from the previous agent's output schema",
+  on: "switch reads the previous output: a string or its `route` field",
+  decide: "removed; the loop retries with the verifier's feedback until max",
 };
 
 function checkOptions(method: string, options: Options, allowed: readonly string[]): void {
@@ -77,6 +69,11 @@ function checkOptions(method: string, options: Options, allowed: readonly string
     throw new HarnessError("configuration.invalid", `${method} options must be an object`);
   for (const key of Object.keys(options)) {
     if (allowed.includes(key)) continue;
+    if (REMOVED[key])
+      throw new HarnessError(
+        "configuration.invalid",
+        `${method} no longer takes '${key}': ${REMOVED[key]} (see MIGRATION.md).`
+      );
     const hint = HINTS[key] ? ` ${HINTS[key]}` : "";
     throw new HarnessError(
       "configuration.invalid",
@@ -85,76 +82,81 @@ function checkOptions(method: string, options: Options, allowed: readonly string
   }
   if (options.id !== undefined && (typeof options.id !== "string" || options.id.length === 0))
     throw new HarnessError("configuration.invalid", `${method} id must be a non-empty string`);
-  if (options.input !== undefined && typeof options.input !== "function")
-    throw new HarnessError("configuration.invalid", `${method} input must be a function`);
 }
 
 function requireChild(method: string, child: unknown): void {
   if (child === undefined || child === null)
     throw new HarnessError("configuration.invalid", `${method} requires an agent, tool or flow()`);
+  if (typeof child === "function")
+    throw new HarnessError(
+      "configuration.invalid",
+      `${method} takes an agent, tool or flow(), not a function: flows run no code (see MIGRATION.md)`
+    );
 }
 
 function requireRecord(method: string, label: string, value: unknown): Readonly<Record<string, unknown>> {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0)
     throw new HarnessError("configuration.invalid", `${method} requires a non-empty object of ${label}`);
+  for (const [name, child] of Object.entries(value)) requireChild(`${method} '${name}'`, child);
   return value as Readonly<Record<string, unknown>>;
 }
 
-function common(options: Options): { id?: string; input?: FlowFn } {
-  return {
-    ...(options?.id === undefined ? {} : { id: options.id as string }),
-    ...(options?.input === undefined ? {} : { input: options.input as FlowFn }),
-  };
+function idOf(options: Options): { id?: string } {
+  return options?.id === undefined ? {} : { id: options.id as string };
 }
 
-export function stepStage(child: unknown, options?: Options): FlowStage {
-  checkOptions(".step()", options, ["id", "input"]);
-  requireChild(".step()", child);
-  return Object.freeze({ kind: "step" as const, child, ...common(options) });
-}
-
-export function switchStage(cases: unknown, options?: Options): FlowStage {
-  checkOptions(".switch()", options, ["on", "id", "input"]);
-  const record = requireRecord(".switch()", "cases", cases);
-  if (typeof options?.on !== "function")
-    throw new HarnessError(
-      "configuration.invalid",
-      ".switch() requires { on: ({ input }) => caseName }"
-    );
-  return Object.freeze({
-    kind: "switch" as const,
-    cases: Object.freeze({ ...record }),
-    on: options.on as FlowFn,
-    ...common(options),
+/** `.pipe(a, b, c)`: one stage per child, in order. */
+export function pipeStages(children: readonly unknown[]): FlowStage[] {
+  if (children.length === 0)
+    throw new HarnessError("configuration.invalid", ".pipe() requires at least one agent, tool or flow()");
+  return children.map((child) => {
+    requireChild(".pipe()", child);
+    return Object.freeze({ kind: "step" as const, child });
   });
 }
 
+/** `.step(child, { id })`: deprecated, the same as `.pipe(child.withId(id))`. */
+export function stepStage(child: unknown, options?: Options): FlowStage {
+  deprecate("NYLORUN_DEP_STEP", ".step() is deprecated. Use .pipe().");
+  checkOptions(".step()", options, ["id"]);
+  requireChild(".step()", child);
+  return Object.freeze({ kind: "step" as const, child, ...idOf(options) });
+}
+
+export function switchStage(cases: unknown, options?: Options): FlowStage {
+  checkOptions(".switch()", options, ["id"]);
+  const record = requireRecord(".switch()", "cases", cases);
+  return Object.freeze({ kind: "switch" as const, cases: Object.freeze({ ...record }), ...idOf(options) });
+}
+
 export function parallelStage(branches: unknown, options?: Options): FlowStage {
-  checkOptions(".parallel()", options, ["id", "input"]);
+  checkOptions(".parallel()", options, ["id"]);
   const record = requireRecord(".parallel()", "branches", branches);
-  return Object.freeze({ kind: "parallel" as const, branches: Object.freeze({ ...record }), ...common(options) });
+  return Object.freeze({ kind: "parallel" as const, branches: Object.freeze({ ...record }), ...idOf(options) });
 }
 
 export function mapStage(each: unknown, options?: Options): FlowStage {
-  checkOptions(".map()", options, ["id", "input"]);
+  checkOptions(".map()", options, ["id"]);
   requireChild(".map()", each);
-  return Object.freeze({ kind: "map" as const, each, ...common(options) });
+  return Object.freeze({ kind: "map" as const, each, ...idOf(options) });
 }
 
 export function loopStage(body: unknown, options?: Options): FlowStage {
-  checkOptions(".loop()", options, ["verify", "max", "decide", "id", "input"]);
+  checkOptions(".loop()", options, ["verify", "max", "id"]);
   requireChild(".loop()", body);
   if (options?.verify === undefined)
-    throw new HarnessError("configuration.invalid", ".loop() requires { verify }: a function or a verifier agent");
-  if (options.decide !== undefined && typeof options.decide !== "function")
-    throw new HarnessError("configuration.invalid", ".loop() decide must be a function");
+    throw new HarnessError("configuration.invalid", ".loop() requires { verify }: a verifier agent");
+  if (typeof options.verify === "function")
+    throw new HarnessError(
+      "configuration.invalid",
+      ".loop() no longer takes a verify function: use a verifier agent (an HTTP verifier is coming) (see MIGRATION.md)."
+    );
   return Object.freeze({
     kind: "loop" as const,
     body,
     verify: options.verify,
     ...(options.max === undefined ? {} : { max: options.max as number }),
-    ...(options.decide === undefined ? {} : { decide: options.decide as FlowFn }),
-    ...common(options),
+    ...idOf(options),
   });
 }
 
@@ -177,6 +179,11 @@ export class FlowBuilder {
     return this.#stages;
   }
 
+  pipe(...children: unknown[]): FlowBuilder {
+    return new FlowBuilder([...this.#stages, ...pipeStages(children)]);
+  }
+
+  /** @deprecated Use `.pipe()`. */
   step(child: unknown, options?: Options): FlowBuilder {
     return new FlowBuilder([...this.#stages, stepStage(child, options)]);
   }

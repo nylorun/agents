@@ -22,7 +22,7 @@ export async function runToolEffect(
   ctx: FlowContext,
   toolName: string,
   input: JsonValue,
-  identity: { readonly path: string; readonly key: string; readonly iterations?: string },
+  identity: { readonly path: string; readonly key: string; readonly iterations: string },
 ): Promise<JsonValue> {
   let context: Record<string, unknown> = { toolName };
   for (let attempt = 0; ; attempt += 1) {

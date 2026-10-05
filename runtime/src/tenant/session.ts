@@ -5,10 +5,8 @@
  *
  * Later waves: stable; the async store conversion (Wave 1 / A) does not change these.
  */
-import { agentTurnValue } from "@nylorun/harness/run";
 import type { Action } from "@nylorun/core/contracts";
-import type { AgentManifest, JsonValue } from "@nylorun/core/define";
-import { isWorkflowManifest } from "../core/flow-host.js";
+import type { AgentManifest } from "@nylorun/core/define";
 import {
   allowedManifestHashes,
   rebaseTurnState,
@@ -37,18 +35,6 @@ export function turnManifestOf(session: Session): AgentManifest {
   return session.variants?.[hash] ?? session.manifest;
 }
 
-/** Wrap a linked agent turn so the Loop learns the turn's manifest (SD-I4 pin stays on session). */
-export function linkedAgentOutput(
-  session: Session,
-  output: JsonValue | undefined
-): JsonValue {
-  if (isWorkflowManifest(session.manifest)) return output ?? null;
-  return agentTurnValue(
-    output ?? null,
-    turnManifestOf(session)
-  ) as unknown as JsonValue;
-}
-
 export function rebaseSessionState(session: Session, turnHash: string): void {
   const allowed = allowedManifestHashes({
     pinnedHash: session.manifestHash,
@@ -75,7 +61,7 @@ export function pinnedTool(
 
 /** What an action runs, for events: a tool name, or a flow path and key. */
 export function actionTarget(action: Action) {
-  if (action.kind === "tool" && "toolName" in action)
+  if ("toolName" in action)
     return {
       toolName: action.toolName,
       ...(action.agent ? { agent: action.agent } : {}),

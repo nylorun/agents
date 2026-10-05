@@ -706,8 +706,8 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("effects", "e3", effect("e3", "s1", "t2", "invoking"));
           await t.put("effects", "e4", effect("e4", "s2", "t1", "uncertain"));
           await t.put("effects", "e5", effect("e5", "wf", "wt", "pending", "agent"));
-          await t.put("effects", "e6", effect("e6", "wf", "wt", "queued", "fn"));
-          await t.put("effects", "e7", effect("e7", "wf", "old", "queued", "fn"));
+          await t.put("effects", "e6", effect("e6", "wf", "wt", "queued", "tool"));
+          await t.put("effects", "e7", effect("e7", "wf", "old", "queued", "tool"));
 
           await t.put("actions", "a1", action("a1", { status: "pending" }));
           await t.put("actions", "a2", action("a2", { status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:05.000Z" }));
@@ -718,7 +718,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("actions", "a7", action("a7", { status: "uncertain" }));
           await t.put("actions", "f1", {
             ...action("f1", { sessionId: "wf", turnId: "wt", status: "delivering", generation: 1, deadlineAt: "2030-01-01T00:00:03.000Z" }),
-            kind: "fn",
+            kind: "tool",
             path: "p",
             key: "k",
             capabilityId: undefined,
@@ -772,7 +772,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect(ids(await t.actionsForSession("s1"))).toEqual(["a1", "a2", "a3", "a4", "a5", "a7"]);
           expect(ids(await t.actionsForSession("s1", { turnId: "t1", statuses: ["pending", "delivering"] }))).toEqual(["a1", "a2", "a4"]);
           expect(ids(await t.actionsForSession("s1", { statuses: ["pending", "delivering", "uncertain"] }))).toEqual(["a1", "a2", "a3", "a4", "a7"]);
-          expect(ids(await t.actionsWithStatus(["delivering"], { kinds: ["fn", "verify"] }))).toEqual(["f1"]);
+          expect(ids(await t.actionsWithStatus(["delivering"], { kinds: ["tool"] }))).toEqual(["a2", "a3", "a4", "f1"]);
           expect(ids(await t.actionsWithStatus(["delivering"]))).toEqual(["a2", "a3", "a4", "f1"]);
         });
       });

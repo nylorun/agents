@@ -1,22 +1,9 @@
-import { summarizeManifestPatch } from "./manifest-diff.ts";
-import {
-  payloadOf,
-  type AgentManifestLike,
-  type EventLike,
-  type IterationRecord,
-} from "./types.ts";
+import { payloadOf, type EventLike, type IterationRecord } from "./types.ts";
 
-/**
- * Build a per-Loop iteration timeline from `loop.*` events (loops.md §4.6).
- * When decide patched the manifest, attach a diff vs the previous iteration.
- */
+/** Build a per-Loop iteration timeline from `loop.*` events (loops.md §4.6). */
 export function iterationTimelineFromEvents(
   events: readonly EventLike[],
-  options: {
-    readonly path?: string;
-    /** Optional manifests keyed by iteration n (from fixtures / inspect). */
-    readonly manifestsByIteration?: ReadonlyMap<number, AgentManifestLike>;
-  } = {},
+  options: { readonly path?: string } = {},
 ): readonly IterationRecord[] {
   const byKey = new Map<string, IterationRecord>();
   const keyOf = (path: string, n: number) => `${path}#${n}`;
@@ -63,27 +50,6 @@ export function iterationTimelineFromEvents(
             : {}),
         });
         break;
-      case "loop.decided": {
-        const patched = payload.patched === true;
-        let patchSummary: string | undefined;
-        if (patched && options.manifestsByIteration) {
-          const previous = options.manifestsByIteration.get(n);
-          const next = options.manifestsByIteration.get(n + 1);
-          // Decide at iteration n patches the manifest used for n+1.
-          patchSummary = summarizeManifestPatch(previous, next);
-          if (!patchSummary && previous && !next)
-            patchSummary = "manifest patched";
-        } else if (patched) {
-          patchSummary = "manifest patched";
-        }
-        byKey.set(key, {
-          ...prior,
-          decided: payload.next === "output" ? "output" : "input",
-          patched,
-          ...(patchSummary ? { patchSummary } : {}),
-        });
-        break;
-      }
       default:
         break;
     }

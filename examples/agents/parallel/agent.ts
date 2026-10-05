@@ -2,7 +2,8 @@ import { Agent } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * Parallel: a fixed set of named branches at the same time, same input.
+ * Parallel: a fixed set of named branches at the same time, same input. Its output is keyed
+ * by branch, and the next stage gets all of it.
  * Design: docs/design/agent/flow-agents.md
  */
 const Finding = z.object({ finding: z.string() });
@@ -35,7 +36,7 @@ const summarizer = Agent({
   id: "summarizer",
   name: "Summarizer",
   description: "Merges parallel review findings.",
-}).instructions("Combine the review findings into one short summary.");
+}).instructions("You get one finding per review. Combine them into one short summary.");
 
 export const prReview = Agent({
   id: "pr-review",
@@ -46,6 +47,4 @@ export const prReview = Agent({
     { security: securityReviewer, style: styleReviewer, tests: testAuditor },
     { id: "review" },
   )
-  .step(summarizer, {
-    input: ({ input }) => `Summarize these reviews:\n${JSON.stringify(input, null, 2)}`,
-  });
+  .pipe(summarizer);

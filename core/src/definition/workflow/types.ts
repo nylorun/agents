@@ -2,7 +2,7 @@ import type { WorkflowBinding, WorkflowManifest } from "../../types/workflow.js"
 import type { JsonValue } from "../../types/shared.js";
 import type { ToolSchemaSource } from "../../types/tool.js";
 
-/** A workflow built with Chain / Switch / Parallel / Map / Loop. */
+/** A built flow agent: its workflow manifest and the code its tool nodes run. */
 export interface BuiltWorkflow<In = JsonValue, Out = JsonValue> {
   readonly id: string;
   readonly manifest: WorkflowManifest;
@@ -24,18 +24,3 @@ export function isBuiltWorkflow(value: unknown): value is BuiltWorkflow {
     typeof (value as BuiltWorkflow).getBinding === "function"
   );
 }
-
-/** Infer a runnable's output type when known; otherwise JsonValue. */
-export type OutputOf<R> = R extends BuiltWorkflow<any, infer O>
-  ? O
-  : R extends { readonly __output?: infer O }
-    ? O
-    : R extends { build(): BuiltWorkflow<any, infer O> }
-      ? O
-      : JsonValue;
-
-export type InputOf<R> = R extends BuiltWorkflow<infer I, any>
-  ? I
-  : R extends { readonly __input?: infer I }
-    ? I
-    : JsonValue;

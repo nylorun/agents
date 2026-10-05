@@ -23,9 +23,10 @@ const agentManifest = (sandbox?: Record<string, unknown>) => ({
 
 const workflowManifest = (sandbox?: Record<string, unknown>) => ({
   kind: "workflow" as const,
-  workflowSchemaVersion: 1 as const,
+  workflowSchemaVersion: 3 as const,
   id: "flow",
-  root: { kind: "agent" as const, id: "run", agentId: "bot" },
+  root: { agent: "bot" },
+  agents: {},
   ...(sandbox ? { sandbox } : {}),
 });
 

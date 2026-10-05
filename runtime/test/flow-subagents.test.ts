@@ -47,9 +47,10 @@ const provider = (async (effect: HostEffect) => {
   }
 }) as ModelProvider;
 
-const research = Agent({ id: "research", description: "Researches a question and reports back." })
-  .step(Agent({ id: "searcher" }).instructions("Search."))
-  .step(Agent({ id: "summarizer" }).instructions("Summarize."));
+const research = Agent({ id: "research", description: "Researches a question and reports back." }).pipe(
+  Agent({ id: "searcher" }).instructions("Search."),
+  Agent({ id: "summarizer" }).instructions("Summarize.")
+);
 const lead = Agent({ id: "lead" }).instructions("Delegate research.").subagents(research);
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -91,7 +92,9 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
 
     const last = events.at(-1)!;
     expect(last.type, JSON.stringify(last.payload)).toBe("turn.completed");
-    expect(last.payload.output).toBe('lead heard: "summary of notes on Why is the sky blue?"');
+    // The summarizer sees the flow's input beside the searcher's notes (D12).
+    const summary = "summary of Original request:\nWhy is the sky blue?\n\nnotes on Why is the sky blue?";
+    expect(last.payload.output).toBe(`lead heard: ${JSON.stringify(summary)}`);
 
     const linked = events.find((e) => e.sessionId === session.id && e.type === "node.agent")!;
     expect(linked.payload.path).toBe("lead/research");
@@ -108,7 +111,7 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
       "searcher",
       "summarizer",
     ]);
-    expect(flowEvents.at(-1)?.payload.output).toBe("summary of notes on Why is the sky blue?");
+    expect(flowEvents.at(-1)?.payload.output).toBe(summary);
     expect(events.filter((e) => e.sessionId === session.id).map((e) => e.type)).toEqual(
       expect.arrayContaining(["delegation.started", "delegation.completed"])
     );

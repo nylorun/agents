@@ -20,7 +20,7 @@ import {
 import type { Action, EventPayload } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import { isFlowEffect, isFlowToolEffect } from "../core/flow-host.js";
+import { isFlowEffect, isFlowToolEffect, settleAgentEffect, type FlowEffect } from "../core/flow-host.js";
 import { sandboxCapabilityOf } from "../sandbox/capability.js";
 import { isSaveArtifactCall } from "../harness/calls.js";
 import { callSaveArtifact } from "../tenant/artifact-tool.js";
@@ -114,9 +114,7 @@ export async function recordIntent(
         const agent = await t.get<Session>("sessions", existing.agentSessionId);
         const outcome = await linkedOutcome(t, existing, agent);
         if (outcome) {
-          existing.status = "completed";
-          existing.outcome = outcome;
-          await t.put("effects", request.effectId, existing);
+          await settleAgentEffect({ t, effect: existing as FlowEffect, outcome });
           return { status: "completed", outcome };
         }
       }
@@ -124,13 +122,7 @@ export async function recordIntent(
         status: existing.status === "uncertain" || existing.status === "invoking" ? "uncertain" : "pending",
       };
     }
-    if (
-      request.kind === "agent" ||
-      request.kind === "fn" ||
-      request.kind === "verify" ||
-      isFlowToolEffect(request)
-    )
-      return "flow";
+    if (request.kind === "agent" || isFlowToolEffect(request)) return "flow";
     if (request.kind !== "model" && effectRequestHash(request) !== requestHash)
       throw new HarnessApiError("invalid", "The request hash does not match the request");
     if (request.kind === "delegation") {

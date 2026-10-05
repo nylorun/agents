@@ -110,15 +110,10 @@ export function liveStatusFromEvents(
             : {}),
         });
         break;
+      // A fail verdict retries the body; the Loop fails only when it runs out of attempts.
       case "loop.verified":
         set(byPath, path, {
-          status: payload.pass === true ? "completed" : "failed",
-          iteration: Number(payload.n ?? 0),
-        });
-        break;
-      case "loop.decided":
-        set(byPath, path, {
-          status: payload.next === "output" ? "completed" : "running",
+          status: payload.pass === true ? "completed" : "running",
           iteration: Number(payload.n ?? 0),
         });
         break;

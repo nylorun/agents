@@ -7,37 +7,33 @@ import {
   WorkflowManifestSchema,
 } from "../src/contracts.js";
 
+const coder = { manifestSchemaVersion: 5 as const, id: "coder", capabilities: [] };
 const shipFeature = {
   kind: "workflow" as const,
-  workflowSchemaVersion: 1 as const,
+  workflowSchemaVersion: 3 as const,
   id: "ship-feature",
   root: {
-    chain: {
-      id: "ship-feature",
-      steps: [
-        { agent: "planner" },
-        {
-          map: {
-            id: "implement",
-            over: { fn: true as const },
-            each: {
-              loop: {
-                id: "code",
-                run: { agent: "coder" },
-                verify: { fn: true as const },
-                decide: { fn: true as const },
-              },
-            },
-          },
+    chain: [
+      { agent: "planner" },
+      {
+        map: {
+          each: { loop: { run: { agent: "coder" }, verify: { agent: "tester" }, max: 3 } },
         },
-        { tool: { name: "open-pr", inputSchema: { type: "array" } } },
-      ],
-    },
+        id: "implement",
+      },
+      { tool: { name: "open-pr", inputSchema: { type: "array" } } },
+    ],
   },
-  sandbox: { image: "node:22" },
+  agents: {
+    planner: { ...coder, id: "planner" },
+    coder,
+    tester: { ...coder, id: "tester" },
+  },
 };
+const issues = (value: unknown) =>
+  WorkflowManifestSchema.safeParse(value).error?.issues.map((issue) => issue.message) ?? [];
 
-it("accepts the design workflow manifest example", () => {
+it("accepts a workflow manifest v3", () => {
   expect(WorkflowManifestSchema.safeParse(shipFeature).success).toBe(true);
 });
 
@@ -46,18 +42,44 @@ it("rejects a workflow document without kind workflow", () => {
   expect(WorkflowManifestSchema.safeParse(rest).success).toBe(false);
 });
 
-it("accepts a slot-wrapped node in the tree", () => {
-  const withSlot = {
-    ...shipFeature,
-    root: {
-      slot: {
-        id: "draft",
-        input: { fn: true as const },
-        run: { agent: "writer" },
-      },
-    },
-  };
-  expect(WorkflowManifestSchema.safeParse(withSlot).success).toBe(true);
+it("refuses v1 and v2 workflow manifests with what changed", () => {
+  for (const version of [1, 2])
+    expect(issues({ ...shipFeature, workflowSchemaVersion: version })).toContain(
+      `workflowSchemaVersion ${version} is no longer supported: flows run no code since manifest v5 (no input, on, verify or decide functions). Rebuild the flow with the current SDK (see MIGRATION.md)`
+    );
+  expect(issues({ ...shipFeature, workflowSchemaVersion: 9 })).toContain(
+    "Unsupported workflowSchemaVersion 9"
+  );
+});
+
+it("refuses function markers and a loop without max", () => {
+  const withRoot = (root: unknown) => ({ ...shipFeature, root });
+  expect(WorkflowManifestSchema.safeParse(withRoot({ agent: "coder", input: { fn: true } })).success).toBe(false);
+  expect(
+    WorkflowManifestSchema.safeParse(
+      withRoot({ switch: { on: { fn: true }, cases: { a: { agent: "coder" } } } })
+    ).success
+  ).toBe(false);
+  expect(
+    WorkflowManifestSchema.safeParse(withRoot({ loop: { run: { agent: "coder" }, verify: { fn: true }, max: 2 } }))
+      .success
+  ).toBe(false);
+  expect(
+    WorkflowManifestSchema.safeParse(withRoot({ loop: { run: { agent: "coder" }, verify: { agent: "tester" } } }))
+      .success
+  ).toBe(false);
+  expect(
+    WorkflowManifestSchema.safeParse(
+      withRoot({ loop: { run: { agent: "coder" }, verify: { agent: "tester" }, max: 2, decide: { fn: true } } })
+    ).success
+  ).toBe(false);
+});
+
+it("checks that every agent the flow uses is embedded under its id", () => {
+  expect(WorkflowManifestSchema.safeParse({ ...shipFeature, root: { agent: "nobody" } }).success).toBe(false);
+  expect(
+    WorkflowManifestSchema.safeParse({ ...shipFeature, agents: { ...shipFeature.agents, other: coder } }).success
+  ).toBe(false);
 });
 
 it("registers a workflow through PutAgentRequest", () => {
@@ -134,7 +156,7 @@ const actionBase = {
   generation: 0,
 };
 
-it("ActionSchema accepts agent tools, workflow tools, fn and verify", () => {
+it("ActionSchema accepts agent tools and workflow tools, not fn or verify", () => {
   expect(
     ActionSchema.safeParse({
       ...actionBase,
@@ -151,22 +173,11 @@ it("ActionSchema accepts agent tools, workflow tools, fn and verify", () => {
       key: "ship-feature/open-pr",
     }).success
   ).toBe(true);
-  expect(
-    ActionSchema.safeParse({
-      ...actionBase,
-      kind: "fn",
-      path: "ship-feature/implement",
-      key: "ship-feature/implement",
-    }).success
-  ).toBe(true);
-  expect(
-    ActionSchema.safeParse({
-      ...actionBase,
-      kind: "verify",
-      path: "ship-feature/implement/code",
-      key: "ship-feature/implement/code",
-    }).success
-  ).toBe(true);
+  for (const kind of ["fn", "verify"])
+    expect(
+      ActionSchema.safeParse({ ...actionBase, kind, path: "ship-feature/implement", key: "implement" })
+        .success
+    ).toBe(false);
   expect(
     ActionSchema.safeParse({
       ...actionBase,

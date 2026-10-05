@@ -39,9 +39,9 @@ export interface HostEffect {
   readonly manifestHash: string;
   /**
    * `delegation` journals when an agent used as a tool starts and settles; hosts record it and resolve it at once.
-   * Flow effects: `agent`, `tool` (node), `fn`, `verify` — each carries `path`, `key`, and `iterations`.
+   * Flow effects: `agent` and `tool` (node) — each carries `path`, `key`, and `iterations`.
    */
-  readonly kind: "model" | "tool" | "delegation" | "agent" | "fn" | "verify";
+  readonly kind: "model" | "tool" | "delegation" | "agent";
   /** Set on work for an agent used as a tool; `agentId` stays the session's root agent. */
   readonly agent?: AgentRef;
   readonly capabilityId?: string;

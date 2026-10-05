@@ -1,5 +1,5 @@
 import type { JsonObject } from "./shared.js";
-import type { WorkflowManifestV2 } from "./workflow.js";
+import type { WorkflowManifest } from "./workflow.js";
 
 /** Published manifest schema version (no top-level model — Runtime-owned). */
 export type ManifestSchemaVersion = 5;
@@ -37,9 +37,9 @@ export interface ToolManifest {
   /**
    * Present when this tool is another agent. The engine runs it with a fresh context and
    * returns its final output; its input is always `{ task: string }`. One level deep. A flow
-   * agent (workflow manifest v2) runs in its own linked session on the Runtime.
+   * agent (workflow manifest v3) runs in its own linked session on the Runtime.
    */
-  readonly agent?: AgentManifest | WorkflowManifestV2;
+  readonly agent?: AgentManifest | WorkflowManifest;
   /** Present when the Runtime runs this tool as an HTTP request. Never with `agent`. */
   readonly http?: HttpToolTarget;
   /** Each call of an HTTP tool waits for approval. */
