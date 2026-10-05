@@ -1,4 +1,9 @@
-export { createFlowCheckpoint, type FlowCheckpoint } from "./checkpoint.js";
+export {
+  createFlowCheckpoint,
+  resumeFlowCheckpoint,
+  type FlowCheckpoint,
+  type FlowResume,
+} from "./checkpoint.js";
 export { runFlowDurable } from "./engine.js";
 export {
   runLoop,
@@ -18,4 +23,4 @@ export {
 } from "./limits.js";
 export { flowEffectId, iterationsOf, joinPath, mapItemPath, nodeKeyOf } from "./paths.js";
 export { nodePart, unwrapSlot, runNode } from "./node.js";
-export { FlowNodeError, failedValueOf } from "./types.js";
+export { FlowNodeError, failedValueOf, type FlowInteraction } from "./types.js";

@@ -27,6 +27,7 @@
  * - `cancelSiblingWork({ t, workflowSessionId, turnId, siblingPaths?, cancelEffectIds? }): Promise<CancelSiblingResult>`
  * - `fenceWorkflowActions({ t, workflowSessionId, turnId }): Promise<{ cancelled; uncertain }>`
  * - `aggregateWaits({ t, workflowSessionId }): Promise<FlowWait[]>`
+ * - `flowInteractionOf(waits, workflowSessionId, interactionId): { id; kind } | undefined`
  * - `findInteractionOwner({ t, workflowSessionId, interactionId }): Promise<{ sessionId; path } | undefined>`
  * - `foreignInteractionConflict({ t, workflowSessionId, interactionId }): Promise<{ status: 409; message; ownerSessionId } | undefined>`
  * - `wakeForQueuedEffects({ t, workflowSessionId, turnId, limits, schedule }): Promise<boolean>`
@@ -170,6 +171,8 @@ export type FlowWait = {
   readonly path: string;
   readonly interactionId: string;
   readonly kind: string;
+  /** The interaction as asked (`prompt`, `metadata`), when the wait records it. */
+  readonly interaction?: unknown;
   readonly invocationId?: string;
   readonly wait?: unknown;
   readonly status?: string;
@@ -592,9 +595,10 @@ function waitsFromSession(
     if (!interactionId) continue;
     waits.push({
       sessionId,
-      path,
+      path: typeof call.path === "string" ? call.path : path,
       interactionId,
       kind: String(interaction?.kind ?? call.kind ?? "approval"),
+      ...(call.interaction !== undefined ? { interaction: call.interaction } : {}),
       ...(call.invocationId !== undefined
         ? { invocationId: String(call.invocationId) }
         : {}),
@@ -620,17 +624,11 @@ export async function aggregateWaits(input: {
   if (!workflow) return [];
 
   const waits: FlowWait[] = [];
-  // Workflow-owned interactions (tool-node / verify approvals) live on the workflow session.
-  if (Array.isArray(workflow.waits))
-    waits.push(...waitsFromSession(workflow.id, "", workflow.waits));
-  else if (
-    workflow.waits &&
-    typeof workflow.waits === "object" &&
-    Array.isArray((workflow.waits as any).interactions)
-  )
-    waits.push(
-      ...waitsFromSession(workflow.id, "", (workflow.waits as any).interactions)
-    );
+  // Workflow-owned interactions (tool-node approvals) live on the workflow session. Waits it
+  // copied from linked sessions are read from those sessions below, never from this copy.
+  waits.push(
+    ...waitsFromSession(workflow.id, "", ownWaits(workflow.waits, workflow.id))
+  );
 
   for (const { agentSessionId, link, session } of await t.linkedSessions<
     FlowHostSession
@@ -640,6 +638,36 @@ export async function aggregateWaits(input: {
   }
 
   return waits;
+}
+
+/** The entries of a workflow's `waits` that the workflow itself owns. */
+function ownWaits(raw: unknown, workflowSessionId: string): unknown[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as any).interactions)
+    ? (raw as any).interactions
+    : [];
+  return list.filter(
+    (call: any) =>
+      call?.sessionId === undefined || call.sessionId === workflowSessionId
+  );
+}
+
+/**
+ * The workflow-owned interaction `interactionId` among a workflow's `waits` (a tool node that
+ * asked), or undefined.
+ */
+export function flowInteractionOf(
+  raw: unknown,
+  workflowSessionId: string,
+  interactionId: string
+): { readonly id: string; readonly kind: string } | undefined {
+  const hit = waitsFromSession(
+    workflowSessionId,
+    "",
+    ownWaits(raw, workflowSessionId)
+  ).find((wait) => wait.interactionId === interactionId);
+  return hit && { id: hit.interactionId, kind: hit.kind };
 }
 
 /**

@@ -7,8 +7,9 @@
  *
  * Wakes (`ctx.wake`, architecture §12.3) carry the command type as the reason and a dedupe
  * key naming the cause: `<type>:<turnId>:<segment>` for `message`, `approve` and `respond`
- * (every accepted one writes a new checkpoint segment). An Action's outcome
- * (`recordActionOutcome`, from the deliverer) wakes with
+ * (every accepted one writes a new checkpoint segment), except that a workflow's `approve` and
+ * `respond` name `<type>:<turnId>:<interactionId>`: a flow resumes in the same segment. An
+ * Action's outcome (`recordActionOutcome`, from the deliverer) wakes with
  * `action_result:<turnId>:<actionId>:<generation>`.
  *
  * Cancel commits `cancelled` first; the engine host sees it before its next effect and before
@@ -25,6 +26,8 @@ import type {
 import {
   createDurableCheckpoint,
   createFlowCheckpoint,
+  resumeFlowCheckpoint,
+  type FlowCheckpoint,
 } from "@nylorun/harness/run";
 import {
   schemaFromJSON,
@@ -34,6 +37,7 @@ import {
 import {
   commandKey,
   fenceWorkflowActions,
+  flowInteractionOf,
   foreignInteractionConflict,
   isWorkflowManifest,
   planCancelCascade,
@@ -283,6 +287,29 @@ export async function command(
             });
           }
         }
+      } else if (isWorkflowManifest(s.manifest)) {
+        // Approvals owned by linked agent sessions must be answered there (WF-R52).
+        const conflict = await foreignInteractionConflict({
+          t,
+          workflowSessionId: id,
+          interactionId: command.interactionId,
+        });
+        if (conflict) fail(409, conflict.message);
+        if (s.status !== "paused" || !s.checkpoint || !s.activeTurnId)
+          fail(409, "Session is not awaiting a response");
+        // The flow's own interactions: a tool node that asked (`ctx.approve`, `ctx.ask`).
+        const asked = flowInteractionOf(s.waits, id, command.interactionId);
+        if (!asked) fail(409, "Unknown interaction");
+        else if ((command.type === "approve") !== (asked.kind === "approval"))
+          fail(409, "Interaction response kind does not match the saved request");
+        // Same segment: the flow replays its journal and runs the tool again with the answer.
+        s.checkpoint = resumeFlowCheckpoint(
+          s.checkpoint as FlowCheckpoint,
+          command.interactionId,
+          command.type === "approve"
+            ? { kind: "approval", approved: command.approved }
+            : { kind: "response", value: command.value as JsonValue }
+        );
       } else {
         if (s.status !== "paused" || !s.state || !s.activeTurnId)
           fail(409, "Session is not awaiting a response");
@@ -309,21 +336,6 @@ export async function command(
                 interactionId: command.interactionId,
                 value: command.value,
               };
-        if (isWorkflowManifest(s.manifest)) {
-          // Approvals owned by linked agent sessions must be answered there (WF-R52).
-          const conflict = await foreignInteractionConflict({
-            t,
-            workflowSessionId: id,
-            interactionId: command.interactionId,
-          });
-          if (conflict) fail(409, conflict.message);
-          // Workflow-owned interactions (tool-node / verify) resume on this session once
-          // the flow engine supports pause segments; tracer root Loop has none yet.
-          fail(
-            409,
-            "Workflow sessions do not accept approve/respond on the root without a pending interaction"
-          );
-        }
         s.checkpoint = createDurableCheckpoint({
           manifest: turnManifestOf(s),
           sessionId: id,
@@ -336,9 +348,14 @@ export async function command(
       }
       s.status = "runnable";
       s.waits = undefined;
+      // A flow answers each interaction in the same segment: the interaction names the cause.
+      const cause =
+        command.type !== "message" && isWorkflowManifest(s.manifest)
+          ? command.interactionId
+          : s.checkpoint!.segment;
       const commandWake = {
         reason: command.type,
-        dedupeKey: `${command.type}:${s.activeTurnId}:${s.checkpoint!.segment}`,
+        dedupeKey: `${command.type}:${s.activeTurnId}:${cause}`,
       };
       t.afterCommit(() => ctx.wake(id, commandWake));
       event = await t.event(

@@ -4,7 +4,13 @@ import type { WorkflowLoopNode, WorkflowNode } from "@nylorun/core";
 import type { DurableHost } from "../run/durable.js";
 import { HostSuspension } from "../loop/host-suspension.js";
 import type { FlowCheckpoint } from "./checkpoint.js";
-import { createFlowContext, failureOf, settleInFlight, type FlowContext } from "./context.js";
+import {
+  createFlowContext,
+  failureOf,
+  settleInFlight,
+  suspendedResult,
+  type FlowContext,
+} from "./context.js";
 import { assertLoopIteration, type FlowOperatorLimits } from "./limits.js";
 import { joinPath, nodeKeyOf } from "./paths.js";
 import { runNode, unwrapSlot } from "./node.js";
@@ -94,13 +100,7 @@ export async function runLoop(options: {
     };
   } catch (error) {
     await settleInFlight(ctx);
-    if (error instanceof HostSuspension) {
-      return {
-        status: [...ctx.pending.values()].includes("uncertain") ? "uncertain" : "waiting",
-        checkpoint,
-        effectIds: [...ctx.pending.keys()],
-      };
-    }
+    if (error instanceof HostSuspension) return suspendedResult(ctx);
     if (error instanceof FlowNodeError && error.failure.code === "cancelled")
       return { status: "cancelled", checkpoint, result: { status: "cancelled" } };
     const failure = failureOf(error, root.loop.id);
