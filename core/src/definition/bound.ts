@@ -36,8 +36,6 @@ export interface BoundToolDefinition<Info = unknown>
   ) => Promise<ToolRunResult>;
   readonly approval?: ToolApproval<ToolInputSchema>;
   readonly effects?: ToolEffects;
-  /** Runs in the background when an Action endpoint serves it (`ToolDefinition.background`). */
-  readonly background?: boolean;
   readonly owner: ToolOwner;
   readonly source: ToolDefinition<any, any, any>;
   /** Set when this tool is an agent used as a tool; the engine runs it. */

@@ -1,13 +1,14 @@
 /**
  * R2 M3: `http()` declares a tool the Runtime runs as an HTTP request. It projects into the
- * manifest with `http` (and `approval`), and the app serves no implementation for it.
+ * manifest with `http` (and `approval`), and has no implementation. R2 M6: `saveAgent` refuses
+ * a tool that would run your code.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { AgentManifestSchema } from "@nylorun/core/contracts";
 import { Agent, capability, hashManifest, http, tool } from "../src/index.js";
-import { buildAgents } from "../src/served-definitions.js";
-import { implementationsFor } from "@nylorun/core/define";
+import { AgentsClient } from "../src/client.js";
+import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 
 const refund = http({
   name: "refund",
@@ -61,18 +62,24 @@ describe("http()", () => {
     });
   });
 
-  it("is served beside code tools without an implementation of its own", () => {
-    const agent = Agent({ id: "orders" })
-      .tools(
-        refund,
-        tool({ name: "note", input: z.object({ text: z.string() }), run: async ({ text }) => text }),
-      )
-      .build();
-    const served = buildAgents([agent], "createActionHandler");
-    expect([...served.keys()]).toEqual(["orders"]);
-    const implementations = Object.values(implementationsFor(agent)).flatMap((item) =>
-      Object.keys(item.tools ?? {}),
+  it("is saved, and a code tool beside it is refused before anything is sent", async () => {
+    const sent: string[] = [];
+    const client = new AgentsClient({
+      url: "http://127.0.0.1:8787",
+      key: "a".repeat(64),
+      fetch: async (url, init) => {
+        if (String(url).endsWith("/health"))
+          return Response.json({ status: "ok", service: "nylorun-runtime", protocol: { ...HOST_PROTOCOL } });
+        sent.push(`${init?.method} ${new URL(String(url)).pathname}`);
+        return Response.json({ ok: true });
+      },
+    });
+    await client.saveAgent(Agent({ id: "orders" }).tools(refund).build());
+    expect(sent).toEqual(["PUT /v1/agents/orders"]);
+    const note = tool({ name: "note", input: z.object({ text: z.string() }), run: async ({ text }) => text });
+    await expect(client.saveAgent(Agent({ id: "notes" }).tools(refund, note).build())).rejects.toThrow(
+      "Tool 'note' of agent 'notes' runs your code, and the Runtime runs no code of yours during a session. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).",
     );
-    expect(implementations).toContain("note");
+    expect(sent).toEqual(["PUT /v1/agents/orders"]);
   });
 });

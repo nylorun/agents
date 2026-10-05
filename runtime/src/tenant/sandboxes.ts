@@ -47,7 +47,8 @@ import { podName } from "../sandbox/pods/name.js";
 import { expiresAtOf, podLifecycleConfig, type PodSandboxSpec } from "../sandbox/pods/spec.js";
 import { requirePods } from "../sandbox/placement.js";
 import { parseSandboxDuration } from "@nylorun/core/define";
-import type { AuthScope, Session, TenantContext } from "./context.js";
+import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
+import { sandboxLookup, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 
 /** The sandbox grants that limit `scope`, or undefined when it reaches every sandbox. */
@@ -627,4 +628,16 @@ export async function rearmPodTimers(ctx: TenantContext): Promise<void> {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/** Session lookups for the sandbox route handlers (`core/sandbox-routes.ts`). */
+export function sandboxRouteDeps(ctx: TenantContext): SandboxRouteDeps {
+  return {
+    sandbox: ctx.sandbox,
+    session: (id) =>
+      ctx.store.tx(async (t) => {
+        const session = await sessionOf(t, id);
+        return { session, lookup: await sandboxLookup(t, id) };
+      }),
+  };
 }

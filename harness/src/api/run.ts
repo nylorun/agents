@@ -15,7 +15,7 @@ import {
   type TurnOutput,
   type TurnStatus,
 } from "@nylorun/core/harness-api";
-import type { ActionOutcome, WorkflowManifest } from "@nylorun/core/contracts";
+import type { WorkflowManifest } from "@nylorun/core/contracts";
 import type { AgentManifest } from "@nylorun/core/define";
 import { runDurable, type DurableCheckpoint, type DurableSessionTool } from "../run/durable.js";
 import { runFlowDurable } from "../flow/engine.js";
@@ -30,20 +30,6 @@ export interface RunContext {
   readonly channel: HarnessChannel;
   readonly executors: HarnessExecutors;
   readonly cache: TranscriptCache;
-  /**
-   * Waits up to `ms` for core's outcome of a pending Action of the run (`effect.resolved`).
-   * Absent: a pending Action ends the segment.
-   */
-  readonly hold?: (
-    run: HarnessRun,
-    effectId: string,
-    ms: number,
-  ) => Promise<ActionOutcome | undefined>;
-  /**
-   * The longest this harness holds a run for a pending Action; core says how long each run
-   * may (`TurnStart.options.holdMs`), and never past its yield budget.
-   */
-  readonly holdMs?: number;
 }
 
 type EngineResult =
@@ -64,7 +50,6 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
   let { start } = run;
   const sessionId = run.grant.sessionId;
   const cursor = start.transcript.cursor;
-  const startedAt = Date.now();
   let transcript: readonly unknown[] = [];
   let output: TurnOutput;
   let after: readonly unknown[] | undefined;
@@ -91,24 +76,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       transcript = ctx.cache.get(sessionId, cursor) ?? (await read(ctx, run));
       checkpoint = { ...checkpoint, state: withTranscript(checkpoint.state, transcript) };
     }
-    const budget = start.options.yieldAfter?.ms;
-    const holdMs = Math.min(start.options.holdMs ?? 0, ctx.holdMs ?? Infinity);
-    const host = apiHost(ctx.channel, ctx.executors, run, {
-      ...(ctx.hold && holdMs > 0
-        ? {
-            // Never past the segment's yield budget: the turn rolls over there anyway.
-            hold: (effectId: string) =>
-              ctx.hold!(
-                run,
-                effectId,
-                Math.min(
-                  holdMs,
-                  budget === undefined ? Infinity : budget - (Date.now() - startedAt),
-                ),
-              ),
-          }
-        : {}),
-    });
+    const host = apiHost(ctx.channel, ctx.executors, run);
     const result: EngineResult =
       start.engine === "flow"
         ? await runFlowDurable({

@@ -1,17 +1,20 @@
-import { Agent, tool } from "@nylorun/agents";
-import { z } from "zod";
+import { Agent } from "@nylorun/agents";
 
-const lookupOrder = tool({
-  name: "lookup_order",
-  description: "Look up a sample order by ID. Try demo-123.",
-  input: z.object({ orderId: z.string() }),
-  output: z.object({ orderId: z.string(), status: z.string() }),
-  async run({ orderId }) {
-    return { orderId, status: orderId === "demo-123" ? "shipped" : "not found" };
-  },
-});
+// To give the assistant a tool, describe an HTTP service the Runtime calls (it runs no code
+// of yours during a session), or serve it from a remote MCP server:
+//
+//   import { http } from "@nylorun/agents";
+//   import { z } from "zod";
+//
+//   const lookupOrder = http({
+//     name: "lookup_order",
+//     description: "Look up an order by ID.",
+//     input: z.object({ orderId: z.string() }),
+//     url: "https://orders.example.com/lookup",
+//   });
+//
+// and add `.tools(lookupOrder)` below.
 
-export const assistant = Agent({ id: "assistant", name: "Order assistant" })
-  .instructions("Help with orders. Always use lookup_order for order questions. Remember conversation context.")
-  .tools(lookupOrder)
+export const assistant = Agent({ id: "assistant", name: "Assistant" })
+  .instructions("You are a helpful assistant. Answer concisely and remember conversation context.")
   .build();

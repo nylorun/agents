@@ -1,14 +1,14 @@
 /**
  * Hard caps (blueprint P1.3): a runaway loop stops at its cap. The provider always answers with
- * a tool call, and the agent's one tool always succeeds, so only the turn's token cap ends the
+ * a tool call, and the agent's one HTTP tool always succeeds, so only the turn's token cap ends the
  * turn: it fails with `model.budget_exhausted`, having overspent by at most one call. Runs
  * through both Model Gates.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { Agent, createClient, tool, type AgentsClient } from "@nylorun/agents";
-import { serveAgents } from "./support/endpoint.js";
+import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
 import { startTestTenant } from "./support/tenant.js";
+import { startToolServer } from "./support/tool-server.js";
 
 const APP = "model-budget-app-token-aaaaaaaaa";
 const PROVIDER = "https://models.budget.invalid/v1";
@@ -93,27 +93,13 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     await put("/v1/tenant/budgets", { requestId: "b1", budgets: [{ scope: "turn", limitTokens: 500 }] });
 
     const client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
-    let runs = 0;
+    const service = await startToolServer({ again: () => ({ ok: true }) });
+    closers.push(() => service.close());
     const agent = Agent({ id: "looper", name: "Looper" })
       .instructions("Keep going.")
-      .use({
-        id: "loop",
-        tools: [
-          tool({
-            name: "again",
-            input: z.object({}),
-            output: z.object({ ok: z.literal(true) }),
-            async run() {
-              runs += 1;
-              return { ok: true as const };
-            },
-          }),
-        ],
-      })
+      .tools(service.tool("again", { input: z.object({}), output: z.object({ ok: z.literal(true) }) }))
       .build();
-    const served = serveAgents({ agents: [agent], application: client, implementationVersion: "dev" });
-    closers.push(() => served.close());
-    await served.ready;
+    await client.saveAgent(agent, { implementationVersion: "dev" });
 
     const session = await client.createSession({ id: "s1", agentId: "looper", ownerUserId: "ada" });
     await session.input("go", { idempotencyKey: "m1" });
@@ -130,7 +116,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     // 4 calls (480 tokens) stay under 500, the 5th overspends by less than one call, the 6th is
     // refused before reaching the provider.
     expect(provider.calls()).toBe(5);
-    expect(runs).toBe(5);
+    expect(service.calls).toHaveLength(5);
     const usage = (await (
       await realFetch(`${runtime.url}/v1/tenant/usage?scope=agent&id=looper`, { headers: runtime.managementHeaders() })
     ).json()) as { tokens: number; calls: number };

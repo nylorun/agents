@@ -56,7 +56,7 @@ test("createTenantClient strips the SDK bearer and targets the Tenant proxy", as
   const { calls, fetcher } = recorder((url) =>
     url.endsWith("/health")
       ? Response.json({
-          protocol: { min: 1, max: 99, features: ["admin-status", "studio-principal", "action-endpoints", "artifacts", "management-api"] },
+          protocol: { min: 1, max: 99, features: ["admin-status", "studio-principal", "artifacts", "management-api"] },
         })
       : Response.json({ agents: [] }),
   );

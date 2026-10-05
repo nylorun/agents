@@ -48,7 +48,6 @@ async function fakeRuntime({ listsMissing = false } = {}) {
     sandbox: null,
     mcpSnapshot: null,
     mcpDiagnostics: [],
-    actions: [],
     uncertainEffects: [],
   };
   const server = createServer(async (req, res) => {

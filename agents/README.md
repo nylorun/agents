@@ -1,52 +1,40 @@
 # @nylorun/agents
 
-Runtime API client package: definition authoring, a session client, and the
-Action endpoint that runs your tools (`createActionHandler`). The Tenant's
+Runtime API client package: definition authoring and a session client. The Tenant's
 settings, models, vaults, signing keys and application keys are the Management
 API's, through [`@nylorun/admin`](../admin/README.md). Depends only on `@nylorun/core` among Nylorun
 packages. A developer application's production tree should contain only this
 package and `@nylorun/core` from Nylorun. Vocabulary:
 [runtime/src/CONTEXT.md](../runtime/src/CONTEXT.md).
 
-## Application entry (preferred): an Action endpoint
+## Application entry: save your agents
 
 ```ts
 // src/main.ts
-import { createServer } from "node:http";
-import { createActionHandler } from "@nylorun/agents";
+import { createClient } from "@nylorun/agents";
 import { agents } from "../agents/index.js";
 
-const url = process.env.NYLORUN_ACTIONS_URL ?? "http://localhost:3001/nylorun/actions";
-const actions = createActionHandler({ agents, url });
-createServer(actions.node).listen(3001); // or actions.fetch in Hono, Next.js, Workers, Bun
-await actions.register({ url });
+const client = createClient();
+for (const agent of agents) await client.saveAgent(agent);
 ```
 
-The Runtime delivers each tool call of these agents (and each tool node of their flows)
-to `url`, signed with a short-lived **delivery token** that the handler checks
-(Tenant, URL, Action, generation and body) before any code runs. `register`
-saves the definitions, registers the URL and pings it through the Runtime. A
-process that only serves Actions needs no key: pass `runtime: { url }` and it
-reads the Tenant's public keys. Mark a long tool
-`tool({ …, background: true })`: the handler answers at once, heartbeats and
-posts the result. `npx @nylorun/cli endpoints` shows each endpoint and how its
-deliveries are doing.
+The Runtime runs each agent from its manifest and the files saved with it (skills), and
+never calls your code during a session. Your services are reached as tools: [HTTP
+tools](#http-tools) and remote MCP servers. `saveAgent` refuses, before sending anything, an
+agent with a tool that would run your code (`tool({ run })`) or a flow agent with a tool
+stage: make it an `http()` tool or serve it from a remote MCP server. `tool({ run })` still
+runs in the local engine (`@nylorun/harness/run`). `implementationVersion` defaults to
+`NYLORUN_IMPLEMENTATION_VERSION`, else `dev`.
 
-The URL must be one the Runtime can reach: `localhost` on a local Tenant
-(its Runtime runs in Docker and maps `localhost` to this machine), a public URL
-in production, or a tunnel (ngrok, Cloudflare Tunnel) for a remote Runtime.
-
-`connectAgents` and executors were removed in protocol 3: mount
-`createActionHandler` instead (see [MIGRATION.md](../MIGRATION.md)). The handler
-finds the Runtime through the two `NYLORUN_*` variables or the Project link
-that `npx nylorun start` writes; with neither, `register` fails with
-`connection_missing` and names those steps. See [MIGRATION.md](../MIGRATION.md#runtime-clients-and-admin-api-breaking-beta)
-for upgrading from `nylorun serve`.
+`createClient()` finds the Runtime through the two `NYLORUN_*` variables or the Project link
+that `npx nylorun start` writes; with neither, it fails with `connection_missing` and names
+those steps. Action endpoints (`createActionHandler`), and before them `connectAgents` and
+executors, were removed; see [MIGRATION.md](../MIGRATION.md#action-endpoints-are-removed).
 
 ## HTTP tools
 
-A tool can be one HTTP request to your service, made by the Runtime itself: no
-Action endpoint and no code of yours runs during the session.
+A tool can be one HTTP request to your service, made by the Runtime itself: no code of
+yours runs during the session.
 
 ```ts
 import { Agent, http } from "@nylorun/agents";
@@ -91,7 +79,7 @@ only on the Runtime (a local `run()` reports `http.runtime-only`).
 
 ## Connection resolution
 
-`resolveConnection` / `createClient()` / `createActionHandler({ agents })`:
+`resolveConnection` / `createClient()`:
 
 1. Explicit `{ url, key }`
 2. Environment — if `NYLORUN_RUNTIME_URL` or `NYLORUN_SERVER_KEY` is set, both
@@ -107,18 +95,16 @@ Runtime serves one Tenant, so nothing names it: the `tenant` option is gone
 is ignored.
 
 ```ts
-import { Agent, createActionHandler, createClient, tool } from "@nylorun/agents";
+import { Agent, createClient, http } from "@nylorun/agents";
 import { z } from "zod";
 
 const assistant = Agent({ id: "assistant", name: "Assistant" })
   .instructions("Use the available tools.")
   .tools(
-    tool({
+    http({
       name: "lookup",
       input: z.object({ id: z.string() }),
-      async run({ id }, ctx) {
-        return { id, owner: ctx.info };
-      },
+      url: "https://items.example.com/lookup",
     }),
   );
 
@@ -134,20 +120,6 @@ const session = await client.createSession({
 });
 await session.input("Look up item 123", { idempotencyKey: requestId });
 const history = await session.history();
-
-// A process that only serves Actions holds no key: it reads the Tenant's public keys.
-const actions = createActionHandler({
-  agents: [assistant],
-  implementationVersion: "app-1",
-  runtime: { url: process.env.NYLORUN_RUNTIME_URL! },
-  url: "https://app.example.com/nylorun/actions",
-  onError: console.error,
-});
-app.post("/nylorun/actions", actions.node);
-// A deploy step with the application key registers the URL once:
-await createActionHandler({ agents: [assistant], client }).register({
-  url: "https://app.example.com/nylorun/actions",
-});
 ```
 
 ```sh
@@ -173,7 +145,7 @@ const assistant = Agent({ id: "assistant", name: "Order assistant" })
   .skills("./assistant-skills");
 ```
 
-Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`), at most 500 files of 10 MiB each. `saveAgent` (and `createActionHandler().register()`) uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it puts the definition, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`).
+Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`), at most 500 files of 10 MiB each. `saveAgent` uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it puts the definition, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`).
 
 The Runtime serves the skills itself, with no call to your process: `load_skill` returns a skill's `SKILL.md` body and the paths of its other files, and `read_skill_resource` returns a text file. A session with a sandbox also has each skill's files read-only under `/skills/<name>/`, so the model can run a skill's scripts with `bash`. Run without a Runtime, the skill tools only say so.
 
@@ -204,7 +176,7 @@ const session = await client.createSession({
 });
 ```
 
-The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process, so sandbox-only agents need no Action endpoint. The Runtime decides where the sandbox runs: today an emulated shell in the Runtime process, which is not a VM boundary and takes no `image`.
+The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. The Runtime decides where the sandbox runs: today an emulated shell in the Runtime process, which is not a VM boundary and takes no `image`.
 
 `sandbox` takes `false` for none, `{ id }` to attach a sandbox resource (below), or an inline sandbox as above; omit it for the Tenant's default. `{ session }`, sharing another session's sandbox, still works and is deprecated. The Runtime checks it against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout) and answers `400` with every problem it finds. A caller acting for a user (`app.as(...)`) can't define one inline; it gets the Tenant's default or `false`. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
 
@@ -246,9 +218,9 @@ const support = Agent({ id: "support" })
   .subagents(researcher);
 ```
 
-The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, skills and MCP servers, served by the Action endpoint you already mount for the parent (`createActionHandler({ agents: [support] })` serves both), shares the session's sandbox, and starts with empty `ctx.state`. Tools can read `ctx.agent` (`{ id, path, delegationId }`). Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
+The tool is named after the agent's `id` and takes `{ task: string }`; the agent's `description` (required) is what the parent's model reads to decide when to delegate. The child starts with a fresh context: it sees its own instructions and the task, nothing of the parent's conversation, and only its final text (or `outputSchema` result) comes back. It keeps its own tools, skills and MCP servers, saved with the parent, shares the session's sandbox, and starts with empty `ctx.state`. Tools can read `ctx.agent` (`{ id, path, delegationId }`). Several delegation calls in one model response run in parallel. An empty answer, a failure (with the child's last text marked as evidence) or a cancelled child reaches the parent's model as a failed tool result, never as success. The Runtime emits `delegation.started` and `delegation.completed`; `session.history({ agent })` filters by `delegationId` (one child invocation) or by path such as `support/researcher` (every concurrent child that shares that path).
 
-A flow agent can be a subagent too: `.subagents(researchFlow)` with a `description` like any other. Its manifest is inlined in the parent's, so it is saved with the parent and served by the parent's Action endpoint. When the model calls it, the flow runs on the Runtime in its own linked session (a fresh one per call, linked from the parent's with a `node.agent` event at `support/<flow id>`), its agents in theirs, and the flow's output comes back as the tool result; a failed flow is a failed tool result. Cancelling the parent cancels the flow. Flow agents as subagents run on the Runtime only, not in a local `run()`. An approval asked for inside the flow waits on the flow's own session.
+A flow agent can be a subagent too: `.subagents(researchFlow)` with a `description` like any other. Its manifest is inlined in the parent's, so it is saved with the parent. When the model calls it, the flow runs on the Runtime in its own linked session (a fresh one per call, linked from the parent's with a `node.agent` event at `support/<flow id>`), its agents in theirs, and the flow's output comes back as the tool result; a failed flow is a failed tool result. Cancelling the parent cancels the flow. Flow agents as subagents run on the Runtime only, not in a local `run()`. An approval asked for inside the flow waits on the flow's own session.
 
 Delegate when the parent should keep the answer. When a specialist should own the rest of the conversation, send the next message with a turn manifest that has the specialist's instructions instead. This version is one level deep and non-interactive: a delegated agent cannot use agents as tools, its tools cannot declare `approval` (keep those on the parent), and `ctx.ask`, `ctx.approve`, `ctx.sleep` or `ctx.waitFor` inside it fail with `delegation.interaction-unsupported`. Delegation is not an approval boundary; approvals live on tools.
 
@@ -369,15 +341,15 @@ named by the agent: its id (or `.withId("…")`), with `[i]` for each Map item a
 nested flow agent's id in front of its own agents'. Control stages add nothing, so
 wrapping a step in `.loop()` or moving it between cases keeps its session. An agent
 may appear once per flow; use it again under a new id with `writer.withId("final-writer")`
-(`flow.duplicate-leaf`). Code tool nodes are served by the Action endpoint under stage
-keys: the tool's name or `id`, under a nested flow agent's id. HTTP stages and
-verifiers need no endpoint.
+(`flow.duplicate-leaf`). A code tool stage (`.pipe(tool({ run }))`) runs only in the local
+engine: the Runtime runs no code of yours, so `saveAgent` refuses a flow agent with one. Use
+an HTTP stage instead.
 
 The agents in a flow share one sandbox: open the flow's session with it,
-`createSession({ …, sandbox: { … } })`, and every agent and tool step in the flow
-uses it. Share it with other sessions by opening them all on one sandbox resource
+`createSession({ …, sandbox: { … } })`, and every agent in the flow uses it. Share it
+with other sessions by opening them all on one sandbox resource
 (`sandbox: { id }`, see `client.sandboxes`), and call
-built-ins via `session.sandbox` (application) or `ctx.sandbox` (a tool).
+built-ins via `session.sandbox` (application).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and
 live node status. Source examples:
@@ -390,15 +362,15 @@ Use `session.observe({ cursor, signal })` for resumable canonical events, `sessi
 
 Connection defaults follow `resolveConnection` (options → environment → Project
 link). Implementation version defaults from `NYLORUN_IMPLEMENTATION_VERSION`,
-then `dev`. `register` saves the definitions and registers one endpoint per
-served agent with the application key; serving deliveries needs no key.
-Agents do not hash the manifest, and an in-flight action is still delivered after
-the registered digest changes. Model selection and model credentials belong to
+then `dev`. Agents do not hash the manifest; the Runtime pins the digest of the
+definition a session opens with. Model selection and model credentials belong to
 the Tenant.
 
-After registration, the Runtime POSTs each Action to the endpoint with a delivery token signed by the Tenant's key; the handler verifies it before any code runs and answers with the outcome. A background tool answers `202`, heartbeats with the newest token and posts its result. A cancel aborts the request, which reaches the tool as `ctx.signal`; JavaScript cannot forcibly terminate a function that ignores its signal. The host makes lost in-flight deliveries uncertain instead of automatically repeating external effects.
-
-Tools receive state, info, identity, resume, signal, approval/response helpers and memoized `step`. Step outcomes survive a persisted wait result; they do not establish exactly-once external effects after an unacknowledged crash. `sleep` and `waitFor` currently return inspectable deferred outcomes; automatic timer/event wakeups remain runtime implementation work. Remote `onModelCall` convenience and progress-event transport are not supplied in this pass. Arbitrary middleware closures are rejected for durable definitions; use `before`/`after` hooks. The Action endpoint runs every capability registered at a hook point in one action. Agent definitions have no `.run()`; explicit local execution is available through `@nylorun/harness/run`.
+The Runtime makes a lost HTTP tool call `uncertain` instead of repeating its external effect.
+In the local engine (`@nylorun/harness/run`), `tool({ run })` tools receive state, info,
+identity, resume, signal, approval/response helpers and memoized `step`. Arbitrary middleware
+closures are rejected for durable definitions. Agent definitions have no `.run()`; explicit
+local execution is available through `@nylorun/harness/run`.
 
 ## AG-UI
 
@@ -618,8 +590,7 @@ compatibility check, so calling `as()` per request is cheap.
 | `agents:read` | Listing the Tenant's agents |
 | `agents:write` | Saving agents; listing agents |
 
-No scope reaches Action endpoints, actions or the sandbox tool routes; call
-those without `as()`. `tenant:settings` is retired (protocol 8): it grants
+No scope reaches the sandbox tool routes; call them without `as()`. `tenant:settings` is retired (protocol 8): it grants
 nothing, and no subject reaches the Management API (`/v1/tenant/*`). Vaults are
 the installation's, created through the Management API with a management key
 (`admin.vaults.create({ scope: "installation", … })` in
@@ -630,9 +601,9 @@ characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
 for a subject.
 
-The Tenant's signing keys sign delivery tokens and capability links.
+The Tenant's signing keys sign capability links and run tokens.
 `app.access.jwks()` reads the public keys (`GET /v1/access/jwks`, no key
-needed), which `createActionHandler` verifies deliveries with. Listing, rotating
+needed). Listing, rotating
 and revoking them is management: `admin.signingKeys.list()`, `.rotate()`
 (`{ force: true }` for incidents) and `.revoke(kid)` in `@nylorun/admin`, or
 `nylo access signing-keys …` from the terminal.

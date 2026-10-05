@@ -1,6 +1,6 @@
 /**
- * Tenant signing keys for the tokens the Runtime signs itself (delivery tokens, capability
- * links, run and host tokens). Each key is an ES256 pair: the public JWK is stored
+ * Tenant signing keys for the tokens the Runtime signs itself (capability links, run and host
+ * tokens). Each key is an ES256 pair: the public JWK is stored
  * as is, the PKCS#8 private key is sealed with the vault KEK (AAD bound to the Tenant and key
  * id), like a credential.
  *
@@ -29,7 +29,7 @@ import type {
   SigningKeyView,
 } from "@nylorun/core/contracts";
 import type { SigningKeyRow, Tx } from "../store/types.js";
-import { DELIVERY_TOKEN_MAX_TTL_SECONDS } from "@nylorun/core/contracts";
+import { TOKEN_TTL_MAX_SECONDS } from "@nylorun/core/contracts";
 import { decryptSecret, encryptSecret } from "../vault/crypto.js";
 import { fail } from "./http.js";
 
@@ -149,7 +149,7 @@ export class SigningKeys {
   /**
    * Rotates: previous → revoked, current → previous, standby → current, new standby. Refused
    * with 409 while the previous key may still verify live tokens (retired less than the
-   * longest token lifetime, `maxTtlSeconds` or a delivery token's, plus a minute ago), unless
+   * longest token lifetime, `maxTtlSeconds` or `TOKEN_TTL_MAX_SECONDS`, plus a minute ago), unless
    * `force`.
    */
   async rotate(
@@ -165,7 +165,7 @@ export class SigningKeys {
     const [previous] = await t.signingKeys(["previous"]);
     if (previous && !force) {
       const retired = Date.parse(previous.retiredAt ?? previous.createdAt);
-      const longest = Math.max(maxTtlSeconds, DELIVERY_TOKEN_MAX_TTL_SECONDS);
+      const longest = Math.max(maxTtlSeconds, TOKEN_TTL_MAX_SECONDS);
       const until = retired + longest * 1000 + ROTATION_GRACE_MS;
       if (until > now.getTime())
         fail(409, "The previous key may still verify live tokens", {

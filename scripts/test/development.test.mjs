@@ -72,6 +72,9 @@ test(
       async openStudio(_group, { open }) {
         calls.push(`studio open=${open}`);
       },
+      startServices() {
+        calls.push("services");
+      },
       startRunner(group) {
         runners += 1;
         calls.push("runner");
@@ -105,6 +108,7 @@ test(
         "images",
         "start",
         "studio open=true",
+        "services",
         "runner",
       ]);
       const until = async (check) => {
@@ -160,6 +164,7 @@ test("a runner that exits on its own ends development with its code", { timeout:
         commands: {
           prepareImages: async () => {},
           startStack: async () => {},
+          startServices: () => {},
           startRunner: (group) => group.start("examples", process.execPath, ["-e", "process.exit(3)"]),
         },
       },

@@ -8,22 +8,22 @@
  * harness (`memory`) and one with a harness service over WebSocket (`ws`), interleaved,
  * timing the advances themselves (the
  * execution is never started; the bench calls the Tenant's worker): (a) one model call;
- * (b) ten steps alternating model calls and sandbox `bash`; (c) an Action tool answered by a
- * local endpoint, resumed by replay; (d) a warm resume over a 300-entry transcript. Then the
+ * (b) ten steps alternating model calls and sandbox `bash`; (c) an HTTP tool answered by a
+ * local service; (d) a warm resume over a 300-entry transcript. Then the
  * Harness API's traffic per turn of (c) in JSON mode, and the heap after 500 sessions.
  * Prints p50/p95 per scenario; (b) and (c) should stay within 10%.
  */
 import { afterAll, describe, test } from "vitest";
 import { z } from "zod";
-import { Agent, tool } from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import type { Frame } from "@nylorun/core/harness-api";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import { setTranscriptShadow } from "../../src/tenant/history.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
-import { completed, registerEndpoint, startEndpoint } from "../support/endpoint.js";
 import { startTestTenant, type StartTestTenantOptions } from "../support/tenant.js";
+import { startToolServer, type ToolServer } from "../support/tool-server.js";
 
 const TURNS = Number(process.env.BENCH_TURNS ?? 200);
 const APP = "bench-app-token-aaaaaaaaaaaaaaaaaa";
@@ -33,21 +33,15 @@ setTranscriptShadow(false);
 
 const plain = Agent({ id: "plain", name: "Plain" }).build();
 const sandboxed = Agent({ id: "sandboxed", name: "Sandboxed" }).instructions("Use the sandbox.").build();
-const actions = Agent({ id: "actions", name: "Actions" })
-  .use({
-    id: "notes",
-    tools: [
-      tool({
-        name: "save",
+const httpTools = (service: ToolServer) =>
+  Agent({ id: "http", name: "HTTP" })
+    .tools(
+      service.tool("save", {
         input: z.object({ note: z.string() }),
         output: z.object({ saved: z.literal(true) }),
-        async run() {
-          return { saved: true as const };
-        },
       }),
-    ],
-  })
-  .build();
+    )
+    .build();
 
 /** Answers after `steps` tool calls of `call`, counting the turn's tool results. */
 function stepping(steps: number, call: (step: number) => { name: string; args: unknown }): ModelProvider {
@@ -65,7 +59,7 @@ function stepping(steps: number, call: (step: number) => { name: string; args: u
 const models: Record<string, ModelProvider> = {
   plain: async () => ({ output: [{ type: "text", text: "done" }] }),
   sandboxed: stepping(5, (step) => ({ name: "bash", args: { command: `echo ${step}` } })),
-  actions: stepping(1, () => ({ name: "save", args: { note: "hi" } })),
+  http: stepping(1, () => ({ name: "save", args: { note: "hi" } })),
 };
 
 type Bench = Awaited<ReturnType<typeof open>>;
@@ -74,17 +68,15 @@ async function open(harness: "memory" | "ws", extra: Partial<StartTestTenantOpti
   const runtime = await startTestTenant({
     applicationKey: APP,
     harness,
-    // The bench delivers Actions itself, after the advance: a run must not wait for them.
-    actionHoldMs: 0,
     sandbox: { backend: "virtual" },
     sweepIntervalMs: 600_000,
     modelProvider: (effect, signal) => models[effect.agentId]!(effect, signal),
-    // Never started: the bench runs every advance and delivery itself.
+    // Never started: the bench runs every advance itself.
     execution: { execution: new MemoryExecution(), workers: new TenantWorkers() },
     ...extra,
   });
   const worker = (runtime.handle as TenantRuntime).worker;
-  const endpoint = await startEndpoint({ runtime, answer: () => completed({ saved: true }) });
+  const service = await startToolServer({ save: () => ({ saved: true }) });
   const call = async (method: string, path: string, body?: unknown) => {
     const response = await fetch(`${runtime.url}${path}`, {
       method,
@@ -94,13 +86,12 @@ async function open(harness: "memory" | "ws", extra: Partial<StartTestTenantOpti
     if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
     return response.json() as Promise<any>;
   };
-  for (const agent of [plain, sandboxed, actions])
+  for (const agent of [plain, sandboxed, httpTools(service)])
     await call("PUT", `/v1/agents/${agent.manifest.id}`, {
       requestId: agent.manifest.id,
       manifest: agent.manifest,
       implementationVersion: "dev",
     });
-  await registerEndpoint(runtime, "actions", endpoint.url);
   let n = 0;
   return {
     runtime,
@@ -127,15 +118,11 @@ async function open(harness: "memory" | "ws", extra: Partial<StartTestTenantOpti
       const result = await worker.advance(id, new AbortController().signal);
       if (result.status !== "done") throw new Error(`advance of ${id}: ${JSON.stringify(result)}`);
     },
-    async deliverPending(id: string) {
-      const view = await call("GET", `/v1/sessions/${id}`);
-      for (const action of view.actions) await worker.deliver!(action.actionId, new AbortController().signal);
-    },
     async status(id: string) {
       return (await call("GET", `/v1/sessions/${id}`)).status as string;
     },
     async close() {
-      await endpoint.close();
+      await service.close();
       await runtime.close();
     },
   };
@@ -163,14 +150,12 @@ const scenarios: Record<string, Turn> = {
     if ((await b.status(id)) !== "completed") throw new Error("(b) did not complete");
     return ms;
   },
-  "(c) Action tool, resumed by replay": async (b) => {
-    const id = await b.session("actions");
+  "(c) HTTP tool answered by a local service": async (b) => {
+    const id = await b.session("http");
     await b.message(id);
-    const first = await time(() => b.advance(id));
-    await b.deliverPending(id);
-    const replay = await time(() => b.advance(id));
+    const ms = await time(() => b.advance(id));
     if ((await b.status(id)) !== "completed") throw new Error("(c) did not complete");
-    return first + replay;
+    return ms;
   },
   "(d) warm resume, 300-entry transcript": async (b, state) => {
     let id = state.get(b);
@@ -251,7 +236,7 @@ describe("turn latency", () => {
       const b = await open("memory", { harness: "json", harnessTap: tap });
       const turns = 20;
       try {
-        for (let i = 0; i < turns; i += 1) await scenarios["(c) Action tool, resumed by replay"]!(b, new Map());
+        for (let i = 0; i < turns; i += 1) await scenarios["(c) HTTP tool answered by a local service"]!(b, new Map());
       } finally {
         await b.close();
       }

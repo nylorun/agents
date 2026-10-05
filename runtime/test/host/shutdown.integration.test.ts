@@ -62,7 +62,6 @@ function recording(inner: DurableExecution): DurableExecution & { results: Advan
   return {
     results,
     wake: (...args) => inner.wake(...args),
-    deliver: (...args) => inner.deliver(...args),
     timer: (...args) => inner.timer(...args),
     armSweep: (tenantId) => inner.armSweep(tenantId),
     disarmSweep: (tenantId) => inner.disarmSweep(tenantId),

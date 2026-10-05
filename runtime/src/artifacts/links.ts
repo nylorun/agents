@@ -2,7 +2,7 @@
  * Capability links (protocol 6): a short-lived URL that opens one artifact version with no
  * other credential, for UIs, `<img>` tags and sharing. The token in the path is an ES256 JWT
  * (`typ: nylorun-artifact+jwt`) signed with the Tenant's current signing key by the keys
- * service, like delivery tokens: `sub` is the artifact, `ver` the version, `aud`
+ * service, like run tokens: `sub` is the artifact, `ver` the version, `aud`
  * `nylorun-artifact`, and it lives at most `ARTIFACT_LINK_MAX_TTL_SECONDS` (`TOKEN_TTL_MAX_SECONDS`,
  * so a key rotation never revokes a live link). A link opens nothing once its artifact
  * is deleted. A folder's link (F8.2) opens its zip, or with a `path` claim one of its files.

@@ -66,8 +66,6 @@ it("a Tenant that fails after starting its response gets that response ended, no
       return {
         ready: true,
         runningSessions: 0,
-        inFlightDeliveries: 0,
-        pendingActions: 0,
         uncertainEffects: 0,
       };
     },

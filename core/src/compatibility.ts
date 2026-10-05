@@ -1,19 +1,23 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 8: the Runtime and Management APIs (`key_role_mismatch`), and manifest-only agents
+ * (track R2): manifest v5 and workflow manifest v3, no hooks or flow functions, remote MCP
+ * only, and no Action endpoints (`/v1/endpoints` and `/v1/actions/*` answer 404, delivery
+ * tokens are gone): an agent's tools are HTTP tools, remote MCP servers, agents and the
+ * Runtime's built-ins.
  * Protocol 7: open-source auth (F9 I3). Subject tokens (`POST /v1/tokens`), the access policy,
  * revocations, browser keys (`Nylorun-Key`), the Runtime's own CORS and derived principals are gone; their
  * routes answer 404. Browsers and apps present a trusted issuer's token, servers an operator key.
  * Protocol 6: file artifacts (`/v1/artifacts/**`, Runtime-signed capability links) and user
  * messages with `parts`. Protocol 5: a Host serves one Tenant, and nothing in a request selects
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
- * that remains.
+ * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
 export const PROTOCOL_VERSION = 8;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
-  "action-endpoints",
   "artifacts",
   /**
    * Protocol 8: the Management API (`/v1/tenant/*`) takes management keys only, and the
@@ -27,18 +31,14 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * Host features no client requires: a client that uses one checks the Host's `/health`
  * for it first. `tenant-fixture-model`: `PUT /v1/tenant/config/seed` accepts
  * `fixtureModel: true` (the Tenant's model calls use the Runtime's fixture model).
- * `transcript-events`: the log carries `message.assistant` and `tool.completed`, and
- * tool `action.*` events carry `callId` and `invocationId`. `subject-headers`: an application
- * principal may act for a subject with `Nylorun-Subject` and `Nylorun-Scopes`, and the Runtime
+ * `transcript-events`: the log carries `message.assistant` and `tool.completed`.
+ * `subject-headers`: an application principal may act for a subject with `Nylorun-Subject` and `Nylorun-Scopes`, and the Runtime
  * enforces the scopes and the subject's ownership of sessions. `ag-ui-endpoint`: the Runtime
  * serves AG-UI at `/v1/ag-ui/agents/:agent` for a person named by a trusted issuer's token or
  * by subject headers. `a2a-endpoint`:
  * `POST /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for a subject, and
  * `GET /v1/a2a/agents/:agent/card` returns the agent's card without its interfaces.
- * `action-endpoints`: `PUT`/`GET`/`DELETE /v1/endpoints` register the URL that runs each agent's
- * Actions, and the Runtime delivers them there, signed with a delivery token
- * (`Nylorun-Signature`), instead of offering them to executors. `sandboxes`: sandboxes are a
- * resource (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, kind `virtual`), a session attaches to one
+ * `sandboxes`: sandboxes are a resource (`PUT`/`GET`/`DELETE /v1/sandboxes/{id}`, kind `virtual`), a session attaches to one
  * with `sandbox: { id }`, a token caller (a trusted issuer's token) carries sandbox grants
  * checked at every turn start, and `sandboxes:write` lets a subject create and delete the
  * sandboxes it is granted.
@@ -57,7 +57,6 @@ export const OPTIONAL_HOST_FEATURES = [
   "subject-headers",
   "ag-ui-endpoint",
   "a2a-endpoint",
-  "action-endpoints",
   "sandboxes",
   "sandbox-pods",
   "trusted-issuers",
@@ -94,10 +93,6 @@ export const PROTOCOL_HEADER = "Nylorun-Protocol";
 export const SUBJECT_HEADER = "Nylorun-Subject";
 /** The space-separated scopes of that subject; required with `Nylorun-Subject`. */
 export const SCOPES_HEADER = "Nylorun-Scopes";
-/** The delivery token on a request the Runtime sends to an Action endpoint. */
-export const SIGNATURE_HEADER = "Nylorun-Signature";
-/** Set to `1` on an Action endpoint's response whose body is a tagged `ActionOutcome`. */
-export const OUTCOME_HEADER = "Nylorun-Outcome";
 /** The session, turn and agent of a call the Runtime makes to an HTTP tool's URL. */
 export const SESSION_ID_HEADER = "Nylorun-Session-Id";
 export const TURN_ID_HEADER = "Nylorun-Turn-Id";
@@ -165,7 +160,7 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 const CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz";
 export const TENANT_ID_PATTERN = /^tn_[0-9a-hjkmnp-tv-z]{26}$/;
 export const PRINCIPAL_ID_PATTERN = /^pr_[0-9a-hjkmnp-tv-z]{26}$/;
-/** A Tenant signing key's id, the `kid` of the tokens it signs (delivery tokens, capability links). */
+/** A Tenant signing key's id, the `kid` of the tokens it signs (capability links, run tokens). */
 export const SIGNING_KEY_ID_PATTERN = /^sk_[0-9a-hjkmnp-tv-z]{26}$/;
 /** A file artifact's id (protocol 6). */
 export const ARTIFACT_ID_PATTERN = /^af_[0-9a-hjkmnp-tv-z]{26}$/;

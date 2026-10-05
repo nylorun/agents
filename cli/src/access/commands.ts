@@ -1,6 +1,6 @@
 /**
- * `nylo access`: the linked Tenant's signing keys, which sign delivery tokens and capability
- * links, through the Management API with the Project's management key. (Subject tokens, the
+ * `nylo access`: the linked Tenant's signing keys, which sign capability links and run tokens,
+ * through the Management API with the Project's management key. (Subject tokens, the
  * access policy, browser keys and revocations left the Runtime in protocol 7.)
  */
 import type { ManagementClient } from "@nylorun/admin";
@@ -11,7 +11,7 @@ import { findProjectRoot } from "../project/root.js";
 export const accessUsage = `nylo access signing-keys <list|rotate|revoke>
 
   signing-keys list                  list the signing keys
-  signing-keys rotate [--force]      rotate; --force ends outstanding delivery tokens and links
+  signing-keys rotate [--force]      rotate; --force ends outstanding links and run tokens
   signing-keys revoke <kid>          revoke a previous or standby key`;
 
 const usageError = (message = accessUsage) => new CliError(message, 2);

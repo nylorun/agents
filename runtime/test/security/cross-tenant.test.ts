@@ -163,14 +163,6 @@ it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant",
       expectAScoped: true,
     },
     {
-      label: "A auth reading B action id",
-      init: {
-        path: "/v1/actions/action-from-b",
-        headers: a.headers(),
-      },
-      expectAScoped: true,
-    },
-    {
       label: "B header with A session path → opaque (names the other Tenant)",
       init: {
         path: "/v1/sessions/sess-a",

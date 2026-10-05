@@ -10,8 +10,7 @@
  * the connection's loss (`connection.lost`).
  *
  * F6.2: a harness readies the session's MCP servers itself and records what it found
- * (`session.mcp`); an Action outcome recorded while its run is held reaches it as
- * `effect.resolved`; and a harness that declared `workspace` in `hello` serves the Tenant's
+ * (`session.mcp`), and a harness that declared `workspace` in `hello` serves the Tenant's
  * workspaces (`workspace`, the `workspace.*` requests). A harness claims `sandbox.*` events
  * only for a run it holds (its session, or the session owning the run's sandbox) or a session a
  * workspace request it is serving acts for; a `sandbox.state` claim's record becomes the
@@ -43,7 +42,7 @@ import {
   type TurnStart,
   type WorkspaceRecord,
 } from "@nylorun/core/harness-api";
-import { definitionFilesOf, type ActionOutcome } from "@nylorun/core/contracts";
+import { definitionFilesOf } from "@nylorun/core/contracts";
 import { isOwnershipLost } from "../store/ownership.js";
 import { ownedSession, type Lease, type TenantContext } from "../tenant/context.js";
 import { mcpDiscovered, sessionToolsOf, type McpDiagnostic, type McpSnapshot } from "../mcp/snapshot.js";
@@ -102,13 +101,6 @@ export interface HarnessApiServer {
   /** Serves a harness's channel until it closes. Returns a function that detaches it. */
   attach(channel: HarnessChannel, peer: HarnessPeer): () => void;
   offer(offer: RunOffer): Promise<RunEnd>;
-  /**
-   * An Action outcome of session `sessionId` was recorded: the run holding it, if any, gets it
-   * (`effect.resolved`). Call it after the outcome's commit.
-   */
-  resolved(sessionId: string, effectId: string, outcome: ActionOutcome): void;
-  /** A harness holds a run of `sessionId` here. */
-  holds(sessionId: string): boolean;
   /**
    * Sends a `workspace.*` request to a harness that serves workspaces: with `pod`, the host of
    * that pod sandbox; otherwise one that hosts no sandbox. Throws `NoWorkspaceHarness` when
@@ -423,16 +415,6 @@ export function createHarnessApiServer(
       for (const connection of [...connections])
         if (connection.host?.sandboxId === sandboxId && connection.host.epoch < epoch)
           connection.channel.close("the sandbox's host epoch moved");
-    },
-    holds(sessionId) {
-      for (const run of runs.values())
-        if (run.grant.sessionId === sessionId && !run.ended && run.connection) return true;
-      return false;
-    },
-    resolved(sessionId, effectId, outcome) {
-      for (const run of runs.values())
-        if (run.grant.sessionId === sessionId && !run.ended && run.connection)
-          run.connection.channel.notify("effect.resolved", { runId: run.grant.runId, effectId, outcome });
     },
     async workspace(method, params, signal, target) {
       const pod = target?.pod;

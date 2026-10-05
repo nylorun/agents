@@ -16,7 +16,7 @@ const base = {
 
 test("labels new Runtime LiveEvent types", () => {
   assert.equal(eventLabel({ type: "command.message" }), "Message");
-  assert.equal(eventLabel({ type: "action.pending" }), "Action pending");
+  assert.equal(eventLabel({ type: "tool.completed" }), "Tool completed");
   assert.equal(eventLabel({ type: "turn.completed" }), "Turn completed");
   assert.equal(eventLabel({ type: "effect.uncertain" }), "Effect uncertain");
 });
@@ -65,8 +65,8 @@ test("summarizes message and action payloads", () => {
   );
   assert.match(
     eventSummary({
-      type: "action.completed",
-      payload: { toolName: "lookup", result: { ok: true } },
+      type: "tool.completed",
+      payload: { toolName: "lookup", output: { ok: true } },
     }),
     /lookup/,
   );
@@ -102,7 +102,7 @@ test("mergeStudioEvents prefers committed and keeps newest first", () => {
   assert.equal(merged.find((e) => e.eventId === "a")?.committed, true);
 });
 
-test("names delegations and the agent behind child actions", () => {
+test("names delegations and the agent behind child tool calls", () => {
   const agent = { id: "researcher", path: "support/researcher", delegationId: "d1" };
   assert.equal(eventLabel({ type: "delegation.started" }), "Delegation started");
   assert.equal(
@@ -118,31 +118,9 @@ test("names delegations and the agent behind child actions", () => {
   );
   assert.equal(
     eventSummary({
-      type: "action.pending",
-      payload: { agent, toolName: "search_orders", input: { query: "7" } },
+      type: "tool.completed",
+      payload: { agent, toolName: "search_orders", output: { found: 7 } },
     }),
-    'researcher › Tool · search_orders: {"query":"7"}',
-  );
-});
-
-test("labels and summarizes Action endpoint deliveries", () => {
-  assert.equal(eventLabel({ type: "action.delivered" }), "Action delivered");
-  assert.equal(eventLabel({ type: "action.delivery_failed" }), "Delivery failed");
-  assert.equal(
-    eventSummary({
-      type: "action.delivery_failed",
-      payload: {
-        actionId: "a1",
-        generation: 1,
-        reason: "endpoint.unreachable",
-        message: "connect ECONNREFUSED 127.0.0.1:3000",
-        retryInMs: 4000,
-      },
-    }),
-    "connect ECONNREFUSED 127.0.0.1:3000 (retrying in 4 s)",
-  );
-  assert.equal(
-    eventSummary({ type: "action.delivery_failed", payload: { reason: "endpoint.busy", retryInMs: 250 } }),
-    "endpoint.busy (retrying in 1 s)",
+    'researcher › Tool · search_orders: {"found":7}',
   );
 });

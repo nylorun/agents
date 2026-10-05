@@ -1,8 +1,7 @@
 /**
  * The workspace capability (F6.2): what core does with the Tenant's sandbox workspaces outside a
- * run. `ctx.sandbox` is a `WorkspacePort`: the sandbox tool routes (`POST
- * /v1/sessions/:id/sandbox/:tool` and an Action endpoint's `POST /v1/actions/:id/sandbox/:tool`),
- * Tenant status, the Tenant sweep, a sandbox resource's deletion and a sandboxes reset.
+ * run. `ctx.sandbox` is a `WorkspacePort`: the sandbox tool route (`POST
+ * /v1/sessions/:id/sandbox/:tool`), Tenant status, the Tenant sweep, a sandbox resource's deletion and a sandboxes reset.
  *
  * - **In process** (`localWorkspace`): the Tenant's own SandboxManager, which its in-process
  *   harness also runs sandbox tools with.

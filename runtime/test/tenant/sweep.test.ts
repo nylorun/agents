@@ -3,7 +3,6 @@
  * (architecture §10.5–10.6, §12.3).
  */
 import { afterEach, describe, expect, it } from "vitest";
-import type { Action } from "@nylorun/core/contracts";
 import type { Wake } from "../../src/execution/types.js";
 import { commandKey, linkedMessageKey } from "../../src/core/flow-host.js";
 import { isOwnershipLost, ownedTx } from "../../src/store/ownership.js";
@@ -11,7 +10,6 @@ import type { SessionStore, Tx } from "../../src/store/types.js";
 import { advance } from "../../src/tenant/advance.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import { createWorkState } from "../../src/tenant/scheduler.js";
-import { sweepDeliveries } from "../../src/tenant/delivery.js";
 import {
   reconcileLinkedAgents,
   wakeOrphanedSessions,
@@ -38,7 +36,6 @@ const silent = { info() {}, warn() {}, error() {} };
 
 function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
   const wakes: { id: string; wake: Wake }[] = [];
-  const delivered: string[] = [];
   const ctx = {
     store,
     closing: false,
@@ -51,11 +48,8 @@ function contextOf(store: SessionStore, ownerLeaseMs = 1000) {
     wake: async (id: string, wake: Wake) => {
       wakes.push({ id, wake });
     },
-    deliver: async (actionId: string) => {
-      delivered.push(actionId);
-    },
   } as unknown as TenantContext;
-  return { ctx, wakes, delivered };
+  return { ctx, wakes };
 }
 
 function session(id: string, fields: Record<string, unknown> = {}) {
@@ -67,25 +61,6 @@ function effect(id: string, sessionId: string, turnId: string, status: string) {
     request: { effectId: id, sessionId, turnId, kind: "model" },
     status,
   };
-}
-
-function action(fields: Partial<Action> & Pick<Action, "actionId">): Action {
-  return {
-    sessionId: "s1",
-    turnId: "t1",
-    agentId: "bot",
-    manifestHash: "h",
-    implementationVersion: "dev",
-    input: {},
-    context: {},
-    status: "delivering",
-    generation: 1,
-    deadlineAt: new Date(Date.now() - 1000).toISOString(),
-    kind: "tool",
-    capabilityId: "notes",
-    toolName: "save",
-    ...fields,
-  } as Action;
 }
 
 /** A Loop's `agent` effect request for iteration `n` of workflow `wf`, turn `t1`. */
@@ -218,57 +193,6 @@ describe("on the Postgres store", () => {
       owner: "b",
     });
     expect(await eventsOf(store, "s1")).toEqual([]);
-  });
-
-  it("loses lapsed deliveries and leaves live ones alone", async () => {
-    const store = await makeStore();
-    const { ctx, delivered } = contextOf(store);
-    const future = new Date(Date.now() + 60_000).toISOString();
-    await store.tx(async (t) => {
-      await t.put("sessions", "s1", session("s1", { status: "waiting", activeTurnId: "t1" }));
-      await t.put("actions", "tool-1", action({ actionId: "tool-1" }));
-      await t.put("effects", "tool-1", effect("tool-1", "s1", "t1", "pending"));
-      await t.put("actions", "live-1", action({ actionId: "live-1", deadlineAt: future }));
-    });
-    expect(await sweepDeliveries(ctx)).toBe(1);
-    const after = await store.tx(async (t) => ({
-      session: await t.get("sessions", "s1"),
-      tool: await t.get<Action>("actions", "tool-1"),
-      toolEffect: await t.get("effects", "tool-1"),
-      live: await t.get<Action>("actions", "live-1"),
-    }));
-    // A lost tool delivery is uncertain: it may have run.
-    expect(after.tool?.status).toBe("uncertain");
-    expect(after.toolEffect.status).toBe("uncertain");
-    expect(after.session.status).toBe("uncertain");
-    expect(after.live?.status).toBe("delivering");
-    expect(delivered).toEqual([]);
-    expect(await eventsOf(store, "s1")).toEqual(["action.uncertain"]);
-    expect(await sweepDeliveries(ctx)).toBe(0);
-  });
-
-  it("sends pending Actions again only for agents with an endpoint", async () => {
-    const store = await makeStore();
-    const { ctx, delivered } = contextOf(store);
-    await store.tx(async (t) => {
-      await t.put("sessions", "s1", session("s1", { status: "waiting", activeTurnId: "t1" }));
-      await t.putEndpoint({
-        agentId: "bot",
-        url: "http://127.0.0.1:1/actions",
-        implementationVersion: "dev",
-        timeoutMs: 60_000,
-        maxConcurrent: 16,
-        updatedAt: new Date().toISOString(),
-      });
-      await t.put("actions", "v1", action({ actionId: "v1", status: "pending", deadlineAt: null }));
-      await t.put(
-        "actions",
-        "other-1",
-        action({ actionId: "other-1", agentId: "other", status: "pending", deadlineAt: null })
-      );
-    });
-    expect(await sweepDeliveries(ctx)).toBe(0);
-    expect(delivered).toEqual(["v1"]);
   });
 
   it("wakes running or runnable sessions that have no live owner", async () => {

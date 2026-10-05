@@ -1,7 +1,7 @@
 {
   "name": "@nylorun/agents",
   "version": "0.15.0-beta",
-  "description": "Nylorun agent definitions, session client and Action endpoint",
+  "description": "Nylorun agent definitions and session client",
   "type": "module",
   "license": "Apache-2.0",
   "files": [

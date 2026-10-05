@@ -16,7 +16,6 @@ import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js
 import { failure } from "../../src/model/classify.js";
 import { GATES_REQUEST_TIMEOUT_MS, startGates, type GatesServer } from "../../src/host/gates.js";
 import { KEYS_PATH } from "../../src/keys/contract.js";
-import { DELIVERIES_PATH } from "../../src/gates/tool-contract.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 import type { RunGrant } from "../../src/tenant/run-token.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
@@ -333,22 +332,23 @@ describe("the gates service", () => {
       expect(await response.json()).toMatchObject({ error: { code: "invalid_request" } });
     });
 
-    it("refuses a run token on the keys and deliveries routes", async () => {
+    it("refuses a run token on the keys route, and has no deliveries route", async () => {
       const server = await gate();
       const grant = await running();
-      for (const path of [`${KEYS_PATH}/sign`, DELIVERIES_PATH]) {
-        const response = await realFetch(`${server.url}${path}`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${grant.token}`, "content-type": "application/json" },
-          body: JSON.stringify(
-            path === DELIVERIES_PATH
-              ? { url: "http://127.0.0.1:9/x", body: "{}", headers: {}, timeoutMs: 1_000 }
-              : { args: [{ typ: "nylorun-run+jwt", claims: {} }] },
-          ),
-        });
-        expect(response.status).toBe(401);
-        expect(await response.json()).toMatchObject({ error: { code: "gate_unauthorized" } });
-      }
+      const response = await realFetch(`${server.url}${KEYS_PATH}/sign`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${grant.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ args: [{ typ: "nylorun-run+jwt", claims: {} }] }),
+      });
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ error: { code: "gate_unauthorized" } });
+      // Action deliveries are gone (track R2).
+      const deliveries = await realFetch(`${server.url}/nylorun/v1/deliveries`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(deliveries.status).toBe(404);
       // Core's credential still reaches the keys.
       const keys = await realFetch(`${server.url}${KEYS_PATH}/ensureSigningKeys`, {
         method: "POST",

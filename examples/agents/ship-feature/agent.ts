@@ -1,10 +1,10 @@
-import { Agent, VerdictSchema, tool } from "@nylorun/agents/define";
+import { Agent, VerdictSchema } from "@nylorun/agents/define";
 import { z } from "zod";
 
 /**
- * A flow agent that uses a map, a loop, agents and a tool: plan, implement each task, open
- * a PR. Each stage gets the previous output, so each agent returns what the next stage
- * needs: the planner `{ items }` for the map, the PR writer `{ summaries }` for `open-pr`.
+ * A flow agent that uses a map, a loop and agents: plan, implement each task, write the PR.
+ * Each stage gets the previous output, so each agent returns what the next stage needs: the
+ * planner `{ items }` for the map; the PR writer's `{ summaries }` is the flow's output.
  * Design: docs/design/agent/flow-agents.md
  */
 const planner = Agent({
@@ -39,22 +39,11 @@ const prWriter = Agent({
   .instructions("You get one { summary } per task. Return their summaries, in order.")
   .output(z.object({ summaries: z.array(z.string()) }));
 
-const openPr = tool({
-  name: "open-pr",
-  description: "Opens a pull request from implementation summaries.",
-  input: z.object({ summaries: z.array(z.string()) }),
-  output: z.object({ opened: z.boolean(), count: z.number() }),
-  async run({ summaries }, ctx) {
-    if (!(await ctx.approve("Open the PR?"))) throw new Error("Rejected");
-    return { opened: true, count: summaries.length };
-  },
-});
-
 export const shipFeature = Agent({
   id: "ship-feature",
   name: "Ship feature",
-  description: "Plans a feature, implements each task, and opens a pull request.",
+  description: "Plans a feature, implements each task, and collects the pull request summaries.",
 })
   .pipe(planner)
   .map(Agent({ id: "code" }).loop(coder, { verify: reviewer, max: 2 }), { id: "implement" })
-  .pipe(prWriter, openPr);
+  .pipe(prWriter);

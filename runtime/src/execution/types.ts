@@ -27,16 +27,7 @@
  *   becomes `uncertain` is settled in the Session Store and `advance` returns
  *   `done`.
  * - **Sweeps.** `armSweep` arms one self-re-arming sweep per Tenant; arming an
- *   armed Tenant is a no-op. The sweep settles lapsed deliveries and re-wakes
- *   orphaned `runnable` sessions.
- * - **One delivery per Action at a time.** `deliver` runs
- *   `WorkerHandlers.deliver` for the key `<tenantId>:<actionId>` at least once
- *   after it resolves. Two deliveries for one key never overlap; repeated
- *   `deliver` calls may each run it, so the handler reads the Action's state
- *   and does nothing when there is nothing to deliver.
- * - **Retry after `retry`.** A delivery that returns `retry` is run again for
- *   the same key after `retryAfterMs`. This is how an Action endpoint that is
- *   down or busy is retried; the handler throws only on infrastructure errors.
+ *   armed Tenant is a no-op. The sweep re-wakes orphaned `runnable` sessions.
  * - **One reconcile per sandbox at a time** (F7.2). `sandbox` runs
  *   `WorkerHandlers.sandbox` for the key `<tenantId>:<sandboxId>` at least once
  *   after a `reconcile` resolves, never overlapping another run for the key. A
@@ -52,8 +43,6 @@ export type WakeReason =
   | "message"
   | "approve"
   | "respond"
-  /** An Action's outcome was recorded (a delivery's answer or a background result). */
-  | "action_result"
   /** A linked agent turn completed, failed or was cancelled. */
   | "linked"
   /** Queued flow effects, pending agent effects reconciled. */
@@ -67,7 +56,6 @@ export const WAKE_REASONS: readonly WakeReason[] = [
   "message",
   "approve",
   "respond",
-  "action_result",
   "linked",
   "flow",
   "recover",
@@ -107,11 +95,6 @@ export interface SandboxResult {
   arm?: readonly { timer: SandboxTimer; at: number }[];
 }
 
-export type DeliverResult =
-  | { status: "done" }
-  /** The Action is still to be delivered; run again for this key after `retryAfterMs`. */
-  | { status: "retry"; retryAfterMs: number };
-
 /** What a Worker runs when Durable Session Execution calls it. */
 export interface WorkerHandlers {
   /**
@@ -128,15 +111,6 @@ export interface WorkerHandlers {
   sweep(tenantId: string): Promise<void>;
   /** A durable timer set with `timer` fired. Required when `timer` is used. */
   fire?(tenantId: string, key: string): Promise<void>;
-  /**
-   * Delivers one Action to its Action endpoint. `signal` aborts when the Worker
-   * stops. Throw only on infrastructure errors. Required when `deliver` is used.
-   */
-  deliver?(
-    tenantId: string,
-    actionId: string,
-    signal: AbortSignal,
-  ): Promise<DeliverResult>;
   /**
    * Reconciles one pod sandbox (F7.2), serialized per sandbox. Throw only on infrastructure
    * errors. Required when `sandbox` is used.
@@ -158,12 +132,6 @@ export interface DurableExecution {
    * implementation can; `fire` must be idempotent either way.
    */
   timer(tenantId: string, key: string, at: Date): Promise<void>;
-  /**
-   * At-least-once: `WorkerHandlers.deliver(tenantId, actionId)` runs after this
-   * resolves, never overlapping another delivery of the same Action. Send it
-   * after the transaction that made the Action pending commits.
-   */
-  deliver(tenantId: string, actionId: string): Promise<void>;
   /**
    * A pod sandbox's reconcile, or one of its timers (F7.2): see "One reconcile per sandbox
    * at a time". Absent where pods are not supported.
@@ -204,7 +172,7 @@ export interface StuckInvocation {
   handler: string;
   /**
    * Object key: `<tenantId>:<sessionId>`, `<tenantId>`, `<tenantId>:<timer key>` or
-   * `<tenantId>:<actionId>`.
+   * `<tenantId>:<sandboxId>`.
    */
   key: string;
   tenantId?: string;
@@ -213,7 +181,7 @@ export interface StuckInvocation {
   modifiedAt?: string;
 }
 
-/** The key one advance (or one delivery, with an Action id) at a time is serialized on. */
+/** The key one advance (or one sandbox reconcile, with a sandbox id) at a time is serialized on. */
 export function sessionKey(tenantId: string, sessionId: string): string {
   return `${tenantId}:${sessionId}`;
 }

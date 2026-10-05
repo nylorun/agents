@@ -11,11 +11,10 @@
  *   creates and starts its Tenant on the images it pins
  *   (`ghcr.io/nylorun/{runtime,studio}:<pin>`, pulled from GHCR, never built
  *   here), and links the project to it;
- *   the project's `npm run dev` serves and registers its Action endpoint.
+ *   the project's `npm run dev` saves its agent.
  * - Checks: the Tenant runs exactly the pinned images; `nylorun status` reports
- *   the linked Tenant open; `assistant` is registered and the Runtime reaches
- *   its Action endpoint (a ping through the Runtime answers 200); the login
- *   from `nylorun studio` lands on the Tenant and Studio proxies its API.
+ *   the linked Tenant open; `assistant` is saved; the login from
+ *   `nylorun studio` lands on the Tenant and Studio proxies its API.
  *
  * Runs under `withStack` (scripts/lib/stack.mjs): a temporary NYLORUN_HOME and
  * a unique Tenant name (NYLORUN_TENANT), always reset (containers and volumes)
@@ -30,7 +29,6 @@ import { ProcessGroup } from "../lib/processes.mjs";
 import {
   eventually,
   runtimeGet,
-  runtimeHeaders,
   studioSession,
   withStack,
 } from "../lib/stack.mjs";
@@ -198,19 +196,7 @@ export async function publicCreatorSmoke(versions, pins) {
               (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.some(
                 (agent) => agent.manifest?.id === "assistant",
               ),
-            { timeout: 120_000, message: 'the seed agent "assistant"' },
-          );
-          // The Runtime (in Docker) reaches the app's Action endpoint on this machine.
-          await eventually(
-            async () =>
-              (
-                await fetch(`${runtimeUrl}/v1/endpoints/assistant/ping`, {
-                  method: "POST",
-                  headers: runtimeHeaders(key),
-                  signal: AbortSignal.timeout(15_000),
-                })
-              ).status === 200,
-            { message: "the Runtime to reach the assistant's Action endpoint" },
+            { timeout: 120_000, message: 'the saved agent "assistant"' },
           );
 
           const studioUrl = bannerField(
@@ -227,7 +213,7 @@ export async function publicCreatorSmoke(versions, pins) {
           );
           assert.equal(proxied.status, 200, await proxied.clone().text());
           console.log(
-            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its Tenant, Action endpoint reachable, Studio login works.`,
+            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its Tenant, agent saved, Studio login works.`,
           );
         } finally {
           // Stop the Project before the Tenant is reset.

@@ -40,10 +40,10 @@ it("the linked client sends the key and the protocol, and no Nylorun-Tenant head
           protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
         });
       seen.push(new Headers(init?.headers));
-      return Response.json({ endpoints: [] });
+      return Response.json({ agents: [] });
     },
   });
-  await client.transport.json("/v1/endpoints", "GET");
+  await client.transport.json("/v1/agents", "GET");
   expect(seen).toHaveLength(1);
   expect(seen[0]!.get("authorization")).toBe(`Bearer ${APPLICATION_KEY}`);
   expect(seen[0]!.get("nylorun-protocol")).toBe(String(PROTOCOL_VERSION));

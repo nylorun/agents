@@ -7,8 +7,11 @@
  * Runs scripts/lib/development.mjs against a temporary NYLORUN_HOME and a
  * unique Tenant (NYLORUN_TENANT), with the images from scripts/lib/stack.mjs.
  * Checks that the Tenant starts on those images, `nylorun start` links the
- * examples Project to it, its Action endpoints answer, the printed Studio login works, and that an edit to
- * a host package rebuilds it and restarts the examples runner. The Tenant is
+ * examples Project to it, the examples' `npm run dev` saves their agents, the
+ * Runtime (in Docker) calls the examples' tools service on this machine (a
+ * fixture-model turn whose `lookup_order` HTTP tool answers), the printed
+ * Studio login works, and that an edit to a host package rebuilds it and
+ * restarts the examples runner, which saves the agents again. The Tenant is
  * reset afterwards.
  *
  * The examples run from a temporary copy of the files git tracks under
@@ -17,13 +20,15 @@
  * affects the smoke nor is read or changed by it.
  */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createClient } from "@nylorun/agents";
 import { develop, workspaceCommands } from "./lib/development.mjs";
 import { root, run } from "./lib/repo.mjs";
-import { ensureImages, eventually, runtimeHeaders, studioSession, withStack } from "./lib/stack.mjs";
+import { ensureImages, eventually, runtimeGet, runtimeHeaders, studioSession, withStack } from "./lib/stack.mjs";
 
 const scratch = await mkdtemp(join(tmpdir(), "nylorun-dev-smoke-"));
 const examples = join(scratch, "examples");
@@ -97,20 +102,39 @@ try {
       assert.equal(format, 3, "link format 3");
       assert.equal(linked, stack.env.NYLORUN_TENANT, "examples/ is linked to the test Tenant");
       assert.equal(tenantId, (await stack.tenant()).id, "the link names the Tenant's id");
-      // The examples serve their agents as Action endpoints; the Runtime (in Docker) reaches
-      // them when a ping through it answers 200.
-      const connected = async () => {
-        for (const id of ["assistant", "analyst"]) {
-          const response = await fetch(`${hostUrl}/v1/endpoints/${id}/ping`, {
-            method: "POST",
-            headers: runtimeHeaders(applicationKey),
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (response.status !== 200) return false;
-        }
-        return true;
-      };
-      await until(connected, { timeout: 300_000, message: "the examples' Action endpoints to answer" });
+      // The examples' `npm run dev` saves the registry's agents.
+      const saves = () => lines.filter((l) => l.includes("Saved agent assistant")).length;
+      const savedIds = async () =>
+        (await runtimeGet(hostUrl, applicationKey, "/v1/agents")).agents.map((a) => a.manifest.id);
+      await until(
+        async () => {
+          const ids = await savedIds();
+          return ["assistant", "analyst"].every((id) => ids.includes(id));
+        },
+        { timeout: 300_000, message: "the examples' agents to be saved" },
+      );
+
+      // The Runtime (in Docker) calls the examples' tools service on this machine: with the
+      // fixture model, the assistant's turn calls lookup_order, an HTTP tool, and reports it.
+      const { managementKey } = await stack.tenant();
+      const seeded = await fetch(`${hostUrl}/v1/tenant/config/seed`, {
+        method: "PUT",
+        headers: runtimeHeaders(managementKey, { "content-type": "application/json" }),
+        body: JSON.stringify({ requestId: randomUUID(), fixtureModel: true }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      assert.ok(seeded.ok, `seeding the fixture model: ${seeded.status} ${await seeded.text()}`);
+      const client = createClient({ url: hostUrl, key: applicationKey });
+      const session = await client.createSession({ agentId: "assistant", ownerUserId: "dev-smoke" });
+      await session.input("Where is demo-123?", { idempotencyKey: randomUUID() });
+      await until(
+        async () => {
+          const { items } = await runtimeGet(hostUrl, applicationKey, `/v1/sessions/${session.id}/items`);
+          const text = JSON.stringify(items ?? []);
+          return text.includes("Order lookup complete") && text.includes("shipped");
+        },
+        { timeout: 120_000, message: "the assistant's lookup_order call to reach the tools service" },
+      );
 
       // `nylorun studio`'s login (after `nylorun start`'s own) lands on the linked Tenant.
       const loginUrl = lines.map((l) => /^Studio\s+(http\S+)/.exec(l)?.[1]).findLast(Boolean);
@@ -123,8 +147,9 @@ try {
       // An edit to a host package rebuilds it and restarts the runner.
       const restarts = () => lines.filter((l) => l.includes("Restarting the examples runner")).length;
       await writeFile(edited, `${original}\n// dev smoke ${Date.now()}\n`);
+      const savedBefore = saves();
       await until(() => restarts() === 1, { timeout: 180_000, message: "a runner restart" });
-      await until(connected, { timeout: 120_000, message: "the Action endpoints to answer again" });
+      await until(() => saves() > savedBefore, { timeout: 120_000, message: "the restarted runner to save the agents" });
     } finally {
       await writeFile(edited, original);
       controller.abort();
@@ -132,7 +157,7 @@ try {
     }
   });
   console.log(
-    "Development smoke passed: npm run dev on a local Tenant (local images), examples linked to it, Action endpoints, Studio login, package rebuild and runner restart.",
+    "Development smoke passed: npm run dev on a local Tenant (local images), examples linked to it, agents saved, an HTTP tool call to the examples' tools service, Studio login, package rebuild and runner restart.",
   );
 } catch (error) {
   console.error(error);

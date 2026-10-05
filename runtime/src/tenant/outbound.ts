@@ -1,11 +1,12 @@
 /**
- * The Runtime's requests to Action endpoints (design: Action endpoints §8.3) and HTTP tools
- * (`gates/http-tool.ts`): one request, no redirects, a bounded answer, and the Host's address policy checked on the address actually
- * connected to, so a DNS answer cannot steer a delivery somewhere the Host forbids.
+ * The Runtime's requests to developer URLs: HTTP tools (`gates/http-tool.ts`) and, through
+ * `guardedFetch`, remote MCP servers and OAuth: one request, no redirects, a bounded answer, and
+ * the Host's address policy checked on the address actually connected to, so a DNS answer cannot
+ * steer a request somewhere the Host forbids.
  *
- * The result says whether anything reached the endpoint. A request that failed before its body
- * was flushed (refused connection, unknown host, TLS failure, a refused address) was `not_sent`
- * and is safe to send again, even for a tool; one that failed after (reset, timeout) is `lost`.
+ * The result says whether anything reached the URL. A request that failed before its body was
+ * flushed (refused connection, unknown host, TLS failure, a refused address) was `not_sent`;
+ * one that failed after (reset, timeout) is `lost`.
  */
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
@@ -144,7 +145,7 @@ export async function post(
       finish({
         kind: sent ? "lost" : "not_sent",
         code: signal.aborted ? "ABORTED" : (error.code ?? error.name),
-        message: signal.aborted ? "The delivery was aborted" : error.message,
+        message: signal.aborted ? "The request was aborted" : error.message,
       });
     const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(
       url,

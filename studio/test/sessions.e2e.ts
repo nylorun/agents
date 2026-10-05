@@ -119,7 +119,6 @@ async function fakeRuntime() {
       sandbox: creation.sandbox ?? null,
       mcpSnapshot: null,
       mcpDiagnostics: [],
-      actions: [],
       uncertainEffects: [],
     };
   };

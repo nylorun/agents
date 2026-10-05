@@ -84,9 +84,6 @@ export function normalizeToolDefinition(
     ...(definition.effects === undefined
       ? {}
       : { effects: definition.effects }),
-    ...(definition.background === undefined
-      ? {}
-      : { background: definition.background }),
   } as ToolDefinition;
 }
 

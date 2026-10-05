@@ -37,7 +37,7 @@ it("documents the session reads with the same privileged credentials as serving"
   }
 });
 
-it("documents no executor routes: Action endpoints replaced them", () => {
+it("documents no executor routes, Action endpoints or delivery callbacks", () => {
   for (const [method, path] of [
     ["get", "/v1/executors/connect"],
     ["get", "/v1/actions"],
@@ -45,23 +45,17 @@ it("documents no executor routes: Action endpoints replaced them", () => {
     ["get", "/v1/executors"],
     ["put", "/v1/executors"],
     ["delete", "/v1/executors/{agentId}"],
-  ] as const)
-    expect(operation(method, path), `${method} ${path}`).toBeUndefined();
-  expect(document.components?.schemas?.ExecutorNotification).toBeUndefined();
-});
-
-it("documents an Action's callbacks for its delivery token only", () => {
-  for (const [method, path] of [
+    ["put", "/v1/endpoints"],
+    ["get", "/v1/endpoints"],
+    ["delete", "/v1/endpoints/{agentId}"],
+    ["post", "/v1/endpoints/{agentId}/ping"],
     ["post", "/v1/actions/{actionId}/heartbeat"],
     ["post", "/v1/actions/{actionId}/sandbox/{tool}"],
     ["post", "/v1/actions/{actionId}/result"],
-  ] as const) {
-    const op = operation(method, path);
-    expect(op, `${method} ${path}`).toBeDefined();
-    expect(op.deprecated).toBeUndefined();
-    expect(op.security).toEqual([{ deliveryToken: [] }]);
-    expect(op["x-nylorun-scopes"]).toBe("never");
-  }
+  ] as const)
+    expect(operation(method, path), `${method} ${path}`).toBeUndefined();
+  expect(document.components?.schemas?.ExecutorNotification).toBeUndefined();
+  expect(document.components?.securitySchemes?.deliveryToken).toBeUndefined();
 });
 
 it("documents session commands for every caller that sends them, with their headers", () => {

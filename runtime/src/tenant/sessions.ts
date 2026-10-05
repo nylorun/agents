@@ -10,7 +10,7 @@ import {
   type PutSessionRequest,
 } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/compatibility";
-import type { AgentManifest, SandboxManifest } from "@nylorun/core/define";
+import { codeToolRefusal, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
@@ -96,6 +96,9 @@ export async function putDefinition(
 ) {
   if (body.manifest.id !== agentId) fail(400, "Agent id mismatch");
   DefinitionDocumentSchema.parse(body.manifest);
+  // The Runtime runs no code of yours during a session (track R2): no tool may need it.
+  const code = codeToolRefusal(body.manifest);
+  if (code) fail(400, code);
   const declared = declaredSandboxes(body.manifest);
   if (declared.length > 0)
     fail(
@@ -344,7 +347,7 @@ async function pin(
   spec: SandboxManifest,
   source: NonNullable<Session["sandboxSource"]>
 ): Promise<SessionSandbox> {
-  // A workflow's manifest stays as registered: Action endpoints match workflow actions by its hash.
+  // A workflow's manifest stays as registered: its agents inherit the sandbox when they start.
   if (isWorkflowManifest(definition.manifest)) return { spec, source };
   const sandboxed = withSandboxCapability(definition.manifest as AgentManifest, spec);
   if (!sandboxed.ok) return fail(400, sandboxed.message);
@@ -370,9 +373,6 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     const aggregated = await aggregateWaits({ t, workflowSessionId: s.id });
     if (aggregated.length > 0) waits = aggregated;
   }
-  const actions = await t.actionsForSession(s.id, {
-    statuses: ["pending", "delivering", "uncertain"],
-  });
   const uncertain = await t.effectsForSession<any>(s.id, {
     statuses: ["uncertain"],
   });
@@ -394,7 +394,6 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     mcpDiagnostics: s.mcpDiagnostics ?? [],
     waits,
     error: s.error,
-    actions,
     uncertainEffects: uncertain.map((e) => ({
       effectId: e.request.effectId,
       turnId: e.request.turnId,

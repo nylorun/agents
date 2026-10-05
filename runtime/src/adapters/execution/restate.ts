@@ -17,11 +17,6 @@
  * - `<prefix>NylorunTimer`, key `<tenantId>:<timer key>`. `set` records the
  *   latest time and sends a delayed `fire`; a `fire` for an older time is a
  *   no-op, which is how setting a key again replaces it.
- * - `<prefix>NylorunAction`, key `<tenantId>:<actionId>`. Its exclusive
- *   `deliver` handler calls `WorkerHandlers.deliver`. Like `advance`, it keeps
- *   no state and makes no `ctx.run`: its only journal entry is the delayed
- *   self-send after a `retry` result, so an endpoint that is down never spends
- *   the retry budget, which is for infrastructure errors.
  * - `<prefix>NylorunSandbox`, key `<tenantId>:<sandboxId>` (F7.2). Its
  *   exclusive handlers serialize a pod sandbox's reconciles and timers:
  *   `reconcile` calls `WorkerHandlers.sandbox`; `arm` records a timer's latest
@@ -29,7 +24,7 @@
  *   `fire`; a `fire` for an older time is a no-op, as the timer object's.
  *   What a run answers arms its timers and its retry.
  *
- * Wakes, deliveries, timers and sweep arming go through the ingress as one-way
+ * Wakes, sandbox reconciles, timers and sweep arming go through the ingress as one-way
  * sends, so an API node can call them without ever calling `start`.
  */
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
@@ -41,7 +36,6 @@ import {
   sessionKey,
   settleWithin,
   type AdvanceResult,
-  type DeliverResult,
   type DurableExecution,
   type SandboxResult,
   type SandboxSignal,
@@ -147,7 +141,6 @@ interface SweepState {
 interface TimerInput {
   at: number;
 }
-type DeliverInput = Record<string, never>;
 /** A sandbox timer: one of the pod's, or the reconcile's own retry. */
 type SandboxTimerName = "idle" | "ttl" | "retry";
 interface SandboxTimerInput {
@@ -172,7 +165,6 @@ export class RestateExecution implements DurableExecution {
     session: string;
     tenant: string;
     timer: string;
-    action: string;
     sandbox: string;
   };
   private readonly ingressUrl: string;
@@ -187,7 +179,6 @@ export class RestateExecution implements DurableExecution {
       session: `${prefix}NylorunSession`,
       tenant: `${prefix}NylorunTenant`,
       timer: `${prefix}NylorunTimer`,
-      action: `${prefix}NylorunAction`,
       sandbox: `${prefix}NylorunSandbox`,
     };
     this.ingressUrl = options.ingressUrl.replace(/\/+$/, "");
@@ -200,7 +191,6 @@ export class RestateExecution implements DurableExecution {
     session: string;
     tenant: string;
     timer: string;
-    action: string;
     sandbox: string;
   } {
     return { ...this.names };
@@ -215,15 +205,6 @@ export class RestateExecution implements DurableExecution {
       "advance",
       { reason: wake.reason } satisfies WakeInput,
       wake.dedupeKey,
-    );
-  }
-
-  async deliver(tenantId: string, actionId: string): Promise<void> {
-    await this.send(
-      this.names.action,
-      sessionKey(tenantId, actionId),
-      "deliver",
-      {} satisfies DeliverInput,
     );
   }
 
@@ -436,31 +417,6 @@ export class RestateExecution implements DurableExecution {
       options: serviceOptions,
     });
 
-    const action = restate.object({
-      name: names.action,
-      handlers: {
-        deliver: async (ctx: restate.ObjectContext, _input?: DeliverInput) => {
-          const { tenantId, sessionId: actionId } = parseSessionKey(ctx.key);
-          const result = await this.runAborted<DeliverResult>(
-            ctx.request().attemptCompletedSignal,
-            (handlers, signal) => {
-              if (!handlers.deliver)
-                throw new Error("WorkerHandlers.deliver is required for deliveries");
-              return handlers.deliver(tenantId, actionId, signal);
-            },
-          );
-          if (result.status === "retry")
-            ctx
-              .objectSendClient<ActionObject>({ name: names.action }, ctx.key)
-              .deliver(
-                {},
-                restate.rpc.sendOpts({ delay: Math.max(0, result.retryAfterMs) }),
-              );
-        },
-      },
-      options: serviceOptions,
-    });
-
     /** Sets a sandbox timer: the latest time wins; `fire` checks it. */
     const armSandbox = async (ctx: restate.ObjectContext, input: SandboxTimerInput) => {
       ctx.set<number>(`at:${input.timer}`, input.at);
@@ -504,12 +460,12 @@ export class RestateExecution implements DurableExecution {
       options: serviceOptions,
     });
 
-    return [session, tenant, timer, action, sandbox];
+    return [session, tenant, timer, sandbox];
   }
 
   /**
    * Runs a Worker handler with a signal aborted by `stop` or by the end of the Restate
-   * attempt (`advance` and `deliver`).
+   * attempt (`advance` and `reconcile`).
    */
   private async runAborted<T>(
     attemptDone: AbortSignal,
@@ -631,9 +587,6 @@ export class RestateExecution implements DurableExecution {
 type SessionObject = { advance: (ctx: restate.ObjectContext, wake?: WakeInput) => Promise<void> };
 type TenantObject = { sweep: (ctx: restate.ObjectContext, input: SweepInput) => Promise<void> };
 type TimerObject = { fire: (ctx: restate.ObjectContext, input: TimerInput) => Promise<void> };
-type ActionObject = {
-  deliver: (ctx: restate.ObjectContext, input?: DeliverInput) => Promise<void>;
-};
 type SandboxObject = {
   fire: (ctx: restate.ObjectContext, input: SandboxTimerInput) => Promise<void>;
 };
@@ -652,7 +605,7 @@ export async function listStuckInvocations(options: {
   const prefix = options.servicePrefix ?? "";
   if (!/^[A-Za-z0-9_]*$/.test(prefix))
     throw new Error(`Invalid Restate service prefix: ${prefix}`);
-  const services = ["NylorunSession", "NylorunTenant", "NylorunTimer", "NylorunAction", "NylorunSandbox"].map(
+  const services = ["NylorunSession", "NylorunTenant", "NylorunTimer", "NylorunSandbox"].map(
     (name) => `'${prefix}${name}'`,
   );
   const clauses = [

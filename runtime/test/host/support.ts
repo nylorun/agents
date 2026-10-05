@@ -132,8 +132,6 @@ export function createFakeModule(options?: {
       return {
         ready: true,
         runningSessions: 0,
-        inFlightDeliveries: 0,
-        pendingActions: 0,
         uncertainEffects: 0,
       };
     },

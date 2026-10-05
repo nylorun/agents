@@ -100,20 +100,15 @@ export async function buildTenantStatus(
     ctx.streamsStatus?.(),
   ]);
 
-  const definitionIds = new Set(
-    definitions
-      .map((d) => (d.manifest as { id?: unknown } | undefined)?.id)
-      .filter((id): id is string => typeof id === "string"),
-  );
-  const endpointIds = new Set(
-    (await ctx.store.tx((t) => t.listEndpoints())).map((e) => e.agentId),
-  );
-  const agentIds = new Set([...definitionIds, ...endpointIds]);
-  const agents = [...agentIds].sort().map((agentId) => ({
-    agentId,
-    registered: definitionIds.has(agentId),
-    endpoint: endpointIds.has(agentId),
-  }));
+  const agents = [
+    ...new Set(
+      definitions
+        .map((d) => (d.manifest as { id?: unknown } | undefined)?.id)
+        .filter((id): id is string => typeof id === "string"),
+    ),
+  ]
+    .sort()
+    .map((agentId) => ({ agentId }));
 
   return {
     tenant: ctx.envelope,
@@ -122,7 +117,6 @@ export async function buildTenantStatus(
       store: health.schemaVersion > 0,
       scheduler: !ctx.closing,
       model: ctx.modelConfigured || modelView.configured,
-      endpoints: true,
       schema: health.ok,
     },
     model: modelView,
@@ -130,7 +124,6 @@ export async function buildTenantStatus(
     counts: {
       sessions: counts.sessions,
       runningSessions: counts.runningSessions,
-      pendingActions: counts.pendingActions,
       uncertainEffects: counts.uncertainEffects,
     },
     sandbox: {

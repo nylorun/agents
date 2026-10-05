@@ -44,15 +44,6 @@ import type { DurableStreams } from "../../src/streams/types.js";
 import { dropTestTenant, openTestTenant, withTestSessionStore, testTenantPool } from "./store.js";
 
 export type StartTestTenantOptions = Partial<TenantConfig> & {
-  /** Action endpoints registered once the Tenant is up (`PUT /v1/endpoints`). */
-  endpoints?: readonly {
-    agentId: string;
-    url: string;
-    implementationVersion: string;
-    manifestHash?: string;
-    timeoutMs?: number;
-    maxConcurrent?: number;
-  }[];
   modelProvider?: ModelProvider;
   vaultKek?: Buffer | string | null;
   /**
@@ -64,7 +55,7 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Serves the Tenant's vault-backed calls instead (`TenantOpenHooks.modelGate`). */
   modelGate?: ModelGate;
   /**
-   * Serves the Tenant's remote MCP servers and deliveries instead (`TenantOpenHooks.toolGate`).
+   * Serves the Tenant's remote MCP servers and HTTP tools instead (`TenantOpenHooks.toolGate`).
    * Without one, `NYLORUN_TEST_MODEL_GATE=http` sends them through a gates service on
    * 127.0.0.1, as the local stack does.
    */
@@ -231,7 +222,7 @@ export async function startTestTenant(
     ...(options.ownerLeaseMs === undefined
       ? {}
       : { ownerLeaseMs: options.ownerLeaseMs }),
-    // A short sweep so lapsed deliveries and lost wakes are picked up promptly in tests.
+    // A short sweep so lost wakes are picked up promptly in tests.
     sweepIntervalMs: options.sweepIntervalMs ?? 50,
     ...(options.flow === undefined ? {} : { flow: options.flow }),
     ...(options.flowEnv === undefined ? {} : { flowEnv: options.flowEnv }),
@@ -241,7 +232,6 @@ export async function startTestTenant(
       : { vaultFetch: options.vaultFetch }),
     ...(options.modelCall === undefined ? {} : { modelCall: options.modelCall }),
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
-    ...(options.actionHoldMs === undefined ? {} : { actionHoldMs: options.actionHoldMs }),
     ...(options.resolver === undefined ? {} : { resolver: options.resolver }),
     ...(options.delivery === undefined ? {} : { delivery: options.delivery }),
     ...(options.publicUrl === undefined ? {} : { publicUrl: options.publicUrl }),
@@ -373,20 +363,6 @@ export async function startTestTenant(
     [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
     "content-type": "application/json",
   });
-
-  if (options.endpoints?.length) {
-    const response = await fetch(`${url}/v1/endpoints`, {
-      method: "PUT",
-      headers: headers(),
-      body: JSON.stringify({ endpoints: options.endpoints }),
-    });
-    if (!response.ok)
-      throw new Error(
-        `Failed to register test endpoints: ${
-          response.status
-        } ${await response.text()}`
-      );
-  }
 
   const adminKey = randomBytes(32).toString("hex");
   const retainRoot = options.retainRoot === true || !!options.hostRoot;

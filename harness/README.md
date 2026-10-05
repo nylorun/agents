@@ -82,4 +82,4 @@ closures: a hosted agent is its manifest, and the Runtime never calls your code 
 
 ## Client types
 
-The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and the Action endpoint (`createActionHandler`). Historical root client types remain for deferred local tooling; they are not the new wire contract.
+The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and to save agents (`saveAgent`); the Runtime runs no code of yours during a session, so a tool there is an `http()` tool or a remote MCP server's. Historical root client types remain for deferred local tooling; they are not the new wire contract.

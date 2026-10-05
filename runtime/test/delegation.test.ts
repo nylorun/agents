@@ -6,18 +6,10 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-  Agent,
-  tool,
-} from "@nylorun/core/define";
+import { Agent } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
-import {
-  registerEndpoint,
-  startEndpoint,
-  type Delivery,
-  type TestEndpoint,
-} from "./support/endpoint.js";
 import { startTestTenant } from "./support/tenant.js";
+import { startToolServer, type ToolHandler, type ToolServer } from "./support/tool-server.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { ModelProvider } from "../src/core/provider.js";
@@ -58,11 +50,9 @@ async function json(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString());
 }
 
-const search = tool({
-  name: "search_orders",
-  input: z.object({ query: z.string() }),
-  run: async () => "unused: the test plays the Action endpoint",
-});
+/** The child's HTTP tool, on the Tenant's tool server: answers `found <query>`. */
+const search = (service: ToolServer) =>
+  service.tool("search_orders", { input: z.object({ query: z.string() }) });
 
 type Call = { name: string; args: Record<string, unknown> };
 type Prompt = { kind?: string; content?: { text?: string }[] }[];
@@ -111,21 +101,24 @@ function script(plays: {
   return provider;
 }
 
-/** A Tenant whose agent `bot` is served by an endpoint that answers every delivery `202`. */
-async function boot(_directory: string, modelProvider: ModelProvider) {
+/** A Tenant, and the developer's service behind `search_orders`. */
+async function boot(
+  _directory: string,
+  modelProvider: ModelProvider,
+  searchOrders: ToolHandler = ({ query }) => `found ${query}`
+) {
   const tenant = await startTestTenant({
     applicationKey: APP,
     vaultKek: null,
     modelProvider,
     sandbox: { backend: "virtual" },
   });
-  const endpoint = await startEndpoint({ runtime: tenant });
-  await registerEndpoint(tenant, "bot", endpoint.url);
+  const service = await startToolServer({ search_orders: searchOrders });
   return {
     ...tenant,
-    endpoint,
+    service,
     async close() {
-      await endpoint.close();
+      await service.close();
       await tenant.close();
     },
   };
@@ -195,26 +188,7 @@ async function items(runtime: { url: string }, agent?: string) {
   return body.items as { type: string; payload: any }[];
 }
 
-/** Waits until the endpoint was sent `count` Actions, and returns them. */
-async function deliveries(
-  runtime: { endpoint: TestEndpoint },
-  count: number
-): Promise<Delivery[]> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (runtime.endpoint.deliveries.length >= count)
-      return [...runtime.endpoint.deliveries];
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`expected ${count} deliveries`);
-}
-
-/** Play the root agent's endpoint: post the result of an Action it answered `202`. */
-async function complete(delivery: Delivery, output: unknown) {
-  const result = await delivery.result({ kind: "completed", output });
-  expect(result.status, JSON.stringify(result.body)).toBe(200);
-}
-
-it("delivers the work of agents used as tools to the root agent's endpoint and journals it once", async () => {
+it("runs the work of agents used as tools and journals it once", async () => {
   const directory = await mkdtemp(join(tmpdir(), "delegation-"));
   const model = script({
     root: [
@@ -230,27 +204,15 @@ it("delivers the work of agents used as tools to the root agent's endpoint and j
     const researcher = Agent({
       id: "researcher",
       description: "Researches.",
-      tools: [search],
+      tools: [search(runtime.service)],
     });
     await start(
       runtime,
       Agent({ id: "bot", tools: [researcher] }).build().manifest
     );
-    const sent = await deliveries(runtime, 2);
-    for (const { action } of sent)
-      expect(action).toMatchObject({
-        agentId: "bot",
-        kind: "tool",
-        toolName: "search_orders",
-        agent: { id: "researcher", path: "bot/researcher" },
-      });
-    for (const delivery of sent)
-      await complete(
-        delivery,
-        `found ${(delivery.action.input as { query: string }).query}`
-      );
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
+    expect(runtime.service.calls.map((call) => call.input.query).sort()).toEqual(["A", "B"]);
 
     // The parent's final model call saw both children's answers and none of their work.
     const last = model.seen.filter((item) => item.agent === "root").at(-1)!;
@@ -274,11 +236,18 @@ it("delivers the work of agents used as tools to the root agent's endpoint and j
     // Each lifecycle event names the parent's tool call, for chat UIs.
     for (const item of [...started, ...completed])
       expect(item.payload.callId).toEqual(expect.any(String));
-    const work = history.filter((item) => item.type.startsWith("action."));
-    expect(work).toHaveLength(6);
+    // The children's tool calls are journaled once each, under the child.
+    const work = history.filter((item) => item.type === "tool.completed");
+    expect(work).toHaveLength(2);
     expect(
-      work.every((item) => item.payload.agent?.path === "bot/researcher")
+      work.every(
+        (item) =>
+          item.payload.agent?.path === "bot/researcher" &&
+          item.payload.toolName === "search_orders"
+      )
     ).toBe(true);
+    expect(work.map((item) => item.payload.output).sort()).toEqual(["found A", "found B"]);
+    expect(history.some((item) => item.type.startsWith("action."))).toBe(false);
 
     const one = started[0]!.payload.agent.delegationId;
     const scoped = await items(runtime, one);
@@ -351,18 +320,24 @@ it("fences a delegated agent's work when the session is cancelled", async () => 
     root: [[{ name: "researcher", args: { task: "A" } }]],
     child: (task) => [{ name: "search_orders", args: { query: task } }],
   });
-  const runtime = await boot(directory, model);
+  // The child's call is held open until the session is cancelled, then answers late.
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  const runtime = await boot(directory, model, async () => {
+    await released;
+    return "late";
+  });
   try {
     const researcher = Agent({
       id: "researcher",
       description: "Researches.",
-      tools: [search],
+      tools: [search(runtime.service)],
     });
     await start(
       runtime,
       Agent({ id: "bot", tools: [researcher] }).build().manifest
     );
-    const [delivery] = await deliveries(runtime, 1);
+    await runtime.service.next();
     const cancel = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
       method: "POST",
       headers: serverHeaders,
@@ -374,9 +349,13 @@ it("fences a delegated agent's work when the session is cancelled", async () => 
     });
     expect(cancel.ok).toBe(true);
     expect((await session(runtime)).status).toBe("cancelled");
-    // The delegated Action is fenced: its endpoint's late result is refused.
-    const late = await delivery!.result({ kind: "completed", output: "late" });
-    expect(late.status).toBe(409);
+    // The delegated work is fenced: the service's late answer is never journaled.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await session(runtime)).status).toBe("cancelled");
+    const history = await items(runtime);
+    expect(history.some((item) => item.type === "tool.completed")).toBe(false);
+    expect(JSON.stringify(history)).not.toContain("late");
   } finally {
     await runtime.close();
     await rm(directory, { recursive: true, force: true });
@@ -432,20 +411,16 @@ it("surfaces a child's empty answer as a failed tool result and filters history 
     const researcher = Agent({
       id: "researcher",
       description: "Researches.",
-      tools: [search],
+      tools: [search(runtime.service)],
     });
     await start(
       runtime,
       Agent({ id: "bot", tools: [researcher] }).build().manifest
     );
-    const sent = await deliveries(runtime, 1);
-    expect(sent).toHaveLength(1);
-    await complete(
-      sent[0]!,
-      `found ${(sent[0]!.action.input as { query: string }).query}`
-    );
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");
+    // Only B searched; A answered nothing.
+    expect(runtime.service.calls.map((call) => call.input)).toEqual([{ query: "B" }]);
 
     const last = seen.filter((item) => item.agent === "root").at(-1)!;
     const text = JSON.stringify(last.prompt);

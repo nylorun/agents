@@ -141,7 +141,7 @@ describe("compose.yaml", () => {
     expect(rollback).toContain("NYLORUN_HARNESS: ${NYLORUN_HARNESS:-remote}\n");
   });
 
-  it("lets the Runtime deliver Actions to endpoints on this machine", () => {
+  it("lets the Runtime reach MCP servers and HTTP tools on this machine", () => {
     expect(compose).toContain("NYLORUN_ENDPOINT_LOOPBACK: docker-host");
     expect(compose).toContain("host.docker.internal: host-gateway");
   });

@@ -76,7 +76,7 @@ test("tools are sorted by where they run", () => {
   const [agent, , skills] = manifestView(concierge).capabilities;
   assert.deepEqual(
     agent.tools.map((t) => [t.name, t.kind]),
-    [["lookup_order", "endpoint"], ["researcher", "subagent"], ["fact-check", "flow-subagent"]],
+    [["lookup_order", "code"], ["researcher", "subagent"], ["fact-check", "flow-subagent"]],
   );
   assert.deepEqual(skills.tools.map((t) => t.kind), ["built-in"]);
 });
@@ -85,7 +85,7 @@ test("a load_skill tool outside a skills capability is the author's own", () => 
   const view = manifestView({
     capabilities: [{ id: "agent", tools: [{ name: "load_skill", inputSchema: objectSchema({}) }] }],
   });
-  assert.equal(view.capabilities[0].tools[0].kind, "endpoint");
+  assert.equal(view.capabilities[0].tools[0].kind, "code");
 });
 
 test("schemas become compact fields", () => {

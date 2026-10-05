@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
 import {
-  ActionSchema,
   MessageEventBodySchema,
   PutAgentRequestSchema,
   PutSessionRequestSchema,
@@ -141,47 +140,4 @@ it("message may carry an optional agent manifest", () => {
     manifest,
   });
   expect(parsed).toMatchObject({ content: "retry", manifest });
-});
-
-const actionBase = {
-  actionId: "a1",
-  sessionId: "s1",
-  turnId: "t1",
-  agentId: "ship-feature",
-  manifestHash: "hash",
-  implementationVersion: "dev",
-  input: {},
-  context: {},
-  status: "pending" as const,
-  generation: 0,
-};
-
-it("ActionSchema accepts agent tools and workflow tools, not fn or verify", () => {
-  expect(
-    ActionSchema.safeParse({
-      ...actionBase,
-      kind: "tool",
-      capabilityId: "agent",
-      toolName: "search",
-    }).success
-  ).toBe(true);
-  expect(
-    ActionSchema.safeParse({
-      ...actionBase,
-      kind: "tool",
-      path: "ship-feature/open-pr",
-      key: "ship-feature/open-pr",
-    }).success
-  ).toBe(true);
-  for (const kind of ["fn", "verify"])
-    expect(
-      ActionSchema.safeParse({ ...actionBase, kind, path: "ship-feature/implement", key: "implement" })
-        .success
-    ).toBe(false);
-  expect(
-    ActionSchema.safeParse({
-      ...actionBase,
-      kind: "tool",
-    }).success
-  ).toBe(false);
 });

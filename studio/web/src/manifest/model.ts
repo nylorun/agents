@@ -10,7 +10,8 @@ const SKILL_TOOLS = new Set(["load_skill", "read_skill_resource"]);
 /** Tools the Runtime runs in a session's sandbox (core `createSandboxTools`). */
 export const SANDBOX_TOOLS = ["bash", "read", "write", "edit", "grep", "glob"] as const;
 
-export type ToolKind = "endpoint" | "http" | "subagent" | "flow-subagent" | "built-in";
+/** `code`: a tool that would run your code, which the Runtime refuses at save (track R2). */
+export type ToolKind = "code" | "http" | "subagent" | "flow-subagent" | "built-in";
 
 export type SchemaField = {
   name: string;
@@ -94,7 +95,7 @@ function toolView(tool: Json, capability: Json): ToolView {
       ? "http"
       : SKILL_TOOLS.has(name) && isRecord(capability.skills)
         ? "built-in"
-        : "endpoint";
+        : "code";
   const output = tool.outputSchema ?? tool.output;
   return {
     name,
@@ -192,7 +193,7 @@ export type ManifestStats = {
 export function manifestStats(view: ManifestView): ManifestStats {
   const all = view.capabilities.flatMap((capability) => capability.tools);
   return {
-    tools: all.filter((tool) => tool.kind === "endpoint" || tool.kind === "http").length,
+    tools: all.filter((tool) => tool.kind === "code" || tool.kind === "http").length,
     subagents: all.filter((tool) => tool.kind === "subagent" || tool.kind === "flow-subagent")
       .length,
     skills: view.capabilities.reduce((sum, capability) => sum + capability.skills.length, 0),

@@ -114,14 +114,6 @@ function tenantSchemes(registry: OpenAPIRegistry): void {
       "JWT",
     ),
   );
-  registry.registerComponent(
-    "securitySchemes",
-    "deliveryToken",
-    bearer(
-      "The delivery token the Runtime signs each Action delivery with (`Nylorun-Signature`), sent back by the Action endpoint. It reaches only that Action's heartbeat, result and sandbox routes, while that delivery is current, for at most 15 minutes.",
-      "JWT",
-    ),
-  );
 }
 
 /**
@@ -142,8 +134,15 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Runtime",
     group: "Get started",
     description:
-      "Check a Runtime is up and speaks your protocol, and ask who your credential is. `/health`, `/ready` and the documents need no key.",
-    operations: ["GET /health", "GET /ready", "GET /v1/me", "GET /openapi/runtime.json", "GET /openapi.json"],
+      "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key.",
+    operations: [
+      "GET /health",
+      "GET /ready",
+      "GET /v1/me",
+      "GET /v1/access/jwks",
+      "GET /openapi/runtime.json",
+      "GET /openapi.json",
+    ],
   },
   {
     name: "Agents",
@@ -157,30 +156,6 @@ const RUNTIME_TAGS: readonly Tag[] = [
     description:
       "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`). `saveAgent` in `@nylorun/agents` does both.",
     operations: ["PUT /v1/files/{file}", "HEAD /v1/files/{file}"],
-  },
-  {
-    name: "Action endpoints",
-    group: "Agents",
-    description:
-      "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call and workflow step to, signed with a delivery token your endpoint verifies with the public keys.",
-    operations: [
-      "PUT /v1/endpoints",
-      "GET /v1/endpoints",
-      "POST /v1/endpoints/{agentId}/ping",
-      "DELETE /v1/endpoints/{agentId}",
-      "GET /v1/access/jwks",
-    ],
-  },
-  {
-    name: "Deliveries",
-    group: "Agents",
-    description:
-      "During a session's turn, your Action endpoint calls these with the delivery token the Runtime signed the delivery with: keep a background tool alive, post its result, or use the session's sandbox. The `@nylorun/agents` handler calls them for you.",
-    operations: [
-      "POST /v1/actions/{actionId}/heartbeat",
-      "POST /v1/actions/{actionId}/result",
-      "POST /v1/actions/{actionId}/sandbox/{tool}",
-    ],
   },
   {
     name: "Sessions API",
@@ -312,7 +287,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Signing keys",
     description:
-      "The keys the Runtime signs delivery tokens and capability links with; their public halves are the Runtime API's JWKS. `admin.signingKeys`.",
+      "The keys the Runtime signs capability links and run tokens with; their public halves are the Runtime API's JWKS. `admin.signingKeys`.",
     operations: [
       "GET /v1/tenant/signing-keys",
       "POST /v1/tenant/signing-keys/rotate",
@@ -429,7 +404,7 @@ function documents(): { runtime: OpenApiDocument; management: OpenApiDocument } 
     runtime: document(all, RUNTIME_TAGS, {
       title: "Nylorun Runtime API",
       description:
-        "For developers: agents and their Action endpoints, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers), a trusted issuer's token (browsers and apps) or a delivery token (Action endpoints).",
+        "For developers: agents, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps).",
     }),
     management: document(all, MANAGEMENT_TAGS, {
       title: "Nylorun Management API",

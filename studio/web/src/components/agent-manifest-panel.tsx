@@ -52,7 +52,7 @@ const TOOL_GROUPS: readonly {
   note: string;
   icon: LucideIcon;
 }[] = [
-  { kinds: ["endpoint"], title: "Tools", note: "run at your Action endpoint", icon: Wrench },
+  { kinds: ["code"], title: "Code tools", note: "the Runtime runs none", icon: Wrench },
   { kinds: ["http"], title: "HTTP tools", note: "requests the Runtime makes", icon: Globe },
   { kinds: ["subagent", "flow-subagent"], title: "Subagents", note: "take a { task }", icon: Bot },
   { kinds: ["built-in"], title: "Skill tools", note: "added by the engine", icon: BookOpen },
@@ -524,8 +524,7 @@ function SandboxItem() {
       </AccordionTrigger>
       <AccordionContent className="space-y-2">
         <p className="text-xs text-muted-foreground">
-          The Runtime runs these on the session's persistent <code>/workspace</code>, not your
-          Action endpoint.
+          The Runtime runs these on the session's persistent <code>/workspace</code>.
         </p>
         <div className="flex flex-wrap gap-1">
           {SANDBOX_TOOLS.map((name) => (

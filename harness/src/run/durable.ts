@@ -3,7 +3,7 @@ import type { AgentManifest } from "@nylorun/core/define";
 import type { ExecutionInput, ExecutionState, RunResult } from "../types/execution.js";
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Implementations } from "@nylorun/core/define";
-import type { ActionOutcome } from "@nylorun/core/contracts";
+import type { EffectOutcome } from "@nylorun/core/contracts";
 import type { AgentRef, ApprovalMode, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
 import type { AgentDefinition } from "../definition/agent-definition.js";
@@ -56,7 +56,7 @@ export interface HostEffect {
   readonly context: Record<string, unknown>;
 }
 export type EffectResolution =
-  | { readonly status: "completed"; readonly outcome: ActionOutcome }
+  | { readonly status: "completed"; readonly outcome: EffectOutcome }
   | { readonly status: "pending" | "uncertain" };
 export interface DurableHost {
   /** Atomically load-or-create by effectId; validate identical request on replay.
@@ -147,7 +147,7 @@ export async function runDurable(options: {
     context: Record<string, unknown>,
     identity: string,
     target: Pick<HostEffect, "capabilityId" | "toolName" | "agent"> = {},
-  ): Promise<ActionOutcome> => {
+  ): Promise<EffectOutcome> => {
     const effectId = `${checkpoint.turnId}:${checkpoint.segment}:${kind}:${identity}`;
     const request: HostEffect = JSON.parse(
       JSON.stringify({

@@ -11,7 +11,8 @@
  * A1  three subjects (admin, builder, member) on one Tenant, each acting
  *     through `app.as(...)`: a session with the person's vault (created with the
  *     management key: vaults are the Management API, protocol 8) and a turn
- *     that pauses for approval and completes
+ *     that pauses for approval of an HTTP tool, which the Runtime then calls on a
+ *     service of this script, and completes
  * A2  concurrent event streams: each subject receives only its own events
  * A3  every Tenant route, called by each subject against the others'
  *     resources, answers the 404 or 403 of the scope and owner tables (the
@@ -26,8 +27,8 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { z } from "zod";
 import { createManagementClient } from "@nylorun/admin";
-import { Agent, createClient, tool } from "@nylorun/agents";
-import { serveActionEndpoint } from "../lib/action-endpoint.mjs";
+import { Agent, createClient } from "@nylorun/agents";
+import { startToolService } from "../lib/tool-service.mjs";
 import { ensureImages, eventually, runtimeHeaders, withStack } from "../lib/stack.mjs";
 import { withResetTenant } from "../lib/stack-tenant.mjs";
 
@@ -44,23 +45,21 @@ function pass(id, message) {
   console.log(`PASS ${id}: ${message}`);
 }
 
-// The fixture model calls `lookup_order` on a turn's first step, then answers.
-const desk = Agent({ id: "desk", name: "Desk" })
-  .use({
-    id: "orders",
-    tools: [
-      tool({
-        name: "lookup_order",
+/**
+ * The fixture model calls `lookup_order` on a turn's first step, then answers. The tool is an
+ * HTTP tool of `service`, which waits for approval on every call.
+ */
+function deskAgent(service) {
+  return Agent({ id: "desk", name: "Desk" })
+    .tools(
+      service.tool("lookup_order", {
         input: z.object({ orderId: z.string() }),
         output: z.object({ status: z.string() }),
-        approval: () => "Look up this order?",
-        async run() {
-          return { status: "shipped" };
-        },
+        approval: "always",
       }),
-    ],
-  })
-  .build();
+    )
+    .build();
+}
 
 async function session(runtime, tenant, id, as) {
   const response = await fetch(`${runtime}/v1/sessions/${id}`, {
@@ -180,8 +179,6 @@ const SCOPED = [
   ["PUT", "/v1/tenant/config/seed", { admin: 403, builder: 403, member: 403 }],
   ["GET", "/v1/tenant/keys", { admin: 403, builder: 403, member: 403 }],
   ["GET", "/v1/tenant/signing-keys", { admin: 403, builder: 403, member: 403 }],
-  ["GET", "/v1/endpoints", { admin: 403, builder: 403, member: 403 }],
-  ["PUT", "/v1/endpoints", { admin: 403, builder: 403, member: 403 }],
 ];
 
 async function a3(runtime, tenant, people) {
@@ -341,8 +338,9 @@ try {
         (await app.hostFeatures()).includes("subject-headers"),
         "the Runtime advertises subject-headers",
       );
-      const endpoint = await serveActionEndpoint({ agents: [desk], client: app });
+      const service = await startToolService({ lookup_order: () => ({ status: "shipped" }) });
       try {
+        await app.saveAgent(deskAgent(service));
         const people = await a1(runtime, tenant, app);
 
         // A2: every subject streams its own session while all three turns run.
@@ -359,7 +357,12 @@ try {
           }
         });
         await runTurns(runtime, tenant, people);
-        pass("A1", "admin, builder and member each ran a turn with an approval in their own session");
+        assert.equal(
+          service.calls.filter((call) => call.name === "lookup_order").length,
+          Object.keys(people).length,
+          "the Runtime called the approved HTTP tool once per turn",
+        );
+        pass("A1", "admin, builder and member each ran a turn with an approved HTTP tool call in their own session");
         await eventually(
           () =>
             Object.values(people).every((person) =>
@@ -382,7 +385,7 @@ try {
 
         await a4(runtime, tenant, people);
       } finally {
-        await endpoint.close();
+        await service.close();
       }
     });
   });

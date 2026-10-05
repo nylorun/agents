@@ -1,32 +1,4 @@
 {
-  "POST /v1/actions/act-missing/sandbox/bash": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "POST /v1/actions/act-missing/heartbeat": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "GET /v1/endpoints": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "PUT /v1/endpoints": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "DELETE /v1/endpoints/ghost": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "POST /v1/endpoints/ghost/ping": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
-  "POST /v1/actions/act-missing/result": {
-    "status": 204,
-    "allow": "GET, POST, PUT, DELETE, OPTIONS"
-  },
   "POST /v1/sessions/s1/commands": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

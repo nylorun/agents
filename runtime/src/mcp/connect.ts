@@ -74,7 +74,7 @@ export async function openMcpServer(input: {
   server: McpServerManifest;
   authorize: (url: string) => Promise<AuthorizeResult>;
   /**
-   * How a remote server is reached: the Host's address policy of Action endpoints
+   * How a remote server is reached: the Host's address policy for developer URLs
    * (`TenantConfig.delivery`), so `localhost` means the Docker host in the local stack and a
    * Host that refuses private addresses refuses them here too. Default: no limits.
    */

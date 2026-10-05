@@ -1,6 +1,6 @@
 /**
  * The gates service's HTTP routes (blueprint §15, P1.1): the Model Gate's IR endpoint, the Tool
- * Gate's remote MCP and delivery routes (F4.1) and HTTP tool route (R2 M3), the keys service
+ * Gate's remote MCP routes (F4.1) and HTTP tool route (R2 M3), the keys service
  * (F4.2), and the health and readiness probes. Internal, so they are not in the published OpenAPI documents. The wire
  * formats are `gates/contract.ts` and `gates/tool-contract.ts`.
  *
@@ -11,7 +11,6 @@
  * | `POST /nylorun/v1/model-calls`, its cancel | run token | the token |
  * | `POST /nylorun/v1/tool-calls`, its cancel; `mcp/connect`, `mcp/list`, `mcp/close`; `http-calls` | run token, or core's | the token; the body only for core's |
  * | `POST /nylorun/v1/keys/:operation` | core's | — |
- * | `POST /nylorun/v1/deliveries` | core's | — |
  *
  * Core's credential is `NYLORUN_GATES_TOKEN`, which only the runtime container holds. A run
  * token (`tenant/run-token.ts`) names one lease of one session's turn: a call under it must
@@ -42,9 +41,6 @@ import type { McpServerRef } from "../../mcp/pool.js";
 import { mountKeysRoutes } from "./keys.js";
 import type { Logger } from "../../tenant/types.js";
 import {
-  DELIVERIES_PATH,
-  DELIVERY_HEADERS,
-  DeliveryBodySchema,
   HTTP_CALLS_PATH,
   HttpCallBodySchema,
   MAX_TOOL_BODY_BYTES,
@@ -55,9 +51,7 @@ import {
   McpServerBodySchema,
   TOOL_CALLS_PATH,
   ToolCallBodySchema,
-  type DeliveryAnswer,
 } from "../../gates/tool-contract.js";
-import { post, type OutboundPolicy } from "../../tenant/outbound.js";
 import { looksLikeToken } from "../../tenant/jwt.js";
 import type { RunClaims, RunTokenVerdict } from "../../tenant/run-token.js";
 import { adminKeyMatches } from "../../host/http.js";
@@ -71,7 +65,7 @@ export interface RunTokenCheck {
 }
 
 export interface GatesAppOptions {
-  /** Core's credential (`NYLORUN_GATES_TOKEN`): keys, deliveries, MCP requests outside a run. */
+  /** Core's credential (`NYLORUN_GATES_TOKEN`): keys, MCP requests outside a run. */
   readonly token: string;
   /** Checks run tokens (F5): the credential of model calls and a session's MCP requests. */
   readonly runs: RunTokenCheck;
@@ -95,11 +89,6 @@ export interface GatesAppOptions {
   readonly keys?: () => Promise<Keys>;
   /** Logs the keys service's requests and refused credentials. */
   readonly logger?: Logger;
-  /**
-   * How the gate may call Action endpoints (the gateway's own `NYLORUN_ENDPOINT_*`), for
-   * deliveries (F4.1). Without it the delivery route answers 404.
-   */
-  readonly delivery?: OutboundPolicy;
 }
 
 /** The verified run token of a request on a run route; absent under core's credential. */
@@ -372,39 +361,6 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
         return c.json(gateError("gate_forbidden", "The call is another session's"), 403);
       return c.body(null, 204);
     });
-
-  const policy = options.delivery;
-  if (policy) {
-    app.post(DELIVERIES_PATH, core, toolBodies, async (c) => {
-      const request = await read(c, DeliveryBodySchema);
-      if (!request.ok) return request.response;
-      const { url, body, headers, timeoutMs } = request.body;
-      const forwarded: Record<string, string> = {};
-      for (const [name, value] of Object.entries(headers)) {
-        if (!DELIVERY_HEADERS.has(name.toLowerCase()))
-          return c.json(invalid(`A delivery may not carry the header ${name}`), 400);
-        forwarded[name] = value;
-      }
-      const signal = c.req.raw.signal;
-      const result = await post(url, body, forwarded, {
-        policy,
-        signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-      });
-      if (signal.aborted) return new Response(null, { status: 499 });
-      const answer: DeliveryAnswer = {
-        result:
-          result.kind === "response"
-            ? {
-                kind: "response",
-                status: result.status,
-                headers: result.headers,
-                body: result.body.toString("base64"),
-              }
-            : result,
-      };
-      return c.json(answer);
-    });
-  }
 
   app.post(`${MODEL_CALLS_PATH}/:key/cancel`, run({ live: false }), (c) => {
     // Optional, as on a call: the gate serves one Tenant, so the key alone names the call.

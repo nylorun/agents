@@ -13,16 +13,15 @@
  *   images and, under a temporary NYLORUN_HOME, runs `nylorun start` in the
  *   project with NYLORUN_TENANT naming the test Tenant (its containers and
  *   the Project link), then the project's `npm run dev`: the
- *   starter registers `assistant` and its Action endpoint, the Runtime in
- *   Docker reaches it (a ping), and `nylorun studio` lands on that Tenant
- *   (303 + cookie, /_studio/hello, the Tenant proxy).
- * - A source edit re-registers the agent; stopping dev keeps the Tenant running; a
- *   second dev reuses the link; the compiled `npm start` registers with the
- *   two Project variables.
+ *   starter saves `assistant` (it serves nothing), and `nylorun studio` lands
+ *   on that Tenant (303 + cookie, /_studio/hello, the Tenant proxy).
+ * - A source edit saves the agent again; stopping dev keeps the Tenant running
+ *   and the agent saved; a second dev reuses the link; the compiled `npm start`
+ *   saves once with the two Project variables and exits.
  * - The Tenant, reset and seeded with the fixture model
- *   (scripts/lib/stack-tenant.mjs), runs one turn through Studio's proxy that
- *   calls the starter's own `lookup_order` tool through its Action endpoint;
- *   the Project link is untouched.
+ *   (scripts/lib/stack-tenant.mjs), runs one turn through Studio's proxy; the
+ *   starter's assistant has no tools, so the fixture model answers in text.
+ *   The Project link is untouched.
  * - Without Docker on PATH, `nylorun start` says so.
  *
  * The Tenant has no model at first (the starter's .env names none), so it is
@@ -40,7 +39,6 @@ import {
   ensureImages,
   eventually,
   runtimeGet,
-  runtimeHeaders,
   studioSession,
   withStack,
 } from "../../scripts/lib/stack.mjs";
@@ -211,7 +209,7 @@ try {
 
       const key = credentials.applicationKey;
       const tenantId = link.tenantId;
-      const registered = (name) =>
+      const saved = (name) =>
         eventually(
           async () =>
             (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.some(
@@ -219,32 +217,17 @@ try {
             ),
           { timeout: 120_000, message: `agent "assistant" named ${name}` },
         );
-      // The Runtime (in Docker) reaches the app's Action endpoint on this machine: a ping
-      // through it answers 200 while dev runs, and 502 once dev stops.
-      const ping = async () =>
-        (
-          await fetch(`${runtimeUrl}/v1/endpoints/assistant/ping`, {
-            method: "POST",
-            headers: runtimeHeaders(key),
-            signal: AbortSignal.timeout(15_000),
-          })
-        ).status;
-      const connected = () =>
-        eventually(async () => (await ping()) === 200, {
-          message: "the Runtime to reach the assistant's Action endpoint",
-        });
-      const disconnected = () =>
-        eventually(async () => (await ping()) === 502, {
-          message: "the Action endpoint to stop answering after dev stops",
-        });
+      // What src/main.ts prints for each agent it saved.
+      const SAVED = "Saved agent assistant";
 
-      // 3. The project's own `npm run dev` finds the Runtime through the link.
+      // 3. The project's own `npm run dev` finds the Runtime through the link and saves
+      // the agent; `tsx watch` keeps watching the sources after it.
       const dev = group.start("dev", process.execPath, [npmCli(), "run", "dev"], {
         cwd: project,
         env,
       });
-      await registered("Order assistant");
-      await connected();
+      await dev.line((line) => line.includes(SAVED), 120_000);
+      await saved("Assistant");
 
       // No model: the starter's .env names none (step 9 seeds the fixture model). The
       // Management API takes the project's management key, which `nylorun start` wrote too.
@@ -291,33 +274,30 @@ try {
         "a login link is single-use",
       );
 
-      // 5. A source edit restarts the application and re-registers the agent.
+      // 5. A source edit re-runs main.ts, which saves the agent again.
       const source = join(project, "agents/assistant/agent.ts");
-      await writeFile(
-        source,
-        (await readFile(source, "utf8")).replace("Order assistant", "Updated order assistant"),
-      );
-      await registered("Updated order assistant");
-      await connected();
+      const before = await readFile(source, "utf8");
+      assert.ok(before.includes('name: "Assistant"'), "the starter names its agent Assistant");
+      await writeFile(source, before.replace('name: "Assistant"', 'name: "Updated assistant"'));
+      await saved("Updated assistant");
 
-      // 6. Ctrl-C stops the Project only.
+      // 6. Ctrl-C stops the Project only; the Runtime keeps the saved agent.
       await dev.stop();
       assert.equal((await fetch(`${runtimeUrl}/ready`)).status, 200, "the Tenant keeps running");
-      await disconnected();
+      await saved("Updated assistant");
 
       // 7. A second dev reuses the running Tenant and the Project link.
       const again = group.start("dev-again", process.execPath, [npmCli(), "run", "dev"], {
         cwd: project,
         env,
       });
-      await connected();
+      await again.line((line) => line.includes(SAVED), 120_000);
       assert.equal((await readProject(project)).link.tenantId, tenantId);
       assert.equal((await stack.operateStatus()).tenant.id, tenantId, "the Tenant is reused");
       await again.stop();
-      await disconnected();
 
       // 8. The compiled application (built before the edit) connects with the
-      // two Project variables and registers its own manifest.
+      // two Project variables, saves its own manifest once and exits.
       const started = group.start("start", process.execPath, [npmCli(), "start"], {
         cwd: project,
         env: {
@@ -326,12 +306,12 @@ try {
           NYLORUN_SERVER_KEY: key,
         },
       });
-      await registered("Order assistant");
-      await connected();
-      await started.stop();
+      await started.line((line) => line.includes(SAVED), 120_000);
+      assert.equal(await started.exit, 0, "npm start saves the agents and exits");
+      await saved("Assistant");
 
-      // 9. The Tenant, reset and seeded with the fixture model, runs a turn that
-      // calls the starter's tool.
+      // 9. The Tenant, reset and seeded with the fixture model, runs a turn with the
+      // starter's assistant.
       await withResetTenant({ stack, name: "starter-smoke" }, async (fixture) => {
         assert.equal(fixture.id, tenantId, "the Host's one Tenant");
         // The two variables take precedence over the Project link.
@@ -369,21 +349,21 @@ try {
             type: "message",
             requestId: `${sessionId}-message`,
             idempotencyKey: `${sessionId}-message`,
-            content: "Look up order demo-123",
+            content: "Hello",
           }),
         });
         assert.ok(sent.ok, `send message: ${sent.status} ${await sent.clone().text()}`);
-        // The fixture model calls lookup_order; the starter's Action endpoint runs it
-        // and the model answers with its result.
+        // The assistant offers no lookup_order tool, so the fixture model answers in
+        // text and calls no tool.
         const answer = await eventually(
           async () => {
             const { items } = await (await tenantApi(`/v1/sessions/${sessionId}/items`)).json();
             const text = JSON.stringify(items ?? []);
-            return text.includes("Order lookup complete") && text.includes("shipped") ? text : undefined;
+            return text.includes("Hello from the fixture model.") ? text : undefined;
           },
-          { timeout: 120_000, message: "the assistant's answer from lookup_order" },
+          { timeout: 120_000, message: "the fixture model's answer" },
         );
-        assert.ok(answer.includes("demo-123"), "the tool ran for demo-123");
+        assert.ok(!answer.includes("lookup_order"), "no tool was called");
         await runner.stop();
       });
       assert.equal((await stack.operateStatus()).tenant.id, tenantId, "the reset kept the Tenant");
@@ -403,7 +383,7 @@ try {
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on a local Tenant: nylorun start in the project creates the Tenant and the link, npm run dev serves and registers the Action endpoint, nylorun studio lands on the Tenant, source restart, Tenant outlives dev, link reuse, compiled npm start, a fixture-model turn on the reset Tenant, Docker missing.",
+    "PASS: packed starter (agents + core only) on a local Tenant: nylorun start in the project creates the Tenant and the link, npm run dev saves the agent, nylorun studio lands on the Tenant, a source edit saves again, Tenant and agent outlive dev, link reuse, compiled npm start saves once, a fixture-model turn on the reset Tenant, Docker missing.",
   );
 } catch (error) {
   console.error(error);

@@ -1,13 +1,13 @@
 /**
  * Egress tokens (F7.2, `sandbox/egress-token.ts`): what a pod's harness receives at join and
  * egress-gate accepts as its proxy credential. Everything else is refused: another family's
- * token (run, host, subject, delivery), another Tenant's or audience's, an expired one, one
+ * token (run, host, subject, capability link), another Tenant's or audience's, an expired one, one
  * signed by a revoked key, an oversized one, and a header that could name another key.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { decodeProtectedHeader } from "jose";
 import { newTenantId } from "@nylorun/core/compatibility";
-import { ARTIFACT_LINK_TOKEN_TYPE, DELIVERY_TOKEN_TYPE, tenantTokenIssuer } from "@nylorun/core/contracts";
+import { ARTIFACT_LINK_TOKEN_TYPE, tenantTokenIssuer } from "@nylorun/core/contracts";
 import {
   EGRESS_TOKEN_AUD,
   EGRESS_TOKEN_MAX_TTL_SECONDS,
@@ -86,13 +86,12 @@ describe("egress tokens", () => {
     expect(await verifyEgressToken(runs.store, newTenantId(), await signed())).toMatchObject({ ok: false });
   });
 
-  it("refuses a run, host, capability link or delivery token presented as an egress token", async () => {
+  it("refuses a run, host or capability link token presented as an egress token", async () => {
     const run = (await runs.run("egress-run")).token;
     const host = await signed({ aud: "nylorun-harness" }, "nylorun-host+jwt");
     const runShaped = await signed({ aud: RUN_TOKEN_AUD, sub: "s", trn: "t", agt: "a" }, RUN_TOKEN_TYP);
     const link = await signed({ aud: "nylorun-artifact", ver: 1 }, ARTIFACT_LINK_TOKEN_TYPE);
-    const delivery = await signed({ aud: "http://endpoint.invalid", gen: 1, bdy: "x" }, DELIVERY_TOKEN_TYPE);
-    for (const token of [run, host, runShaped, link, delivery])
+    for (const token of [run, host, runShaped, link])
       expect(await verify(token)).toEqual({ ok: false, reason: "egress_token_header" });
   });
 

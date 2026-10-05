@@ -10,7 +10,6 @@
         "runtime-tenants",
         "admin-status",
         "studio-principal",
-        "action-endpoints",
         "artifacts",
         "management-api",
         "tenant-fixture-model",
@@ -18,7 +17,6 @@
         "subject-headers",
         "ag-ui-endpoint",
         "a2a-endpoint",
-        "action-endpoints",
         "sandboxes",
         "sandbox-pods",
         "trusted-issuers",
@@ -26,7 +24,7 @@
         "calls-export"
       ]
     },
-    "description": "For developers: agents and their Action endpoints, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers), a trusted issuer's token (browsers and apps) or a delivery token (Action endpoints)."
+    "description": "For developers: agents, sessions (with AG-UI and A2A), sandboxes and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
   },
   "servers": [
     {
@@ -56,12 +54,6 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "A JWT from a trusted issuer of the Host's identity file (Host feature `trusted-issuers`): one person, with the issuer's scopes, agents and sandbox grants, until it expires. Accepted from servers and browsers alike; CORS is the operator's proxy's."
-      },
-      "deliveryToken": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "The delivery token the Runtime signs each Action delivery with (`Nylorun-Signature`), sent back by the Action endpoint. It reaches only that Action's heartbeat, result and sandbox routes, while that delivery is current, for at most 15 minutes."
       }
     },
     "schemas": {
@@ -6232,47 +6224,36 @@
           "checks"
         ]
       },
-      "SandboxToolOutcome": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "completed"
-                ]
-              },
-              "output": {}
-            },
-            "required": [
-              "kind"
-            ],
-            "additionalProperties": false
+      "AcceptedResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted"
+            ]
           },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "failed"
-                ]
-              },
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "code",
-              "message"
-            ],
-            "additionalProperties": false
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestId": {
+            "type": "string"
           }
+        },
+        "required": [
+          "status",
+          "turnId",
+          "cursor",
+          "requestId"
         ]
       },
       "Rejected": {
@@ -6378,54 +6359,6 @@
           "protocol"
         ],
         "additionalProperties": false
-      },
-      "DeliveryHeartbeatResponse": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string",
-            "minLength": 1
-          },
-          "deadlineAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "token",
-          "deadlineAt"
-        ]
-      },
-      "AcceptedResponse": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "accepted"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "requestId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "turnId",
-          "cursor",
-          "requestId"
-        ]
       },
       "SessionCommand": {
         "anyOf": [
@@ -8670,230 +8603,6 @@
           }
         ]
       },
-      "ListEndpointsResponse": {
-        "type": "object",
-        "properties": {
-          "endpoints": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "agentId": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "implementationVersion": {
-                  "type": "string"
-                },
-                "manifestHash": {
-                  "type": "string"
-                },
-                "timeoutMs": {
-                  "type": "integer"
-                },
-                "maxConcurrent": {
-                  "type": "integer"
-                },
-                "health": {
-                  "type": "object",
-                  "properties": {
-                    "lastDeliveryAt": {
-                      "type": "string"
-                    },
-                    "lastSuccessAt": {
-                      "type": "string"
-                    },
-                    "lastError": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "code",
-                        "message"
-                      ]
-                    },
-                    "consecutiveFailures": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "served": {
-                      "type": "object",
-                      "properties": {
-                        "implementationVersion": {
-                          "type": "string"
-                        },
-                        "manifestHash": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "implementationVersion"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "consecutiveFailures"
-                  ],
-                  "additionalProperties": false
-                },
-                "updatedAt": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "agentId",
-                "url",
-                "implementationVersion",
-                "timeoutMs",
-                "maxConcurrent",
-                "health",
-                "updatedAt"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
-        "required": [
-          "endpoints"
-        ],
-        "additionalProperties": false
-      },
-      "PutEndpointsRequest": {
-        "type": "object",
-        "properties": {
-          "endpoints": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "agentId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "url": {
-                  "type": "string",
-                  "maxLength": 2048
-                },
-                "implementationVersion": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "manifestHash": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "timeoutMs": {
-                  "type": "integer",
-                  "minimum": 1000,
-                  "maximum": 840000
-                },
-                "maxConcurrent": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 256
-                }
-              },
-              "required": [
-                "agentId",
-                "url",
-                "implementationVersion"
-              ],
-              "additionalProperties": false
-            },
-            "minItems": 1,
-            "maxItems": 64
-          }
-        },
-        "required": [
-          "endpoints"
-        ],
-        "additionalProperties": false
-      },
-      "DeleteEndpointResponse": {
-        "type": "object",
-        "properties": {
-          "agentId": {
-            "type": "string"
-          },
-          "deleted": {
-            "type": "boolean",
-            "enum": [
-              true
-            ]
-          }
-        },
-        "required": [
-          "agentId",
-          "deleted"
-        ],
-        "additionalProperties": false
-      },
-      "EndpointPingResponse": {
-        "type": "object",
-        "properties": {
-          "agentId": {
-            "type": "string"
-          },
-          "implementationVersion": {
-            "type": "string"
-          },
-          "manifestHash": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "agentId",
-          "implementationVersion"
-        ]
-      },
-      "ActionResultReceipt": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "accepted"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "cursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "status",
-          "turnId",
-          "cursor"
-        ]
-      },
-      "ActionOutcome": {
-        "type": "object",
-        "properties": {
-          "value": {},
-          "statePatch": {
-            "type": "object",
-            "additionalProperties": {}
-          }
-        },
-        "additionalProperties": false
-      },
       "ListAgentsResponse": {
         "type": "object",
         "properties": {
@@ -9577,225 +9286,6 @@
           "error": {
             "type": "string"
           },
-          "actions": {
-            "type": "array",
-            "items": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "tool"
-                      ]
-                    },
-                    "capabilityId": {
-                      "type": "string"
-                    },
-                    "toolName": {
-                      "type": "string"
-                    },
-                    "inputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "outputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "kind",
-                    "capabilityId",
-                    "toolName"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "actionId": {
-                      "type": "string"
-                    },
-                    "sessionId": {
-                      "type": "string"
-                    },
-                    "turnId": {
-                      "type": "string"
-                    },
-                    "agentId": {
-                      "type": "string"
-                    },
-                    "manifestHash": {
-                      "type": "string"
-                    },
-                    "implementationVersion": {
-                      "type": "string"
-                    },
-                    "input": {},
-                    "context": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "delivering",
-                        "completed",
-                        "uncertain",
-                        "cancelled"
-                      ]
-                    },
-                    "generation": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "deadlineAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "agent": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1
-                        },
-                        "delegationId": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "path"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "tool"
-                      ]
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "key": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "inputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    },
-                    "outputSchema": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    }
-                  },
-                  "required": [
-                    "actionId",
-                    "sessionId",
-                    "turnId",
-                    "agentId",
-                    "manifestHash",
-                    "implementationVersion",
-                    "context",
-                    "status",
-                    "generation",
-                    "kind",
-                    "path",
-                    "key"
-                  ],
-                  "additionalProperties": false
-                }
-              ]
-            }
-          },
           "uncertainEffects": {
             "type": "array",
             "items": {
@@ -9835,7 +9325,6 @@
           "sandbox",
           "mcpSnapshot",
           "mcpDiagnostics",
-          "actions",
           "uncertainEffects"
         ],
         "additionalProperties": false
@@ -10024,21 +9513,6 @@
             "$ref": "#/components/schemas/ToolCompletedEvent"
           },
           {
-            "$ref": "#/components/schemas/ActionPendingEvent"
-          },
-          {
-            "$ref": "#/components/schemas/ActionDeliveredEvent"
-          },
-          {
-            "$ref": "#/components/schemas/ActionDeliveryFailedEvent"
-          },
-          {
-            "$ref": "#/components/schemas/ActionCompletedEvent"
-          },
-          {
-            "$ref": "#/components/schemas/ActionUncertainEvent"
-          },
-          {
             "$ref": "#/components/schemas/EffectUncertainEvent"
           },
           {
@@ -10104,11 +9578,6 @@
             "model.failed": "#/components/schemas/ModelFailedEvent",
             "context.compacted": "#/components/schemas/ContextCompactedEvent",
             "tool.completed": "#/components/schemas/ToolCompletedEvent",
-            "action.pending": "#/components/schemas/ActionPendingEvent",
-            "action.delivered": "#/components/schemas/ActionDeliveredEvent",
-            "action.delivery_failed": "#/components/schemas/ActionDeliveryFailedEvent",
-            "action.completed": "#/components/schemas/ActionCompletedEvent",
-            "action.uncertain": "#/components/schemas/ActionUncertainEvent",
             "effect.uncertain": "#/components/schemas/EffectUncertainEvent",
             "delegation.started": "#/components/schemas/DelegationStartedEvent",
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
@@ -11049,6 +10518,10 @@
                   "type": "object",
                   "properties": {
                     "invocationId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "callId": {
                       "type": "string",
                       "minLength": 1
                     },
@@ -12296,996 +11769,6 @@
               "invocationId",
               "capabilityId",
               "toolName"
-            ],
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "schema",
-          "eventId",
-          "tenantId",
-          "sessionId",
-          "runId",
-          "turnId",
-          "incarnation",
-          "epoch",
-          "seq",
-          "cursor",
-          "time",
-          "schemaVersion",
-          "source",
-          "evidence",
-          "visibility",
-          "retention",
-          "type",
-          "payload"
-        ]
-      },
-      "ActionPendingEvent": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "string",
-            "enum": [
-              "nylorun.event/2"
-            ]
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "incarnation": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "model-gate",
-                  "tool-gate",
-                  "egress-gate",
-                  "sandboxd",
-                  "edge",
-                  "init",
-                  "controller",
-                  "loop",
-                  "supervisor",
-                  "harness",
-                  "evidence",
-                  "operator",
-                  "human",
-                  "api"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "enum": [
-              "observed",
-              "measured",
-              "attested",
-              "claimed",
-              "asserted"
-            ]
-          },
-          "trace": {
-            "type": "object",
-            "properties": {
-              "traceId": {
-                "type": "string"
-              },
-              "spanId": {
-                "type": "string"
-              },
-              "parentSpanId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "traceId",
-              "spanId"
-            ]
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "public",
-              "internal",
-              "restricted"
-            ]
-          },
-          "retention": {
-            "type": "string",
-            "enum": [
-              "full",
-              "metadata"
-            ]
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "action.pending"
-            ]
-          },
-          "payload": {
-            "type": "object",
-            "properties": {
-              "actionId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "kind": {
-                "type": "string"
-              },
-              "toolName": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "key": {
-                "type": "string"
-              },
-              "callId": {
-                "type": "string"
-              },
-              "invocationId": {
-                "type": "string"
-              },
-              "agent": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "delegationId": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "id",
-                  "path"
-                ],
-                "additionalProperties": {}
-              },
-              "input": {}
-            },
-            "required": [
-              "actionId",
-              "kind"
-            ],
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "schema",
-          "eventId",
-          "tenantId",
-          "sessionId",
-          "runId",
-          "turnId",
-          "incarnation",
-          "epoch",
-          "seq",
-          "cursor",
-          "time",
-          "schemaVersion",
-          "source",
-          "evidence",
-          "visibility",
-          "retention",
-          "type",
-          "payload"
-        ]
-      },
-      "ActionDeliveredEvent": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "string",
-            "enum": [
-              "nylorun.event/2"
-            ]
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "incarnation": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "model-gate",
-                  "tool-gate",
-                  "egress-gate",
-                  "sandboxd",
-                  "edge",
-                  "init",
-                  "controller",
-                  "loop",
-                  "supervisor",
-                  "harness",
-                  "evidence",
-                  "operator",
-                  "human",
-                  "api"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "enum": [
-              "observed",
-              "measured",
-              "attested",
-              "claimed",
-              "asserted"
-            ]
-          },
-          "trace": {
-            "type": "object",
-            "properties": {
-              "traceId": {
-                "type": "string"
-              },
-              "spanId": {
-                "type": "string"
-              },
-              "parentSpanId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "traceId",
-              "spanId"
-            ]
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "public",
-              "internal",
-              "restricted"
-            ]
-          },
-          "retention": {
-            "type": "string",
-            "enum": [
-              "full",
-              "metadata"
-            ]
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "action.delivered"
-            ]
-          },
-          "payload": {
-            "type": "object",
-            "properties": {
-              "actionId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "generation": {
-                "type": "integer",
-                "exclusiveMinimum": 0
-              },
-              "agent": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "delegationId": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "id",
-                  "path"
-                ],
-                "additionalProperties": {}
-              }
-            },
-            "required": [
-              "actionId",
-              "generation"
-            ],
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "schema",
-          "eventId",
-          "tenantId",
-          "sessionId",
-          "runId",
-          "turnId",
-          "incarnation",
-          "epoch",
-          "seq",
-          "cursor",
-          "time",
-          "schemaVersion",
-          "source",
-          "evidence",
-          "visibility",
-          "retention",
-          "type",
-          "payload"
-        ]
-      },
-      "ActionDeliveryFailedEvent": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "string",
-            "enum": [
-              "nylorun.event/2"
-            ]
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "incarnation": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "model-gate",
-                  "tool-gate",
-                  "egress-gate",
-                  "sandboxd",
-                  "edge",
-                  "init",
-                  "controller",
-                  "loop",
-                  "supervisor",
-                  "harness",
-                  "evidence",
-                  "operator",
-                  "human",
-                  "api"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "enum": [
-              "observed",
-              "measured",
-              "attested",
-              "claimed",
-              "asserted"
-            ]
-          },
-          "trace": {
-            "type": "object",
-            "properties": {
-              "traceId": {
-                "type": "string"
-              },
-              "spanId": {
-                "type": "string"
-              },
-              "parentSpanId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "traceId",
-              "spanId"
-            ]
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "public",
-              "internal",
-              "restricted"
-            ]
-          },
-          "retention": {
-            "type": "string",
-            "enum": [
-              "full",
-              "metadata"
-            ]
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "action.delivery_failed"
-            ]
-          },
-          "payload": {
-            "type": "object",
-            "properties": {
-              "actionId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "generation": {
-                "type": "integer",
-                "exclusiveMinimum": 0
-              },
-              "reason": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              },
-              "retryInMs": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "required": [
-              "actionId",
-              "generation",
-              "reason",
-              "retryInMs"
-            ],
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "schema",
-          "eventId",
-          "tenantId",
-          "sessionId",
-          "runId",
-          "turnId",
-          "incarnation",
-          "epoch",
-          "seq",
-          "cursor",
-          "time",
-          "schemaVersion",
-          "source",
-          "evidence",
-          "visibility",
-          "retention",
-          "type",
-          "payload"
-        ]
-      },
-      "ActionCompletedEvent": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "string",
-            "enum": [
-              "nylorun.event/2"
-            ]
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "incarnation": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "model-gate",
-                  "tool-gate",
-                  "egress-gate",
-                  "sandboxd",
-                  "edge",
-                  "init",
-                  "controller",
-                  "loop",
-                  "supervisor",
-                  "harness",
-                  "evidence",
-                  "operator",
-                  "human",
-                  "api"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "enum": [
-              "observed",
-              "measured",
-              "attested",
-              "claimed",
-              "asserted"
-            ]
-          },
-          "trace": {
-            "type": "object",
-            "properties": {
-              "traceId": {
-                "type": "string"
-              },
-              "spanId": {
-                "type": "string"
-              },
-              "parentSpanId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "traceId",
-              "spanId"
-            ]
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "public",
-              "internal",
-              "restricted"
-            ]
-          },
-          "retention": {
-            "type": "string",
-            "enum": [
-              "full",
-              "metadata"
-            ]
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "action.completed"
-            ]
-          },
-          "payload": {
-            "type": "object",
-            "properties": {
-              "actionId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "kind": {
-                "type": "string"
-              },
-              "toolName": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "key": {
-                "type": "string"
-              },
-              "callId": {
-                "type": "string"
-              },
-              "invocationId": {
-                "type": "string"
-              },
-              "agent": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "delegationId": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "id",
-                  "path"
-                ],
-                "additionalProperties": {}
-              },
-              "result": {}
-            },
-            "required": [
-              "actionId",
-              "kind"
-            ],
-            "additionalProperties": {}
-          }
-        },
-        "required": [
-          "schema",
-          "eventId",
-          "tenantId",
-          "sessionId",
-          "runId",
-          "turnId",
-          "incarnation",
-          "epoch",
-          "seq",
-          "cursor",
-          "time",
-          "schemaVersion",
-          "source",
-          "evidence",
-          "visibility",
-          "retention",
-          "type",
-          "payload"
-        ]
-      },
-      "ActionUncertainEvent": {
-        "type": "object",
-        "properties": {
-          "schema": {
-            "type": "string",
-            "enum": [
-              "nylorun.event/2"
-            ]
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "turnId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "incarnation": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "epoch": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "seq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "time": {
-            "type": "string"
-          },
-          "schemaVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "source": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "model-gate",
-                  "tool-gate",
-                  "egress-gate",
-                  "sandboxd",
-                  "edge",
-                  "init",
-                  "controller",
-                  "loop",
-                  "supervisor",
-                  "harness",
-                  "evidence",
-                  "operator",
-                  "human",
-                  "api"
-                ]
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ]
-          },
-          "evidence": {
-            "type": "string",
-            "enum": [
-              "observed",
-              "measured",
-              "attested",
-              "claimed",
-              "asserted"
-            ]
-          },
-          "trace": {
-            "type": "object",
-            "properties": {
-              "traceId": {
-                "type": "string"
-              },
-              "spanId": {
-                "type": "string"
-              },
-              "parentSpanId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "traceId",
-              "spanId"
-            ]
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "public",
-              "internal",
-              "restricted"
-            ]
-          },
-          "retention": {
-            "type": "string",
-            "enum": [
-              "full",
-              "metadata"
-            ]
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "action.uncertain"
-            ]
-          },
-          "payload": {
-            "type": "object",
-            "properties": {
-              "actionId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "agent": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "path": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "delegationId": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "id",
-                  "path"
-                ],
-                "additionalProperties": {}
-              }
-            },
-            "required": [
-              "actionId"
             ],
             "additionalProperties": {}
           }
@@ -16511,6 +14994,49 @@
         ],
         "additionalProperties": false
       },
+      "SandboxToolOutcome": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "completed"
+                ]
+              },
+              "output": {}
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
       "DefinitionFileView": {
         "type": "object",
         "properties": {
@@ -18223,6 +16749,138 @@
         }
       }
     },
+    "/v1/access/jwks": {
+      "get": {
+        "tags": [
+          "Runtime"
+        ],
+        "summary": "Get the public keys the Runtime's tokens are signed with",
+        "description": "A JSON Web Key Set, to verify a token the Runtime signed without calling it. No credential is needed.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "managementKey": []
+          },
+          {
+            "issuerToken": []
+          },
+          {}
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "management",
+          "token"
+        ],
+        "x-nylorun-scopes": "any",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `8`"
+            },
+            "required": true,
+            "description": "The protocol version, `8`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The public keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Jwks"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/openapi/runtime.json": {
       "get": {
         "tags": [
@@ -18715,867 +17373,6 @@
                 }
               }
             }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/endpoints": {
-      "put": {
-        "tags": [
-          "Action endpoints"
-        ],
-        "summary": "Register Action endpoints",
-        "description": "Points the Runtime at the URL that runs each agent's Actions. A new URL starts with no health.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PutEndpointsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The registered endpoints",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListEndpointsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Action endpoints"
-        ],
-        "summary": "List Action endpoints",
-        "description": "Each agent's Action endpoint, with what recent deliveries say about it.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The endpoints",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListEndpointsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/endpoints/{agentId}/ping": {
-      "post": {
-        "tags": [
-          "Action endpoints"
-        ],
-        "summary": "Ping an agent's Action endpoint",
-        "description": "Sends a signed ping through the endpoint and records what it answers it serves. A wrong URL, a tunnel that is down or a handler that does not serve the agent answers 502.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "agentId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "What the endpoint serves",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EndpointPingResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The agent has no endpoint"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "The endpoint did not answer the ping"
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/endpoints/{agentId}": {
-      "delete": {
-        "tags": [
-          "Action endpoints"
-        ],
-        "summary": "Remove an agent's Action endpoint",
-        "description": "The agent's pending Actions wait until an endpoint is registered again.",
-        "security": [
-          {
-            "applicationKey": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "agentId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The endpoint was removed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteEndpointResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The agent has no endpoint"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/access/jwks": {
-      "get": {
-        "tags": [
-          "Action endpoints"
-        ],
-        "summary": "Get the public keys delivery tokens are signed with",
-        "description": "A JSON Web Key Set, to verify a delivery token without calling the Runtime. No credential is needed.",
-        "security": [
-          {
-            "applicationKey": []
-          },
-          {
-            "managementKey": []
-          },
-          {
-            "issuerToken": []
-          },
-          {}
-        ],
-        "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "management",
-          "token"
-        ],
-        "x-nylorun-scopes": "any",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The public keys",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Jwks"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "The token expired (`token_expired`), or its issuer's keys cannot be fetched now (`issuer_unavailable`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/actions/{actionId}/heartbeat": {
-      "post": {
-        "tags": [
-          "Deliveries"
-        ],
-        "summary": "Keep a background delivery alive",
-        "description": "Called by an Action endpoint that answered a delivery with 202: extends the delivery by a lease and returns a fresh delivery token.",
-        "security": [
-          {
-            "deliveryToken": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "delivery"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "actionId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The delivery's new deadline, and a fresh token",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeliveryHeartbeatResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The delivery was cancelled, lost or sent again"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/actions/{actionId}/result": {
-      "post": {
-        "tags": [
-          "Deliveries"
-        ],
-        "summary": "Post the outcome of an Action answered with 202",
-        "description": "Called by an Action endpoint with the Action's delivery token after it answered the delivery with 202. The same result again returns the first receipt.",
-        "security": [
-          {
-            "deliveryToken": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "delivery"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "actionId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ActionOutcome"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The outcome was recorded",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionResultReceipt"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The delivery was cancelled, lost or sent again, or the Action has another result"
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/actions/{actionId}/sandbox/{tool}": {
-      "post": {
-        "tags": [
-          "Deliveries"
-        ],
-        "summary": "Run a sandbox tool for an Action being delivered",
-        "description": "Called by the Action endpoint with the Action's delivery token. The body is the tool's input.",
-        "security": [
-          {
-            "deliveryToken": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "delivery"
-        ],
-        "x-nylorun-scopes": "never",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "name": "actionId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "enum": [
-                "bash",
-                "read",
-                "write",
-                "edit",
-                "grep",
-                "glob"
-              ]
-            },
-            "required": true,
-            "name": "tool",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `8`"
-            },
-            "required": true,
-            "description": "The protocol version, `8`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": {},
-                "description": "The tool's input"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The tool's output, or why it failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SandboxToolOutcome"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope, a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, or a credential the Tenant does not know (`not_found`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The delivery was cancelled, lost or sent again"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -20343,21 +18140,6 @@
                     },
                     {
                       "$ref": "#/components/schemas/ToolCompletedEvent"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ActionPendingEvent"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ActionDeliveredEvent"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ActionDeliveryFailedEvent"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ActionCompletedEvent"
-                    },
-                    {
-                      "$ref": "#/components/schemas/ActionUncertainEvent"
                     },
                     {
                       "$ref": "#/components/schemas/EffectUncertainEvent"
@@ -25051,7 +22833,7 @@
   "tags": [
     {
       "name": "Runtime",
-      "description": "Check a Runtime is up and speaks your protocol, and ask who your credential is. `/health`, `/ready` and the documents need no key."
+      "description": "Check a Runtime is up and speaks your protocol, ask who your credential is, and read the public keys of the tokens it signs. `/health`, `/ready`, the JWKS and the documents need no key."
     },
     {
       "name": "Agents",
@@ -25060,14 +22842,6 @@
     {
       "name": "Definition files",
       "description": "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`). `saveAgent` in `@nylorun/agents` does both."
-    },
-    {
-      "name": "Action endpoints",
-      "description": "Where an agent's code runs: register the URL of the Action endpoint (`createActionHandler` in `@nylorun/agents`) the Runtime delivers each tool call and workflow step to, signed with a delivery token your endpoint verifies with the public keys."
-    },
-    {
-      "name": "Deliveries",
-      "description": "During a session's turn, your Action endpoint calls these with the delivery token the Runtime signed the delivery with: keep a background tool alive, post its result, or use the session's sandbox. The `@nylorun/agents` handler calls them for you."
     },
     {
       "name": "Sessions API",
@@ -25101,9 +22875,7 @@
       "name": "Agents",
       "tags": [
         "Agents",
-        "Definition files",
-        "Action endpoints",
-        "Deliveries"
+        "Definition files"
       ]
     },
     {

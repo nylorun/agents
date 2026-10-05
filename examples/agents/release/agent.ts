@@ -1,17 +1,11 @@
-import { Agent, tool } from "@nylorun/agents";
-import { z } from "zod";
+import { Agent } from "@nylorun/agents";
+import { lookupOrder } from "../shared/orders.js";
 
-const lookupOrder = tool({
-  name: "lookup_order",
-  description: "Look up a sample order by ID. Try demo-123.",
-  input: z.object({ orderId: z.string() }),
-  output: z.object({ orderId: z.string(), status: z.string() }),
-  async run({ orderId }) {
-    return { orderId, status: orderId === "demo-123" ? "shipped" : "not found" };
-  },
-});
-
+/**
+ * `lookup_order` is an HTTP tool: the Runtime calls the examples' tools service
+ * (`src/tools/server.ts`, which root `npm run dev` starts) and runs no code of this project.
+ */
 export const assistant = Agent({ id: "assistant", name: "Order assistant" })
   .instructions("Help with orders. Always use lookup_order for order questions. Remember conversation context.")
-  .tools(lookupOrder)
+  .tools(lookupOrder())
   .build();

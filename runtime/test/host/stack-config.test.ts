@@ -385,7 +385,7 @@ describe("parseStackConfig: where the loop reaches the gate", () => {
         ["--service", "core,loop"],
       ).modelGate,
     ).toEqual({ url: "http://gateway:4100", token });
-    // core pings Action endpoints through the Tool Gate (F4.1).
+    // core reaches the Tool Gate too: it closes MCP connections outside a run (F4.1).
     expect(
       parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, [
         "--service",

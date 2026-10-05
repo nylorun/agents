@@ -3,7 +3,7 @@
 The independent OSS **Runtime Host** consumes `@nylorun/harness/run` and
 `@nylorun/core/contracts`. Cloud installs published `@nylorun/harness` from npm
 and does not import this package. Every Tenant serves two APIs on one URL: the
-**Runtime API** for developers (agents, Action endpoints, sessions with AG-UI and
+**Runtime API** for developers (agents, sessions with AG-UI and
 A2A, sandboxes, artifacts), whose client is `@nylorun/agents`, and the
 **Management API** for operators (`/v1/tenant/*`), whose client is `@nylorun/admin`.
 Vocabulary: [src/CONTEXT.md](./src/CONTEXT.md).
@@ -78,7 +78,7 @@ file, a YAML list of the trusted issuers whose JWTs the Runtime API accepts
 boot ([DEPLOYMENT.md](../DEPLOYMENT.md#trusted-issuers)). A process that runs `loop` sends its model
 calls to the gate at `NYLORUN_GATES_URL`; in a container it refuses to start
 without it and `NYLORUN_GATES_TOKEN`. That token is core's credential: the gate
-accepts only it for vault writes, token signing and Action deliveries. Model and
+accepts only it for vault writes and token signing. Model, HTTP tool and
 remote MCP calls carry a run token instead, which the loop mints for each
 session it advances, and the gate takes the call's session, turn and agent from
 it; a token whose turn was cancelled or whose session another process took over
@@ -139,7 +139,7 @@ The Host root is `NYLORUN_HOME` or `~/.nylorun` (for a local Tenant,
 | `GET /ready` | none | Listener up, the Tenant open, and Postgres, Restate and S2 answer (`checks`); `harness: { mode, connected }` while the Tenant is open |
 | `GET /openapi/runtime.json` | none | The Runtime API's OpenAPI 3.2 document (below); alias `GET /openapi.json`. Refuses an `Origin` |
 | `GET /openapi/management.json` | none | The Management API's OpenAPI 3.2 document. Refuses an `Origin` |
-| `/v1/*` Runtime API routes (all but `/v1/tenant/*`) | application key, trusted issuer's token or delivery token | Require `Nylorun-Protocol`; nothing names the Tenant. A management key is `403 key_role_mismatch`, except on `/v1/me` and the public `GET /v1/access/jwks` |
+| `/v1/*` Runtime API routes (all but `/v1/tenant/*`) | application key or trusted issuer's token | Require `Nylorun-Protocol`; nothing names the Tenant. A management key is `403 key_role_mismatch`, except on `/v1/me` and the public `GET /v1/access/jwks` |
 | `/v1/tenant/*` Management API routes | management key | Require `Nylorun-Protocol`. An application key, alone or acting for a subject, is `403 key_role_mismatch`; a management key with `Nylorun-Subject` or `Nylorun-Scopes` is `403 subject_invalid` |
 | `PUT /v1/tenant/keys/{keyId}` | management key | Creates application key `keyId` or rotates it, and returns it once; `GET /v1/tenant/keys` lists every key (id, role, when issued, never the keys) and `DELETE` deletes one. `studio`, `bootstrap` and management keys are refused |
 | `POST /v1/tenant/vaults/{vaultId}/oauth/start` | management key | MCP OAuth connect into an installation vault (F9 C2): `{url, server, clientId?}` → `{authorizeUrl, expiresAt}`; the gateway's keys module does discovery, registration and the exchange. `oauth_client_required` without DCR or a `clientId` |
@@ -150,7 +150,7 @@ Every route checks `Host` first (`421 host_rejected`) and rejects non-JSON bodie
 with `415 unsupported_media_type`, except an artifact upload (`POST /v1/artifacts`,
 `POST /v1/artifacts/{id}/versions`), whose body is the file in any media type. An `Origin` is `403 origin_rejected` on
 `/health`, `/ready` and the OpenAPI documents. On `/v1` routes a browser
-presents a trusted issuer's token; keys (application and management) and delivery tokens
+presents a trusted issuer's token; keys (application and management)
 are refused from browsers before they are looked up. The Runtime sends no CORS headers, and answers
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
 ([DEPLOYMENT.md](../DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
@@ -184,11 +184,11 @@ https://cdn.jsdelivr.net/npm/@nylorun/runtime@<version>/dist/management-openapi.
 ```
 
 Each document has described tags, in the order a developer uses them. The Runtime API's are
-grouped (`x-tagGroups`): Get started (Runtime), Agents (Agents, Action endpoints, Deliveries),
+grouped (`x-tagGroups`): Get started (Runtime), Agents (Agents, Definition files),
 Sessions (Sessions API, AG-UI, A2A) and Sandboxes & artifacts. The Management API's are
 Tenant, Application keys, Models, Vaults, Signing keys and Settings. Each operation's
-`security` says which credentials it takes (application key, trusted issuer's token and
-delivery token in the Runtime API; management key in the Management API), and its
+`security` says which credentials it takes (application key and trusted issuer's token in
+the Runtime API; management key in the Management API), and its
 `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields say
 who may call it. Event streams are `text/event-stream` with an `itemSchema`. `runtime/openapi/` holds the committed snapshots: a change to a route changes
 them (`node scripts/build-openapi.mjs --write`), and `check-package` fails until they are
@@ -230,10 +230,11 @@ The package's own tests run every Session Store on Postgres: `npm test` gives ea
 test file a database on the Docker test stack (`test/stack/compose.yaml`) and starts
 the stack when it is down; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Register Action endpoints with `PUT /v1/endpoints` using the application principal
-(`createActionHandler(...).register({ url })` in `@nylorun/agents` does this). The
-Runtime delivers each Action there with an `http` or `https` POST, so the URL must be
-reachable from the Runtime. Model gateway
+Save agents with `PUT /v1/agents/{agentId}` using the application principal (`saveAgent`
+in `@nylorun/agents`). The Runtime runs the agent from its manifest and never calls your
+code during a session: a definition with a tool that would (`tool({ run })`, a flow's tool
+stage) is refused. Your services are reached as tools: HTTP tools, POSTed from the Runtime,
+so their URLs must be reachable from it, and remote MCP servers. Model gateway
 and sandbox backend are Tenant configuration (vault / seed), not Host process
 env.
 
@@ -241,12 +242,10 @@ env.
 
 The session-first `/v1` API is specified in
 [HOST_CONTRACT.md](../harness/HOST_CONTRACT.md). Application tokens authorize
-definition/session APIs. The Runtime delivers Actions to Action endpoints, and a
-delivery token authorizes only its own Action's heartbeat, result and sandbox calls.
-Session observers cannot submit action results.
+definition/session APIs.
 
 Postgres transactions persist session checkpoints, command receipts, individual
-effects/actions, waits and the record of session events — in the Tenant's database; history is
+effects, waits and the record of session events — in the Tenant's database; history is
 read from Durable Streams (S2). An advance owns its session through a lease with
 an epoch; a Worker that takes over after a crash marks in-flight effects
 `uncertain`. Vault ciphertext needs that Tenant's own KEK.

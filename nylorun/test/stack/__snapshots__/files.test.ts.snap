@@ -157,14 +157,14 @@ services:
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
+      # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Your credential resolver, for people's own MCP credentials (DEPLOYMENT.md, Credentials);
       # unset by default. Set both in the shell that runs \`nylorun start\`.
       NYLORUN_RESOLVER_URL: \${NYLORUN_RESOLVER_URL:-}
       NYLORUN_RESOLVER_TOKEN: \${NYLORUN_RESOLVER_TOKEN:-}
     extra_hosts:
-      host.docker.internal: host-gateway # model servers, MCP servers and Action endpoints on this machine
+      host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
       # The Tenant's homes and its vault key only, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/tenant:/nylorun/tenant:ro
@@ -194,7 +194,7 @@ services:
       NYLORUN_PACKING: combined
       # The Tenant the Runtime creates on its first start (later starts open it).
       NYLORUN_TENANT_NAME: \${NYLORUN_TENANT_NAME:?run nylorun start}
-      # Model calls, remote MCP calls and deliveries go through the gateway, and vault writes
+      # Model calls, remote MCP calls and HTTP tool calls go through the gateway, and vault writes
       # and token signing through its keys service: this container never reads a credential
       # or the vault key.
       NYLORUN_GATES_URL: http://gateway:4100
@@ -218,7 +218,7 @@ services:
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
-      # Action endpoints and MCP servers on this machine: \`localhost\` in their URLs means the Docker host.
+      # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Agent turns, MCP servers and workspaces run in the harness container, which connects to
       # this listener with NYLORUN_HARNESS_TOKEN. NYLORUN_HARNESS=in-process in .env rolls back.

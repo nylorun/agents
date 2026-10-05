@@ -1,5 +1,5 @@
 /**
- * Image checks for code that handles image bytes itself (an image tool in an Action endpoint):
+ * Image checks for code that handles image bytes itself (a service behind an HTTP tool):
  * the supported types, the size cap and a signature check. Storing images is the job of file
  * artifacts (`artifacts/`, protocol 6), which replaced `MediaStore`.
  */

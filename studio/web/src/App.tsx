@@ -32,7 +32,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import {
-  actionLabel,
+  toolLabel,
   agentOf,
   eventLabel,
   mergeStudioEvents,
@@ -910,7 +910,7 @@ function SessionView({
                     </pre>
                   </details>
                 );
-              if (["action.pending", "action.completed"].includes(event.type))
+              if (event.type === "tool.completed")
                 return (
                   <details
                     key={event.eventId}
@@ -919,17 +919,13 @@ function SessionView({
                         ? "ml-6 rounded-lg border p-3"
                         : "rounded-lg border p-3"
                     }
-                    open={event.type === "action.completed"}
                   >
                     <summary className="cursor-pointer text-sm font-medium">
-                      {actionLabel(payload)} · {event.type.slice(7)}
+                      {toolLabel(payload)}
+                      {payload.error ? " · failed" : ""}
                     </summary>
                     <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs">
-                      {pretty(
-                        event.type === "action.pending"
-                          ? payload.input
-                          : payload.result,
-                      )}
+                      {pretty(payload.error ?? payload.output)}
                     </pre>
                   </details>
                 );

@@ -1,13 +1,12 @@
 /**
- * HTTP handlers for session-scoped and claim-scoped sandbox tool endpoints.
- * Wired from TenantRuntime; keeps route bodies out of the hot runtime file.
+ * HTTP handlers for the session-scoped sandbox tool route (`POST /v1/sessions/:id/sandbox/:tool`)
+ * and the sandbox attach check of `PUT /v1/sessions/:id`.
  */
 import {
   isSandboxToolName,
   type SandboxManifest,
   type SandboxToolName,
 } from "@nylorun/core/define";
-import type { Action } from "@nylorun/core/contracts";
 import type { SandboxSessionRef } from "../sandbox/manager.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { SandboxToolOutcome } from "../sandbox/tools.js";
@@ -46,7 +45,6 @@ export type SandboxRouteDeps = {
   readonly sandbox: Pick<WorkspacePort, "run">;
   /** The session (rejects when missing) and its owner chain, read in one transaction. */
   readonly session: (id: string) => Promise<SandboxRouteRead>;
-  readonly getAction: (id: string) => Promise<Action | undefined>;
 };
 
 function resolveSpec(session: SessionSandboxRef, lookup: SandboxRouteRead["lookup"]): SandboxManifest {
@@ -110,34 +108,6 @@ export async function handleSessionSandboxTool(
     );
   const tool = parseTool(toolName);
   return runTool(deps, read, tool, toolInput(body), signal);
-}
-
-/**
- * `POST /v1/actions/:id/sandbox/:tool` — the Action endpoint, authorized by the delivery token
- * of the Action's current delivery (`delivery.generation`). The body is the tool's input.
- */
-export async function handleActionSandboxTool(
-  deps: SandboxRouteDeps,
-  actionId: string,
-  toolName: string,
-  body: unknown,
-  signal: AbortSignal,
-  delivery: { generation: number }
-): Promise<SandboxToolOutcome> {
-  if (!body || typeof body !== "object" || Array.isArray(body))
-    throw new SandboxRouteError(400, "Sandbox tool body must be an object");
-  const action = await deps.getAction(actionId);
-  if (!action) throw new SandboxRouteError(404, "Action not found");
-  if (
-    action.status !== "delivering" ||
-    action.generation !== delivery.generation ||
-    Date.parse(action.deadlineAt ?? "") <= Date.now()
-  )
-    throw new SandboxRouteError(409, "The delivery was cancelled, lost or delivered again");
-  const read = await deps.session(action.sessionId);
-  if (read.session.activeTurnId !== action.turnId)
-    throw new SandboxRouteError(409, "Action unavailable");
-  return runTool(deps, read, parseTool(toolName), toolInput(body), signal);
 }
 
 /**

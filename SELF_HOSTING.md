@@ -47,7 +47,7 @@ nothing depends on it (`nylorun telemetry disable`, or `NYLORUN_TELEMETRY_DISABL
 
 ## Front doors
 
-Every Tenant serves two APIs on one URL: the **Runtime API** (agents, Action endpoints,
+Every Tenant serves two APIs on one URL: the **Runtime API** (agents,
 sessions, sandboxes and artifacts) for apps and people, and the **Management API**
 (`/v1/tenant/*`) for operators. There are four ways in, and an installation can use all of them:
 
@@ -404,8 +404,8 @@ In the Caddy site of DEPLOYMENT.md, before the `@api` handle:
 
 ## Private addresses
 
-The gateway's outbound requests to URLs that agents and apps name, Action deliveries and
-endpoint pings, and every MCP OAuth step (discovery, registration, the code exchange and
+The gateway's outbound requests to URLs that agents name (HTTP tools and remote MCP servers),
+and every MCP OAuth step (discovery, registration, the code exchange and
 refresh), follow three settings. Each is checked on the address actually connected to, so a DNS
 answer cannot steer a request, and no redirect is followed.
 
@@ -415,10 +415,10 @@ answer cannot steer a request, and no redirect is followed.
 | `NYLORUN_ENDPOINT_HTTP` | `allow` or `refuse`: plain `http` URLs | `allow` |
 | `NYLORUN_ENDPOINT_LOOPBACK` | `docker-host`: `localhost` means the machine that runs Docker | unset; a local Tenant sets it |
 
-A local Tenant allows private addresses, so it reaches Action endpoints and OAuth servers on the
-same machine. **On a server, refuse them:** set `NYLORUN_ENDPOINT_PRIVATE=refuse` (and
+A local Tenant allows private addresses, so it reaches HTTP tools, MCP servers and OAuth servers
+on the same machine. **On a server, refuse them:** set `NYLORUN_ENDPOINT_PRIVATE=refuse` (and
 `NYLORUN_ENDPOINT_HTTP=refuse`) on the gateway and the runtime, so a discovery document or a
-registered URL cannot point the gateway at your internal network. If your Action endpoints live
+tool's URL cannot point the gateway at your internal network. If the services your tools call live
 on a private network, keep `allow` and limit the gateway's egress with your firewall instead.
 The resolver and the identity file's `jwks` URLs are yours, so they are not subject to these
 settings.

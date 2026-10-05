@@ -8,12 +8,15 @@
  *    NYLORUN_STUDIO_IMAGE name others) and `nylorun start` examples/' Tenant
  *    on them, in examples/: it creates the Tenant (named after examples/
  *    unless NYLORUN_TENANT names one) and links examples/ to it.
- * 3. Print a Studio login on the Tenant (`nylorun studio`), and run the
- *    examples Action endpoint with its own `npm run dev` (`tsx watch`), as a
+ * 3. Print a Studio login on the Tenant (`nylorun studio`), start the examples'
+ *    tools service (`src/tools/server.ts`: the code behind their `http()`
+ *    tools, which the Runtime in Docker calls on this machine), and run the
+ *    examples' own `npm run dev` (`tsx watch`), which saves their agents, as a
  *    developer's project runs.
  * 4. Watch the packages: an edit rebuilds what depends on it, rebuilds the
  *    affected images (Compose then recreates only those containers), and
- *    restarts the examples runner. A failed build keeps everything running.
+ *    restarts the examples runner, which saves the agents again. A failed build
+ *    keeps everything running.
  */
 import { existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -145,6 +148,13 @@ export function workspaceCommands({ repo = root, project = join(repo, "examples"
       );
       await child.exit;
     },
+    /** The examples' tools service, for the whole loop (tsx from the examples' node_modules). */
+    startServices(group) {
+      group.start("tools", process.execPath, [join(project, "node_modules/tsx/dist/cli.mjs"), "src/tools/server.ts"], {
+        cwd: project,
+        env,
+      });
+    },
     startRunner(group) {
       return group.start("examples", process.execPath, [npmCli(), "run", "dev"], {
         cwd: project,
@@ -181,10 +191,12 @@ export async function develop(
   const group = new ProcessGroup({
     log,
     onExit(label, code) {
-      if (!stopping && label === "examples") {
+      if (stopping) return;
+      if (label === "examples") {
         log(`[dev] The examples runner exited (${code}); stopping. The Tenant keeps running.`);
         void close(code || 1);
-      }
+      } else if (label === "tools")
+        log(`[dev] The examples' tools service exited (${code}); their HTTP tools fail until npm run dev restarts.`);
     },
   });
 
@@ -241,6 +253,8 @@ export async function develop(
     await commands.startStack(group, options);
     if (stopping) throw new Error("Development stopped.");
     if (options.studio && !stopping) await commands.openStudio(group, { open: options.open });
+    if (stopping) throw new Error("Development stopped.");
+    commands.startServices(group);
     startRunner();
     if (!options.watch) return { close, done };
 

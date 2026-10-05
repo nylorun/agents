@@ -10,13 +10,10 @@ import {
   type WorkerHandlers,
 } from "./types.js";
 
-/** What a key runs: a session's advance, or an Action's delivery. */
-type Kind = "advance" | "deliver";
-
 export interface MemoryExecutionOptions {
   /** Delay between sweep passes of one Tenant. Default 5000. */
   sweepIntervalMs?: number;
-  /** First retry delay after `advance` or `deliver` throws; doubles per attempt. Default 50. */
+  /** First retry delay after `advance` throws; doubles per attempt. Default 50. */
   retryDelayMs?: number;
   /** Attempts before giving up on a throwing handler and reporting it. Default 5. */
   maxAttempts?: number;
@@ -31,11 +28,10 @@ export interface MemoryExecutionOptions {
   onError?: (error: unknown) => void;
 }
 
+/** One session's advances. */
 interface KeyState {
-  kind: Kind;
   tenantId: string;
-  /** The session id (`advance`) or the Action id (`deliver`). */
-  id: string;
+  sessionId: string;
   running: boolean;
   queued: boolean;
   attempts: number;
@@ -113,11 +109,7 @@ export class MemoryExecution implements DurableExecution {
       if (this.seen.has(dedupe)) return;
       this.seen.set(dedupe, now);
     }
-    this.enqueue("advance", tenantId, sessionId);
-  }
-
-  async deliver(tenantId: string, actionId: string): Promise<void> {
-    this.enqueue("deliver", tenantId, actionId);
+    this.enqueue(tenantId, sessionId);
   }
 
   async sandbox(tenantId: string, sandboxId: string, signal: SandboxSignal): Promise<void> {
@@ -233,8 +225,8 @@ export class MemoryExecution implements DurableExecution {
   }
 
   /**
-   * Resolves once no advance or delivery is running or queued and no busy or
-   * retry re-run is pending. Timers and sweeps are not waited for. Test helper.
+   * Resolves once no advance is running or queued and no busy or retry re-run is
+   * pending. Timers and sweeps are not waited for. Test helper.
    */
   async idle(): Promise<void> {
     while (
@@ -245,16 +237,15 @@ export class MemoryExecution implements DurableExecution {
       await new Promise((resolve) => setTimeout(resolve, 1));
   }
 
-  private enqueue(kind: Kind, tenantId: string, id: string): void {
-    const key = stateKey(kind, tenantId, id);
+  private enqueue(tenantId: string, sessionId: string): void {
+    const key = sessionKey(tenantId, sessionId);
     let state = this.keys.get(key);
     if (!state)
       this.keys.set(
         key,
         (state = {
-          kind,
           tenantId,
-          id,
+          sessionId,
           running: false,
           queued: false,
           attempts: 0,
@@ -277,7 +268,7 @@ export class MemoryExecution implements DurableExecution {
           state.running = false;
           // Idle keys hold nothing (a retry keeps its attempt count); forget them so
           // long-lived processes stay small.
-          const key = stateKey(state.kind, state.tenantId, state.id);
+          const key = sessionKey(state.tenantId, state.sessionId);
           if (!state.queued && state.attempts === 0 && this.keys.get(key) === state)
             this.keys.delete(key);
         }
@@ -299,7 +290,7 @@ export class MemoryExecution implements DurableExecution {
   ): Promise<void> {
     const controller = new AbortController();
     state.controller = controller;
-    const again = () => this.enqueue(state.kind, state.tenantId, state.id);
+    const again = () => this.enqueue(state.tenantId, state.sessionId);
     try {
       const retryAfterMs = await this.call(state, handlers, controller.signal);
       state.attempts = 0;
@@ -315,20 +306,14 @@ export class MemoryExecution implements DurableExecution {
     }
   }
 
-  /** Runs the key's handler; resolves to a delay when the key must run again. */
+  /** Runs the session's advance; resolves to a delay when it must run again. */
   private async call(
     state: KeyState,
     handlers: WorkerHandlers,
     signal: AbortSignal,
   ): Promise<number | undefined> {
-    if (state.kind === "advance") {
-      const result = await handlers.advance(state.tenantId, state.id, signal);
-      return result.status === "busy" ? result.retryAfterMs : undefined;
-    }
-    if (!handlers.deliver)
-      throw new Error("WorkerHandlers.deliver is required for deliveries");
-    const result = await handlers.deliver(state.tenantId, state.id, signal);
-    return result.status === "retry" ? result.retryAfterMs : undefined;
+    const result = await handlers.advance(state.tenantId, state.sessionId, signal);
+    return result.status === "busy" ? result.retryAfterMs : undefined;
   }
 
   private armTimer(id: string, timer: PendingTimer): void {
@@ -384,7 +369,3 @@ export class MemoryExecution implements DurableExecution {
   }
 }
 
-/** Advances and deliveries are queued apart: a session id and an Action id may be equal. */
-function stateKey(kind: Kind, tenantId: string, id: string): string {
-  return `${kind}\u0000${sessionKey(tenantId, id)}`;
-}

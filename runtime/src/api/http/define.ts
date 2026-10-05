@@ -24,9 +24,9 @@ import type { TenantEnv } from "./app.js";
 /**
  * A route's credentials. `application` and `subject` are an application key, alone or acting
  * for a person; `management` a management key (the Management API, protocol 8); `token` a
- * trusted issuer's JWT; `delivery` an Action's delivery token.
+ * trusted issuer's JWT.
  */
-export type Credential = "application" | "subject" | "management" | "token" | "delivery";
+export type Credential = "application" | "subject" | "management" | "token";
 
 export interface RouteAccess {
   readonly credentials: readonly Credential[];
@@ -53,7 +53,6 @@ const SCHEMES: Record<Credential, string> = {
   subject: "applicationKey",
   management: "managementKey",
   token: "issuerToken",
-  delivery: "deliveryToken",
 };
 
 const rejected = (description: string) => ({
@@ -99,7 +98,7 @@ export async function routeNotFound(c: Context<TenantEnv>): Promise<Response> {
 export function keyAccess(access: RouteAccess): KeyAccess {
   const takes = (credential: Credential) => access.credentials.includes(credential);
   // Only a Management API route turns an application key away for its role; elsewhere the
-  // route's own checks answer as they always have (a delivery token's callbacks, say).
+  // route's own checks answer as they always have.
   return {
     application: takes("application") || takes("subject") || !takes("management"),
     management: takes("management"),
@@ -135,10 +134,6 @@ function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   return async (c, next) => {
     const scope = await authenticateCaller(c, access.anonymous === true, keyAccess(access));
     requireScopes(scope, access.scopes);
-    // Handlers tell callers apart by kind, and a delivery token is none of theirs: only the
-    // routes that list it may see one.
-    if (scope.kind === "delivery" && !access.credentials.includes("delivery"))
-      fail(403, "A delivery token reaches only its Action's callbacks");
     c.set("scope", scope);
     await next();
   };

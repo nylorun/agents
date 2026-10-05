@@ -11,17 +11,17 @@ import {
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { serveAgents, type ServedAgents } from "./support/endpoint.js";
 
 /**
  * Flow agents, end to end: a flow agent is saved as one workflow manifest v3 document, its
  * leaves run from the embedded `agents`, and their sessions are named by leaf paths, so
  * wrapping a step in a Loop keeps the step's session. The flow calls no developer code:
- * every stage is an agent turn or a tool node.
+ * every stage is an agent turn, and a definition with a tool stage is refused.
  */
 
 const APP = "workflow-v3-app-token-aaaaaaaaaaa";
 
+/** A tool stage: it runs the developer's code, so the Runtime refuses a flow that has one. */
 const split = tool({
   name: "split",
   description: "Split text into words.",
@@ -29,16 +29,6 @@ const split = tool({
   output: z.object({ items: z.array(z.object({ word: z.string() })) }),
   async run({ text }) {
     return { items: text.split(" ").filter(Boolean).map((word) => ({ word })) };
-  },
-});
-
-const shout = tool({
-  name: "shout",
-  description: "Upper-case one word.",
-  input: z.object({ word: z.string() }),
-  output: z.object({ loud: z.string() }),
-  async run({ word }) {
-    return { loud: word.toUpperCase() };
   },
 });
 
@@ -56,6 +46,17 @@ function model(verdicts: readonly object[] = [{ pass: true }], seen: Record<stri
     switch (effect.agentId) {
       case "writer":
         return { output: [{ type: "json", value: { text: "hello big world" } }] };
+      case "splitter":
+        return {
+          output: [
+            { type: "json", value: { items: ["hello", "big", "world"].map((word) => ({ word })) } },
+          ],
+        };
+      case "shouter": {
+        // Its input is one Map item, `{ word }`, after the original request (D12).
+        const word = /"word":\s*"(\w+)"/.exec(messagesOf(effect).at(-1) ?? "")?.[1] ?? "?";
+        return { output: [{ type: "json", value: { loud: word.toUpperCase() } }] };
+      }
       case "judge":
         return { output: [{ type: "json", value: verdicts[Math.min(judged++, verdicts.length - 1)] }] };
       default:
@@ -75,13 +76,7 @@ async function run(workflow: BuiltWorkflow, message: string, provider: ModelProv
   const tenant = await startTestTenant({ applicationKey: APP, modelProvider: provider });
   cleanups.push(() => tenant.close());
   const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-  const connection: ServedAgents = serveAgents({
-    agents: [workflow],
-    application: client,
-    implementationVersion: "v3",
-  });
-  cleanups.push(() => connection.close());
-  await connection.ready;
+  await client.saveAgent(workflow, { implementationVersion: "v3" });
 
   const session = await client.createSession({
     id: "desk-session",
@@ -129,34 +124,48 @@ const linked = (events: readonly Event[]) =>
 const writer = Agent({ id: "writer" }).instructions("Write a sentence.").output(z.object({ text: z.string() }));
 const fixer = Agent({ id: "fixer" }).instructions("Fix it.");
 const judge = Agent({ id: "judge" }).instructions("Judge the fix.").output(VerdictSchema);
+const splitter = Agent({ id: "splitter" })
+  .instructions("Split the text into words.")
+  .output(z.object({ items: z.array(z.object({ word: z.string() })) }));
+const shouter = Agent({ id: "shouter" })
+  .instructions("Upper-case the word.")
+  .output(z.object({ loud: z.string() }));
 
 describe("workflow manifest v3, end to end", { timeout: 30_000 }, () => {
-  it("runs a flow agent: embedded leaf, a tool node fed by its output, a Map over items", async () => {
-    const desk = Agent({ id: "desk" }).pipe(writer, split).map(shout).build();
+  it("runs a flow agent: embedded leaves, a Map over the items one of them returns", async () => {
+    const desk = Agent({ id: "desk" }).pipe(writer, splitter).map(shouter).build();
     expect(desk.manifest.workflowSchemaVersion).toBe(3);
 
     const result = await run(desk, "go");
     expect(outputOf(result)).toEqual([{ loud: "HELLO" }, { loud: "BIG" }, { loud: "WORLD" }]);
-    expect(linked(result.events).map((l) => l.path)).toEqual(["writer"]);
-    const pending = result.events
-      .filter((e) => e.type === "action.pending")
-      .map((e) => [e.payload.kind, e.payload.key, e.payload.input]);
-    expect(pending[0]).toEqual(["tool", "split", { text: "hello big world" }]);
-    // Map items run together: their Actions start in any order.
-    expect(pending.slice(1)).toHaveLength(3);
-    expect(pending.slice(1)).toEqual(
-      expect.arrayContaining([
-        ["tool", "shout", { word: "hello" }],
-        ["tool", "shout", { word: "big" }],
-        ["tool", "shout", { word: "world" }],
-      ])
-    );
+    const paths = linked(result.events).map((l) => l.path);
+    expect(paths.slice(0, 2)).toEqual(["writer", "splitter"]);
+    // Map items run together: their sessions start in any order.
+    expect(paths.slice(2)).toEqual([0, 1, 2].map(() => expect.stringContaining("shouter")));
     // A step outside a Loop is not a Loop iteration.
     expect(result.events.some((e) => e.type === "loop.iteration")).toBe(false);
+    expect(result.events.some((e) => e.type.startsWith("action."))).toBe(false);
 
     // Leaves are embedded: only the flow agent is in the catalog.
     const { agents } = await result.client.listAgents();
     expect(agents.map((a) => a.manifest.id)).toEqual(["desk"]);
+  });
+
+  it("refuses a flow agent with a tool stage: it would run the developer's code", async () => {
+    const desk = Agent({ id: "desk" }).pipe(writer, split).build();
+    const tenant = await startTestTenant({ applicationKey: APP, modelProvider: model() });
+    cleanups.push(() => tenant.close());
+    const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
+    await expect(client.saveAgent(desk)).rejects.toThrow(/tool stage 'split'.*runs your code/);
+    // The Runtime refuses it too, when a client sends it anyway.
+    const response = await fetch(`${tenant.url}/v1/agents/desk`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${tenant.applicationKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "put-desk", manifest: desk.manifest, implementationVersion: "v3" }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toMatch(/runs no code of yours during a session/);
+    expect((await client.listAgents()).agents).toEqual([]);
   });
 
   it("shows a later agent the original request beside its own input (D12)", async () => {
@@ -185,8 +194,8 @@ describe("workflow manifest v3, end to end", { timeout: 30_000 }, () => {
     expect(looped.events.filter((e) => e.type === "loop.verified").map((e) => e.payload)).toEqual([
       { path: "@0", n: 1, pass: true },
     ]);
-    // Nothing went to the Action endpoint: the verifier is an agent.
-    expect(looped.events.some((e) => e.type === "action.pending")).toBe(false);
+    // The verifier is an agent: no tool ran.
+    expect(looped.events.some((e) => e.type.startsWith("tool."))).toBe(false);
   });
 
   it("retries with the verifier's feedback and stops after max attempts with loop.exhausted", async () => {

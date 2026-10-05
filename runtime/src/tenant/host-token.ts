@@ -17,7 +17,7 @@
  * The host token is accepted only by the Harness API listener (a connection serving that one
  * sandbox, and `host.renew`); the egress token only by egress-gate, as the proxy credential
  * (`Proxy-Authorization`). Neither is a bearer anywhere else: the Tenant API's bearer check
- * accepts trusted issuers' and delivery tokens only, and the gates run tokens only.
+ * accepts trusted issuers' tokens only, and the gates run tokens only.
  *
  * Verification reads the key row on every call (a revoked key refuses at once) and, with
  * `currentHost`, the sandbox's row (one indexed read): the epoch must be the sandbox's, the

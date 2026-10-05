@@ -1,5 +1,5 @@
 /**
- * What the Runtime's own tokens share (delivery tokens, capability links, run and host tokens):
+ * What the Runtime's own tokens share (capability links, run and host tokens):
  * the Tenant's ES256 JWTs, recognised by shape, told apart by their `typ`, and refused before
  * any key is read when the header is not one the Runtime issues.
  */

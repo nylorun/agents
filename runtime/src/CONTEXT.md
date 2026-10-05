@@ -16,11 +16,11 @@ or its storage. Every process that talks to a Runtime is a **Client**.
 application, Studio, the CLI, a desktop app, an IDE extension or CI.
 _Avoid_: calling only the SDK or only the CLI "the client".
 
-**Runtime API**: The Tenant's routes for developers' apps, browsers and Action endpoints:
-everything under `/v1` except `/v1/tenant/*` (protocol 8). Agents, Action endpoints and
-deliveries, sessions with AG-UI and A2A, sandboxes, artifacts, `/v1/me` and the public JWKS
-(`/v1/access/jwks`). It takes application keys, trusted issuers' tokens and delivery
-tokens; a management key here is `403 key_role_mismatch` (except `/v1/me` and the JWKS).
+**Runtime API**: The Tenant's routes for developers' apps and browsers: everything under
+`/v1` except `/v1/tenant/*` (protocol 8). Agents and their definition files, sessions with
+AG-UI and A2A, sandboxes, artifacts, `/v1/me` and the public JWKS (`/v1/access/jwks`). It
+takes application keys and trusted issuers' tokens; a management key here is `403
+key_role_mismatch` (except `/v1/me` and the JWKS).
 Nothing in a request selects the Tenant (protocol 5). Client package: `@nylorun/agents`.
 Reference: `/openapi/runtime.json` (alias `/openapi.json`).
 _Avoid_: "Tenant API" for the whole surface (say which API), "SDK API" or "application API".
@@ -138,7 +138,7 @@ refused.
 
 **Application key** (or **application principal**): A key with role `application`,
 hashed in the Tenant's `principals` table and named by its principal id
-(`^[a-z][a-z0-9-]{0,31}$`). It reaches the Runtime API: definition, session, endpoint,
+(`^[a-z][a-z0-9-]{0,31}$`). It reaches the Runtime API: definition, session,
 sandbox and artifact routes. May act for a **subject** on any request, which only narrows
 what it can reach. Issued by a management key (`PUT /v1/tenant/keys/{keyId}`,
 `admin.keys.put`), or on the machine (`nylorun key put <id>`, `nylorun-operate keys
@@ -166,7 +166,7 @@ integrator (`app:42`); 1–200 visible ASCII characters, `host` and `installatio
 reserved (they own the host model's vault and the installation vaults). A subject reaches only sessions whose
 `ownerUserId` is the subject; another owner's resource is the same `404` as a
 missing one. No subject reaches the Management API (protocol 8). Only
-application keys may send it; with a delivery token or a management key it is `403`.
+application keys may send it; with a management key it is `403`.
 A **trusted issuer**'s token names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
@@ -210,8 +210,7 @@ _Avoid_: "broker" (Cloud's).
 `tenant:settings` (retired in protocol 8, when the Tenant's settings moved to the
 Management API) are still accepted and grant nothing. Each route declares the scopes that
 allow it (`RouteAccess`, `api/http/define.ts`), decided from the route alone before any
-lookup (`403 scope_required`); endpoints, actions and the sandbox tool routes are open to
-no subject, and no subject reaches the Management API.
+lookup (`403 scope_required`); the sandbox tool routes are open to no subject, and no subject reaches the Management API.
 A trusted issuer's token carries only `TOKEN_SCOPES` (`agents:read`, `sessions:own`,
 `sandboxes:write`) and `studio`.
 
@@ -236,7 +235,7 @@ does). Any other JWT is the opaque `404`. `GET /v1/me` reports it as
 _Avoid_: "SSO login" (the Runtime signs no one in), "external token".
 
 **Signing key**: A Tenant's ES256 key pair for the tokens the Runtime signs itself
-(delivery tokens, capability links, run and host tokens; `signing_keys`,
+(capability links, run and host tokens; `signing_keys`,
 `tenant/signing-keys.ts`): the public JWK in the clear (`GET /v1/access/jwks`, the
 Runtime API, no key), the private key sealed with the vault KEK. States `standby`,
 `current` (signs), `previous` (verifies), `revoked`. Listing, rotating and revoking them
@@ -253,15 +252,15 @@ every path; it is created on the thread's first run with the options in
 _Avoid_: re-`PUT`ting a thread's session (it would replace its vaults).
 
 **Browsers**: A request with an `Origin` reaches the `/v1` routes (protocol 7): a
-trusted issuer's token is served, any key (application or management) or a delivery
-token is `403 origin_rejected`. The Runtime sends no CORS headers and answers
+trusted issuer's token is served, any key (application or management) is `403
+origin_rejected`. The Runtime sends no CORS headers and answers
 `OPTIONS` with `204` and `Allow` only; the operator's proxy answers preflights.
 `/health`, `/ready` and the OpenAPI documents refuse `Origin`.
 _Avoid_: browser keys and Runtime CORS settings (gone in protocol 7).
 
 **App server**: The developer's own server: signs people in, names the subject
 and scopes on each Runtime call (`client.as`), hosts the AG-UI handler (which forwards to the Runtime's AG-UI endpoint)
-and the Action endpoint, and strips any `Nylorun-*` header its clients send. Nylorun ships
+and the services its HTTP tools call, and strips any `Nylorun-*` header its clients send. Nylorun ships
 libraries that run inside it, not the server.
 _Avoid_: "proxy" or "gateway" for it in Nylorun docs.
 
@@ -272,28 +271,14 @@ limited to operator networks, `OPTIONS`, `Origin` and the `Nylorun-*` headers pa
 through, CORS answered for the app's origins only. Configured by the developer (Caddy,
 nginx, Tailscale).
 
-**Action endpoint**: The URL an app registers for one agent (`PUT /v1/endpoints`,
-`endpoints` table, `tenant/endpoints.ts`), served by `createActionHandler` from
-`@nylorun/agents`. The Runtime POSTs each of the agent's Actions (its tools, and a flow
-agent's tool nodes) there. The endpoint answers with the outcome, or with `202` for a
-background tool, which later posts `POST /v1/actions/:id/result`. Health comes from
-recent deliveries and `POST /v1/endpoints/:agentId/ping`.
-_Avoid_: "executor", "webhook" or "callback URL" for it.
-
-**Delivery**: One POST of an Action to its endpoint (`tenant/delivery.ts`, run by the
-execution's `deliver` handler). The Action is `delivering` until its `deadlineAt`; then it
-is lost: the tool becomes `uncertain`.
-Unreachable endpoints are retried with backoff (`action.delivery_failed`), and a cancel
-aborts the request.
-
-**Delivery token**: ES256 JWT (`typ: nylorun-delivery+jwt`) in `Nylorun-Signature`,
-signed with the Tenant's signing key (`tenant/delivery-token.ts`). It names the
-endpoint URL (`aud`), the Action and generation (`sub`, `gen`), and the SHA-256 of the
-body (`bdy`), and lives at most 900 s. It authorizes only that Action's
-`/v1/actions/:id/{heartbeat,result,sandbox/:tool}`, and only while that generation is
-being delivered. Endpoints verify it with the public JWKS (`GET /v1/access/jwks`,
-readable without a credential).
-_Avoid_: "executor key" (removed in protocol 3).
+**Manifest-only agent** (track R2): The Runtime runs the whole agent from its manifest and
+the definition files uploaded with it; during a session it never calls back into the
+developer's code. A developer's service is reached only as a tool: an HTTP tool or a remote
+MCP server, one request and one answer. `PUT /v1/agents/:id` refuses a definition with a tool
+that would run the developer's code (`tool({ run })` with no `http` and no `agent`, or a flow
+agent's tool stage; `codeToolRefusal` in `@nylorun/core/define`), and so does `saveAgent`.
+_Avoid_: "Action endpoint", "delivery", "delivery token", "background tool", "held run"
+(removed in protocol 8 with track R2).
 
 **Admin key**: The installation's root secret in `host-credentials.json` (mode 0600),
 written by `nylorun start`. No request accepts it (protocol 8). Studio's key derives from
@@ -372,22 +357,24 @@ _Avoid_: calling it an artifact; artifacts are a session's or an application's f
 
 **Skill tools**: `load_skill` and `read_skill_resource`, which the build gives the first
 capability with skills. Core runs them like `save_artifact` (`tenant/skill-tool.ts`), reading the
-skill's definition files: no Action reaches the developer's process. A session with a sandbox
+skill's definition files: nothing reaches the developer's process. A session with a sandbox
 also has each skill's files read-only under `/skills/<name>/`: the SandboxManager mounts them on a
 workspace before the first call that opens it (`sandbox/skills.ts`), with bytes from the Object
 store, or in a harness from core (`definition.file`, for the run that made the call).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
 `HOST_PROTOCOL` (`PROTOCOL_VERSION = 8`; the Host serves 4 to 8; required features
-`studio-principal`, `action-endpoints`, `artifacts` and `management-api`. The Host still
+`studio-principal`, `artifacts` and `management-api`. The Host still
 advertises `runtime-tenants` for protocol 4 clients and `admin-status` for protocol 5 to 7
 clients, which require it, though the Admin API is gone; optional Host features
 `tenant-fixture-model`, `transcript-events`, `subject-headers`, `ag-ui-endpoint`,
-`a2a-endpoint`, `action-endpoints`, `sandboxes`, `sandbox-pods` and `trusted-issuers`).
+`a2a-endpoint`, `sandboxes`, `sandbox-pods` and `trusted-issuers`).
 Protocol 8 split the Runtime API from the Management API by key role, moved vaults and
 signing keys under `/v1/tenant`, retired `tenant:settings`, and removed the Admin API, the
-operator listener and the feature `operator-keys`; the old paths answer `404`, with no
-alias. Protocol 7 removed subject tokens, the access policy, revocations,
+operator listener and the feature `operator-keys`; with track R2 it also removed Action
+endpoints (`/v1/endpoints`, `/v1/actions/*`, delivery tokens and the feature
+`action-endpoints`, which a client that requires it is refused for); the old paths answer
+`404`, with no alias. Protocol 7 removed subject tokens, the access policy, revocations,
 browser keys, the Runtime's CORS and derived principals; their routes answer `404`.
 Independent of package semver. Incompatible clients receive `426` before
 authentication. A client that uses an optional feature checks `/health` first.
@@ -409,14 +396,13 @@ _Avoid_: deriving a key a client could hold.
 **Transcript event**: A session event a chat UI renders (feature
 `transcript-events`): `message.assistant` for each completed model step (text
 and tool calls, keyed by the model's `invocationId` and each call's `callId`),
-`tool.completed` for an MCP or sandbox tool, and the `callId` on tool
-`action.*` and `delegation.*` events. Written in the transaction that completes
+`tool.completed` for a tool the Runtime ran (HTTP, MCP, sandbox, built-in), and the
+`callId` on `delegation.*` events and on a `turn.paused` interaction. Written in the transaction that completes
 the effect, so a replay writes nothing (`tenant/transcript.ts`); payload
 schemas and `parseTranscriptEvent` are in `@nylorun/core/contracts`.
 The Runtime's AG-UI endpoint turns them into AG-UI events
 (`runtime/src/api/ag-ui/`).
-_Avoid_: rebuilding a chat from `turn.completed` output or from `actionId`
-formats.
+_Avoid_: rebuilding a chat from `turn.completed` output or from effect id formats.
 
 **A2A endpoint**: The Runtime API routes `POST /v1/a2a/agents/:agent` (A2A 1.0
 JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,
@@ -448,8 +434,8 @@ One line each; the module named is where the term lives in code.
 - **Packing**: Which services share a container. A local Tenant's combined packing runs `core,loop` in the `runtime` container and `gates` in the `gateway` container; core and loop may share a process, gates never joins them (`NYLORUN_PACKING`, `nylorun/src/stack/compose-file.ts`).
 - **Gateway**: A local Tenant's container for the gates and keys services, and egress when sandboxes are enabled (`--service gates,keys,egress`). _Avoid_: confusing it with `gatewayModel`, an embedder's model provider.
 - **Keys service**: The `keys` service (F4.2), run in the gateway's process (`--service gates,keys`): the only process that reads the vault key (`<Host root>/keys/vault-kek`). It runs the vault writes that touch a secret and signs every token, behind the `Keys` seam (`keys/keys.ts`): in process, or over HTTP (`keys/client.ts`, `POST /nylorun/v1/keys/{operation}`, `NYLORUN_KEYS_URL`). With it, a Tenant runtime never reads, creates or holds the key.
-- **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`), HTTP tools (`/nylorun/v1/http-calls`) and Action deliveries (`/nylorun/v1/deliveries`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`), and it reaches the server under the Host's address policy, as a delivery (`guardedFetch`, `tenant/outbound.ts`: `localhost` is the Docker host in the local stack). A keyed MCP or HTTP tool call runs once (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway is `uncertain`. The sandbox tools never cross it.
-- **HTTP tool**: A tool whose manifest entry has `http` (`url`, `method` POST/PUT/PATCH, `credential`, `timeoutMs`; a sibling of `agent`, with `fn` and `command` reserved), built with `http()`: the Tool Gate sends the input as a JSON body with `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and the effect id as `Idempotency-Key`, adding the vault credential bound to the URL that the `credential` selection names (`gates/http-tool.ts`, `runHttpTool`; the request and answer alone are `callHttpTarget`). Its outcome is the answer, or a failed outcome the model sees (`http.status`, `http.timeout`, `http.refused`, `http.credential`, `tool.invalid-output`); never an Action. An HTTP tool is also a flow stage (a tool node with `http`), and `http({ url })` a Loop's HTTP verifier (`loop.verify: { http }`, POSTed `{ input, output, iteration }`, answering a verdict): their `tool` effects are journaled `invoking` and executed like an agent's (`harness-api/record.ts`), the gate finds the target in the pinned workflow manifest by stage key (`{ sessionId, stage }`, `flowHttpTarget`) and sends the flow agent's id as `Nylorun-Agent-Id`, and a failed outcome fails the stage (or the Loop, `loop.verify-failed`). An HTTP verifier's verdict is recorded as `loop.verified` (`recordVerdict`, `core/flow-host.ts`). _Avoid_: "webhook tool".
+- **Tool Gate**: The gates service's routes for remote MCP servers (`/nylorun/v1/mcp/*`, `/nylorun/v1/tool-calls`), and HTTP tools (`/nylorun/v1/http-calls`), and the `ToolGate` seam the Tenant calls (`gates/tool-gate.ts`): in process, or over HTTP (`gates/tool-client.ts`). Only it holds a remote MCP connection and its credential (`gates/mcp-handler.ts`), and it reaches the server under the Host's address policy (`guardedFetch`, `tenant/outbound.ts`: `localhost` is the Docker host in the local stack). A keyed MCP or HTTP tool call runs once (`gates/tool-calls.ts`, the `tool_crossings` table): a re-send joins it or gets its answer, and one lost with an earlier gateway is `uncertain`. The sandbox tools never cross it.
+- **HTTP tool**: A tool whose manifest entry has `http` (`url`, `method` POST/PUT/PATCH, `credential`, `timeoutMs`; a sibling of `agent`, with `fn` and `command` reserved), built with `http()`: the Tool Gate sends the input as a JSON body with `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and the effect id as `Idempotency-Key`, adding the vault credential bound to the URL that the `credential` selection names (`gates/http-tool.ts`, `runHttpTool`; the request and answer alone are `callHttpTarget`). Its outcome is the answer, or a failed outcome the model sees (`http.status`, `http.timeout`, `http.refused`, `http.credential`, `tool.invalid-output`). An HTTP tool is also a flow stage (a tool node with `http`), and `http({ url })` a Loop's HTTP verifier (`loop.verify: { http }`, POSTed `{ input, output, iteration }`, answering a verdict): their `tool` effects are journaled `invoking` and executed like an agent's (`harness-api/record.ts`), the gate finds the target in the pinned workflow manifest by stage key (`{ sessionId, stage }`, `flowHttpTarget`) and sends the flow agent's id as `Nylorun-Agent-Id`, and a failed outcome fails the stage (or the Loop, `loop.verify-failed`). An HTTP verifier's verdict is recorded as `loop.verified` (`recordVerdict`, `core/flow-host.ts`). _Avoid_: "webhook tool".
 - **Static approval**: `approval: "always"` on an HTTP tool, or on a remote MCP server for all its tools: the engine pauses each call for the session's `approve` before it becomes an effect, and a denied call is `denied` without running (`DurableSessionTool.approval`, `harness/run/durable.ts`).
 - **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod sandboxes' only way out, a CONNECT proxy that verifies an egress token, checks its sandbox's host epoch, and tunnels only to a host name in the spec's `network.allow` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). No TLS interception, no credential injection, no events; refusals are logged.
 - **Egress token**: The ES256 JWT (`typ: nylorun-egress+jwt`, `aud: nylorun-egress`) a pod's harness gets at join, naming its sandbox, host epoch and pod UID; minted with every host token (`mintEgressToken`, `tenant/host-token.ts`) and accepted only by egress-gate, as the proxy credential (`sandbox/egress-token.ts`).
@@ -464,15 +450,14 @@ One line each; the module named is where the term lives in code.
 - **SessionStreams**: A process's readers of Durable Streams for one open Tenant (`ctx.sessionStreams`): one `SessionStream` per observed session, and the streams wiring (`tenant/session-streams.ts`).
 - **SessionStream**: The shared read of one observed session's stream in this process, followed by that session's SSE and in-process clients, each from its own next sequence (`tenant/session-streams.ts`).
 - **Advance**: One run of a session's current segment under ownership: load the checkpoint, offer the segment to a harness as a run, settle what it reports (`tenant/advance.ts`). A run whose harness connection is lost keeps the lease until it lapses, so the next advance takes the session over.
-- **Harness API**: The protocol between core and a harness (v1, `@nylorun/core/harness-api`, blueprint D37): requests and messages over a channel, in process by reference (or through JSON in tests), or over WebSocket (F6.2: core's listener `harness-api/ws-server.ts`, `NYLORUN_HARNESS_LISTEN_*`, accepting only `NYLORUN_HARNESS_TOKEN`; the client `harness/ws-client.ts`). A harness says `hello`, keeps a `lease` waiting, and per run sends `effect.intent`/`effect.outcome` (the Record seam), `lease.renew`, and one output (`turn.completed`, `turn.paused`, `turn.waiting`, `turn.failed`, `checkpoint` for a yield) or `lease.release`. Core sends `cancel` with the advance's abort reason, and `effect.resolved` to a run held for a pending Action. A harness readies the session's MCP servers itself (`session.mcp`) and claims its `sandbox.*` events (`event`). Not a public API: protocol 5 does not cover it.
+- **Harness API**: The protocol between core and a harness (v2, `@nylorun/core/harness-api`, blueprint D37; v2 dropped held runs with track R2): requests and messages over a channel, in process by reference (or through JSON in tests), or over WebSocket (F6.2: core's listener `harness-api/ws-server.ts`, `NYLORUN_HARNESS_LISTEN_*`, accepting only `NYLORUN_HARNESS_TOKEN`; the client `harness/ws-client.ts`). A harness says `hello`, keeps a `lease` waiting, and per run sends `effect.intent`/`effect.outcome` (the Record seam), `lease.renew`, and one output (`turn.completed`, `turn.paused`, `turn.waiting`, `turn.failed`, `checkpoint` for a yield) or `lease.release`. Core sends `cancel` with the advance's abort reason. A harness readies the session's MCP servers itself (`session.mcp`) and claims its `sandbox.*` events (`event`). Not a public API: protocol 5 does not cover it.
 - **Harness**: One long-running client of the Harness API that runs the engine for the runs it leases, with injected executors for model, MCP and sandbox calls (`@nylorun/harness/api`, `harness/executors.ts`). Each Tenant runs one in process (`harness-api/in-process.ts`), or none with `NYLORUN_HARNESS=remote`: harness services (`--service harness`, `harness/main.ts`, `harness/service.ts`) attach over WebSocket with their own MCP pool and SandboxManager. It reaches no store (`scripts/check-boundaries.mjs`).
 - **Workspace capability**: What core does with sandbox workspaces outside a run (`ctx.sandbox`, a `WorkspacePort`, `harness-api/workspace.ts`): the sandbox tool routes, `save_artifact`'s reads, Tenant status, the sweep, a sandbox resource's deletion and a sandboxes reset. In process it is the Tenant's SandboxManager; with remote harnesses it is the `workspace.*` requests to the harness that declared `workspace` in its `hello` (`503 request_rejected` when none is connected). The SandboxManager keeps its compute records through a `SandboxRecords` port (`sandbox/records.ts`: the `sandboxes` table, or `<root>/sandboxes/records.json` in a harness, mirrored into the table from its `sandbox.state` claims and sweep answers).
-- **Held run**: A run waiting in its lease for a pending Action's outcome (F6.2), at most `actionHoldMs` (default 5 minutes): the outcome reaches it as `effect.resolved` (from another process through the `action.resolved` control signal) and the segment goes on without a replay.
 - **Run**: A lease on one session's segment, offered by an advance to the first waiting harness (`harness-api/server.ts`): a `runId` bound to the connection that leased it (any other gets `run_not_held`), the turn, the epoch and, from F5, a run token. Its `turn.start` carries the segment's checkpoint without the transcript, its completed outcomes and the transcript's cursor.
 - **Transcript cursor**: The record `seq` of the last event that changed a session's transcript fold (`transcript.updated`, `turn.cancelled`, `turn.failed`). A harness that holds the transcript at the run's cursor resumes from its cache; otherwise it reads it once (`transcript.read`).
 - **Wake**: A request, delivered at least once, that a session advance (`WakeReason` in `execution/types.ts`).
 - **Ownership epoch**: The counter an advance takes with a session's lease; every write the advance makes checks it (`store/ownership.ts`).
-- **Engine host**: The `DurableHost` the engine resolves effects through: over the Harness API (`@nylorun/harness/api` `apiHost`), which replays a run's recorded outcomes and asks core for the rest; core's journal is `harness-api/record.ts`, which journals each effect's intent (its request hash, a model call without its prompt) and outcome, runs Actions and flow work itself, and tells the harness to execute model, MCP and sandbox calls.
+- **Engine host**: The `DurableHost` the engine resolves effects through: over the Harness API (`@nylorun/harness/api` `apiHost`), which replays a run's recorded outcomes and asks core for the rest; core's journal is `harness-api/record.ts`, which journals each effect's intent (its request hash, a model call without its prompt) and outcome, runs flow work and its own built-in tools itself, tells the harness to execute model, MCP, HTTP and sandbox calls, and fails a tool that would run the developer's code (`tool.unavailable`).
 - **Record**: Every session event, written in its state transaction to Postgres `nylorun_streams.session_events` (keyed by session and seq: the database holds one Tenant), with each session's log head; Durable Streams are fed from it (`Tx.event`, `store/postgres/schema.ts`, `store/postgres/record.ts`).
 - **Record module**: The one write path into the Record (`record/`, blueprint D27): it builds each event on the `nylorun.event/2` envelope, checks it against the event catalog and holds the only insert into `session_events` and `session_log_heads`, whose two statements it runs through the store's `RecordWriter` (`store/postgres/record-writer.ts`, behind the driver boundary). The store calls it from `Tx.event` under the session lock; `scripts/check-boundaries.mjs` refuses an insert anywhere else.
 - **Transcript fold**: The own loop's model-facing transcript, rebuilt from the session's `transcript.updated` events (internal, never served) at each segment start; `turn.cancelled` and `turn.failed` undo their turn's edits. The session row stores the engine state without it, folding from `Session.history.from` (`tenant/history.ts`, blueprint P0.3). Tests run in shadow mode (`test/setup/transcript-shadow.ts`), which also keeps the transcript on the row and checks the fold against it.
@@ -483,7 +468,7 @@ One line each; the module named is where the term lives in code.
 _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 - **Sandbox grant**: A sandbox a trusted issuer's token reaches, rendered from the issuer's `sandboxes` templates (identity file): an exact sandbox id, or a prefix ending in `/*` (`team-a/*` reaches `team-a/proj-42`, not `team-a`). A token without one reaches no sandbox; any other id is the 404 of a missing one. Application keys, with or without subject headers, reach every sandbox; changing one through a subject needs `sandboxes:write`.
 - **Pinned sandbox**: The sandbox a session was opened with (`PutSessionRequest.sandbox`, or the Tenant default), resolved against the Tenant's `sandbox.config` limits and stored on the session (`Session.sandbox`). An agent session carries it as the `nylorun.sandbox` capability in its pinned manifest; sessions that share or inherit it point at the owner with `sandboxOwnerId` (`sandbox/resolve.ts`, `sandbox/session-sandbox.ts`). Sharing through `{ session }` is deprecated for clients: they share a sandbox resource; linked sessions of a flow still inherit through `sandboxOwnerId`, and a tree whose owner is attached to a sandbox resource works in that sandbox.
-- **Tenant sweep**: A per-Tenant durable timer that settles lapsed deliveries, re-wakes orphaned sessions and stops idle sandboxes (`tenant/sweep.ts`).
+- **Tenant sweep**: A per-Tenant durable timer that settles linked agent effects, re-wakes orphaned sessions and stops idle sandboxes (`tenant/sweep.ts`).
 
 ## Terms to avoid (appear nowhere in new copy)
 
@@ -494,14 +479,14 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | `--global`, `--db`, a database path variable | Host root + Tenant (CLI) |
 | `/v1/host/model*` (Tenant routes) | `/v1/tenant/model*` |
 | `startRuntime` / `createRuntime` | `startEphemeralRuntime` (tests) / Host entry |
-| `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents` | Action endpoints: `createActionHandler` and `PUT /v1/endpoints` |
-| `nylorun serve` | `node dist/src/main.js` / the app's Action endpoint |
+| `NYLORUN_EXECUTORS_JSON`, executors, `connectAgents`, Action endpoints, `createActionHandler`, `PUT /v1/endpoints` | HTTP tools (`http()`) and remote MCP servers; `saveAgent` |
+| `nylorun serve` | `node dist/src/main.js`, which saves the app's agents |
 | importing `@nylorun/runtime` from a client | call the Runtime API (`@nylorun/agents`) or the Management API (`@nylorun/admin`) |
 | `nylorun-runtime`, the launcher, `nylorun runtime up` | the local Tenant: `nylorun start` |
 | `nylorun dev`, `nylorun dev --ephemeral` | `nylorun start` once, then the project's `npm run dev` |
 | `nylo tenant create\|use\|list\|current\|delete`, one installation for every project | `nylorun start` in the project: its own local Tenant and link |
 | stack, `nylorun start --name`, `NYLORUN_STACK`, `~/.nylorun/stacks/`, `nylorun legacy` | local Tenant, `--tenant`, `NYLORUN_TENANT`, `~/.nylorun/tenants/` (`nylorun legacy` is removed) |
-| `nylo tenant status\|reset\|endpoints` | `nylo status\|reset\|endpoints` on the linked installation |
+| `nylo tenant status\|reset\|endpoints`, `nylo endpoints` | `nylo status\|reset` on the linked installation |
 | `tenant.sqlite`, the SQLite store | the Tenant's Postgres database (Session Store) |
 | `tenant_<id>` schemas, the Tenant catalog, quarantine | one Tenant per database; a readiness cause |
 | `schema_version` tables, hand-written migrations, `lockSchema` | Drizzle migrations and their journal (`store/postgres/migrate.ts`) |

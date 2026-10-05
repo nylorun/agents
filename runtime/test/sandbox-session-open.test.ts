@@ -354,15 +354,13 @@ it("gives the agents a session uses as tools the same sandbox", async () => {
 it("refuses a sandbox for an agent with a tool named like a sandbox tool", async () => {
   const runtime = await boot();
   try {
-    const { tool } = await import("@nylorun/core/define");
+    const { http } = await import("@nylorun/core/define");
     const { z } = await import("zod");
-    const bash = tool({
+    const bash = http({
       name: "bash",
       description: "Not the sandbox's bash.",
       input: z.object({}),
-      async run() {
-        return "ok";
-      },
+      url: "https://tools.example.com/bash",
     });
     const clash = Agent({ id: "clash", name: "clash" }).instructions("x").tools(bash).build();
     await register(runtime, clash);

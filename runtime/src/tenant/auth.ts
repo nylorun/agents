@@ -1,30 +1,24 @@
 /**
  * Tenant request authentication and authorization: a bearer token resolves to an application
- * principal, a trusted issuer's token or a delivery token; anything else is the opaque 404
+ * principal or a trusted issuer's token; anything else is the opaque 404
  * (D5). An application principal may act for a subject (`Nylorun-Subject`, `Nylorun-Scopes`);
  * an issuer token names its subject itself. `requireScopes` limits them to the routes their
  * scopes allow, decided from the route alone.
  *
  * Browsers: a request with `Origin` may carry an issuer token (CORS is the operator's proxy's),
- * never an application key or a delivery token, which are server secrets.
+ * never an application key, which is a server secret.
  */
 import type { IncomingMessage } from "node:http";
 import {
   SCOPES_HEADER,
   SUBJECT_HEADER,
 } from "@nylorun/core/compatibility";
-import {
-  DELIVERY_TOKEN_TYPE,
-  parseSubjectHeaders,
-  type Action,
-  type SubjectScope,
-} from "@nylorun/core/contracts";
+import { parseSubjectHeaders, type SubjectScope } from "@nylorun/core/contracts";
 import { hashToken } from "../core/bearer.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail, failOpaque } from "./http.js";
-import { verifyDeliveryToken } from "./delivery-token.js";
 import { verifyIssuerToken } from "./issuers.js";
-import { looksLikeToken, tokenType } from "./jwt.js";
+import { looksLikeToken } from "./jwt.js";
 
 const SUBJECT_INVALID = { code: "subject_invalid" } as const;
 
@@ -62,18 +56,6 @@ export async function authenticate(
       reason: "missing_bearer",
     });
     return failOpaque();
-  }
-  if (looksLikeToken(token) && tokenType(token) === DELIVERY_TOKEN_TYPE) {
-    // Delivery tokens come back from the application's server, never from a browser.
-    if (request.headers.origin !== undefined)
-      fail(403, "Delivery tokens are not accepted from browsers", { code: "origin_rejected" });
-    const scope = await verifyDeliveryToken(ctx, token);
-    if (
-      singleHeader(request, SUBJECT_HEADER) !== undefined ||
-      singleHeader(request, SCOPES_HEADER) !== undefined
-    )
-      fail(403, "A delivery token cannot act for a subject");
-    return scope;
   }
   // A trusted issuer's token (Host feature `trusted-issuers`), from a server or a browser: its
   // unverified `iss` names an issuer of the identity file, and only that issuer verifies it.
@@ -185,9 +167,6 @@ export function accessOf(scope: AuthScope): SessionAccess | undefined {
     // A request with no credential, on a route that serves public data, owns nothing.
     case "anonymous":
       return fail(404, "Not found");
-    // A delivery token reaches its Action's callbacks, never a session or vault.
-    case "delivery":
-      return fail(404, "Not found");
     default: {
       const unknown: never = scope;
       return fail(404, `Unknown credential ${String((unknown as AuthScope).kind)}`);
@@ -205,20 +184,6 @@ export function requirePrincipal(scope: AuthScope): string {
   if (scope.kind === "application" || scope.kind === "subject")
     return scope.principalId;
   return fail(403, "Application credential required");
-}
-
-/**
- * The caller may act on `action`: only the delivery token minted for it. Whether its generation
- * is still the Action's is checked by each callback.
- */
-export function scoped(scope: AuthScope, action: Action): void {
-  if (
-    scope.kind === "delivery" &&
-    scope.actionId === action.actionId &&
-    scope.agentId === action.agentId
-  )
-    return;
-  fail(403, "This delivery token is for another Action");
 }
 
 /** True when a token caller may reach `agentId` (its issuer's allowlist). Other callers always may. */

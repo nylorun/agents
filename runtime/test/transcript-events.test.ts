@@ -1,11 +1,6 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
-import {
-  Agent,
-  createClient,
-  tool,
-  type AgentsClient,
-} from "@nylorun/agents";
+import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
 import {
   parseTranscriptEvent,
@@ -16,7 +11,7 @@ import {
 } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { serveAgents } from "./support/endpoint.js";
+import { startToolServer } from "./support/tool-server.js";
 
 const APP = "transcript-events-app-token-aaaa";
 
@@ -154,7 +149,7 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
   }
 });
 
-it("pauses for approval on a tool with an output schema, with call ids on every action event and no replayed duplicates", async () => {
+it("pauses for approval on an HTTP tool with an output schema, with the call id on the pause and the result, and no replayed duplicates", async () => {
   const runtime = await startTestTenant({
     applicationKey: APP,
     modelProvider: script(
@@ -167,29 +162,18 @@ it("pauses for approval on a tool with an output schema, with call ids on every 
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
+  const service = await startToolServer({ save: () => ({ saved: true }) });
   const agent = Agent({ id: "notes", name: "Notes" })
-    .use({
-      id: "notes",
-      tools: [
-        tool({
-          name: "save",
-          input: z.object({ note: z.string() }),
-          output: z.object({ saved: z.literal(true) }),
-          approval: () => "Save this note?",
-          async run() {
-            return { saved: true as const };
-          },
-        }),
-      ],
-    })
+    .tools(
+      service.tool("save", {
+        input: z.object({ note: z.string() }),
+        output: z.object({ saved: z.literal(true) }),
+        approval: "always",
+      })
+    )
     .build();
-  const connection = serveAgents({
-    agents: [agent],
-    application: client,
-    implementationVersion: "dev",
-  });
   try {
-    await connection.ready;
+    await client.saveAgent(agent, { implementationVersion: "dev" });
     const session = await client.createSession({
       id: "s1",
       agentId: "notes",
@@ -206,30 +190,29 @@ it("pauses for approval on a tool with an output schema, with call ids on every 
     expect(waits).toHaveLength(1);
     const interactionId = (waits[0] as { interaction: { id: string } })
       .interaction.id;
+    expect(service.calls).toEqual([]);
     await session.approve(interactionId, true, { idempotencyKey: "a1" });
     expect((await settle(session, ["completed", "failed"])).status).toBe(
       "completed"
     );
+    expect(service.calls.map((call) => call.input)).toEqual([{ note: "hi" }]);
 
     const { items } = await session.history();
     const paused = ofType(items, "turn.paused");
     expect(paused).toHaveLength(1);
-    const pausedInvocation = (parseTranscriptEvent(paused[0]!)!.payload as any)
-      .interactions[0].invocationId;
-
-    const actions = items
-      .filter((item) => item.type.startsWith("action.pending") || item.type === "action.completed")
-      .map((item) => parseTranscriptEvent(item)!.payload as any);
-    expect(actions.length).toBeGreaterThanOrEqual(4);
-    for (const action of actions)
-      expect(action).toMatchObject({
-        callId: "call-0",
-        invocationId: pausedInvocation,
-      });
-    const results = ofType(items, "action.completed").map(
-      (item) => (item.payload as { result: { kind: string } }).result.kind
+    const interaction = (parseTranscriptEvent(paused[0]!)!.payload as any).interactions[0];
+    expect(interaction.callId).toBe("call-0");
+    const results = ofType(items, "tool.completed").map(
+      (item) => parseTranscriptEvent(item)!.payload as any
     );
-    expect(results).toEqual(["interaction-required", "completed"]);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      callId: "call-0",
+      invocationId: interaction.invocationId,
+      toolName: "save",
+      output: { saved: true },
+    });
+    expect(items.some((item) => item.type.startsWith("action."))).toBe(false);
 
     // Two model steps, each written once, although the paused segment replays the first.
     const messages = ofType(items, "message.assistant").map(
@@ -237,7 +220,7 @@ it("pauses for approval on a tool with an output schema, with call ids on every 
     );
     expect(messages.map((m) => m.text)).toEqual(["Saving it.", "Saved."]);
   } finally {
-    await connection.close();
+    await service.close();
     await runtime.close();
   }
 });

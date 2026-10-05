@@ -1,7 +1,7 @@
 /**
  * The loop's client of the Tool Gate in the gates service (F4.1, `tool-contract.ts`): remote
  * MCP servers opened and called through the gate, which holds their connections and
- * credentials, HTTP tools called by the gate (R2 M3), and Action deliveries POSTed by the gate.
+ * credentials, and HTTP tools called by the gate (R2 M3).
  * Over `node:http`, like the model gate's client (`http-client.ts`): a call answers only when it
  * has finished.
  *
@@ -9,51 +9,43 @@
  * - An MCP request that fails, at the server or on the hop, throws, so the pool reports a
  *   diagnostic and `resolveEffect` marks a call `uncertain`, as before. An HTTP tool call
  *   throws only for the hop, or a call lost with the gateway: its own failures are outcomes.
- * - A delivery never throws. A hop that failed before the request was sent is `not_sent`
- *   (the deliverer sends it again, even a tool); one that failed after is `lost`.
  *
  * Credentials (F5): a session's MCP requests and keyed cancels carry its run token, read per
  * request from the advance's grant, and leave the session out of the body: the gate takes it
- * from the token. Deliveries, pings, and MCP requests made outside a run (closing a pooled
- * connection after the advance ended) carry core's credential, `NYLORUN_GATES_TOKEN`, and name
- * the session in the body.
+ * from the token. MCP requests made outside a run (closing a pooled connection after the
+ * advance ended) carry core's credential, `NYLORUN_GATES_TOKEN`, and name the session in the
+ * body.
  */
 import { randomUUID } from "node:crypto";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { LiveConnection, McpClient, McpToolPage } from "../mcp/connect.js";
 import type { McpServerRef } from "../mcp/pool.js";
-import type { OutboundResult } from "../tenant/outbound.js";
 import { TENANT_HEADER } from "./contract.js";
 import { GATE_CLIENT_TIMEOUT_MS } from "./http-client.js";
 import {
-  DELIVERIES_PATH,
   HTTP_CALLS_PATH,
   MCP_CLOSE_PATH,
   MCP_CONNECT_PATH,
   MCP_LIST_PATH,
   TOOL_CALLS_PATH,
-  type DeliveryAnswer,
   type HttpCallBody,
   type McpAnswer,
   type McpGateError,
   type ToolCallBody,
 } from "./tool-contract.js";
-import type { DeliveryRequest, ToolGate } from "./tool-gate.js";
+import type { ToolGate } from "./tool-gate.js";
 import type { HttpOutcome, HttpToolCall } from "./http-tool.js";
 import type { RunTokens } from "../tenant/run-grants.js";
 
 /** How long a close or a cancel may take; neither changes an outcome. */
 const SHORT_TIMEOUT_MS = 2_000;
 
-/** Extra silence allowed on a delivery beyond the endpoint's own timeout. */
-const DELIVERY_SLACK_MS = 30_000;
-
 export interface HttpToolGateOptions {
   /** The gates service, e.g. `http://gateway:4100` (`NYLORUN_GATES_URL`). */
   readonly url: string;
   /**
-   * `NYLORUN_GATES_TOKEN`: core's credential, for deliveries and MCP requests outside a run. A
+   * `NYLORUN_GATES_TOKEN`: core's credential, for MCP requests outside a run. A
    * harness has none (F6.2): its requests outside a run carry the session's last run token, or
    * nothing, and the gate refuses them.
    */
@@ -261,40 +253,6 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
         body: undefined,
         ...(token ? { bearer: token } : {}),
       });
-    },
-
-    async post(delivery: DeliveryRequest, signal: AbortSignal): Promise<OutboundResult> {
-      const result = await exchange(
-        DELIVERIES_PATH,
-        {
-          url: delivery.url,
-          body: delivery.body,
-          headers: { ...delivery.headers },
-          timeoutMs: delivery.timeoutMs,
-        },
-        { signal, timeoutMs: delivery.timeoutMs + DELIVERY_SLACK_MS },
-      );
-      if (result.kind === "aborted")
-        return {
-          kind: result.sent ? "lost" : "not_sent",
-          code: "ABORTED",
-          message: "The delivery was aborted",
-        };
-      if (result.kind === "unreachable")
-        return { kind: "not_sent", code: "gateway.unreachable", message: result.message };
-      if (result.kind === "lost") return { kind: "lost", code: "gateway.lost", message: result.message };
-      const parsed = parse(result.text) as Partial<DeliveryAnswer> | undefined;
-      if (result.status !== 200 || !parsed?.result)
-        // The gate refused the request before sending anything.
-        return { kind: "not_sent", code: "gateway.refused", message: gateRefusal(result.status, parsed) };
-      const wire = parsed.result;
-      if (wire.kind !== "response") return wire;
-      return {
-        kind: "response",
-        status: wire.status,
-        headers: wire.headers,
-        body: Buffer.from(wire.body, "base64"),
-      };
     },
   };
 }

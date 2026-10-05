@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
-import { registerEndpoint, startEndpoint } from "./support/endpoint.js";
 import { startTestTenant } from "./support/tenant.js";
 import type { ModelProvider } from "../src/core/provider.js";
 
@@ -184,88 +183,6 @@ it("rejects PutSession.sandbox when the target has no sandbox or another owner",
     const foreign = await put("bad-owner", { agentId: "owner", ownerUserId: "bob", sandbox: { session: "wf-1" } });
     expect(foreign.status).toBe(403);
   } finally {
-    await runtime.close();
-  }
-});
-
-it("authorizes delivery-token-scoped POST /v1/actions/:id/sandbox/:tool", async () => {
-  const { tool } = await import("@nylorun/core/define");
-  const { z } = await import("zod");
-  const agent = Agent({ id: "coder", name: "Coder" })
-    .use({
-      id: "work",
-      tools: [
-        tool({
-          name: "note",
-          input: z.object({ text: z.string() }),
-          async run() {
-            return { ok: true };
-          },
-        }),
-      ],
-    })
-    .build();
-
-  const runtime = await boot(async () => ({
-    output: [
-      {
-        type: "tool-call",
-        id: "call-1",
-        name: "note",
-        args: { text: "hi" },
-      },
-    ],
-  }));
-  const endpoint = await startEndpoint({ runtime });
-  try {
-    await putAgent(runtime, agent);
-    await registerEndpoint(runtime, "coder", endpoint.url);
-    await fetch(`${runtime.url}/v1/sessions/s1`, {
-      method: "PUT",
-      headers: serverHeaders,
-      body: JSON.stringify({
-        requestId: "s1",
-        agentId: "coder",
-        ownerUserId: "ada",
-        sandbox: {},
-      }),
-    });
-    await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
-      method: "POST",
-      headers: serverHeaders,
-      body: JSON.stringify({
-        type: "message",
-        requestId: "m1",
-        idempotencyKey: "m1",
-        content: "note",
-      }),
-    });
-
-    const delivery = await endpoint.next();
-    // The delivery tells the endpoint that ctx.sandbox is available.
-    expect(delivery.sandbox).toBe(true);
-
-    const write = await delivery.sandboxTool("write", { path: "delivered.txt", content: "ok" });
-    expect(write.status, JSON.stringify(write.body)).toBe(200);
-    expect(write.body.kind).toBe("completed");
-
-    // Only the delivery token opens the route.
-    const application = await fetch(
-      `${runtime.url}/v1/actions/${encodeURIComponent(delivery.action.actionId)}/sandbox/bash`,
-      {
-        method: "POST",
-        headers: serverHeaders,
-        body: JSON.stringify({ command: "echo no" }),
-      }
-    );
-    expect(application.ok).toBe(false);
-
-    // Once the Action has its result, the delivery's token no longer runs sandbox tools.
-    expect((await delivery.result({ kind: "completed", output: { ok: true } })).status).toBe(200);
-    const stale = await delivery.sandboxTool("bash", { command: "echo no" });
-    expect(stale.status).toBe(409);
-  } finally {
-    await endpoint.close();
     await runtime.close();
   }
 });

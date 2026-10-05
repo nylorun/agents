@@ -11,13 +11,9 @@ import { findProjectRoot } from "./project/root.js";
 import { printLinkedEnvExports } from "./project/env.js";
 import { linkedConnection, managementClient } from "./project/connection.js";
 import { accessCommand } from "./access/commands.js";
-import {
-  endpointsCommand,
-  resetCommand,
-  statusCommand,
-} from "./installation/commands.js";
+import { resetCommand, statusCommand } from "./installation/commands.js";
 
-const usage = `nylo <status|reset|endpoints|access|configure|env|doctor>
+const usage = `nylo <status|reset|access|configure|env|doctor>
 
 Runtime client for the linked installation and its one Tenant (the Project link that
 npx nylorun start writes, or NYLORUN_RUNTIME_URL with NYLORUN_SERVER_KEY, and
@@ -25,7 +21,6 @@ NYLORUN_MANAGEMENT_KEY for status, reset, access, configure and doctor):
   status [--json]                         the Tenant, its checks and counts
   reset [--sessions|--sandboxes|--all] [--yes]
                                           clear the Tenant's sessions, sandboxes or all its data
-  endpoints [--json]|ping <agent>         the registered Action endpoints and their health
   access signing-keys list|rotate|revoke  the Tenant's token signing keys (nylo access --help)
   configure                               set the linked Tenant's model provider
   env                                     print the linked Project's NYLORUN_* variables as exports
@@ -41,7 +36,11 @@ const LOCAL_COMMANDS = new Set([
 
 const TENANT_REMOVED = `nylo tenant was removed: an installation serves one Tenant.
 Run "npx nylorun start" in your project to create its Tenant and the Project link.
-Then use nylo status, nylo reset and nylo endpoints on the linked installation.`;
+Then use nylo status and nylo reset on the linked installation.`;
+
+const ENDPOINTS_REMOVED = `nylo endpoints was removed: the Runtime runs no code of yours during a session,
+so there are no Action endpoints. An agent's tools are http() tools and remote MCP servers
+(see MIGRATION.md).`;
 
 interface Flags {
   rest: string[];
@@ -102,7 +101,7 @@ async function main() {
   if (command === "tenant") throw usageError(TENANT_REMOVED);
   if (command === "status") return await statusCommand(args);
   if (command === "reset") return await resetCommand(args);
-  if (command === "endpoints") return await endpointsCommand(args);
+  if (command === "endpoints") throw usageError(ENDPOINTS_REMOVED);
   if (command === "access") {
     if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
       const { accessUsage } = await import("./access/commands.js");

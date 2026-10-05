@@ -1,8 +1,9 @@
 /**
  * The AG-UI example (`src/ag-ui/`) as a browser sees it: two signed-in people chat with the
  * support agent through the backend, against an in-process Runtime whose fixture model calls
- * `lookup_order`. Each person reaches only their own threads, a forged `Nylorun-*` header
- * changes nothing, and no response carries the application key, Runtime URL or Tenant id.
+ * `lookup_order` (an HTTP tool the backend answers). Each person reaches only their own
+ * threads, a forged `Nylorun-*` header changes nothing, and no response carries the application
+ * key, Runtime URL or Tenant id.
  */
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -40,7 +41,8 @@ beforeAll(async () => {
   server = createServer(app.listener);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  await app.register(origin);
+  // The fixture model calls lookup_order, an HTTP tool this app answers at `origin`.
+  await app.save(origin);
   base = `${origin}/api/agui`;
 }, 60_000);
 

@@ -28,7 +28,7 @@
  * - `reconcilePendingAgentEffect({ t, effectId, schedule }): Promise<boolean>`
  * - `planCancelCascade({ t, workflowSessionId, turnId }): Promise<CascadeCancelPlan>`
  * - `cancelSiblingWork({ t, workflowSessionId, turnId, siblingPaths?, cancelEffectIds? }): Promise<CancelSiblingResult>`
- * - `fenceWorkflowActions({ t, workflowSessionId, turnId }): Promise<{ cancelled; uncertain }>`
+ * - `cancelQueuedEffects({ t, workflowSessionId, turnId }): Promise<string[]>`
  * - `aggregateWaits({ t, workflowSessionId }): Promise<FlowWait[]>`
  * - `flowInteractionOf(waits, workflowSessionId, interactionId): { id; kind } | undefined`
  * - `findInteractionOwner({ t, workflowSessionId, interactionId }): Promise<{ sessionId; path } | undefined>`
@@ -44,11 +44,11 @@
  * commits. The effect is bound to its turn through the message's idempotency key
  * (`linkedMessageKey`): the `commands` document of that key names the turn it opened.
  *
- * The Tenant sweep (`tenant/sweep.ts`) calls the reconcile and re-offer functions, one
- * transaction per effect or Action.
+ * The Tenant sweep (`tenant/sweep.ts`) calls the reconcile functions, one transaction per
+ * effect.
  */
 import { createHash } from "node:crypto";
-import type { Action, ActionOutcome } from "@nylorun/core/contracts";
+import type { EffectOutcome } from "@nylorun/core/contracts";
 import { isVerdict, type JsonValue, type WorkflowManifest } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { Wake } from "../execution/types.js";
@@ -157,7 +157,7 @@ export function linkedMessageInput(body: {
 export async function settleAgentEffect(input: {
   readonly t: Tx;
   readonly effect: FlowEffect;
-  readonly outcome: ActionOutcome;
+  readonly outcome: EffectOutcome;
 }): Promise<void> {
   const { t, effect, outcome } = input;
   await t.put("effects", effect.request.effectId, { ...effect, status: "completed", outcome });
@@ -233,16 +233,12 @@ export type FlowWait = {
 };
 
 export type CancelSiblingResult = {
-  readonly cancelledActions: string[];
-  readonly uncertainActions: string[];
   readonly agentSessionIds: string[];
 };
 
 export type CascadeCancelPlan = {
   /** Linked agent sessions to cancel, deepest path first. */
   readonly agentSessionIds: string[];
-  readonly pendingActionIds: string[];
-  readonly deliveringActionIds: string[];
 };
 
 /** Wakes a session after commit (`DurableExecution.wake` through the Tenant context). */
@@ -251,12 +247,9 @@ type Schedule = (sessionId: string, wake: Wake) => void | Promise<void>;
 /** Effect documents as the flow host writes them. */
 export type FlowEffect = EffectDoc & {
   agentSessionId?: string;
-  outcome?: ActionOutcome;
+  outcome?: EffectOutcome;
   error?: string;
 };
-
-/** Actions still to be settled: waiting to be delivered, or being delivered. */
-const OPEN_ACTION: Action["status"][] = ["pending", "delivering"];
 
 function scheduleAfterCommit(
   t: Tx,
@@ -267,21 +260,13 @@ function scheduleAfterCommit(
   t.afterCommit(() => schedule(id, wake));
 }
 
-/** Active agent turns + pending/delivering actions for one workflow turn. */
+/** Active agent turns + tool nodes in flight for one workflow turn. */
 export async function countActiveFlowWork(
   t: Tx,
   workflowSessionId: string,
   turnId: string
 ): Promise<number> {
   const effects = await t.effectsForTurn<FlowEffect>(workflowSessionId, turnId);
-  const openActions = new Set(
-    (
-      await t.actionsForSession(workflowSessionId, {
-        turnId,
-        statuses: OPEN_ACTION,
-      })
-    ).map((action) => action.actionId)
-  );
   let n = 0;
   for (const effect of effects) {
     if (effect.status === "queued") continue;
@@ -291,8 +276,7 @@ export async function countActiveFlowWork(
       n += 1;
       continue;
     }
-    if (isFlowToolEffect(effect.request) && openActions.has(effect.request.effectId))
-      n += 1;
+    if (isFlowToolEffect(effect.request) && effect.status === "invoking") n += 1;
   }
   return n;
 }
@@ -383,7 +367,7 @@ export async function wakeLinkedWorkflow(input: {
   )
     return;
 
-  const outcome: ActionOutcome = input.cancelled
+  const outcome: EffectOutcome = input.cancelled
     ? {
         value: {
           kind: "failed",
@@ -468,10 +452,7 @@ export function pathDepth(path: string): number {
   return path.split("/").filter(Boolean).length;
 }
 
-/**
- * Plan a cancel cascade for a workflow session: linked agents deepest first,
- * then pending → cancelled and delivering → uncertain actions (SD-P11 / WF-R53).
- */
+/** Plan a cancel cascade for a workflow session: linked agents deepest first (SD-P11 / WF-R53). */
 export async function planCancelCascade(input: {
   readonly t: Tx;
   readonly workflowSessionId: string;
@@ -482,30 +463,12 @@ export async function planCancelCascade(input: {
     (linked) => ({ sessionId: linked.agentSessionId, path: linked.link.path })
   );
   agentEntries.sort((a, b) => pathDepth(b.path) - pathDepth(a.path));
-
-  const pendingActionIds: string[] = [];
-  const deliveringActionIds: string[] = [];
-  const actions = await t.actionsForSession(input.workflowSessionId, {
-    ...(input.turnId !== null ? { turnId: input.turnId } : {}),
-    statuses: OPEN_ACTION,
-  });
-  for (const action of actions) {
-    if (action.status === "pending") pendingActionIds.push(action.actionId);
-    // Being delivered: the code may already be running.
-    else deliveringActionIds.push(action.actionId);
-  }
-
-  return {
-    agentSessionIds: agentEntries.map((e) => e.sessionId),
-    pendingActionIds,
-    deliveringActionIds,
-  };
+  return { agentSessionIds: agentEntries.map((e) => e.sessionId) };
 }
 
 /**
  * Cancel sibling work under a Parallel/Map parent when one branch fails (PAR-R6).
- * Agent turns listed in `agentSessionIds` are returned for the caller to cancel;
- * pending actions → cancelled, delivering tool actions → uncertain.
+ * Agent turns listed in `agentSessionIds` are returned for the caller to cancel.
  * When `cancelEffectIds` is provided, those effects are marked cancelled and their
  * paths are included in the sibling path set.
  */
@@ -520,8 +483,6 @@ export async function cancelSiblingWork(input: {
 }): Promise<CancelSiblingResult> {
   const { t } = input;
   await t.lockSession(input.workflowSessionId);
-  const cancelledActions: string[] = [];
-  const uncertainActions: string[] = [];
   const agentSessionIds: string[] = [];
 
   const siblingPaths = new Set<string>(input.siblingPaths ?? []);
@@ -560,61 +521,19 @@ export async function cancelSiblingWork(input: {
     )
       agentSessionIds.push(agentSessionId);
   }
-
-  const actions = await t.actionsForSession(input.workflowSessionId, {
-    turnId: input.turnId,
-    statuses: OPEN_ACTION,
-  });
-  for (const action of actions) {
-    if (!matchesSibling((action as { path?: string }).path)) continue;
-    // Delivered work may already have had an external effect.
-    const next = action.status === "pending" ? "cancelled" : "uncertain";
-    action.status = next;
-    await t.put("actions", action.actionId, action);
-    const effect = await t.get<FlowEffect>("effects", action.actionId);
-    if (effect) {
-      effect.status = next;
-      await t.put("effects", action.actionId, effect);
-    }
-    if (next === "cancelled") cancelledActions.push(action.actionId);
-    else uncertainActions.push(action.actionId);
-  }
-
-  return { cancelledActions, uncertainActions, agentSessionIds };
+  return { agentSessionIds };
 }
 
-/**
- * Apply cancel fencing to workflow-session actions (pending→cancelled,
- * delivering→uncertain).
- */
-export async function fenceWorkflowActions(input: {
+/** Cancel a cancelled workflow turn's queued effects, which never started. */
+export async function cancelQueuedEffects(input: {
   readonly t: Tx;
   readonly workflowSessionId: string;
   readonly turnId: string | null;
-}): Promise<{ cancelled: string[]; uncertain: string[] }> {
+}): Promise<string[]> {
   const { t } = input;
   await t.lockSession(input.workflowSessionId);
   const turn = input.turnId !== null ? { turnId: input.turnId } : {};
   const cancelled: string[] = [];
-  const uncertain: string[] = [];
-  const actions = await t.actionsForSession(input.workflowSessionId, {
-    ...turn,
-    statuses: OPEN_ACTION,
-  });
-  for (const action of actions) {
-    // Delivered work may already have had an external effect.
-    const next = action.status === "pending" ? "cancelled" : "uncertain";
-    action.status = next;
-    await t.put("actions", action.actionId, action);
-    const effect = await t.get<FlowEffect>("effects", action.actionId);
-    if (effect) {
-      effect.status = next;
-      await t.put("effects", action.actionId, effect);
-    }
-    if (next === "cancelled") cancelled.push(action.actionId);
-    else uncertain.push(action.actionId);
-  }
-  // Drop queued effects that never started.
   const queued = await t.effectsForSession<FlowEffect>(
     input.workflowSessionId,
     { ...turn, statuses: ["queued"] }
@@ -624,7 +543,7 @@ export async function fenceWorkflowActions(input: {
     await t.put("effects", effect.request.effectId, effect);
     cancelled.push(effect.request.effectId);
   }
-  return { cancelled, uncertain };
+  return cancelled;
 }
 
 function waitsFromSession(

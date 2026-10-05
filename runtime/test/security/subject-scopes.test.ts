@@ -122,13 +122,6 @@ const routes = (): Route[] => [
     body: () => ({ requestId: "r", scope: "all", activeWork: "cancel" }),
   },
   { method: "PUT", path: "/v1/tenant/config/seed", needs: "never", body: () => ({ requestId: "s" }) },
-  { method: "GET", path: "/v1/endpoints", needs: "never" },
-  { method: "PUT", path: "/v1/endpoints", needs: "never", body: () => ({ endpoints: [] }) },
-  { method: "DELETE", path: "/v1/endpoints/bot", needs: "never" },
-  { method: "POST", path: "/v1/endpoints/bot/ping", needs: "never" },
-  { method: "POST", path: "/v1/actions/act-1/result", needs: "never", body: () => ({ value: null }) },
-  { method: "POST", path: "/v1/actions/a1/heartbeat", needs: "never" },
-  { method: "POST", path: "/v1/actions/a1/sandbox/read", needs: "never" },
   { method: "POST", path: "/v1/sessions/owned/sandbox/read", needs: "never", body: () => ({}) },
 ];
 
