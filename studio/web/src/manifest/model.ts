@@ -181,10 +181,67 @@ export type PinnedManifestState =
   | { kind: "failed"; message: string };
 
 /** True when the session runs an older manifest than the one now registered for its agent. */
-export function isOutdated(state: PinnedManifestState): boolean {
+export function isOutdated(
+  state: PinnedManifestState,
+): state is Extract<PinnedManifestState, { kind: "pinned" }> & { registeredHash: string } {
   return (
     state.kind === "pinned" &&
     state.registeredHash !== undefined &&
     state.registeredHash !== state.manifestHash
   );
+}
+
+/** A tool as a call signature: `(orderId: string)` and `{ orderId, status, … }`. */
+export function signature(tool: ToolView): { params: string; returns?: string } {
+  const params = `(${tool.input
+    .map((field) =>
+      field.name ? `${field.name}${field.required ? "" : "?"}: ${field.type}` : field.type,
+    )
+    .join(", ")})`;
+  if (!tool.output) return { params };
+  const named = tool.output.filter((field) => field.name);
+  if (named.length === 0) return { params, returns: tool.output[0]?.type ?? "unknown" };
+  const shown = named.slice(0, 4).map((field) => field.name);
+  return { params, returns: `{ ${shown.join(", ")}${named.length > 4 ? ", …" : ""} }` };
+}
+
+export type ManifestStats = {
+  tools: number;
+  subagents: number;
+  skills: number;
+  hooks: number;
+  mcpServers: number;
+};
+
+/** Totals for the overview. Built-in skill tools count under skills, not tools. */
+export function manifestStats(view: ManifestView): ManifestStats {
+  const all = view.capabilities.flatMap((capability) => capability.tools);
+  return {
+    tools: all.filter((tool) => tool.kind === "endpoint").length,
+    subagents: all.filter((tool) => tool.kind === "subagent" || tool.kind === "flow-subagent")
+      .length,
+    skills: view.capabilities.reduce((sum, capability) => sum + capability.skills.length, 0),
+    hooks: view.hookPoints.length,
+    mcpServers: view.capabilities.reduce(
+      (sum, capability) => sum + capability.mcpServers.length,
+      0,
+    ),
+  };
+}
+
+export type LifecycleStage =
+  | { kind: "hook"; method: string; capabilityIds: string[]; perModelCall: boolean }
+  | { kind: "model" };
+
+/** One turn in run order, with the model call between its step hooks. */
+export function lifecycle(view: ManifestView): LifecycleStage[] {
+  const at = (method: string) =>
+    view.hookPoints.find((point) => point.method === method)?.capabilityIds ?? [];
+  return [
+    { kind: "hook", method: "beforeTurn", capabilityIds: at("beforeTurn"), perModelCall: false },
+    { kind: "hook", method: "beforeModel", capabilityIds: at("beforeModel"), perModelCall: true },
+    { kind: "model" },
+    { kind: "hook", method: "afterModel", capabilityIds: at("afterModel"), perModelCall: true },
+    { kind: "hook", method: "afterTurn", capabilityIds: at("afterTurn"), perModelCall: false },
+  ];
 }

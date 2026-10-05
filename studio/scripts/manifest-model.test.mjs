@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   hookMethod,
   isOutdated,
+  lifecycle,
+  manifestStats,
   manifestView,
   schemaFields,
   schemaType,
+  signature,
 } from "../web/src/manifest/model.ts";
 
 const objectSchema = (properties, required = Object.keys(properties)) => ({
@@ -126,4 +129,37 @@ test("a session is outdated only when a different manifest is registered", () =>
 test("malformed manifests render as empty", () => {
   assert.deepEqual(manifestView(undefined), { capabilities: [], hookPoints: [] });
   assert.deepEqual(manifestView({ capabilities: "nope" }).capabilities, []);
+});
+
+test("tools read as call signatures", () => {
+  const [agent] = manifestView(concierge).capabilities;
+  assert.deepEqual(signature(agent.tools[0]), { params: "(orderId: string)", returns: "{ status }" });
+  assert.deepEqual(signature(agent.tools[1]), { params: "(task: string)" });
+  const wide = {
+    name: "w",
+    kind: "endpoint",
+    input: [{ name: "a", type: "string", required: false }],
+    output: ["a", "b", "c", "d", "e"].map((name) => ({ name, type: "string", required: true })),
+  };
+  assert.deepEqual(signature(wide), { params: "(a?: string)", returns: "{ a, b, c, d, … }" });
+  assert.equal(signature({ ...wide, output: [{ name: "", type: "boolean", required: true }] }).returns, "boolean");
+});
+
+test("the overview counts what the agent can do", () => {
+  assert.deepEqual(manifestStats(manifestView(concierge)), {
+    tools: 1,
+    subagents: 2,
+    skills: 1,
+    hooks: 3,
+    mcpServers: 1,
+  });
+});
+
+test("the lifecycle places the model call between the step hooks", () => {
+  assert.deepEqual(
+    lifecycle(manifestView(concierge)).map((stage) =>
+      stage.kind === "model" ? "model" : `${stage.method}:${stage.capabilityIds.join("+") || "-"}`,
+    ),
+    ["beforeTurn:agent", "beforeModel:-", "model", "afterModel:agent+billing", "afterTurn:agent"],
+  );
 });
