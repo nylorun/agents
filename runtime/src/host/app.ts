@@ -30,7 +30,7 @@ import {
 import type { Logger, NodeBindings, TenantModule } from "../tenant/types.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { findTenantRoute } from "../api/http/app.js";
-import { tenantDocument } from "../api/openapi.js";
+import { managementDocument, runtimeDocument } from "../api/openapi.js";
 import {
   headerValue,
   isJsonContentType,
@@ -154,9 +154,11 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
       });
     }
 
-    // This API's own description: public, as the npm package that ships it.
-    if (pathname === "/openapi.json" && incoming.method === "GET")
-      return jsonResponse(200, tenantDocument(), { "cache-control": "no-cache" });
+    // The two APIs' descriptions: public, as the npm package that ships them.
+    if ((pathname === "/openapi.json" || pathname === "/openapi/runtime.json") && incoming.method === "GET")
+      return jsonResponse(200, runtimeDocument(), { "cache-control": "no-cache" });
+    if (pathname === "/openapi/management.json" && incoming.method === "GET")
+      return jsonResponse(200, managementDocument(), { "cache-control": "no-cache" });
 
     // Tenant routes: protocol → the Tenant → selection → the Tenant's routes.
     const tenantHeader = headerValue(incoming, TENANT_HEADER);

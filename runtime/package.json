@@ -31,6 +31,7 @@
       "import": "./dist/configuration.js"
     },
     "./openapi.json": "./dist/openapi.json",
+    "./management-openapi.json": "./dist/management-openapi.json",
     "./package.json": "./package.json"
   },
   "files": [
