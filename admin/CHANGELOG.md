@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [4bd2a0b]
+- Updated dependencies [a64aaca]
+- Updated dependencies [40b7648]
+- Updated dependencies [713e676]
+- Updated dependencies [c135267]
+- Updated dependencies [d36f0d9]
+- Updated dependencies [107b07d]
+  - @nylorun/core@0.15.0-beta
+
 ## 0.11.0-beta
 
 ### Major Changes
