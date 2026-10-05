@@ -226,6 +226,15 @@ export function mayUseAgent(scope: AuthScope, agentId: string): boolean {
   return scope.kind !== "token" || scope.agents === "*" || scope.agents.has(agentId);
 }
 
+/**
+ * A key acting as itself, never for a subject: a management key, or an application key on the
+ * routes the Management API takes over at protocol 8.
+ */
+export function requireOperator(scope: AuthScope): string {
+  if (scope.kind === "application" || scope.kind === "management") return scope.principalId;
+  return fail(403, "A key acting for no one is required");
+}
+
 export function requireApplication(scope: AuthScope): string {
   if (scope.kind === "application") return scope.principalId;
   return fail(403, "Application credential required");
