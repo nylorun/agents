@@ -80,10 +80,10 @@ function coreServices(harness: HarnessMode): string[] {
   return CORE_SERVICES.filter((service) => service !== "harness" || harness === "remote");
 }
 
-export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
+export const stackUsage = `  up|start [--tenant <name>] [--no-link] [--no-studio] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
                                       start the project's Tenant, creating it and the Project link (.nylorun/link.json,
-                                      credentials.json) on the first run; print the Runtime and Studio URLs and open Studio
-                                      signed in (in a terminal). --tenant attaches to (or creates) a named Tenant; --no-link
+                                      credentials.json) on the first run; print the Runtime and Studio URLs (it opens no
+                                      browser). --tenant attaches to (or creates) a named Tenant; --no-link
                                       starts the default Tenant (or --tenant's) without linking the current directory;
                                       --restate-ui (or NYLORUN_RESTATE_UI=1) publishes Restate's UI on loopback for debugging
   down|stop [--tenant <name> | --all] stop the Tenant's containers (--all: every Tenant's); keep volumes
@@ -110,7 +110,7 @@ export interface StackDeps {
   err(line: string): void;
   /** Ask a yes/no question on the terminal; undefined when not interactive. */
   confirm?(question: string): Promise<boolean>;
-  /** A developer is at a terminal: `start` may open a browser. */
+  /** A developer is at a terminal. */
   interactive?: boolean;
   /** Open `url` in a browser; false when no browser could be started. */
   openBrowser(url: string): Promise<boolean>;
@@ -716,14 +716,12 @@ async function tryStudioLogin(
   return undefined;
 }
 
-/** Printed by `start` when it does not open Studio itself. */
+/** Printed by `start`, which prints Studio's URL and opens no browser. */
 export const STUDIO_SIGN_IN_HINT =
   'To sign a browser in to Studio, run "npx nylorun studio".';
 
-/** `start` opens Studio only for a developer at a terminal, outside CI. */
-function opensBrowser(deps: StackDeps, flags: Flags): boolean {
-  return Boolean(deps.interactive) && !deps.env.CI && !flags.booleans.has("--no-open");
-}
+/** Printed last by `start`. */
+export const HELP_HINT = 'Run "npx nylorun --help" to see what else nylorun can do.';
 
 /**
  * Open a Studio login in the browser, or print it when no browser starts.
@@ -814,7 +812,7 @@ async function linkProject(
 }
 
 const START_USAGE =
-  "nylorun start [--tenant <name>] [--no-link] [--no-studio] [--no-open] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]";
+  "nylorun start [--tenant <name>] [--no-link] [--no-studio] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]";
 
 async function start(deps: StackDeps, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
@@ -822,6 +820,7 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
     {
       booleans: [
         "--no-studio",
+        // Accepted and ignored: start no longer opens a browser.
         "--no-open",
         "--no-link",
         "--allow-downgrade",
@@ -857,12 +856,10 @@ async function start(deps: StackDeps, args: readonly string[]): Promise<number> 
   if (started.restateUrl) deps.out(`Restate   ${started.restateUrl}  (UI and admin, unauthenticated; for debugging)`);
   if (started.studioStarted) {
     deps.out(`Studio    ${started.studioUrl}`);
-    if (opensBrowser(deps, flags)) {
-      const login = await tryStudioLogin(ctx, started.studioPort, started.adminKey);
-      if (login) await openLogin(ctx, withNext(login, tenantStudioPath(tenant.id)));
-    } else deps.err(STUDIO_SIGN_IN_HINT);
+    deps.err(STUDIO_SIGN_IN_HINT);
   }
   await alsoRunning(ctx);
+  deps.err(HELP_HINT);
   return 0;
 }
 

@@ -9,6 +9,7 @@ import {
   runStackCommand,
   runStudioCommand,
   stackProject,
+  HELP_HINT,
   STUDIO_SIGN_IN_HINT,
   tenantStudioPath,
   withNext,
@@ -136,57 +137,24 @@ describe("start", () => {
     expect(kept).toContain(`NYLORUN_HARNESS_TOKEN=${token}`);
   });
 
-  it("outside a terminal, mints no login and says how to sign in", async () => {
-    const home = await temporaryHome();
-    const fetch = await healthyFetch(home);
-    const deps = testDeps(home, { fetch });
-    expect(await runStackCommand("up", [], deps)).toBe(0);
-    expect(deps.opened).toEqual([]);
-    expect(deps.errors).toContain(STUDIO_SIGN_IN_HINT);
-    expect(fetch.requests.some((r) => r.url.endsWith("/_studio/login-tokens"))).toBe(false);
-  });
-
-  it("in a terminal, opens Studio signed in and prints no token", async () => {
+  it("opens no browser, even in a terminal: it prints the URLs, how to sign in and --help", async () => {
     const home = await temporaryHome();
     const fetch = await healthyFetch(home);
     const deps = testDeps(home, { fetch, interactive: true });
     expect(await runStackCommand("up", [], deps)).toBe(0);
     expect(deps.lines).toEqual(startLines(home));
-    expect(deps.opened).toEqual([`http://localhost:4161/login?token=tok+en&${NEXT}`]);
-    expect(deps.errors).not.toContain(STUDIO_SIGN_IN_HINT);
-    const login = fetch.requests.find((r) => r.url.endsWith("/_studio/login-tokens"));
-    expect(login?.url).toBe("http://localhost:4161/_studio/login-tokens");
-    expect(login?.init?.method).toBe("POST");
-    expect((login?.init?.headers as Record<string, string>).authorization).toMatch(/^Bearer [0-9a-f]{64}$/);
+    expect(deps.opened).toEqual([]);
+    expect(deps.errors).toContain(STUDIO_SIGN_IN_HINT);
+    expect(deps.errors.at(-1)).toBe(HELP_HINT);
+    expect(fetch.requests.some((r) => r.url.endsWith("/_studio/login-tokens"))).toBe(false);
   });
 
-  it("opens no browser with --no-open or in CI", async () => {
+  it("accepts and ignores --no-open", async () => {
     const home = await temporaryHome();
-    const noOpen = testDeps(home, { fetch: await healthyFetch(home), interactive: true });
-    expect(await runStackCommand("up", ["--no-open"], noOpen)).toBe(0);
-    expect(noOpen.opened).toEqual([]);
-    expect(noOpen.errors).toContain(STUDIO_SIGN_IN_HINT);
-    const ci = testDeps(home, {
-      fetch: await healthyFetch(home),
-      interactive: true,
-      env: { NYLORUN_HOME: home, CI: "true" },
-    });
-    expect(await runStackCommand("up", [], ci)).toBe(0);
-    expect(ci.opened).toEqual([]);
-  });
-
-  it("prints the login URL when no browser starts", async () => {
-    const home = await temporaryHome();
-    const deps = testDeps(home, {
-      fetch: await healthyFetch(home),
-      interactive: true,
-      openBrowser: async () => false,
-    });
-    expect(await runStackCommand("up", [], deps)).toBe(0);
-    expect(deps.lines).toEqual([
-      ...startLines(home),
-      `Sign in   http://localhost:4161/login?token=tok+en&${NEXT}`,
-    ]);
+    const deps = testDeps(home, { fetch: await healthyFetch(home), interactive: true });
+    expect(await runStackCommand("up", ["--no-open"], deps)).toBe(0);
+    expect(deps.lines).toEqual(startLines(home));
+    expect(deps.opened).toEqual([]);
   });
 
   it("up is start: it writes the Compose files on the first run and reuses them after", async () => {
@@ -252,18 +220,16 @@ describe("start", () => {
     await expect(runStackCommand("up", [], composeFails)).rejects.toThrow(/unavailable \(kek-missing\)/);
   });
 
-  it("uses a login URL Studio returns, and the project override", async () => {
+  it("uses the project override", async () => {
     const home = await temporaryHome();
     const docker = fakeDocker();
     const deps = testDeps(home, {
       docker,
-      fetch: await healthyFetch(home, { loginUrl: "/login?token=abc" }),
+      fetch: await healthyFetch(home),
       env: { NYLORUN_HOME: home, NYLORUN_COMPOSE_PROJECT: "nylorun-f-test" },
-      interactive: true,
     });
     await runStackCommand("start", [], deps);
     expect(docker.streamed[0]!.slice(0, 3)).toEqual(["compose", "--project-name", "nylorun-f-test"]);
-    expect(deps.opened).toEqual([`http://localhost:4161/login?token=abc&${NEXT}`]);
   });
 
   it("--no-studio starts only the core services", async () => {
@@ -282,22 +248,6 @@ describe("start", () => {
     expect(await runStackCommand("start", [], deps)).toBe(0);
     expect(deps.errors.some((line) => line.startsWith("Warning: Studio did not start"))).toBe(true);
     expect(deps.lines).toEqual(startLines(home, false));
-  });
-
-  it("warns when Studio is up but refuses a login token", async () => {
-    const home = await temporaryHome();
-    const deps = testDeps(home, {
-      interactive: true,
-      fetch: fakeFetch((url) => {
-        if (url.endsWith("/health")) return json({ status: "ok", hostId: hostId(home) });
-        if (url.endsWith("/v1/admin/status")) return openTenant();
-        if (url.endsWith("/_studio/login-tokens")) return json({}, 401);
-        return undefined;
-      }),
-    });
-    expect(await runStackCommand("start", [], { ...deps, loginTimeoutMs: 20 })).toBe(0);
-    expect(deps.errors.some((line) => /Studio at http:\/\/localhost:4161 is not reachable/.test(line))).toBe(true);
-    expect(deps.opened).toEqual([]);
   });
 
   it("fails when Compose fails or the Runtime is someone else's", async () => {
@@ -665,7 +615,8 @@ describe("studio", () => {
       stderr: "",
     };
     const docker = fakeDocker({ respond: (args) => (args.includes("ps") ? psUp : undefined) });
-    const deps = testDeps(home, { docker, fetch: await healthyFetch(home) });
+    const fetch = await healthyFetch(home);
+    const deps = testDeps(home, { docker, fetch });
     await runStackCommand("start", [], deps);
     docker.streamed.length = 0;
     deps.lines.length = 0;
@@ -673,6 +624,32 @@ describe("studio", () => {
     expect(docker.streamed).toEqual([]);
     expect(deps.lines).toEqual([`Studio    http://localhost:4161/tenants/${TENANT_ID}`]);
     expect(deps.opened).toEqual([`http://localhost:4161/login?token=tok+en&${NEXT}`]);
+    const login = fetch.requests.find((r) => r.url.endsWith("/_studio/login-tokens"));
+    expect(login?.url).toBe("http://localhost:4161/_studio/login-tokens");
+    expect(login?.init?.method).toBe("POST");
+    expect((login?.init?.headers as Record<string, string>).authorization).toMatch(/^Bearer [0-9a-f]{64}$/);
+  });
+
+  it("uses a login URL Studio returns", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, { fetch: await healthyFetch(home, { loginUrl: "/login?token=abc" }) });
+    expect(await runStackCommand("studio", [], deps)).toBe(0);
+    expect(deps.opened).toEqual([`http://localhost:4161/login?token=abc&${NEXT}`]);
+  });
+
+  it("warns and fails when Studio is up but refuses a login token", async () => {
+    const home = await temporaryHome();
+    const deps = testDeps(home, {
+      fetch: fakeFetch((url) => {
+        if (url.endsWith("/health")) return json({ status: "ok", hostId: hostId(home) });
+        if (url.endsWith("/v1/admin/status")) return openTenant();
+        if (url.endsWith("/_studio/login-tokens")) return json({}, 401);
+        return undefined;
+      }),
+    });
+    expect(await runStackCommand("studio", [], { ...deps, loginTimeoutMs: 20 })).toBe(1);
+    expect(deps.errors.some((line) => /Studio at http:\/\/localhost:4161 is not reachable/.test(line))).toBe(true);
+    expect(deps.opened).toEqual([]);
   });
 
   it("starts a stopped Tenant first; --no-open only prints", async () => {

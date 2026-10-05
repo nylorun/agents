@@ -531,7 +531,7 @@ describe("Studio", () => {
     return Object.assign(fetch, { tenantOf: machine.tenantOf });
   }
 
-  it("start serves Studio at http://localhost:<port>, signed in there", async () => {
+  it("start serves Studio at http://localhost:<port>; nylorun studio signs in there", async () => {
     const { tmp, base } = await machine();
     const fetch = loginFetch(base, (origin) =>
       origin === "http://localhost:4161" ? json({ loginUrl: "/login?token=t" }, 201) : undefined,
@@ -540,10 +540,9 @@ describe("Studio", () => {
     const deps = machineDeps(base, tmp, { docker, fetch, interactive: true });
     expect(await runStackCommand("start", [], deps)).toBe(0);
     expect(deps.lines).toContain("Studio    http://localhost:4161");
+    expect(deps.opened).toEqual([]);
     const next = `next=%2Ftenants%2F${fetch.tenantOf("default")}`;
-    expect(deps.opened).toEqual([`http://localhost:4161/login?token=t&${next}`]);
 
-    // `nylorun studio` signs in there too.
     const studio = machineDeps(base, tmp, { docker, fetch });
     expect(await runStackCommand("studio", ["--no-open"], studio)).toBe(0);
     expect(studio.lines.at(-1)).toBe(`Studio    http://localhost:4161/login?token=t&${next}`);
@@ -564,7 +563,7 @@ describe("Studio", () => {
     const two = machineDeps(base, tmp, { docker });
     expect(await runStackCommand("start", ["--tenant", "two"], two)).toBe(0);
     expect(two.lines).toContain("Studio    http://localhost:50002");
-    expect(two.errors.at(-1)).toBe('Also running: default (about 1.2 GB). "nylorun stop --all" stops them all.');
+    expect(two.errors.at(-2)).toBe('Also running: default (about 1.2 GB). "nylorun stop --all" stops them all.');
     expect(readJson(join(base, "tenants", "two", "host.json")).port).toBe(50000);
   });
 
